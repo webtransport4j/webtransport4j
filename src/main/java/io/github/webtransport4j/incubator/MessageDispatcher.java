@@ -11,6 +11,7 @@ import org.apache.log4j.Logger;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static io.github.webtransport4j.incubator.WebTransportUtils.writeVarInt;
 
@@ -18,6 +19,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
     private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
     private static final ExecutorService businessPool = Executors.newFixedThreadPool(4);
+    private java.util.concurrent.ScheduledFuture<?> pingFuture;
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
@@ -25,7 +27,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         
         // 1. Debug: Log the raw hex to see invisible bytes (like 0x00)
         if (logger.isDebugEnabled()) {
-             logger.debug("📦 [RAW PAYLOAD] " + ByteBufUtil.hexDump(msg));
+             logger.debug("📦 [RAW PAYLOAD] " + formatHexBytes(msg));
         }
 
         String path;
@@ -53,8 +55,12 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
         businessPool.submit(() -> {
             try {
-                processBusinessLogic(channel, finalPath, finalType, msg);
-                //processSocketIOPacket(channel, finalPath, finalType, msg);
+                boolean isSocketIo = (finalPath != null && finalPath.contains("socket.io"));
+                if (isSocketIo) {
+                    processSocketIOPacket(channel, finalPath, finalType, msg);
+                } else {
+                    processBusinessLogic(channel, finalPath, finalType, msg);
+                }
             } finally {
                 msg.release();
             }
@@ -87,25 +93,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
     private void processSocketIOPacket(Channel channel, String path, String transportType, ByteBuf payload) {
         try {
             // Convert to String
-            String rawContent = payload.toString(StandardCharsets.UTF_8);
-            logger.debug("⚡️ [SOCKET.IO] " + transportType + " | Raw: " + rawContent);
-            if (rawContent.isEmpty()) return;
-
-            // 🔍 FIX: Sanitize the input to remove Ghost Bytes (0x00, 0x01, etc)
-            // This finds the first index that IS NOT a control character
-            int validStartIndex = 0;
-            while (validStartIndex < rawContent.length() && rawContent.charAt(validStartIndex) <= 32) {
-                validStartIndex++;
-            }
-
-            // If string was only garbage/control chars
-            if (validStartIndex >= rawContent.length()) {
-                logger.debug("⚠️ Ignored packet containing only control characters.");
-                return;
-            }
-
-            // Extract the clean content
-            String content = rawContent.substring(validStartIndex);
+            String content = payload.toString(StandardCharsets.UTF_8);
+            logger.debug("⚡️ [SOCKET.IO] " + transportType + " | Raw: " + content);
+            if (content.isEmpty()) return;
 
             // 1. Parse Socket.IO Packet Type
             char packetType = content.charAt(0);
@@ -119,6 +109,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                     logger.info("👋 Received OPEN (Handshake). Data: " + data);
                     // Standard Socket.IO reply to Open is usually an Open packet back with session ID
                     reply(channel, "0{\"sid\":\"" + channel.id().asShortText() + "\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}");
+                    startPingSchedule(channel);
                     break;
 
                 case '1': // CLOSE
@@ -137,6 +128,56 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                 
                 case '4': // MESSAGE
                     logger.info("📩 Received MESSAGE: " + data);
+                    if ("0".equals(data)) {
+                        logger.info("🤝 Received Socket.IO Connect request. Acknowledging connection.");
+                        reply(channel, "40{\"sid\":\"" + channel.id().asShortText() + "\"}");
+                    } else if (data.startsWith("2")) {
+                        // Socket.IO EVENT: 2[<ackId>]["eventName", ...args]
+                        int idx = 1;
+                        while (idx < data.length() && Character.isDigit(data.charAt(idx))) {
+                            idx++;
+                        }
+                        String ackId = data.substring(1, idx);
+                        String eventPayload = data.substring(idx);
+
+                        if (eventPayload.startsWith("[") && eventPayload.endsWith("]")) {
+                            String inner = eventPayload.substring(1, eventPayload.length() - 1);
+                            if (inner.startsWith("\"")) {
+                                int endQuote = inner.indexOf("\"", 1);
+                                if (endQuote != -1) {
+                                    String eventName = inner.substring(1, endQuote);
+                                    String argsString = "";
+                                    if (endQuote + 1 < inner.length()) {
+                                        String rem = inner.substring(endQuote + 1).trim();
+                                        if (rem.startsWith(",")) {
+                                            argsString = rem.substring(1).trim();
+                                        }
+                                    }
+                                    logger.info("Parsed Socket.IO Event: '" + eventName + "' with args: " + argsString + " | ackId: " + ackId);
+
+                                    if ("trigger_server_message".equals(eventName)) {
+                                        logger.info("Emitting server_message to client with ACK request (ackId: 777)...");
+                                        reply(channel, "42777[\"server_message\",{\"request\":\"hello\"}]");
+                                    } else {
+                                        if (!ackId.isEmpty()) {
+                                            String ackResponse = "43" + ackId + "[{\"status\":\"ok\",\"received\":\"" + eventName + "\"}]";
+                                            logger.info("Sending ACK reply to client: " + ackResponse);
+                                            reply(channel, ackResponse);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (data.startsWith("3")) {
+                        // Socket.IO ACK: 3<ackId>[<args>]
+                        int idx = 1;
+                        while (idx < data.length() && Character.isDigit(data.charAt(idx))) {
+                            idx++;
+                        }
+                        String ackId = data.substring(1, idx);
+                        String ackPayload = data.substring(idx);
+                        logger.info("👍 Received ACK from client for ackId " + ackId + " | Payload: " + ackPayload);
+                    }
                     break;
 
                 default:
@@ -148,23 +189,213 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         }
     }
 
+    /**
+     * Sends a text-based reply back to the client over the specified channel.
+     *
+     * <h3>First Principles & System Architecture:</h3>
+     * 
+     * <h4>1. Thread Safety via Netty EventLoop delegation</h4>
+     * <p>
+     * Writing bytes and flushing buffers directly to a Netty channel is not thread-safe.
+     * Since this message-processing pipeline executes business logic inside a concurrent
+     * thread pool ({@code businessPool}), we must schedule all socket write operations back
+     * onto the channel's designated {@link io.netty.channel.EventLoop} thread via
+     * {@code channel.eventLoop().execute(...)}. This ensures sequential, thread-safe writes
+     * and avoids concurrent modification or ordering races.
+     * </p>
+     *
+     * <h4>2. Dynamic Transport Protocol Negotiation</h4>
+     * <p>
+     * The server acts as a unified gatekeeper handling two client formats on the same port:
+     * <ul>
+     *   <li><b>Socket.IO over WebTransport</b> (connected via the {@code /socket.io/} path)</li>
+     *   <li><b>Raw WebTransport Clients</b> (connected via root or custom paths)</li>
+     * </ul>
+     * We dynamically look up the connection path stored in {@code SESSION_PATH_KEY} (on the parent
+     * {@link QuicStreamChannel} for streams, or the datagram channel itself) to identify the protocol stack.
+     * </p>
+     *
+     * <h4>3. Outbound Message Framing Formats</h4>
+     * <ul>
+     *   <li>
+     *     <b>Socket.IO Clients</b>: Expect message frames prefixed with WebSocket-like length headers:
+     *     <ul>
+     *       <li>If length &lt; 126: Writes a 1-byte length prefix.</li>
+     *       <li>If length &lt; 65,536: Writes {@code 126} followed by a 2-byte length short value.</li>
+     *       <li>Otherwise: Writes {@code 127} followed by an 8-byte length long value.</li>
+     *     </ul>
+     *   </li>
+     *   <li>
+     *     <b>Raw WebTransport Clients</b>: Expect raw byte payloads directly. We write the UTF-8 bytes
+     *     without prepending any length indicators.
+     *   </li>
+     * </ul>
+     *
+     * <h4>Example Wire-Level Payload Transformations:</h4>
+     * <pre>{@code
+     * // =========================================================================
+     * // SCENARIO 1: SOCKET.IO OVER WEBTRANSPORT (path contains "/socket.io/")
+     * // =========================================================================
+     * // Socket.IO expects all packets to be framed. A frame consists of:
+     * // [Length Prefix Header] + [Engine.IO Type] + [Socket.IO Type] + [Payload]
+     * //
+     * // Example A: Sending a Socket.IO Event Acknowledgement (ACK)
+     * // Event payload to send: "431[{\"status\":\"ok\"}]"
+     * //   - Engine.IO Type: '4' (MESSAGE)
+     * //   - Socket.IO Type: '3' (ACK)
+     * //   - Ack ID: '1'
+     * //   - Payload: "[{"status":"ok"}]" (length is 21 bytes)
+     * //   - Total string length: 1 + 1 + 1 + 16 = 19 characters (19 bytes in UTF-8)
+     * //
+     * // Transformation:
+     * //   - Since 19 < 126, a 1-byte length prefix containing the value 19 (0x13) is prepended.
+     * // Wire bytes sent: [ 0x13, 0x34, 0x33, 0x31, 0x5B, 0x7B, 0x22, 0x73, ... ]
+     * //                  (Length, '4',  '3',  '1',  '[',  '{',  '"',  's', ... )
+     * //
+     * // =========================================================================
+     * // SCENARIO 2: RAW WEBTRANSPORT CLIENT (path does NOT contain "/socket.io/")
+     * // =========================================================================
+     * // Raw WebTransport clients read raw streams directly without packet wrappers.
+     * //
+     * // Example B: Replying to a raw WebTransport request
+     * // Text payload to send: "ACK BI: hello"
+     * //   - Total string length: 13 bytes in UTF-8
+     * //
+     * // Transformation:
+     * //   - No length header is prepended.
+     * // Wire bytes sent: [ 0x41, 0x43, 0x4B, 0x20, 0x42, 0x49, 0x3A, 0x20, 0x68, 0x65, 0x6C, 0x6C, 0x6F ]
+     * //                  ( 'A',  'C',  'K',  ' ',  'B',  'I',  ':',  ' ',  'h',  'e',  'l',  'l',  'o' )
+     * }</pre>
+     */
     private void reply(Channel channel, String text) {
         channel.eventLoop().execute(() -> {
-            ByteBuf buffer = channel.alloc().directBuffer();
-            buffer.writeBytes(text.getBytes(StandardCharsets.UTF_8));
+            byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+            int len = bytes.length;
+            ByteBuf buffer;
+
+            String path = null;
+            if (channel instanceof QuicStreamChannel) {
+                path = ((QuicStreamChannel) channel).parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
+            } else {
+                path = channel.attr(WebTransportServer.SESSION_PATH_KEY).get();
+            }
+            boolean isSocketIo = (path != null && path.contains("socket.io"));
+
+            if (isSocketIo) {
+                if (len < 126) {
+                    buffer = channel.alloc().directBuffer(1 + len);
+                    buffer.writeByte(len);
+                } else if (len < 65536) {
+                    buffer = channel.alloc().directBuffer(3 + len);
+                    buffer.writeByte(126);
+                    buffer.writeShort(len);
+                } else {
+                    buffer = channel.alloc().directBuffer(9 + len);
+                    buffer.writeByte(127);
+                    buffer.writeLong(len);
+                }
+            } else {
+                buffer = channel.alloc().directBuffer(len);
+            }
+            buffer.writeBytes(bytes);
+            if (logger.isDebugEnabled()) {
+                logger.debug("✅ Sent Reply: " + text + formatHexBytes(buffer));
+            }
             channel.writeAndFlush(buffer);
-            logger.debug("✅ Sent Reply: " + text);
         });
     }
     private void sendDatagram(Channel channel, String text) {
-    Channel rawChannel = (channel instanceof QuicStreamChannel) ? channel.parent() : channel;
+        Channel rawChannel = (channel instanceof QuicStreamChannel) ? channel.parent() : channel;
 
-    rawChannel.eventLoop().execute(() -> {
-        ByteBuf buffer = rawChannel.alloc().directBuffer();
-        writeVarInt(buffer, 0);
-        buffer.writeBytes(text.getBytes(StandardCharsets.UTF_8));
-        rawChannel.writeAndFlush(buffer);
-        logger.debug("✅ Datagram Sent: " + text);
-    });
-}
+        rawChannel.eventLoop().execute(() -> {
+            ByteBuf buffer = rawChannel.alloc().directBuffer();
+            writeVarInt(buffer, 0);
+            buffer.writeBytes(text.getBytes(StandardCharsets.UTF_8));
+            if (logger.isDebugEnabled()) {
+                logger.debug("✅ Datagram Sent: " + text + formatHexBytes(buffer));
+            }
+            rawChannel.writeAndFlush(buffer);
+        });
+    }
+
+    private void startPingSchedule(Channel channel) {
+        if (pingFuture != null) {
+            pingFuture.cancel(false);
+        }
+
+        pingFuture = channel.eventLoop().scheduleAtFixedRate(() -> {
+            if (channel.isActive()) {
+                logger.debug("⚡️ Sending PING to client...");
+                reply(channel, "2");
+            } else {
+                if (pingFuture != null) {
+                    pingFuture.cancel(false);
+                }
+            }
+        }, 25, 25, TimeUnit.SECONDS);
+
+        // Also cancel schedule if stream is closed
+        channel.closeFuture().addListener(future -> {
+            if (pingFuture != null) {
+                pingFuture.cancel(false);
+            }
+        });
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        if (cause instanceof io.netty.handler.codec.quic.QuicStreamResetException) {
+            logger.debug("🌊 Stream reset by peer: " + cause.getMessage());
+        } else {
+            logger.error("❌ Pipeline error: ", cause);
+        }
+        ctx.close();
+    }
+
+    private static String formatHexBytes(ByteBuf buf) {
+        int len = buf.readableBytes();
+        if (len == 0) return "\n    ├── Wire Bytes: [ ]\n    └── Characters: ( )";
+
+        StringBuilder hexLine = new StringBuilder("[ ");
+        StringBuilder charLine = new StringBuilder("( ");
+
+        int readerIndex = buf.readerIndex();
+        for (int i = 0; i < len; i++) {
+            byte b = buf.getByte(readerIndex + i);
+            String hexStr = String.format("0x%02X", b);
+
+            String charStr;
+            if (b >= 32 && b < 127) {
+                charStr = String.format("'%c'", (char) b);
+            } else {
+                charStr = "'.'";
+            }
+
+            int maxLen = Math.max(hexStr.length(), charStr.length());
+
+            StringBuilder hexVal = new StringBuilder(hexStr);
+            while (hexVal.length() < maxLen) {
+                hexVal.append(" ");
+            }
+            StringBuilder charVal = new StringBuilder(charStr);
+            while (charVal.length() < maxLen) {
+                charVal.insert(0, " ").append(" ");
+            }
+            if (charVal.length() > maxLen) {
+                charVal.setLength(maxLen);
+            }
+
+            hexLine.append(hexVal);
+            charLine.append(charVal);
+
+            if (i < len - 1) {
+                hexLine.append(", ");
+                charLine.append(", ");
+            }
+        }
+
+        hexLine.append(" ]");
+        charLine.append(" )");
+        return "\n    ├── Wire Bytes: " + hexLine.toString() + "\n    └── Characters: " + charLine.toString();
+    }
 }

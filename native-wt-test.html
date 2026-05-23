@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Extensive raw WebTransport protocol and session stream tester dashboard.">
+    <title>🌌 WebTransport Stream Engine Tester</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #06080c;
+            --panel-bg: rgba(13, 17, 26, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --accent-primary: #6366f1;
+            --accent-primary-glow: rgba(99, 102, 241, 0.35);
+            --accent-uni: #ec4899;
+            --accent-uni-glow: rgba(236, 72, 153, 0.25);
+            --accent-bidi: #06b6d4;
+            --accent-bidi-glow: rgba(6, 182, 212, 0.25);
+            --accent-dg: #10b981;
+            --accent-dg-glow: rgba(16, 185, 129, 0.25);
+            --accent-inbound: #a855f7;
+            --accent-error: #ef4444;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+            background-image: 
+                radial-gradient(circle at 10% 15%, rgba(99, 102, 241, 0.07) 0%, transparent 40%),
+                radial-gradient(circle at 90% 85%, rgba(6, 182, 212, 0.07) 0%, transparent 40%);
+            background-attachment: fixed;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 1400px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ffffff 20%, #a5b4fc 50%, #67e8f9 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1400px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.14);
+        }
+
+        /* Left Controls Stack */
+        .controls-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 12px 16px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent-primary);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+        }
+
+        /* Button configurations */
+        button {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            user-select: none;
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
+        button:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .btn-connect {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #4f46e5 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px 0 rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-disconnect {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-error);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Stream factory options */
+        .factory-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .btn-create-bidi {
+            background: linear-gradient(135deg, var(--accent-bidi) 0%, #0891b2 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(6, 182, 212, 0.2);
+        }
+        .btn-create-uni {
+            background: linear-gradient(135deg, var(--accent-uni) 0%, #db2777 100%);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(236, 72, 153, 0.2);
+        }
+
+        /* Datagram bar card */
+        .dg-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        /* Active streams grid */
+        .streams-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 480px;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .no-streams {
+            color: var(--text-muted);
+            text-align: center;
+            padding: 40px;
+            font-style: italic;
+            border: 1px dashed rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+        }
+
+        /* Dynamic Stream Card Styles */
+        .stream-card {
+            background: rgba(18, 22, 33, 0.8);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            animation: cardAppear 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        @keyframes cardAppear {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stream-card.bidi { border-left: 4px solid var(--accent-bidi); }
+        .stream-card.uni-out { border-left: 4px solid var(--accent-uni); }
+        .stream-card.uni-in { border-left: 4px solid var(--accent-inbound); }
+
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stream-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stream-badge {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-bidi { background: rgba(6, 182, 212, 0.15); color: var(--accent-bidi); }
+        .badge-uni-out { background: rgba(236, 72, 153, 0.15); color: var(--accent-uni); }
+        .badge-uni-in { background: rgba(168, 85, 247, 0.15); color: var(--accent-inbound); }
+
+        .stream-state {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .stream-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-mini {
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            border-radius: 6px;
+            height: 34px;
+        }
+
+        .btn-mini-send {
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            flex: 1;
+        }
+        .btn-mini-send:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .btn-mini-close {
+            background: rgba(239, 68, 68, 0.12);
+            color: var(--accent-error);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        .btn-mini-close:hover:not(:disabled) {
+            background: rgba(239, 68, 68, 0.22);
+        }
+
+        .stream-console {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 120px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stream-log-line {
+            word-break: break-all;
+        }
+        .s-sent { color: #818cf8; }
+        .s-recv { color: #34d399; }
+        .s-sys { color: var(--text-muted); }
+
+        /* Stats dashboard counters */
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.04);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background-color: var(--accent-dg);
+            box-shadow: 0 0 10px var(--accent-dg);
+            animation: indicatorPulse 2s infinite;
+        }
+
+        .status-dot.connecting {
+            background-color: #fbbf24;
+            box-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+            animation: indicatorPulse 1s infinite;
+        }
+
+        .status-dot.disconnected {
+            background-color: var(--accent-error);
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+
+        @keyframes indicatorPulse {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
+        }
+
+        /* Right Terminal Console panel */
+        .console-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 750px;
+        }
+
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 14px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .console-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-clear {
+            font-size: 0.8rem;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .btn-clear:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .logs-window {
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.86rem;
+            line-height: 1.6;
+            overflow-y: auto;
+            max-height: 640px;
+            padding-right: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .log-line {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border-left: 3px solid #555;
+            background: rgba(255, 255, 255, 0.02);
+            animation: slideIn 0.2s ease-out;
+            word-break: break-all;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .log-time {
+            color: #555866;
+            margin-right: 8px;
+            font-size: 0.78rem;
+        }
+
+        .log-tag {
+            font-weight: 700;
+            margin-right: 6px;
+            font-size: 0.8rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .tag-sys { background: rgba(99, 102, 241, 0.15); color: #818cf8; border-left: 2px solid var(--accent-primary); }
+        .tag-dg { background: rgba(16, 185, 129, 0.15); color: #34d399; border-left: 2px solid var(--accent-dg); }
+        .tag-uni { background: rgba(236, 72, 153, 0.15); color: #f472b6; border-left: 2px solid var(--accent-uni); }
+        .tag-bidi { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border-left: 2px solid var(--accent-bidi); }
+
+        .line-sys { border-left-color: var(--accent-primary); }
+        .line-dg { border-left-color: var(--accent-dg); }
+        .line-uni { border-left-color: var(--accent-uni); }
+        .line-bidi { border-left-color: var(--accent-bidi); }
+        .line-err { border-left-color: var(--accent-error); background: rgba(239, 68, 68, 0.05); color: #fca5a5; }
+
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🌌 WebTransport Deep Stream Engine</h1>
+        <div class="subtitle">Interactive Real-Time Raw Session Control Panel & Stream debugger</div>
+    </header>
+
+    <div class="container">
+        
+        <!-- Controls panel (Left) -->
+        <div class="controls-stack">
+            
+            <!-- Connection configuration -->
+            <div class="card conn-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600; color: var(--text-main);">Session Connection Config</span>
+                    <div class="status-badge">
+                        <div id="statusDot" class="status-dot disconnected"></div>
+                        <span id="statusText">Disconnected</span>
+                    </div>
+                </div>
+                
+                <div class="input-group">
+                    <input type="text" id="connUrl" value="https://localhost:4433/" placeholder="WebTransport URI">
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button id="btnConnect" class="btn-connect" style="flex: 1;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                        Connect Session
+                    </button>
+                    <button id="btnDisconnect" class="btn-disconnect" disabled>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                        Disconnect
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stream Factory Configuration -->
+            <div class="card">
+                <div style="font-weight: 600; color: var(--text-main); margin-bottom: 4px;">Stream Factory</div>
+                <div class="subtitle" style="font-size: 0.85rem; margin-bottom: 12px;">Dynamically spin up client-initiated stream channels</div>
+                
+                <div class="factory-row">
+                    <button id="btnCreateBidi" class="btn-create-bidi" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 19 10 16 7"></polyline><line x1="19" y1="10" x2="19" y2="21"></line><polyline points="2 17 5 14 8 17"></polyline><line x1="5" y1="14" x2="5" y2="3"></line></svg>
+                        + Bidi Stream
+                    </button>
+                    <button id="btnCreateUni" class="btn-create-uni" disabled>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                        + Outbound Uni Stream
+                    </button>
+                </div>
+
+                <div style="margin-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                    <div style="font-size: 0.85rem; font-weight: 600; color: var(--accent-dg); margin-bottom: 8px;">Datagram Outbox (Fire-and-Forget)</div>
+                    <div class="dg-bar">
+                        <input type="text" id="dgPayload" value="Hello Datagram! 📦" style="height: 38px; font-size: 0.85rem; padding: 0 12px;">
+                        <button id="btnSendDg" class="btn-dg" disabled style="height: 38px; font-size: 0.85rem; padding: 0 16px; background: var(--accent-dg); color: #fff;">
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Streams Manager -->
+            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="font-weight: 600; color: var(--text-main);">Active Session Streams</span>
+                    <span id="streamsCounter" style="font-size: 0.8rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 streams</span>
+                </div>
+                
+                <div id="streamsContainer" class="streams-container">
+                    <div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Global Console Logs Panel (Right) -->
+        <div class="card console-container">
+            <div class="console-header">
+                <div class="console-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color: var(--accent-primary)"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Global Session Log Console
+                </div>
+                <button id="btnClearLogs" class="btn-clear">Clear logs</button>
+            </div>
+
+            <div id="logsWindow" class="logs-window">
+                <div class="log-line line-sys"><span class="log-time">--:--:--</span><span class="log-tag tag-sys">SYS</span> Console ready. Connect WebTransport to start debugging.</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const textDecoder = new TextDecoder();
+        const textEncoder = new TextEncoder();
+
+        let transport = null;
+        let streamCounter = 0;
+        const activeStreams = new Map(); // stores stream records: { type, writer, reader, cardEl }
+
+        const btnConnect = document.getElementById("btnConnect");
+        const btnDisconnect = document.getElementById("btnDisconnect");
+        const connUrlInput = document.getElementById("connUrl");
+        
+        const statusDot = document.getElementById("statusDot");
+        const statusText = document.getElementById("statusText");
+        
+        const logsWindow = document.getElementById("logsWindow");
+        const btnClearLogs = document.getElementById("btnClearLogs");
+        
+        const btnCreateBidi = document.getElementById("btnCreateBidi");
+        const btnCreateUni = document.getElementById("btnCreateUni");
+        
+        const dgPayload = document.getElementById("dgPayload");
+        const btnSendDg = document.getElementById("btnSendDg");
+        
+        const streamsContainer = document.getElementById("streamsContainer");
+        const streamsCounter = document.getElementById("streamsCounter");
+
+        function log(msg, type = "sys", isError = false) {
+            const line = document.createElement("div");
+            line.className = `log-line line-${isError ? 'err' : type}`;
+
+            const time = document.createElement("span");
+            time.className = "log-time";
+            time.textContent = new Date().toLocaleTimeString();
+
+            const tag = document.createElement("span");
+            tag.className = `log-tag tag-${type}`;
+            tag.textContent = type.toUpperCase();
+
+            line.appendChild(time);
+            line.appendChild(tag);
+            line.appendChild(document.createTextNode(" " + msg));
+
+            logsWindow.prepend(line);
+        }
+
+        function setStatus(state, msg) {
+            statusDot.className = "status-dot " + state;
+            statusText.textContent = msg;
+
+            const disabled = (state !== "connected");
+            btnConnect.disabled = (state === "connected" || state === "connecting");
+            btnDisconnect.disabled = (state === "disconnected");
+            btnCreateBidi.disabled = disabled;
+            btnCreateUni.disabled = disabled;
+            btnSendDg.disabled = disabled;
+        }
+
+        // --- Stream UI Card Factory ---
+        function createStreamCard(streamId, typeLabel, modeClass) {
+            const card = document.createElement("div");
+            card.className = `stream-card ${modeClass}`;
+            card.id = `stream-card-${streamId}`;
+
+            // 1. Header
+            const header = document.createElement("div");
+            header.className = "stream-header";
+            
+            const title = document.createElement("span");
+            title.className = "stream-title";
+            title.innerHTML = `<span>Stream ID: #${streamId}</span>`;
+
+            const badge = document.createElement("span");
+            badge.className = `stream-badge badge-${modeClass}`;
+            badge.textContent = typeLabel;
+
+            header.appendChild(title);
+            header.appendChild(badge);
+            card.appendChild(header);
+
+            // 2. State
+            const stateLabel = document.createElement("div");
+            stateLabel.className = "stream-state";
+            stateLabel.id = `stream-state-${streamId}`;
+            stateLabel.textContent = "Status: Active";
+            card.appendChild(stateLabel);
+
+            // 3. Mini console
+            const miniConsole = document.createElement("div");
+            miniConsole.className = "stream-console";
+            miniConsole.id = `stream-console-${streamId}`;
+            card.appendChild(miniConsole);
+
+            // 4. Action forms (if writable)
+            if (modeClass !== "uni-in") {
+                const actionRow = document.createElement("div");
+                actionRow.className = "input-group";
+                
+                const dataInput = document.createElement("input");
+                dataInput.type = "text";
+                dataInput.id = `stream-input-${streamId}`;
+                dataInput.value = "Hello Stream! 🌐";
+                dataInput.style.height = "34px";
+                dataInput.style.fontSize = "0.85rem";
+
+                const btnSend = document.createElement("button");
+                btnSend.className = "btn-mini btn-mini-send";
+                btnSend.id = `stream-btn-send-${streamId}`;
+                btnSend.textContent = "Send";
+
+                actionRow.appendChild(dataInput);
+                actionRow.appendChild(btnSend);
+                card.appendChild(actionRow);
+
+                btnSend.onclick = async () => {
+                    const data = dataInput.value.trim();
+                    if (!data) return;
+                    await sendDataOnStream(streamId, data);
+                };
+            }
+
+            // 5. General Close Action Row
+            const closeRow = document.createElement("div");
+            closeRow.className = "stream-actions";
+            
+            const btnClose = document.createElement("button");
+            btnClose.className = "btn-mini btn-mini-close";
+            btnClose.style.width = "100%";
+            btnClose.textContent = modeClass === "uni-in" ? "Close / Cancel Reader" : "Close Write Stream (FIN)";
+            btnClose.id = `stream-btn-close-${streamId}`;
+            
+            closeRow.appendChild(btnClose);
+            card.appendChild(closeRow);
+
+            btnClose.onclick = async () => {
+                await closeStreamChannel(streamId);
+            };
+
+            // Remove placeholders and add card
+            const noStreamsPlaceholder = streamsContainer.querySelector(".no-streams");
+            if (noStreamsPlaceholder) {
+                noStreamsPlaceholder.remove();
+            }
+
+            streamsContainer.appendChild(card);
+            updateStreamsCounter();
+            return card;
+        }
+
+        function logToCard(streamId, msg, direction = "sys") {
+            const consoleEl = document.getElementById(`stream-console-${streamId}`);
+            if (!consoleEl) return;
+
+            const line = document.createElement("div");
+            line.className = `stream-log-line s-${direction}`;
+            line.textContent = `[${direction.toUpperCase()}] ${msg}`;
+            
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function updateStreamsCounter() {
+            streamsCounter.textContent = `${activeStreams.size} stream${activeStreams.size === 1 ? '' : 's'} active`;
+        }
+
+        // --- Active Stream Operations ---
+
+        // A. Send data on specific stream
+        async function sendDataOnStream(streamId, text) {
+            const streamInfo = activeStreams.get(streamId);
+            if (!streamInfo || !streamInfo.writer) return;
+
+            try {
+                logToCard(streamId, text, "sent");
+                log(`[Stream #${streamId}] Sending: "${text}"`, streamInfo.type);
+                await streamInfo.writer.write(textEncoder.encode(text));
+            } catch (err) {
+                logToCard(streamId, `Write Error: ${err.message}`, "sys");
+                log(`[Stream #${streamId}] Write Error: ${err.message}`, "sys", true);
+            }
+        }
+
+        // B. Close specific stream
+        async function closeStreamChannel(streamId) {
+            const streamInfo = activeStreams.get(streamId);
+            if (!streamInfo) return;
+
+            try {
+                logToCard(streamId, "Closing stream...", "sys");
+                
+                // Release/close write side
+                if (streamInfo.writer) {
+                    await streamInfo.writer.close();
+                    streamInfo.writer.releaseLock();
+                }
+
+                // Release read side
+                if (streamInfo.reader) {
+                    await streamInfo.reader.cancel();
+                }
+
+                logToCard(streamId, "Stream Closed", "sys");
+                log(`[Stream #${streamId}] Closed stream.`, streamInfo.type);
+            } catch (err) {
+                log(`[Stream #${streamId}] Close Error: ${err.message}`, "sys", true);
+            } finally {
+                const card = document.getElementById(`stream-card-${streamId}`);
+                if (card) card.remove();
+
+                activeStreams.delete(streamId);
+                updateStreamsCounter();
+
+                if (activeStreams.size === 0) {
+                    streamsContainer.innerHTML = `<div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>`;
+                }
+            }
+        }
+
+        // C. Client-initiated Bidi Stream Factory
+        btnCreateBidi.onclick = async () => {
+            if (!transport) return;
+            streamCounter++;
+            const sId = streamCounter;
+
+            try {
+                log(`Creating client-initiated bidirectional stream #${sId}...`, "sys");
+                const stream = await transport.createBidirectionalStream();
+                
+                const writer = stream.writable.getWriter();
+                const reader = stream.readable.getReader();
+
+                createStreamCard(sId, "Bidi Stream (Client)", "bidi");
+                logToCard(sId, "Stream created successfully", "sys");
+
+                const streamInfo = {
+                    type: "bidi",
+                    writer: writer,
+                    reader: reader,
+                    stream: stream
+                };
+                activeStreams.set(sId, streamInfo);
+
+                // Run reader loop
+                (async () => {
+                    try {
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+                            const text = textDecoder.decode(value);
+                            logToCard(sId, text, "recv");
+                            log(`[Stream #${sId}] Received: "${text}"`, "bidi");
+                        }
+                        logToCard(sId, "Server completed writing (FIN received)", "sys");
+                    } catch (e) {
+                        logToCard(sId, `Read error: ${e.message}`, "sys");
+                        log(`[Stream #${sId}] Read error: ${e.message}`, "sys", true);
+                    } finally {
+                        document.getElementById(`stream-state-${sId}`).textContent = "Status: Read Complete";
+                    }
+                })();
+
+            } catch (e) {
+                log(`Failed to create Bidi stream: ${e.message}`, "sys", true);
+            }
+        };
+
+        // D. Client-initiated Unidirectional Stream Factory
+        btnCreateUni.onclick = async () => {
+            if (!transport) return;
+            streamCounter++;
+            const sId = streamCounter;
+
+            try {
+                log(`Creating client-initiated unidirectional stream #${sId}...`, "sys");
+                const stream = await transport.createUnidirectionalStream();
+                const writer = stream.getWriter();
+
+                createStreamCard(sId, "Uni Outbound (Client)", "uni-out");
+                logToCard(sId, "Unidirectional stream opened", "sys");
+
+                const streamInfo = {
+                    type: "uni",
+                    writer: writer,
+                    reader: null,
+                    stream: stream
+                };
+                activeStreams.set(sId, streamInfo);
+
+            } catch (e) {
+                log(`Failed to create Unidirectional stream: ${e.message}`, "sys", true);
+            }
+        };
+
+        // E. Reader for incoming streams (Server-Initiated)
+        async function handleIncomingStream(stream, sId, typeLabel, modeClass) {
+            const reader = stream.getReader();
+            createStreamCard(sId, typeLabel, modeClass);
+            logToCard(sId, "Inbound stream received. Starting read loop...", "sys");
+
+            const streamInfo = {
+                type: modeClass === "uni-in" ? "uni" : "bidi",
+                writer: null,
+                reader: reader,
+                stream: stream
+            };
+            activeStreams.set(sId, streamInfo);
+
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    const text = textDecoder.decode(value);
+                    logToCard(sId, text, "recv");
+                    log(`[Incoming Stream #${sId}] Received: "${text}"`, streamInfo.type);
+                }
+                logToCard(sId, "Stream completed (FIN received)", "sys");
+            } catch (e) {
+                logToCard(sId, `Read error: ${e.message}`, "sys");
+                log(`[Incoming Stream #${sId}] Read error: ${e.message}`, "sys", true);
+            } finally {
+                document.getElementById(`stream-state-${sId}`).textContent = "Status: Completed";
+            }
+        }
+
+        // --- Connect & Session Initialization ---
+        btnConnect.onclick = async () => {
+            const url = connUrlInput.value.trim();
+            if (!url) return;
+
+            log(`Initiating raw WebTransport session to ${url}...`, "sys");
+            setStatus("connecting", "Connecting...");
+
+            try {
+                transport = new WebTransport(url);
+                
+                // 1. Datagram Receiver loop
+                (async () => {
+                    try {
+                        const reader = transport.datagrams.readable.getReader();
+                        log("Datagram listener active.", "dg");
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+                            dgCount++;
+                            log(`[Datagram Received] payload: "${textDecoder.decode(value)}"`, "dg");
+                        }
+                    } catch (e) {
+                        log(`Datagram read loop closed: ${e.message}`, "dg", true);
+                    }
+                })();
+
+                // 2. Incoming unidirectional streams loop (Server-push)
+                (async () => {
+                    try {
+                        const reader = transport.incomingUnidirectionalStreams.getReader();
+                        log("Unidirectional stream listener active.", "uni");
+                        while (true) {
+                            const { value: stream, done } = await reader.read();
+                            if (done) break;
+                            
+                            streamCounter++;
+                            await handleIncomingStream(stream, streamCounter, "Uni Inbound (Server)", "uni-in");
+                        }
+                    } catch (e) {
+                        log(`Incoming unidirectional stream listener stopped: ${e.message}`, "uni", true);
+                    }
+                })();
+
+                // 3. Incoming bidirectional streams loop
+                (async () => {
+                    try {
+                        const reader = transport.incomingBidirectionalStreams.getReader();
+                        log("Bidirectional stream listener active.", "bidi");
+                        while (true) {
+                            const { value: stream, done } = await reader.read();
+                            if (done) break;
+                            
+                            streamCounter++;
+                            await handleIncomingStream(stream.readable, streamCounter, "Bidi Inbound (Server)", "bidi");
+                        }
+                    } catch (e) {
+                        log(`Incoming bidirectional stream listener stopped: ${e.message}`, "bidi", true);
+                    }
+                })();
+
+                log("Awaiting session ready promise...", "sys");
+                await transport.ready;
+                log("✅ WebTransport Session established successfully!", "sys");
+                setStatus("connected", "Connected");
+
+                transport.closed.then(() => {
+                    log("🔒 WebTransport Session closed gracefully.", "sys");
+                    setStatus("disconnected", "Disconnected");
+                    cleanup();
+                }).catch((err) => {
+                    log(`❌ Session terminated with error: ${err.message}`, "sys", true);
+                    setStatus("disconnected", "Disconnected (Error)");
+                    cleanup();
+                });
+
+            } catch (err) {
+                log(`❌ Connection failure: ${err.message}`, "sys", true);
+                setStatus("disconnected", "Disconnected (Error)");
+                cleanup();
+            }
+        };
+
+        btnDisconnect.onclick = () => {
+            if (transport) {
+                log("Closing WebTransport session...", "sys");
+                transport.close();
+            }
+        };
+
+        // Datagram send
+        btnSendDg.onclick = async () => {
+            if (!transport) return;
+            const payload = dgPayload.value.trim();
+            if (!payload) return;
+
+            try {
+                log(`[Datagram] Outbox send: "${payload}"`, "dg");
+                const writer = transport.datagrams.writable.getWriter();
+                await writer.write(textEncoder.encode(payload));
+                writer.releaseLock();
+                log(`[Datagram] Packet sent!`, "dg");
+            } catch (e) {
+                log(`Failed to send datagram: ${e.message}`, "dg", true);
+            }
+        };
+
+        function cleanup() {
+            // Close all active streams in the map
+            for (const sId of activeStreams.keys()) {
+                const card = document.getElementById(`stream-card-${sId}`);
+                if (card) card.remove();
+            }
+            activeStreams.clear();
+            
+            transport = null;
+            streamCounter = 0;
+            updateStreamsCounter();
+            streamsContainer.innerHTML = `<div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>`;
+        }
+
+        btnClearLogs.onclick = () => {
+            logsWindow.innerHTML = "";
+            log("Console logs cleared.", "sys");
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebTransport Socket.IO Tester</title>
+    <!-- Premium Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0d0f12;
+            --panel-bg: rgba(20, 24, 33, 0.7);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --accent-primary: #4f46e5;
+            --accent-primary-glow: rgba(79, 70, 229, 0.4);
+            --accent-success: #10b981;
+            --accent-success-glow: rgba(16, 185, 129, 0.3);
+            --accent-error: #ef4444;
+            --accent-info: #06b6d4;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            padding: 40px 20px;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+        }
+
+        h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 30%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+            margin-bottom: 30px;
+            font-weight: 300;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        /* Card panels style */
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            transition: border-color 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Connection state and config */
+        .status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background-color: var(--accent-success);
+            box-shadow: 0 0 12px var(--accent-success-glow);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connecting {
+            background-color: #fbbf24;
+            box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+            animation: pulse 1s infinite;
+        }
+
+        .status-dot.disconnected {
+            background-color: var(--accent-error);
+            box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .control-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        /* Buttons styling */
+        button {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary) 0%, #6366f1 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.3);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            box-shadow: 0 6px 20px 0 var(--accent-primary-glow);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--accent-success) 0%, #34d399 100%);
+            color: #fff;
+            box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.25);
+        }
+
+        .btn-success:hover {
+            opacity: 0.9;
+            box-shadow: 0 6px 20px 0 var(--accent-success-glow);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-error);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.25);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none !important;
+        }
+
+        /* Event Sender Form */
+        .sender-form {
+            display: grid;
+            grid-template-columns: 1fr 2fr auto;
+            gap: 12px;
+            align-items: end;
+            margin-top: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        input {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        input:focus {
+            border-color: var(--accent-primary);
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        /* Logs console styling */
+        .console-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+        }
+
+        .console-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-clear {
+            font-size: 0.8rem;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .btn-clear:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        #logs {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.88rem;
+            line-height: 1.6;
+            max-height: 450px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 8px;
+        }
+
+        /* Log elements types */
+        .log-entry {
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.02);
+            border-left: 3px solid #555;
+            animation: fadeIn 0.2s ease-out;
+            word-break: break-all;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .log-time {
+            color: #6b7280;
+            margin-right: 8px;
+            font-size: 0.8rem;
+        }
+
+        .sent {
+            border-left-color: var(--accent-info);
+            background: rgba(6, 182, 212, 0.05);
+        }
+        .sent .log-tag {
+            color: var(--accent-info);
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .received {
+            border-left-color: var(--accent-success);
+            background: rgba(16, 185, 129, 0.05);
+        }
+        .received .log-tag {
+            color: var(--accent-success);
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .error {
+            border-left-color: var(--accent-error);
+            background: rgba(239, 68, 68, 0.06);
+            color: #fca5a5;
+        }
+        .error .log-tag {
+            color: var(--accent-error);
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        .status {
+            border-left-color: #a5b4fc;
+            background: rgba(165, 180, 252, 0.05);
+            color: #c7d2fe;
+        }
+        .status .log-tag {
+            color: #a5b4fc;
+            font-weight: bold;
+            margin-right: 4px;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        @media (max-width: 640px) {
+            .sender-form {
+                grid-template-columns: 1fr;
+            }
+            button {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <h2>⚡️ WebTransport Socket.IO Tester</h2>
+    <div class="subtitle">Secure real-time dashboard powered by HTTP/3 WebTransport</div>
+
+    <div class="container">
+        
+        <!-- Controls panel -->
+        <div class="card">
+            <div class="status-bar">
+                <div class="status-badge">
+                    <div id="statusDot" class="status-dot disconnected"></div>
+                    <span id="statusText">Disconnected</span>
+                </div>
+                <div id="sidBadge" class="status-badge" style="display: none;">
+                    SID: <span id="sidVal" style="color: var(--accent-success); margin-left: 4px;">-</span>
+                </div>
+            </div>
+            
+            <div class="control-row">
+                <button id="btnConnect" class="btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                    Connect
+                </button>
+                <button id="btnDisconnect" class="btn-danger" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                    Disconnect
+                </button>
+            </div>
+
+            <div class="sender-form" style="grid-template-columns: 1.5fr 2fr auto auto; align-items: end;">
+                <div class="form-group">
+                    <label for="eventName">Event Name</label>
+                    <input type="text" id="eventName" value="hello" placeholder="e.g. message">
+                </div>
+                <div class="form-group">
+                    <label for="eventData">Payload / Args</label>
+                    <input type="text" id="eventData" value="world" placeholder="e.g. hello, or {&quot;id&quot;: 1}">
+                </div>
+                <div class="form-group" style="padding-bottom: 12px; display: flex; align-items: center; height: 48px;">
+                    <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="chkAck" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent-primary);">
+                        <span style="font-size: 0.9rem; font-weight: 500;">Request ACK</span>
+                    </label>
+                </div>
+                <button id="btnEmit" class="btn-success" disabled style="height: 48px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                    Emit Event
+                </button>
+            </div>
+            
+            <div style="margin-top: 20px; display: flex; gap: 12px; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 16px;">
+                <button id="btnTriggerServerMsg" class="btn-primary" disabled style="background: linear-gradient(135deg, var(--accent-info) 0%, #0891b2 100%); box-shadow: 0 4px 14px 0 rgba(6, 182, 212, 0.25);">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    Trigger Server-to-Client Msg (with ACK)
+                </button>
+            </div>
+        </div>
+ 
+        <!-- Terminal Console panel -->
+        <div class="card" style="flex: 1;">
+            <div class="console-header">
+                <div class="console-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-primary)"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+                    Console Log
+                </div>
+                <button id="btnClear" class="btn-clear">Clear Logs</button>
+            </div>
+            
+            <div id="logs">
+                <div class="log-entry status"><span class="log-time">--:--:--</span><span class="log-tag">[SYSTEM]</span> Console ready. Click Connect to initiate WebTransport session.</div>
+            </div>
+        </div>
+ 
+    </div>
+ 
+    <script type="module">
+        import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
+ 
+        let socket;
+        const logDiv = document.getElementById("logs");
+        const statusDot = document.getElementById("statusDot");
+        const statusText = document.getElementById("statusText");
+        const sidBadge = document.getElementById("sidBadge");
+        const sidVal = document.getElementById("sidVal");
+        
+        const btnConnect = document.getElementById("btnConnect");
+        const btnDisconnect = document.getElementById("btnDisconnect");
+        const btnEmit = document.getElementById("btnEmit");
+        const btnTriggerServerMsg = document.getElementById("btnTriggerServerMsg");
+        const btnClear = document.getElementById("btnClear");
+        
+        const eventNameInput = document.getElementById("eventName");
+        const eventDataInput = document.getElementById("eventData");
+        const chkAck = document.getElementById("chkAck");
+ 
+        function log(msg, type = "") {
+            const entry = document.createElement("div");
+            entry.className = `log-entry ${type}`;
+            
+            const timeSpan = document.createElement("span");
+            timeSpan.className = "log-time";
+            timeSpan.textContent = new Date().toLocaleTimeString();
+            
+            const tagSpan = document.createElement("span");
+            tagSpan.className = "log-tag";
+            
+            let tagText = "[SYSTEM]";
+            if (type === "sent") tagText = "[SEND]";
+            else if (type === "received") tagText = "[RECV]";
+            else if (type === "error") tagText = "[ERR]";
+            tagSpan.textContent = tagText;
+ 
+            entry.appendChild(timeSpan);
+            entry.appendChild(tagSpan);
+            entry.appendChild(document.createTextNode(" " + msg));
+            
+            logDiv.prepend(entry);
+        }
+ 
+        function setStatus(state, message) {
+            statusDot.className = "status-dot " + state;
+            statusText.textContent = message;
+            
+            if (state === "connected") {
+                btnConnect.disabled = true;
+                btnDisconnect.disabled = false;
+                btnEmit.disabled = false;
+                btnTriggerServerMsg.disabled = false;
+            } else if (state === "connecting") {
+                btnConnect.disabled = true;
+                btnDisconnect.disabled = false;
+                btnEmit.disabled = true;
+                btnTriggerServerMsg.disabled = true;
+                sidBadge.style.display = "none";
+            } else {
+                btnConnect.disabled = false;
+                btnDisconnect.disabled = true;
+                btnEmit.disabled = true;
+                btnTriggerServerMsg.disabled = true;
+                sidBadge.style.display = "none";
+            }
+        }
+ 
+        btnConnect.onclick = () => {
+            if (socket?.connected) return;
+ 
+            log("Initiating WebTransport connection to https://localhost:4433...", "status");
+            setStatus("connecting", "Connecting...");
+ 
+            socket = io("https://localhost:4433", {
+                transports: ["webtransport"],
+                reconnection: false,
+                transportOptions: {
+                    webtransport: {
+                        hostname: "localhost"
+                    }
+                }
+            });
+ 
+            socket.io.on("transport", (transport) => {
+                log(`Underlying transport selected: ${transport.name.toUpperCase()}`, "status");
+            });
+ 
+            socket.on("connect", () => {
+                log(`Handshake completed successfully.`, "received");
+                setStatus("connected", "Connected");
+                sidVal.textContent = socket.id;
+                sidBadge.style.display = "flex";
+                
+                // Set up low-level engine event logging (e.g. Engine.IO PING/PONG)
+                if (socket.io.engine) {
+                    socket.io.engine.on("ping", () => {
+                        log("📥 [Engine.IO] Ping received from server (Heartbeat check)", "received");
+                    });
+                    
+                    socket.io.engine.on("pong", () => {
+                        log("📤 [Engine.IO] Pong sent to server (Heartbeat response)", "sent");
+                    });
+                }
+            });
+ 
+            socket.on("connect_error", (err) => {
+                log(`Connection failure: ${err.message}`, "error");
+                setStatus("disconnected", "Disconnected (Error)");
+                console.error(err);
+            });
+ 
+            socket.on("disconnect", (reason) => {
+                log(`WebTransport stream closed. Reason: ${reason}`, "error");
+                setStatus("disconnected", "Disconnected");
+            });
+ 
+            socket.on("server_message", (data, callback) => {
+                log(`📥 Received event 'server_message' | Data: ${JSON.stringify(data)}`, "received");
+                if (callback && typeof callback === "function") {
+                    log(`📤 Sending ACK callback response back to server...`, "sent");
+                    callback({ status: "acknowledged", timestamp: new Date().toISOString() });
+                }
+            });
+ 
+            socket.onAny((event, ...args) => {
+                if (event === "server_message") return; // Handled specifically above
+                log(`Event '${event}' -> Arguments: ${JSON.stringify(args)}`, "received");
+            });
+        };
+ 
+        btnEmit.onclick = () => {
+            if (!socket || !socket.connected) {
+                log("Cannot emit. Active connection not found.", "error");
+                return;
+            }
+            
+            const event = eventNameInput.value.trim();
+            let rawData = eventDataInput.value.trim();
+            
+            if (!event) return;
+            
+            let dataValue;
+            try {
+                // Check if it looks like a JSON object/array
+                if ((rawData.startsWith("{") && rawData.endsWith("}")) || 
+                    (rawData.startsWith("[") && rawData.endsWith("]"))) {
+                    dataValue = JSON.parse(rawData);
+                } else {
+                    dataValue = rawData;
+                }
+            } catch (e) {
+                dataValue = rawData; // fallback to string if JSON parsing fails
+            }
+ 
+            if (chkAck.checked) {
+                log(`📤 Emitting '${event}' [ACK Requested] | Payload: ${JSON.stringify(dataValue)}`, "sent");
+                socket.emit(event, dataValue, (ack) => {
+                    log(`📥 Received ACK Response from server: ${JSON.stringify(ack)}`, "received");
+                });
+            } else {
+                log(`📤 Emitting '${event}' | Payload: ${JSON.stringify(dataValue)}`, "sent");
+                socket.emit(event, dataValue);
+            }
+        };
+ 
+        btnTriggerServerMsg.onclick = () => {
+            if (!socket || !socket.connected) {
+                log("Cannot trigger. Active connection not found.", "error");
+                return;
+            }
+            log(`📤 Requesting server to send a message back with client-side ACK...`, "sent");
+            socket.emit("trigger_server_message", { pleaseSend: true });
+        };
+ 
+        btnDisconnect.onclick = () => {
+            if (socket) {
+                log("Disconnecting session...", "status");
+                socket.disconnect();
+            }
+        };
+ 
+        btnClear.onclick = () => {
+            logDiv.innerHTML = "";
+            log("Console logs cleared.", "status");
+        };
+    </script>
+</body>
+</html>

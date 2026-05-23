@@ -82,25 +82,20 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
 
         for (String name : p.names()) {
             ChannelHandler h = p.get(name);
-            
-            // ✅ FIX: Null check added here
-            if (h == null) continue; 
-            
-            if (h == this || h instanceof QuicGlobalSniffer) continue;
-            
-            if (h.getClass().getName().startsWith("io.netty.handler.codec.http3.")) {
+            if (h == null) continue;
+            if (h == this) {
                 toRemove.add(name);
+                continue;
             }
+            if (h instanceof QuicGlobalSniffer || h instanceof RawWebTransportHandler || h instanceof EngineIoFrameDecoder || h instanceof MessageDispatcher) {
+                continue;
+            }
+            toRemove.add(name);
         }
 
         for (String name : toRemove) {
             p.remove(name);
             logger.debug("   🗑 Removed: " + name);
         }
-
-        p.addLast(new RawWebTransportHandler()); 
-        p.addLast(new MessageDispatcher());
-        
-        p.remove(this);
     }
 }
