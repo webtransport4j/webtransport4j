@@ -69,7 +69,7 @@ public class WebTransportServer {
         settings.enableH3Datagram(true);
         settings.enableConnectProtocol(true);
 
-// SETTINGS_WEBTRANSPORT_MAX_SESSIONS
+// SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
         settings.put(0x2b603742L, 1L);
 
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()

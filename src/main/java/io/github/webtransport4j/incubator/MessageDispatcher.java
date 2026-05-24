@@ -32,6 +32,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
         String path;
         String transportType;
+        long sessionId = 0;
         
         // Determine Context
         if (channel instanceof QuicStreamChannel) {
@@ -41,8 +42,15 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
             path = (pathAttr != null) ? pathAttr : "?";
             transportType = (typeAttr != null && typeAttr == 0x54) ? "UNIDIRECTIONAL" : "BIDIRECTIONAL";
+            
+            Long sessId = stream.attr(WebTransportUtils.SESSION_ID_KEY).get();
+            if (sessId != null) {
+                sessionId = sessId;
+            } else {
+                sessionId = stream.streamId(); // Fallback to streamId if it is the CONNECT stream itself
+            }
         } else {
-            WebTransportUtils.readVariableLengthInt(msg); // consume datagram ID
+            sessionId = WebTransportUtils.readVariableLengthInt(msg); // consume and retrieve datagram ID
             String pathAttr = channel.attr(WebTransportServer.SESSION_PATH_KEY).get();
             path = (pathAttr != null) ? pathAttr : "?";
             transportType = "DATAGRAM";
@@ -52,26 +60,28 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         msg.retain(); 
         final String finalPath = path;
         final String finalType = transportType;
+        final long finalSessionId = sessionId;
 
         businessPool.submit(() -> {
             try {
                 boolean isSocketIo = (finalPath != null && finalPath.contains("socket.io"));
                 if (isSocketIo) {
-                    processSocketIOPacket(channel, finalPath, finalType, msg);
+                    processSocketIOPacket(channel, finalPath, finalType, finalSessionId, msg);
                 } else {
-                    processBusinessLogic(channel, finalPath, finalType, msg);
+                    processBusinessLogic(channel, finalPath, finalType, finalSessionId, msg);
                 }
             } finally {
                 msg.release();
             }
         });
     }
-    private void processBusinessLogic(Channel channel, String path, String type, ByteBuf payload) {
+    private void processBusinessLogic(Channel channel, String path, String type, long sessionId, ByteBuf payload) {
         try {
             String content = payload.toString(StandardCharsets.UTF_8);
             logger.debug("⚡️ [APP LAYER] Dispatched to Controller:");
             logger.debug("    Path: " + path);
             logger.debug("    Type: " + type);
+            logger.debug("    Session ID: " + sessionId);
             logger.debug("    Data: " + content);
 
             
@@ -83,14 +93,14 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                 }
             }
             if ("DATAGRAM".equals(type)) {
-                sendDatagram(channel, "ACK DG: I received the message from " + path + ": " + content);
+                sendDatagram(channel, sessionId, "ACK DG: I received the message from " + path + ": " + content);
             }
         } catch (Exception e) {
             logger.error("Error in business logic", e);
         }
     }
 
-    private void processSocketIOPacket(Channel channel, String path, String transportType, ByteBuf payload) {
+    private void processSocketIOPacket(Channel channel, String path, String transportType, long sessionId, ByteBuf payload) {
         try {
             // Convert to String
             String content = payload.toString(StandardCharsets.UTF_8);
@@ -304,15 +314,15 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             channel.writeAndFlush(buffer);
         });
     }
-    private void sendDatagram(Channel channel, String text) {
+    private void sendDatagram(Channel channel, long sessionId, String text) {
         Channel rawChannel = (channel instanceof QuicStreamChannel) ? channel.parent() : channel;
 
         rawChannel.eventLoop().execute(() -> {
             ByteBuf buffer = rawChannel.alloc().directBuffer();
-            writeVarInt(buffer, 0);
+            writeVarInt(buffer, sessionId);
             buffer.writeBytes(text.getBytes(StandardCharsets.UTF_8));
             if (logger.isDebugEnabled()) {
-                logger.debug("✅ Datagram Sent: " + text + formatHexBytes(buffer));
+                logger.debug("✅ Datagram Sent: " + text + " | Session ID: " + sessionId + formatHexBytes(buffer));
             }
             rawChannel.writeAndFlush(buffer);
         });
