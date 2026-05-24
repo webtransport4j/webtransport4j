@@ -167,16 +167,24 @@ public class WebTransportServer {
 
                                                                         // this is for testing, remove this, just poc
 
-                                                                        quic.eventLoop().scheduleAtFixedRate(() -> {
-                                                                            if (connectStream.isActive()) {
-                                                                                ServerPushService.INSTANCE.sendTo(key,
-                                                                                        String.valueOf(System.nanoTime()));
-                                                                            }
-                                                                        }, 0, 1, TimeUnit.SECONDS);
+                                                                         final io.netty.util.concurrent.ScheduledFuture<?>[] pushFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
+                                                                         pushFuture[0] = quic.eventLoop().scheduleAtFixedRate(() -> {
+                                                                             if (connectStream.isActive()) {
+                                                                                 ServerPushService.INSTANCE.sendTo(key,
+                                                                                         String.valueOf(System.nanoTime()));
+                                                                             } else {
+                                                                                 if (pushFuture[0] != null) {
+                                                                                     pushFuture[0].cancel(false);
+                                                                                 }
+                                                                             }
+                                                                         }, 0, 1, TimeUnit.SECONDS);
 
-                                                                        connectStream.closeFuture().addListener(f -> {
-                                                                            ServerPushService.INSTANCE.unregister(key);
-                                                                        });
+                                                                         connectStream.closeFuture().addListener(f -> {
+                                                                             if (pushFuture[0] != null) {
+                                                                                 pushFuture[0].cancel(false);
+                                                                             }
+                                                                             ServerPushService.INSTANCE.unregister(key);
+                                                                         });
                                                                     } else {
                                                                         System.err.println("❌ Failed: " + future.cause());
                                                                     }

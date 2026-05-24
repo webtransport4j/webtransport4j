@@ -27,13 +27,21 @@ public class StreamSender {
         if (streamChannel.isActive()) {
             streamChannel.writeAndFlush(Unpooled.copiedBuffer(payload, CharsetUtil.UTF_8)).addListener(future -> {
                 if (!future.isSuccess()) {
-                    System.err.println("❌ Push Failed: " + future.cause());
+                    Throwable cause = future.cause();
+                    String causeName = cause.getClass().getName();
+                    if (cause instanceof java.nio.channels.ClosedChannelException ||
+                            causeName.contains("ClosedChannel") ||
+                            causeName.contains("Timeout")) {
+                        logger.debug("Push failed because channel is closed/timed out: " + cause.getMessage());
+                    } else {
+                        logger.error("❌ Push Failed: ", cause);
+                    }
                 } else {
                     logger.debug("✅ Push Sent: " + payload);
                 }
             });
         } else {
-            System.err.println("❌ Stream is closed, cannot push.");
+            logger.debug("❌ Stream is closed, cannot push.");
         }
     }
 

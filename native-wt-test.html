@@ -533,14 +533,43 @@
             </div>
 
             <!-- Active Streams Manager -->
-            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="card" style="flex: 1; display: flex; flex-direction: column; gap: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); padding-bottom: 8px;">
                     <span style="font-weight: 600; color: var(--text-main);">Active Session Streams</span>
                     <span id="streamsCounter" style="font-size: 0.8rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 streams</span>
                 </div>
                 
-                <div id="streamsContainer" class="streams-container">
-                    <div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>
+                <!-- Bidirectional Streams Section -->
+                <div class="stream-section" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; font-weight: 600; color: var(--accent-bidi);">
+                        <span>🔄 Bidirectional Streams</span>
+                        <span id="bidiCounter" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: rgba(6, 182, 212, 0.1); padding: 2px 6px; border-radius: 4px;">0</span>
+                    </div>
+                    <div id="bidiStreamsContainer" class="streams-container" style="max-height: 180px; gap: 10px;">
+                        <div id="bidiNoStreams" class="no-streams" style="padding: 15px; font-size: 0.85rem;">No active bidirectional streams.</div>
+                    </div>
+                </div>
+                
+                <!-- Outbound Unidirectional Streams Section -->
+                <div class="stream-section" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; font-weight: 600; color: var(--accent-uni);">
+                        <span>📤 Outbound Unidirectional Streams</span>
+                        <span id="uniOutCounter" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: rgba(236, 72, 153, 0.1); padding: 2px 6px; border-radius: 4px;">0</span>
+                    </div>
+                    <div id="uniOutStreamsContainer" class="streams-container" style="max-height: 180px; gap: 10px;">
+                        <div id="uniOutNoStreams" class="no-streams" style="padding: 15px; font-size: 0.85rem;">No active outbound unidirectional streams.</div>
+                    </div>
+                </div>
+                
+                <!-- Inbound Unidirectional Streams Section -->
+                <div class="stream-section" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; font-weight: 600; color: var(--accent-inbound);">
+                        <span>📥 Inbound Unidirectional Streams</span>
+                        <span id="uniInCounter" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: rgba(168, 85, 247, 0.1); padding: 2px 6px; border-radius: 4px;">0</span>
+                    </div>
+                    <div id="uniInStreamsContainer" class="streams-container" style="max-height: 180px; gap: 10px;">
+                        <div id="uniInNoStreams" class="no-streams" style="padding: 15px; font-size: 0.85rem;">No active inbound unidirectional streams.</div>
+                    </div>
                 </div>
             </div>
 
@@ -587,7 +616,9 @@
         const dgPayload = document.getElementById("dgPayload");
         const btnSendDg = document.getElementById("btnSendDg");
         
-        const streamsContainer = document.getElementById("streamsContainer");
+        const bidiStreamsContainer = document.getElementById("bidiStreamsContainer");
+        const uniOutStreamsContainer = document.getElementById("uniOutStreamsContainer");
+        const uniInStreamsContainer = document.getElementById("uniInStreamsContainer");
         const streamsCounter = document.getElementById("streamsCounter");
 
         function log(msg, type = "sys", isError = false) {
@@ -701,13 +732,18 @@
                 await closeStreamChannel(streamId);
             };
 
-            // Remove placeholders and add card
-            const noStreamsPlaceholder = streamsContainer.querySelector(".no-streams");
-            if (noStreamsPlaceholder) {
-                noStreamsPlaceholder.remove();
+            let container;
+            if (modeClass === "bidi") {
+                container = bidiStreamsContainer;
+            } else if (modeClass === "uni-out") {
+                container = uniOutStreamsContainer;
+            } else if (modeClass === "uni-in") {
+                container = uniInStreamsContainer;
             }
 
-            streamsContainer.appendChild(card);
+            if (container) {
+                container.appendChild(card);
+            }
             updateStreamsCounter();
             return card;
         }
@@ -726,6 +762,28 @@
 
         function updateStreamsCounter() {
             streamsCounter.textContent = `${activeStreams.size} stream${activeStreams.size === 1 ? '' : 's'} active`;
+            
+            let bidiCount = 0;
+            let uniOutCount = 0;
+            let uniInCount = 0;
+            
+            for (const stream of activeStreams.values()) {
+                if (stream.modeClass === "bidi") {
+                    bidiCount++;
+                } else if (stream.modeClass === "uni-out") {
+                    uniOutCount++;
+                } else if (stream.modeClass === "uni-in") {
+                    uniInCount++;
+                }
+            }
+            
+            document.getElementById("bidiCounter").textContent = bidiCount;
+            document.getElementById("uniOutCounter").textContent = uniOutCount;
+            document.getElementById("uniInCounter").textContent = uniInCount;
+            
+            document.getElementById("bidiNoStreams").style.display = bidiCount === 0 ? "block" : "none";
+            document.getElementById("uniOutNoStreams").style.display = uniOutCount === 0 ? "block" : "none";
+            document.getElementById("uniInNoStreams").style.display = uniInCount === 0 ? "block" : "none";
         }
 
         // --- Active Stream Operations ---
@@ -774,10 +832,6 @@
 
                 activeStreams.delete(streamId);
                 updateStreamsCounter();
-
-                if (activeStreams.size === 0) {
-                    streamsContainer.innerHTML = `<div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>`;
-                }
             }
         }
 
@@ -801,7 +855,8 @@
                     type: "bidi",
                     writer: writer,
                     reader: reader,
-                    stream: stream
+                    stream: stream,
+                    modeClass: "bidi"
                 };
                 activeStreams.set(sId, streamInfo);
 
@@ -847,7 +902,8 @@
                     type: "uni",
                     writer: writer,
                     reader: null,
-                    stream: stream
+                    stream: stream,
+                    modeClass: "uni-out"
                 };
                 activeStreams.set(sId, streamInfo);
 
@@ -866,7 +922,8 @@
                 type: modeClass === "uni-in" ? "uni" : "bidi",
                 writer: null,
                 reader: reader,
-                stream: stream
+                stream: stream,
+                modeClass: modeClass
             };
             activeStreams.set(sId, streamInfo);
 
@@ -1005,7 +1062,6 @@
             transport = null;
             streamCounter = 0;
             updateStreamsCounter();
-            streamsContainer.innerHTML = `<div class="no-streams">No active stream channels open. Click + Bidi or + Uni to create one.</div>`;
         }
 
         btnClearLogs.onclick = () => {
