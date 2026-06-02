@@ -1,7 +1,6 @@
 package io.github.webtransport4j.incubator;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -24,16 +23,16 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
         Channel channel = ctx.channel();
-        
+
         // 1. Debug: Log the raw hex to see invisible bytes (like 0x00)
         if (logger.isDebugEnabled()) {
-             logger.debug("📦 [RAW PAYLOAD] " + formatHexBytes(msg));
+            logger.debug("📦 [RAW PAYLOAD] " + formatHexBytes(msg));
         }
 
         String path;
         String transportType;
         long sessionId = 0;
-        
+
         // Determine Context
         if (channel instanceof QuicStreamChannel) {
             QuicStreamChannel stream = (QuicStreamChannel) channel;
@@ -42,7 +41,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
             path = (pathAttr != null) ? pathAttr : "?";
             transportType = (typeAttr != null && typeAttr == 0x54) ? "UNIDIRECTIONAL" : "BIDIRECTIONAL";
-            
+
             Long sessId = stream.attr(WebTransportUtils.SESSION_ID_KEY).get();
             if (sessId != null) {
                 sessionId = sessId;
@@ -57,12 +56,22 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         }
 
         // 2. Offload to Business Logic
-        msg.retain(); 
+        msg.retain();
         final String finalPath = path;
         final String finalType = transportType;
         final long finalSessionId = sessionId;
 
-        businessPool.submit(() -> {
+        java.util.concurrent.ExecutorService executor = null;
+        if (channel instanceof QuicStreamChannel) {
+            executor = ((QuicStreamChannel) channel).parent().attr(WebTransportServer.BUSINESS_EXECUTOR).get();
+        } else {
+            executor = channel.attr(WebTransportServer.BUSINESS_EXECUTOR).get();
+        }
+        if (executor == null) {
+            executor = businessPool;
+        }
+
+        executor.submit(() -> {
             try {
                 boolean isSocketIo = (finalPath != null && finalPath.contains("socket.io"));
                 if (isSocketIo) {
@@ -75,6 +84,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             }
         });
     }
+
     private void processBusinessLogic(Channel channel, String path, String type, long sessionId, ByteBuf payload) {
         try {
             String content = payload.toString(StandardCharsets.UTF_8);
@@ -84,8 +94,6 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             logger.debug("    Session ID: " + sessionId);
             logger.debug("    Data: " + content);
 
-            
-            
             // simulating the reply
             if ("BIDIRECTIONAL".equals(type)) {
                 if (channel instanceof QuicStreamChannel) {
@@ -103,12 +111,14 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         }
     }
 
-    private void processSocketIOPacket(Channel channel, String path, String transportType, long sessionId, ByteBuf payload) {
+    private void processSocketIOPacket(Channel channel, String path, String transportType, long sessionId,
+            ByteBuf payload) {
         try {
             // Convert to String
             String content = payload.toString(StandardCharsets.UTF_8);
             logger.debug("⚡️ [SOCKET.IO] " + transportType + " | Raw: " + content);
-            if (content.isEmpty()) return;
+            if (content.isEmpty())
+                return;
 
             // 1. Parse Socket.IO Packet Type
             char packetType = content.charAt(0);
@@ -120,8 +130,10 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             switch (packetType) {
                 case '0': // OPEN
                     logger.info("👋 Received OPEN (Handshake). Data: " + data);
-                    // Standard Socket.IO reply to Open is usually an Open packet back with session ID
-                    reply(channel, "0{\"sid\":\"" + channel.id().asShortText() + "\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}");
+                    // Standard Socket.IO reply to Open is usually an Open packet back with session
+                    // ID
+                    reply(channel, "0{\"sid\":\"" + channel.id().asShortText()
+                            + "\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}");
                     startPingSchedule(channel);
                     break;
 
@@ -138,7 +150,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                 case '3': // PONG
                     logger.debug("💓 Received PONG (Client alive).");
                     break;
-                
+
                 case '4': // MESSAGE
                     logger.info("📩 Received MESSAGE: " + data);
                     if ("0".equals(data)) {
@@ -166,14 +178,17 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                                             argsString = rem.substring(1).trim();
                                         }
                                     }
-                                    logger.info("Parsed Socket.IO Event: '" + eventName + "' with args: " + argsString + " | ackId: " + ackId);
+                                    logger.info("Parsed Socket.IO Event: '" + eventName + "' with args: " + argsString
+                                            + " | ackId: " + ackId);
 
                                     if ("trigger_server_message".equals(eventName)) {
-                                        logger.info("Emitting server_message to client with ACK request (ackId: 777)...");
+                                        logger.info(
+                                                "Emitting server_message to client with ACK request (ackId: 777)...");
                                         reply(channel, "42777[\"server_message\",{\"request\":\"hello\"}]");
                                     } else {
                                         if (!ackId.isEmpty()) {
-                                            String ackResponse = "43" + ackId + "[{\"status\":\"ok\",\"received\":\"" + eventName + "\"}]";
+                                            String ackResponse = "43" + ackId + "[{\"status\":\"ok\",\"received\":\""
+                                                    + eventName + "\"}]";
                                             logger.info("Sending ACK reply to client: " + ackResponse);
                                             reply(channel, ackResponse);
                                         }
@@ -194,7 +209,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                     break;
 
                 default:
-                    logger.warn("⚠️ Unknown Packet Type: '" + packetType + "' (Ascii: " + (int)packetType + ")");
+                    logger.warn("⚠️ Unknown Packet Type: '" + packetType + "' (Ascii: " + (int) packetType + ")");
             }
 
         } catch (Exception e) {
@@ -209,42 +224,55 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
      * 
      * <h4>1. Thread Safety via Netty EventLoop delegation</h4>
      * <p>
-     * Writing bytes and flushing buffers directly to a Netty channel is not thread-safe.
-     * Since this message-processing pipeline executes business logic inside a concurrent
-     * thread pool ({@code businessPool}), we must schedule all socket write operations back
+     * Writing bytes and flushing buffers directly to a Netty channel is not
+     * thread-safe.
+     * Since this message-processing pipeline executes business logic inside a
+     * concurrent
+     * thread pool ({@code businessPool}), we must schedule all socket write
+     * operations back
      * onto the channel's designated {@link io.netty.channel.EventLoop} thread via
-     * {@code channel.eventLoop().execute(...)}. This ensures sequential, thread-safe writes
+     * {@code channel.eventLoop().execute(...)}. This ensures sequential,
+     * thread-safe writes
      * and avoids concurrent modification or ordering races.
      * </p>
      *
      * <h4>2. Dynamic Transport Protocol Negotiation</h4>
      * <p>
-     * The server acts as a unified gatekeeper handling two client formats on the same port:
+     * The server acts as a unified gatekeeper handling two client formats on the
+     * same port:
      * <ul>
-     *   <li><b>Socket.IO over WebTransport</b> (connected via the {@code /socket.io/} path)</li>
-     *   <li><b>Raw WebTransport Clients</b> (connected via root or custom paths)</li>
+     * <li><b>Socket.IO over WebTransport</b> (connected via the {@code /socket.io/}
+     * path)</li>
+     * <li><b>Raw WebTransport Clients</b> (connected via root or custom paths)</li>
      * </ul>
-     * We dynamically look up the connection path stored in {@code SESSION_PATH_KEY} (on the parent
-     * {@link QuicStreamChannel} for streams, or the datagram channel itself) to identify the protocol stack.
+     * We dynamically look up the connection path stored in {@code SESSION_PATH_KEY}
+     * (on the parent
+     * {@link QuicStreamChannel} for streams, or the datagram channel itself) to
+     * identify the protocol stack.
      * </p>
      *
      * <h4>3. Outbound Message Framing Formats</h4>
      * <ul>
-     *   <li>
-     *     <b>Socket.IO Clients</b>: Expect message frames prefixed with WebSocket-like length headers:
-     *     <ul>
-     *       <li>If length &lt; 126: Writes a 1-byte length prefix.</li>
-     *       <li>If length &lt; 65,536: Writes {@code 126} followed by a 2-byte length short value.</li>
-     *       <li>Otherwise: Writes {@code 127} followed by an 8-byte length long value.</li>
-     *     </ul>
-     *   </li>
-     *   <li>
-     *     <b>Raw WebTransport Clients</b>: Expect raw byte payloads directly. We write the UTF-8 bytes
-     *     without prepending any length indicators.
-     *   </li>
+     * <li>
+     * <b>Socket.IO Clients</b>: Expect message frames prefixed with WebSocket-like
+     * length headers:
+     * <ul>
+     * <li>If length &lt; 126: Writes a 1-byte length prefix.</li>
+     * <li>If length &lt; 65,536: Writes {@code 126} followed by a 2-byte length
+     * short value.</li>
+     * <li>Otherwise: Writes {@code 127} followed by an 8-byte length long
+     * value.</li>
+     * </ul>
+     * </li>
+     * <li>
+     * <b>Raw WebTransport Clients</b>: Expect raw byte payloads directly. We write
+     * the UTF-8 bytes
+     * without prepending any length indicators.
+     * </li>
      * </ul>
      *
      * <h4>Example Wire-Level Payload Transformations:</h4>
+     * 
      * <pre>{@code
      * // =========================================================================
      * // SCENARIO 1: SOCKET.IO OVER WEBTRANSPORT (path contains "/socket.io/")
@@ -317,6 +345,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             channel.writeAndFlush(buffer);
         });
     }
+
     private void sendDatagram(Channel channel, long sessionId, String text) {
         Channel rawChannel = (channel instanceof QuicStreamChannel) ? channel.parent() : channel;
 
@@ -367,7 +396,8 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
 
     private static String formatHexBytes(ByteBuf buf) {
         int len = buf.readableBytes();
-        if (len == 0) return "\n    ├── Wire Bytes: [ ]\n    └── Characters: ( )";
+        if (len == 0)
+            return "\n    ├── Wire Bytes: [ ]\n    └── Characters: ( )";
 
         StringBuilder hexLine = new StringBuilder("[ ");
         StringBuilder charLine = new StringBuilder("( ");

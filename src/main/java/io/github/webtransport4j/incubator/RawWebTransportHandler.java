@@ -41,6 +41,13 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
                 data.resetReaderIndex();
                 return;
             }
+            io.netty.handler.codec.quic.QuicChannel quic = (io.netty.handler.codec.quic.QuicChannel) ctx.channel().parent();
+            WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+            if (mgr == null || !mgr.hasSession(sessionId)) {
+                logger.warn("❌ Unknown Session ID: " + sessionId);
+                ctx.close(); 
+                return;
+            }
 
             if (streamType == 0x41) {
                 logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: " + sessionId + " | StreamID: " + ctx.channel().id());

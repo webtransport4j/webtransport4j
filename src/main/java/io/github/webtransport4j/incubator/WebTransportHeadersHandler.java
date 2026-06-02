@@ -4,7 +4,6 @@ import io.github.webtransport4j.incubator.applayer.ServerPushService;
 import io.github.webtransport4j.incubator.applayer.StreamSender;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.HttpStatusClass;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.Http3Headers;
@@ -45,8 +44,23 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         if ("CONNECT".contentEquals(method)
                 && "webtransport-h3".contentEquals(protocol)) {
+            QuicChannel quic = (QuicChannel) ctx.channel().parent();
+
+            // Validate CORS allowed origins
+            CharSequence origin = frame.headers().get("origin");
+            java.util.List<String> allowed = quic.attr(WebTransportServer.ALLOWED_ORIGINS).get();
+            if (!isOriginAllowed(allowed, origin)) {
+                logger.warn("❌ Rejecting connection from unauthorized origin: " + origin);
+                Http3Headers responseHeaders = new DefaultHttp3Headers();
+                responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
+                ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+                ctx.close();
+                ReferenceCountUtil.release(frame);
+                return;
+            }
+
             String pathStr = path.toString();
-            ctx.channel().parent().attr(WebTransportServer.SESSION_PATH_KEY).set(pathStr);
+            quic.attr(WebTransportServer.SESSION_PATH_KEY).set(pathStr);
 
             logger.info("✅ Handshake Success for Path: " + pathStr);
             Http3Headers responseHeaders = new DefaultHttp3Headers();
@@ -56,7 +70,6 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             logger.debug("🌊 Stream 0 AutoRead: " + ctx.channel().config().isAutoRead());
             logger.debug("🌊 Stream 0 Pipeline post-handshake: " + ctx.pipeline().names());
 
-            QuicChannel quic = (QuicChannel) ctx.channel().parent();
             WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
 
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
@@ -83,7 +96,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                                 pushFuture[0] = quic.eventLoop()
                                         .scheduleAtFixedRate(() -> {
                                             if (sender.stream().isActive() && connectStream.isActive()) {
-                                                ServerPushService.INSTANCE.sendTo(key, String.valueOf(System.nanoTime()));
+                                                ServerPushService.INSTANCE.sendTo(key, "Continuous Uni Stream Message: " + System.nanoTime());
                                             } else {
                                                 if (pushFuture[0] != null) {
                                                     pushFuture[0].cancel(false);
@@ -140,6 +153,20 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
         }
         ReferenceCountUtil.release(frame);
+    }
+
+    private boolean isOriginAllowed(java.util.List<String> allowedOrigins, CharSequence origin) {
+        if (allowedOrigins == null || allowedOrigins.isEmpty()) {
+            return true;
+        }
+        if (origin == null) {
+            return allowedOrigins.contains("*");
+        }
+        String originStr = origin.toString();
+        if (allowedOrigins.contains("*")) {
+            return true;
+        }
+        return allowedOrigins.contains(originStr);
     }
 
     @Override

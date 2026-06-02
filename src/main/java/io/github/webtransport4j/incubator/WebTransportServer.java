@@ -1,6 +1,5 @@
 package io.github.webtransport4j.incubator;
 
-import io.github.webtransport4j.incubator.applayer.ServerPushService;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -12,44 +11,72 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.DefaultHttp3Headers;
-import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
-import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3;
-import io.netty.handler.codec.http3.Http3DataFrame;
-import io.netty.handler.codec.http3.Http3Headers;
-import io.netty.handler.codec.http3.Http3HeadersFrame;
-import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
-import io.netty.handler.codec.http3.Http3UnknownFrame;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
-import io.netty.util.ReferenceCountUtil;
-
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 
 import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableLengthInt;
-
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
     static final int PORT = 4433;
     static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
 
+    public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey.valueOf("wt.business.executor");
+    private static java.util.concurrent.ExecutorService businessExecutor;
+
+    public static final AttributeKey<java.util.List<String>> ALLOWED_ORIGINS = AttributeKey.valueOf("wt.allowed.origins");
+    private static java.util.List<String> allowedOrigins;
+
     public static void main(String[] args) throws Exception {
+        String originsProp = System.getProperty("webtransport.allowed.origins", "*");
+        allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
+
+        int poolSize = Integer.getInteger("webtransport.business.pool.size", Runtime.getRuntime().availableProcessors() * 2);
+        int queueCapacity = Integer.getInteger("webtransport.business.queue.capacity", 10000);
+        businessExecutor = new java.util.concurrent.ThreadPoolExecutor(
+                poolSize,
+                poolSize,
+                60L, TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>(queueCapacity),
+                new java.util.concurrent.ThreadFactory() {
+                    private final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(1);
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
+                        t.setDaemon(true);
+                        return t;
+                    }
+                },
+                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy()
+        );
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            logger.info("Shutdown hook triggered. Stopping executor...");
+            businessExecutor.shutdown();
+            try {
+                if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    businessExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                businessExecutor.shutdownNow();
+            }
+        }));
+
         logger.debug("🚀 STARTING DEBUG SERVER...");
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
         QuicSslContext sslContext = QuicSslContextBuilder.forServer(
@@ -102,6 +129,8 @@ public class WebTransportServer {
                         logger.debug("    ├── 🚪 Remote Port: " + port);
                         logger.debug("    └── 🆔 Channel ID:  " + nettyId);
                         ch.attr(WebTransportSessionManager.WT_SESSION_MGR).set(new WebTransportSessionManager());
+                        ch.attr(BUSINESS_EXECUTOR).set(businessExecutor);
+                        ch.attr(ALLOWED_ORIGINS).set(allowedOrigins);
                         ch.pipeline().addLast(new WebTransportDatagramHandler());
                         logger.debug("🔧 Added WebTransportDatagramHandler. Pipeline now: " + ch.pipeline().names());
                         ch.pipeline().addLast(new MessageDispatcher());

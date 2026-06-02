@@ -1,6 +1,5 @@
 package io.github.webtransport4j.incubator;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.log4j.Logger;
