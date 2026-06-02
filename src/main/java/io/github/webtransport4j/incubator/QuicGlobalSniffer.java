@@ -32,4 +32,10 @@ public class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
         // Pass it on!
         ctx.fireChannelRead(msg);
     }
+
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        logger.debug("👀 [" + prefix + "] UserEvent: " + evt.getClass().getName() + " -> " + evt);
+        ctx.fireUserEventTriggered(evt);
+    }
 }

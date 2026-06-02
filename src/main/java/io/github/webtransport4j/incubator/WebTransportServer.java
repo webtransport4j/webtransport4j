@@ -13,6 +13,7 @@ import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
+import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3;
@@ -58,19 +59,23 @@ public class WebTransportServer {
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
         Set<Long> allowed = new HashSet<>(
-                Arrays.asList(0x2b603742L)
-        );
+                Arrays.asList(0x2c7cf000L, 0x2b64L, 0x2b65L, 0x2b61L));
 
-        Http3Settings settings =
-                new Http3Settings(
-                        (id, value) -> allowed.contains(id)
-                );
+        Http3Settings settings = new Http3Settings(
+                (id, value) -> allowed.contains(id));
 
         settings.enableH3Datagram(true);
         settings.enableConnectProtocol(true);
 
-// SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
-        settings.put(0x2b603742L, 1L);
+        // SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
+        // settings.put(0x2b603742L, 1L);
+        // SETTINGS_WEBTRANSPORT_MAX_SESSIONS (0xc671706a) - draft-07
+        // settings.put(0xc671706aL, 100L);
+        // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
+        settings.put(0x2c7cf000L, 1L);
+        settings.put(0x2b64L, 100L);
+        settings.put(0x2b65L, 100L);
+        settings.put(0x2b61L, 10000L);
 
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
@@ -98,13 +103,14 @@ public class WebTransportServer {
                         logger.debug("    └── 🆔 Channel ID:  " + nettyId);
                         ch.attr(WebTransportSessionManager.WT_SESSION_MGR).set(new WebTransportSessionManager());
                         ch.pipeline().addLast(new WebTransportDatagramHandler());
+                        logger.debug("🔧 Added WebTransportDatagramHandler. Pipeline now: " + ch.pipeline().names());
                         ch.pipeline().addLast(new MessageDispatcher());
-                        //ch.pipeline().addLast(new WebTransportMessageDispatcher());
+                        logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + ch.pipeline().names());
                         ch.pipeline().addLast(new Http3ServerConnectionHandler(
                                 new ChannelInitializer<QuicStreamChannel>() {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
-              ;                          // DEBUG: Print when a stream is created
+                                        // DEBUG: Print when a stream is created
                                         // logger.debug("🌊 Stream Created: " + stream.id());
                                         QuicChannel quic = stream.parent();
                                         WebTransportSessionManager mgr = quic
@@ -113,130 +119,24 @@ public class WebTransportServer {
                                         boolean isSocketIo = (path != null && path.contains("socket.io"));
 
                                         stream.pipeline().addFirst(new WebTransportDetectorHandler());
+logger.debug("🔧 Added WebTransportDetectorHandler. Pipeline now: " + stream.pipeline().names());
+                                        stream.pipeline()
+                                                .addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
+logger.debug("🔧 Added QuicGlobalSniffer (per‑stream). Pipeline now: " + stream.pipeline().names());
                                         stream.pipeline().addLast(new RawWebTransportHandler());
+logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: " + stream.pipeline().names());
                                         if (isSocketIo) {
                                             stream.pipeline().addLast(new EngineIoFrameDecoder());
+logger.debug("🔧 Added EngineIoFrameDecoder. Pipeline now: " + stream.pipeline().names());
                                         }
                                         stream.pipeline().addLast(new MessageDispatcher());
-                                        stream.pipeline().addLast(new Http3RequestStreamInboundHandler() {
-                                            @Override
-                                            protected void channelRead(ChannelHandlerContext ctx,
-                                                    Http3HeadersFrame frame) {
-                                                logger.debug("=== [DEBUG] Received HTTP/3 Headers ===");
-
-                                                // Loop through all headers and print them
-                                                for (Map.Entry<CharSequence, CharSequence> header : frame.headers()) {
-                                                    logger.debug(header.getKey() + ": " + header.getValue());
-                                                }
-
-                                                logger.debug("=======================================");
-                                                logger.debug("📜 HTTP/3 Headers Received: " + frame.headers().path());
-                                                CharSequence path = frame.headers().path();
-                                                CharSequence method = frame.headers().method();
-                                                CharSequence protocol = frame.headers().get(":protocol");
-
-                                                if ("CONNECT".contentEquals(method)
-                                                        && "webtransport".contentEquals(protocol)) {
-                                                    String pathStr = path.toString();
-                                                    ctx.channel().parent().attr(SESSION_PATH_KEY).set(pathStr);
-                                                    logger.debug("✅ Handshake Success for Path: " + pathStr);
-                                                    Http3Headers responseHeaders = new DefaultHttp3Headers();
-                                                    responseHeaders.status("200");
-                                                    responseHeaders.add("sec-webtransport-http3-draft", "draft02");
-                                                    // PURE HTTP/3 Frame. No manual byte writing here!
-                                                    ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-                                                    
-                                                    QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
-                                                    mgr.register(connectStream);
-                                                    
-                                                    boolean isConnectSocketIo = pathStr.contains("socket.io");
-                                                    if (!isConnectSocketIo) {
-                                                        long sessionId = connectStream.streamId();
-
-                                                        // Trigger server initiated uni-stream
-                                                        logger.debug(
-                                                                "⏰ Creating Server-Push Stream for Session " + sessionId);
-                                                        // new ServerPushService(quic, sessionId).startPushing();
-                                                        logger.debug("⏳ Creating Push Stream...");
-                                                        String key = "session-" + connectStream.id().asShortText();
-
-                                                        WebTransportUtils.createUniStream(quic, sessionId, key)
-                                                                .addListener(future -> {
-                                                                    if (future.isSuccess()) {
-                                                                        logger.debug("🚀 Push Stream Ready!");
-
-                                                                        // this is for testing, remove this, just poc
-
-                                                                         final io.netty.util.concurrent.ScheduledFuture<?>[] pushFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
-                                                                         pushFuture[0] = quic.eventLoop().scheduleAtFixedRate(() -> {
-                                                                             if (connectStream.isActive()) {
-                                                                                 ServerPushService.INSTANCE.sendTo(key,
-                                                                                         String.valueOf(System.nanoTime()));
-                                                                             } else {
-                                                                                 if (pushFuture[0] != null) {
-                                                                                     pushFuture[0].cancel(false);
-                                                                                 }
-                                                                             }
-                                                                         }, 0, 1, TimeUnit.SECONDS);
-
-                                                                         connectStream.closeFuture().addListener(f -> {
-                                                                             if (pushFuture[0] != null) {
-                                                                                 pushFuture[0].cancel(false);
-                                                                             }
-                                                                             ServerPushService.INSTANCE.unregister(key);
-                                                                         });
-                                                                    } else {
-                                                                        System.err.println("❌ Failed: " + future.cause());
-                                                                    }
-                                                                });
-                                                    }
-                                                }
-                                                ReferenceCountUtil.release(frame);
-                                            }
-
-                                            @Override
-                                            protected void channelRead(ChannelHandlerContext ctx,
-                                                    Http3DataFrame frame) {
-                                                ByteBuf payload = frame.content();
-                                                try {
-                                                    while (payload.isReadable()) {
-                                                        long capType = readVariableLengthInt(payload);
-                                                        if (capType == -1) break;
-                                                        long capLen = readVariableLengthInt(payload);
-                                                        if (capLen == -1 || payload.readableBytes() < capLen) break;
-                                                        
-                                                        ByteBuf capVal = payload.readSlice((int) capLen);
-                                                        if (logger.isDebugEnabled()) {
-                                                            logger.debug(String.format("💊 Received Capsule | Type: 0x%X | Length: %d | Hex: %s", 
-                                                                    capType, capLen, io.netty.buffer.ByteBufUtil.hexDump(capVal)));
-                                                        }
-                                                        
-                                                        if (capType == 0x2843) {
-                                                            logger.info("❌ CLOSE_WEBTRANSPORT_SESSION Capsule received. Closing session.");
-                                                            ctx.close();
-                                                        }
-                                                    }
-                                                } catch (Exception e) {
-                                                    logger.error("Error parsing capsules on CONNECT stream", e);
-                                                } finally {
-                                                    ReferenceCountUtil.release(frame);
-                                                }
-                                            }
-
-                                            @Override
-                                            protected void channelRead(ChannelHandlerContext ctx,
-                                                    Http3UnknownFrame frame) {
-                                                ctx.fireChannelRead(frame);
-                                            }
-
-                                            @Override
-                                            protected void channelInputClosed(ChannelHandlerContext ctx) {
-                                                logger.debug("🔒 Stream Closed: " + ctx.channel().id());
-                                                ctx.close();
-                                            }
-                                        });
-                                        // stream.pipeline().addLast(new WebTransportMessageDispatcher()); // Removed to
-                                        // correct pipeline order
+logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🌊 Stream Created: " + stream.streamId() + " | Pipeline: "
+                                                + stream.pipeline().names());
+                                        stream.pipeline().addLast(new WebTransportHeadersHandler());
+logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pipeline().names());
+                                        stream.pipeline().addLast(new WebTransportDataHandler());
+logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipeline().names());
                                         // DEBUG: Catch-all exception handler
                                         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                                             @Override
@@ -270,8 +170,10 @@ public class WebTransportServer {
                                                             }
                                                             String savedPath = ctx.channel().parent()
                                                                     .attr(WebTransportServer.SESSION_PATH_KEY).get();
-                                                            ctx.channel().attr(WebTransportUtils.STREAM_TYPE_KEY).set(streamType);
-                                                            ctx.channel().attr(WebTransportServer.SESSION_PATH_KEY).set(savedPath);
+                                                            ctx.channel().attr(WebTransportUtils.STREAM_TYPE_KEY)
+                                                                    .set(streamType);
+                                                            ctx.channel().attr(WebTransportServer.SESSION_PATH_KEY)
+                                                                    .set(savedPath);
                                                             ctx.fireChannelRead(msg);
                                                         } else {
                                                             ctx.fireChannelRead(msg);

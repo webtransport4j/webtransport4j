@@ -23,27 +23,26 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
         }
 
         ByteBuf in = (ByteBuf) msg;
-        
+
         // 1. Need at least 1 byte to make ANY decision
         if (in.readableBytes() < 1) {
-            return; 
+            return;
         }
-        
+
         if (logger.isDebugEnabled()) {
-             logger.debug("📦 [SNIFFER] Bytes: " + in.readableBytes() + " | HEX: [" + ByteBufUtil.hexDump(in) + "]");
+            logger.debug("📦 [SNIFFER] Bytes: " + in.readableBytes() + " | HEX: [" + ByteBufUtil.hexDump(in) + "]");
         }
 
         int firstByte = in.getUnsignedByte(in.readerIndex());
-        
+
         // 2. HTTP/3 Detection
-        boolean isStandardHttp3 = (
-               firstByte == 0x00 || // DATA
-               firstByte == 0x01 || // HEADERS
-               firstByte == 0x03 || // CANCEL_PUSH
-               firstByte == 0x04 || // SETTINGS
-               firstByte == 0x05 || // PUSH_PROMISE
-               firstByte == 0x07 || // GOAWAY
-               firstByte == 0x0d    // MAX_PUSH_ID
+        boolean isStandardHttp3 = (firstByte == 0x00 || // DATA
+                firstByte == 0x01 || // HEADERS
+                firstByte == 0x03 || // CANCEL_PUSH
+                firstByte == 0x04 || // SETTINGS
+                firstByte == 0x05 || // PUSH_PROMISE
+                firstByte == 0x07 || // GOAWAY
+                firstByte == 0x0d // MAX_PUSH_ID
         );
 
         if (isStandardHttp3) {
@@ -61,15 +60,16 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
 
         int secondByte = in.getUnsignedByte(in.readerIndex() + 1);
         boolean isWebTransportBidi = (firstByte == 0x40 && secondByte == 0x41);
-        
+
         if (isWebTransportBidi) {
             logger.info("🚀 Decision: Raw WebTransport Stream Detected! Hijacking pipeline.");
             checked = true;
             hijackPipeline(ctx);
-            
+
             ctx.fireChannelRead(msg);
         } else {
-            logger.debug("👉 Decision: Pass-through (0x" + Integer.toHexString(firstByte) + " " + Integer.toHexString(secondByte) + ")");
+            logger.debug("👉 Decision: Pass-through (0x" + Integer.toHexString(firstByte) + " "
+                    + Integer.toHexString(secondByte) + ")");
             checked = true;
             ctx.pipeline().remove(this);
             ctx.fireChannelRead(msg);
@@ -82,12 +82,14 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
 
         for (String name : p.names()) {
             ChannelHandler h = p.get(name);
-            if (h == null) continue;
+            if (h == null)
+                continue;
             if (h == this) {
                 toRemove.add(name);
                 continue;
             }
-            if (h instanceof QuicGlobalSniffer || h instanceof RawWebTransportHandler || h instanceof EngineIoFrameDecoder || h instanceof MessageDispatcher) {
+            if (h instanceof QuicGlobalSniffer || h instanceof RawWebTransportHandler
+                    || h instanceof EngineIoFrameDecoder || h instanceof MessageDispatcher) {
                 continue;
             }
             toRemove.add(name);

@@ -1,0 +1,155 @@
+package io.github.webtransport4j.incubator;
+
+import io.github.webtransport4j.incubator.applayer.ServerPushService;
+import io.github.webtransport4j.incubator.applayer.StreamSender;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpStatusClass;
+import io.netty.handler.codec.http3.DefaultHttp3Headers;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Headers;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3DataFrame;
+import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.ReferenceCountUtil;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import org.apache.log4j.Logger;
+
+public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
+    private static final Logger logger = Logger.getLogger(WebTransportHeadersHandler.class.getName());
+
+    @Override
+    protected void channelRead(ChannelHandlerContext ctx, Http3HeadersFrame frame) {
+        logger.debug("=== [DEBUG] Received HTTP/3 Headers ===");
+
+        // Loop through all headers and print them
+        for (Map.Entry<CharSequence, CharSequence> header : frame.headers()) {
+            logger.debug(header.getKey() + ": " + header.getValue());
+        }
+
+        logger.debug("=======================================");
+        logger.debug("📜 HTTP/3 Headers Received: " + frame.headers().path());
+        CharSequence path = frame.headers().path();
+        CharSequence method = frame.headers().method();
+        CharSequence protocol = frame.headers().get(":protocol");
+
+        // TEST the server GET request
+        if ("GET".contentEquals(method)) {
+            Http3Headers responseHeaders = new DefaultHttp3Headers();
+            responseHeaders.status("200");
+
+            ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+        }
+        if ("CONNECT".contentEquals(method)
+                && "webtransport-h3".contentEquals(protocol)) {
+            String pathStr = path.toString();
+            ctx.channel().parent().attr(WebTransportServer.SESSION_PATH_KEY).set(pathStr);
+
+            logger.info("✅ Handshake Success for Path: " + pathStr);
+            Http3Headers responseHeaders = new DefaultHttp3Headers();
+            responseHeaders.status(HttpResponseStatus.OK.codeAsText());
+
+            ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+            logger.debug("🌊 Stream 0 AutoRead: " + ctx.channel().config().isAutoRead());
+            logger.debug("🌊 Stream 0 Pipeline post-handshake: " + ctx.pipeline().names());
+
+            QuicChannel quic = (QuicChannel) ctx.channel().parent();
+            WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+
+            QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+            mgr.register(connectStream);
+
+            boolean isConnectSocketIo = pathStr.contains("socket.io");
+            if (!isConnectSocketIo) {
+                long sessionId = connectStream.streamId();
+
+                // Trigger server initiated uni-stream - test code
+                logger.debug(
+                        "⏰ Creating Server-Push Stream for Session "
+                                + sessionId);
+                logger.debug("⏳ Creating Push Stream...");
+                WebTransportUtils.createUniStream(quic, sessionId, null)
+                        .addListener(future -> {
+                            if (future.isSuccess()) {
+                                StreamSender sender = (StreamSender) future.getNow();
+                                String key = "stream-" + sender.stream().id().asShortText();
+                                ServerPushService.INSTANCE.register(key, sender);
+                                logger.debug("🚀 Push Stream Ready! ID: " + sender.stream().id());
+
+                                final io.netty.util.concurrent.ScheduledFuture<?>[] pushFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
+                                pushFuture[0] = quic.eventLoop()
+                                        .scheduleAtFixedRate(() -> {
+                                            if (sender.stream().isActive() && connectStream.isActive()) {
+                                                ServerPushService.INSTANCE.sendTo(key, String.valueOf(System.nanoTime()));
+                                            } else {
+                                                if (pushFuture[0] != null) {
+                                                    pushFuture[0].cancel(false);
+                                                }
+                                            }
+                                        }, 0, 1, TimeUnit.SECONDS);
+
+                                connectStream.closeFuture().addListener(f -> {
+                                    if (pushFuture[0] != null) {
+                                        pushFuture[0].cancel(false);
+                                    }
+                                    ServerPushService.INSTANCE.unregister(key);
+                                    sender.close();
+                                });
+                            } else {
+                                System.err
+                                        .println("❌ Failed: " + future.cause());
+                            }
+                        });
+                // TEST: Create a Bi-Directional Stream
+                logger.info("⏳ Creating Bi-Directional Stream...");
+                WebTransportUtils.createBiStream(quic, sessionId, null)
+                        .addListener(future -> {
+                            if (future.isSuccess()) {
+                                StreamSender sender = (StreamSender) future.getNow();
+                                String biKey = "bi-stream-" + sender.stream().id().asShortText();
+                                ServerPushService.INSTANCE.register(biKey, sender);
+                                logger.info("✅ Bi-Directional Stream Ready! ID: " + sender.stream().id());
+                                
+                                final io.netty.util.concurrent.ScheduledFuture<?>[] biFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
+                                biFuture[0] = quic.eventLoop()
+                                        .scheduleAtFixedRate(() -> {
+                                            if (sender.stream().isActive() && connectStream.isActive()) {
+                                                ServerPushService.INSTANCE.sendTo(biKey, "Continuous Bi Stream Message: " + System.nanoTime());
+                                            } else {
+                                                if (biFuture[0] != null) {
+                                                    biFuture[0].cancel(false);
+                                                }
+                                            }
+                                        }, 0, 1, TimeUnit.SECONDS);
+
+                                connectStream.closeFuture().addListener(f -> {
+                                    if (biFuture[0] != null) {
+                                        biFuture[0].cancel(false);
+                                    }
+                                    ServerPushService.INSTANCE.unregister(biKey);
+                                    sender.close();
+                                });
+                            } else {
+                                logger.error("❌ Failed to create Bi Stream", future.cause());
+                            }
+                        });
+            }
+
+        }
+        ReferenceCountUtil.release(frame);
+    }
+
+    @Override
+    protected void channelRead(ChannelHandlerContext ctx, Http3DataFrame frame) {
+        ctx.fireChannelRead(frame);
+    }
+
+    @Override
+    protected void channelInputClosed(ChannelHandlerContext ctx) {
+        logger.debug("🔒 Stream Closed: " + ctx.channel().id());
+        ctx.close();
+    }
+}

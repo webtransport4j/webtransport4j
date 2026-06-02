@@ -22,6 +22,14 @@ public class StreamSender {
         return streamChannel;
     }
 
+    public Channel stream() {
+        return streamChannel;
+    }
+
+    public void sendText(String payload) {
+        send(payload);
+    }
+
     // Write data to the EXISTING stream
     public void send(String payload) {
         if (streamChannel.isActive()) {

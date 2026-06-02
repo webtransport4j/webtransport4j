@@ -92,6 +92,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
                     reply((QuicStreamChannel) channel, "ACK BI: I received the message from " + path + ": " + content);
                 }
             }
+            if ("UNIDIRECTIONAL".equals(type)) {
+                logger.info("Unidirectional message received from client :" + path + ": " + content);
+            }
             if ("DATAGRAM".equals(type)) {
                 sendDatagram(channel, sessionId, "ACK DG: I received the message from " + path + ": " + content);
             }

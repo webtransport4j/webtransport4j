@@ -22,6 +22,7 @@ public class WebTransportUtils {
     public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
 
     private static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
+    private static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
 
     /**
      * Creates a new Server-Initiated Unidirectional Stream.
@@ -41,12 +42,69 @@ public class WebTransportUtils {
                     }
 
                     QuicStreamChannel stream = future.getNow();
+                    
+                    // Set channel attributes so other handlers/logs can retrieve them
+                    stream.attr(SESSION_ID_KEY).set(sessionId);
+                    stream.attr(STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
 
                     // 2. Write the Mandatory Header: [0x54] [SessionID]
                     // We write this synchronously before giving the stream to the user.
                     ByteBuf header = Unpooled.buffer(16);
                     try {
                         writeVarInt(header, UNI_STREAM_TYPE);
+                        writeVarInt(header, sessionId);
+                        stream.writeAndFlush(header);
+                        StreamSender sender = new StreamSender(stream);
+                        if (key != null) {
+                            ServerPushService.INSTANCE.register(key, sender);
+                        }
+
+                        promise.setSuccess(sender);
+                    } catch (Exception e) {
+                        header.release();
+                        stream.close();
+                        promise.setFailure(e);
+                    }
+                });
+
+        return promise;
+    }
+
+    /**
+     * Creates a new Server-Initiated Bidirectional Stream.
+     * @param connection The parent QUIC Connection
+     * @param sessionId The WebTransport Session ID to bind to
+     * @return A Future that completes with the StreamSender
+     */
+    public static Future<StreamSender> createBiStream(QuicChannel connection, long sessionId, String key) {
+        Promise<StreamSender> promise = connection.eventLoop().newPromise();
+
+        // 1. Request Stream Creation
+        connection.createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInboundHandlerAdapter())
+                .addListener((Future<QuicStreamChannel> future) -> {
+                    if (!future.isSuccess()) {
+                        promise.setFailure(future.cause());
+                        return;
+                    }
+
+                    QuicStreamChannel stream = future.getNow();
+
+                    // Set channel attributes so other handlers/logs can retrieve them
+                    stream.attr(SESSION_ID_KEY).set(sessionId);
+                    stream.attr(STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
+
+                    // Configure pipeline to handle incoming data from client
+                    stream.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
+                    String path = connection.attr(WebTransportServer.SESSION_PATH_KEY).get();
+                    if (path != null && path.contains("socket.io")) {
+                        stream.pipeline().addLast(new EngineIoFrameDecoder());
+                    }
+                    stream.pipeline().addLast(new MessageDispatcher());
+
+                    // 2. Write the Mandatory Header: [0x41] [SessionID]
+                    ByteBuf header = Unpooled.buffer(16);
+                    try {
+                        writeVarInt(header, BI_STREAM_TYPE);
                         writeVarInt(header, sessionId);
                         stream.writeAndFlush(header);
                         StreamSender sender = new StreamSender(stream);
@@ -91,6 +149,18 @@ public class WebTransportUtils {
         } else {
             // 8 Bytes (11xxxxxx...)
             out.writeLong(value | 0xC000000000000000L);
+        }
+    }
+
+    public static void writeCapsule(ByteBuf out, long type, long value) {
+        ByteBuf temp = out.alloc().buffer();
+        try {
+            writeVarInt(temp, value);
+            writeVarInt(out, type);
+            writeVarInt(out, temp.readableBytes());
+            out.writeBytes(temp);
+        } finally {
+            temp.release();
         }
     }
 
