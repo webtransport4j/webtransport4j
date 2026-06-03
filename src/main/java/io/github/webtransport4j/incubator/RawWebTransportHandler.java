@@ -44,8 +44,21 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
             io.netty.handler.codec.quic.QuicChannel quic = (io.netty.handler.codec.quic.QuicChannel) ctx.channel().parent();
             WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
             if (mgr == null || !mgr.hasSession(sessionId)) {
-                logger.warn("❌ Unknown Session ID: " + sessionId);
-                ctx.close(); 
+                if (mgr != null && ctx.channel() instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
+                    data.resetReaderIndex();
+                    boolean buffered = mgr.bufferStream(sessionId, (io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel(), data);
+                    if (buffered) {
+                        ctx.channel().config().setAutoRead(false);
+                        return;
+                    }
+                }
+                logger.warn("❌ Unknown Session ID (or buffering failed): " + sessionId);
+                data.release();
+                if (ctx.channel() instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
+                    ((io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel()).shutdown(0x3994bd84, ctx.newPromise());
+                } else {
+                    ctx.close();
+                }
                 return;
             }
 

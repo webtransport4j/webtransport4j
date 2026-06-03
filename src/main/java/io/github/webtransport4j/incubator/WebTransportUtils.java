@@ -9,6 +9,7 @@ import io.github.webtransport4j.incubator.applayer.ServerPushService;
 import io.github.webtransport4j.incubator.applayer.StreamSender;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -17,13 +18,61 @@ import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 public class WebTransportUtils {
     public static final AttributeKey<Long> SESSION_ID_KEY = AttributeKey.valueOf("wt.session.id");
     public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
 
-    private static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
-    private static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
+    public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
+    public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
+    public static final AttributeKey<AtomicLong> SETTINGS_WT_INITIAL_MAX_STREAMS_UNI =
+            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_STREAMS_UNI");
 
+    public static final AttributeKey<java.util.concurrent.atomic.AtomicLong> SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI =
+            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI");
+
+    public static final AttributeKey<java.util.concurrent.atomic.AtomicLong> SETTINGS_WT_INITIAL_MAX_DATA =
+            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_DATA");
+
+    public static final AttributeKey<AtomicLong> CURRENT_STREAMS_UNI =
+            AttributeKey.valueOf("CURRENT_STREAMS_UNI");
+
+    public static final  AttributeKey<java.util.concurrent.atomic.AtomicLong> CURRENT_STREAMS_BIDI =
+            AttributeKey.valueOf("CURRENT_STREAMS_BIDI");
+
+    public static boolean tryCreateStream(AtomicLong current, AtomicLong max) {
+        while (true) {
+            long cur = current.get();
+
+            if (cur >= max.get()) {
+                return false;
+            }
+
+            if (current.compareAndSet(cur, cur + 1)) {
+                return true;
+            }
+        }
+    }
+
+    public static long incrementCounter(Channel channel,
+                                         AttributeKey<AtomicLong> key) {
+        AtomicLong counter = channel.attr(key).get();
+        if (counter == null) {
+            channel.attr(key).setIfAbsent(new AtomicLong());
+            counter = channel.attr(key).get();
+        }
+        return counter.incrementAndGet();
+    }
+    public static long decrementCounter(Channel channel,
+                                        AttributeKey<AtomicLong> key) {
+        AtomicLong counter = channel.attr(key).get();
+        if (counter == null) {
+            channel.attr(key).setIfAbsent(new AtomicLong());
+            counter = channel.attr(key).get();
+        }
+        return counter.decrementAndGet();
+    }
     /**
      * Creates a new Server-Initiated Unidirectional Stream.
      * @param connection The parent QUIC Connection
@@ -31,6 +80,10 @@ public class WebTransportUtils {
      * @return A Future that completes with the StreamSender
      */
     public static Future<StreamSender> createUniStream(QuicChannel connection, long sessionId, String key) {
+
+        if (!tryCreateStream(connection.attr(CURRENT_STREAMS_UNI).get(), connection.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get())){
+
+        }
         Promise<StreamSender> promise = connection.eventLoop().newPromise();
 
         // 1. Request Stream Creation
@@ -99,6 +152,7 @@ public class WebTransportUtils {
                     if (path != null && path.contains("socket.io")) {
                         stream.pipeline().addLast(new EngineIoFrameDecoder());
                     }
+                    stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
                     stream.pipeline().addLast(new MessageDispatcher());
 
                     // 2. Write the Mandatory Header: [0x41] [SessionID]

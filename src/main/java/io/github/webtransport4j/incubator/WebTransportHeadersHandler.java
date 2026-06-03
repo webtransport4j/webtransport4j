@@ -43,7 +43,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
         }
         if ("CONNECT".contentEquals(method)
-                && "webtransport-h3".contentEquals(protocol)) {
+                && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
             QuicChannel quic = (QuicChannel) ctx.channel().parent();
 
             // Validate CORS allowed origins
@@ -74,7 +74,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
             mgr.register(connectStream);
-
+            logger.info("before value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
+            WebTransportUtils.decrementCounter(quic, WebTransportUtils.CURRENT_STREAMS_BIDI);
+            logger.info("After value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
             boolean isConnectSocketIo = pathStr.contains("socket.io");
             if (!isConnectSocketIo) {
                 long sessionId = connectStream.streamId();

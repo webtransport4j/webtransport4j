@@ -180,12 +180,13 @@ public class WebTransportDataHandler extends Http3RequestStreamInboundHandler {
                             io.netty.buffer.ByteBufUtil.hexDump(capVal)));
                 }
 
+                Long sessId = ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).get();
+                long sessionId = (sessId != null) ? sessId : ((io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel()).streamId();
+                WebTransportCapsule capsule = new WebTransportCapsule(sessionId, capType, capVal.retain());
+                ctx.fireChannelRead(capsule);
+
                 if (capType == 0x2843) {
-                    logger.info(
-                            "❌ CLOSE_WEBTRANSPORT_SESSION Capsule received. Closing session.");
-                    ctx.close();
-                } else {
-                    logger.warn("Unknown Capsule type received: " + capType);
+                    break;
                 }
             }
 

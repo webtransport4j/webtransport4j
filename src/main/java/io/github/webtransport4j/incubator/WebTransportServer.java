@@ -20,6 +20,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.AttributeKey;
 import java.io.File;
 import java.net.InetSocketAddress;
@@ -27,9 +28,15 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.log4j.Logger;
 
+import static io.github.webtransport4j.incubator.WebTransportUtils.CURRENT_STREAMS_BIDI;
+import static io.github.webtransport4j.incubator.WebTransportUtils.CURRENT_STREAMS_UNI;
+import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
+import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
+import static io.github.webtransport4j.incubator.WebTransportUtils.incrementCounter;
 import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableLengthInt;
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
@@ -100,8 +107,11 @@ public class WebTransportServer {
         // settings.put(0xc671706aL, 100L);
         // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
         settings.put(0x2c7cf000L, 1L);
+        //SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
         settings.put(0x2b64L, 100L);
+        //SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
         settings.put(0x2b65L, 100L);
+        //SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, 10000L);
 
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
@@ -118,6 +128,13 @@ public class WebTransportServer {
                 .handler(new ChannelInitializer<QuicChannel>() {
                     @Override
                     protected void initChannel(QuicChannel ch) {
+
+                        ch.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).setIfAbsent(new AtomicLong(settings.get(0x2b64L)==null?0L:settings.get(0x2b64L)));
+
+                        ch.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).setIfAbsent(new AtomicLong(settings.get(0x2b65L)==null?0L:settings.get(0x2b65L)));
+                        ch.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).setIfAbsent(new AtomicLong(0L));
+                        ch.attr(WebTransportUtils.CURRENT_STREAMS_UNI).setIfAbsent(new AtomicLong(0L));
+                        
                         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
                         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
                         String ip = remote.getAddress().getHostAddress();
@@ -139,11 +156,26 @@ public class WebTransportServer {
                                 new ChannelInitializer<QuicStreamChannel>() {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
-                                        // DEBUG: Print when a stream is created
-                                        // logger.debug("🌊 Stream Created: " + stream.id());
+                                        boolean isBidi = stream.type() == QuicStreamType.BIDIRECTIONAL;
+                                        long value = incrementCounter(
+                                                stream.parent(),
+                                                isBidi ? CURRENT_STREAMS_BIDI : CURRENT_STREAMS_UNI
+                                        );
+                                         
                                         QuicChannel quic = stream.parent();
-                                        WebTransportSessionManager mgr = quic
-                                                .attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                                        java.util.concurrent.atomic.AtomicLong limitAttr = quic.attr(isBidi ? SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI : SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get();
+                                        long maxAllowed = (limitAttr != null) ? limitAttr.get() : 0L;
+                                         
+                                        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                                         if (value > maxAllowed) {
+                                             logger.warn("❌ WebTransport stream limit exceeded: " + value + " > " + maxAllowed + ". Closing connection.");
+                                             if (mgr != null) {
+                                                 mgr.closeAllWithFlowControlError();
+                                             }
+                                             stream.shutdown(0x045d4487, stream.newPromise());
+                                             quic.close();
+                                             return;
+                                         }
                                         String path = quic.attr(SESSION_PATH_KEY).get();
                                         boolean isSocketIo = (path != null && path.contains("socket.io"));
 
@@ -158,14 +190,14 @@ logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: " + stream.pipeli
                                             stream.pipeline().addLast(new EngineIoFrameDecoder());
 logger.debug("🔧 Added EngineIoFrameDecoder. Pipeline now: " + stream.pipeline().names());
                                         }
-                                        stream.pipeline().addLast(new MessageDispatcher());
-logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
-                                        logger.debug("🌊 Stream Created: " + stream.streamId() + " | Pipeline: "
-                                                + stream.pipeline().names());
+                                        stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
+logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: " + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportHeadersHandler());
 logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportDataHandler());
 logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipeline().names());
+                                        stream.pipeline().addLast(new MessageDispatcher());
+logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
                                         // DEBUG: Catch-all exception handler
                                         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                                             @Override
@@ -190,7 +222,8 @@ logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipel
                                                         if (msg instanceof ByteBuf) {
                                                             ByteBuf data = (ByteBuf) msg;
                                                             if (!sessionHeaderRead) {
-                                                                readVariableLengthInt(data);
+                                                                long sessionId = readVariableLengthInt(data);
+                                                                ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
                                                                 sessionHeaderRead = true;
                                                             }
                                                             if (!data.isReadable()) {
@@ -209,6 +242,7 @@ logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipel
                                                         }
                                                     }
                                                 });
+                                                ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                                 ch.pipeline().addLast(new MessageDispatcher());
                                             }
                                         };

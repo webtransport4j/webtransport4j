@@ -4,55 +4,114 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
 import org.apache.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
+import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
+import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
 import static io.github.webtransport4j.incubator.WebTransportUtils.writeVarInt;
 
-public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
+public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> {
 
     private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
-    private static final ExecutorService businessPool = Executors.newFixedThreadPool(4);
+    private static final ExecutorService businessPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
     private java.util.concurrent.ScheduledFuture<?> pingFuture;
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+    protected void channelRead0(ChannelHandlerContext ctx, WebTransportFrame msg) {
+        if (msg instanceof WebTransportCapsule) {
+            WebTransportCapsule capsule = (WebTransportCapsule) msg;
+            if (logger.isDebugEnabled()) {
+                logger.debug("🔧 Received protocol capsule on EventLoop: 0x" + Long.toHexString(capsule.capsuleType()));
+            }
+            if (capsule.capsuleType() == 0x2843L) {
+                logger.info("❌ CLOSE_WEBTRANSPORT_SESSION capsule received. Closing connection.");
+                Channel parent = (ctx.channel() instanceof QuicStreamChannel) ? ((QuicStreamChannel) ctx.channel()).parent() : ctx.channel();
+                if (parent != null) {
+                    parent.close();
+                }
+                ctx.close();
+            } else if (capsule.capsuleType() == 0x190B4D3FL || capsule.capsuleType() == 0x190B4D40L) {
+                long maxStreams = WebTransportUtils.readVariableLengthInt(capsule.content());
+                if (maxStreams != -1) {
+                    if (maxStreams > (1L << 60)) {
+                        logger.warn("❌ H3_DATAGRAM_ERROR: Maximum Streams value larger than 2^60: " + maxStreams);
+                        ctx.close();
+                        return;
+                    }
+                    Channel parent = (ctx.channel() instanceof QuicStreamChannel) ? ((QuicStreamChannel) ctx.channel()).parent() : ctx.channel();
+                    AttributeKey<AtomicLong> key = (capsule.capsuleType() == 0x190B4D3FL) 
+                            ? SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI 
+                            : SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
+                    AtomicLong currentLimit = parent.attr(key).get();
+                    if (currentLimit != null) {
+                        long prev = currentLimit.get();
+                        if (maxStreams < prev) {
+                            logger.warn("❌ WT_FLOW_CONTROL_ERROR: Received max streams value " + maxStreams + " less than previous " + prev);
+                            WebTransportSessionManager mgr = parent.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                             if (mgr != null) {
+                                 mgr.closeAllWithFlowControlError();
+                             }
+                             if (parent != null) {
+                                 parent.close();
+                             }
+                             ctx.close();
+                             return;
+                        }
+                        currentLimit.set(maxStreams);
+                        logger.debug("✅ Updated stream limit for " + (capsule.capsuleType() == 0x190B4D3FL ? "BIDI" : "UNI") + " to: " + maxStreams);
+                    }
+                }
+            }
+            else {
+                logger.warn("⚠️ Received unhandled protocol capsule: 0x" + Long.toHexString(capsule.capsuleType()));
+            }
+            return;
+        }
+
         Channel channel = ctx.channel();
 
         // 1. Debug: Log the raw hex to see invisible bytes (like 0x00)
         if (logger.isDebugEnabled()) {
-            logger.debug("📦 [RAW PAYLOAD] " + formatHexBytes(msg));
+            logger.debug("📦 [RAW PAYLOAD] " + formatHexBytes(msg.content()));
         }
 
         String path;
         String transportType;
-        long sessionId = 0;
+        long sessionId = msg.sessionId();
 
         // Determine Context
-        if (channel instanceof QuicStreamChannel) {
-            QuicStreamChannel stream = (QuicStreamChannel) channel;
-            Long typeAttr = stream.attr(WebTransportUtils.STREAM_TYPE_KEY).get();
-            String pathAttr = stream.parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
+        if (msg instanceof WebTransportStreamFrame) {
+            WebTransportStreamFrame streamFrame = (WebTransportStreamFrame) msg;
+            transportType = streamFrame.isBidirectional() ? "BIDIRECTIONAL" : "UNIDIRECTIONAL";
 
-            path = (pathAttr != null) ? pathAttr : "?";
-            transportType = (typeAttr != null && typeAttr == 0x54) ? "UNIDIRECTIONAL" : "BIDIRECTIONAL";
-
-            Long sessId = stream.attr(WebTransportUtils.SESSION_ID_KEY).get();
-            if (sessId != null) {
-                sessionId = sessId;
-            } else {
-                sessionId = stream.streamId(); // Fallback to streamId if it is the CONNECT stream itself
+            String pathAttr = null;
+            if (channel instanceof QuicStreamChannel) {
+                pathAttr = ((QuicStreamChannel) channel).parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
             }
-        } else {
-            sessionId = WebTransportUtils.readVariableLengthInt(msg); // consume and retrieve datagram ID
+            path = (pathAttr != null) ? pathAttr : "?";
+        } else if (msg instanceof WebTransportDatagramFrame) {
+            transportType = "DATAGRAM";
             String pathAttr = channel.attr(WebTransportServer.SESSION_PATH_KEY).get();
             path = (pathAttr != null) ? pathAttr : "?";
-            transportType = "DATAGRAM";
+        } else if (msg instanceof WebTransportCapsule) {
+            transportType = "CAPSULE";
+            String pathAttr = null;
+            if (channel instanceof QuicStreamChannel) {
+                pathAttr = ((QuicStreamChannel) channel).parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
+            }
+            path = (pathAttr != null) ? pathAttr : "?";
+        } else {
+            transportType = "UNKNOWN";
+            path = "?";
         }
 
         // 2. Offload to Business Logic
@@ -75,7 +134,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             try {
                 boolean isSocketIo = (finalPath != null && finalPath.contains("socket.io"));
                 if (isSocketIo) {
-                    processSocketIOPacket(channel, finalPath, finalType, finalSessionId, msg);
+                    processSocketIOPacket(channel, finalPath, finalType, finalSessionId, msg.content());
                 } else {
                     processBusinessLogic(channel, finalPath, finalType, finalSessionId, msg);
                 }
@@ -85,8 +144,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
         });
     }
 
-    private void processBusinessLogic(Channel channel, String path, String type, long sessionId, ByteBuf payload) {
+    private void processBusinessLogic(Channel channel, String path, String type, long sessionId, WebTransportFrame frame) {
         try {
+            ByteBuf payload = frame.content();
             String content = payload.toString(StandardCharsets.UTF_8);
             logger.debug("⚡️ [APP LAYER] Dispatched to Controller:");
             logger.debug("    Path: " + path);
@@ -97,7 +157,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<ByteBuf> {
             // simulating the reply
             if ("BIDIRECTIONAL".equals(type)) {
                 if (channel instanceof QuicStreamChannel) {
-                    reply((QuicStreamChannel) channel, "ACK BI: I received the message from " + path + ": " + content);
+                    reply(channel, "ACK BI: I received the message from " + path + ": " + content);
                 }
             }
             if ("UNIDIRECTIONAL".equals(type)) {
