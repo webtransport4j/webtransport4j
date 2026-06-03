@@ -42,18 +42,13 @@ public class WebTransportUtils {
             AttributeKey.valueOf("CURRENT_STREAMS_BIDI");
 
     public static boolean tryCreateStream(AtomicLong current, AtomicLong max) {
-        while (true) {
-            long cur = current.get();
-
-            if (cur >= max.get()) {
-                return false;
-            }
-
-            if (current.compareAndSet(cur, cur + 1)) {
-                return true;
-            }
+        if (current.get() >= max.get()) {
+            return false;
         }
+        current.incrementAndGet();
+        return true;
     }
+
 
     public static long incrementCounter(Channel channel,
                                          AttributeKey<AtomicLong> key) {
