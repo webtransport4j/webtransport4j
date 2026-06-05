@@ -23,7 +23,6 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
 import java.io.File;
 import java.net.InetSocketAddress;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -32,7 +31,7 @@ import org.apache.log4j.Logger;
 import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableLengthInt;
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
-    static final int PORT = 4433;
+    static int PORT = 4433;
     static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
 
     public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey.valueOf("wt.business.executor");
@@ -42,11 +41,12 @@ public class WebTransportServer {
     private static java.util.List<String> allowedOrigins;
 
     public static void main(String[] args) throws Exception {
-        String originsProp = System.getProperty("webtransport.allowed.origins", "*");
+        PORT = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+        String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
         allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
 
-        int poolSize = Integer.getInteger("webtransport.business.pool.size", Runtime.getRuntime().availableProcessors() * 2);
-        int queueCapacity = Integer.getInteger("webtransport.business.queue.capacity", 10000);
+        int poolSize = WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2);
+        int queueCapacity = WebTransportConfig.getInt("webtransport4j.business.queue.capacity", 10000);
         businessExecutor = new java.util.concurrent.ThreadPoolExecutor(
                 poolSize,
                 poolSize,
@@ -78,44 +78,58 @@ public class WebTransportServer {
 
         logger.debug("🚀 STARTING DEBUG SERVER...");
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
+        String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", "/Users/sam/Documents/localhost-key.pem");
+        String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", "/Users/sam/Documents/localhost.pem");
         QuicSslContext sslContext = QuicSslContextBuilder.forServer(
-                new File("/Users/sam/Documents/localhost-key.pem"),
+                new File(keyPath),
                 null,
-                new File("/Users/sam/Documents/localhost.pem"))
+                new File(certPath))
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
-        Set<Long> allowed = new HashSet<>(
-                Arrays.asList(0x2c7cf000L, 0x2b64L, 0x2b65L, 0x2b61L));
+        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.allowed", "0x2c7cf000,0x2b64,0x2b65,0x2b61");
+        Set<Long> allowed = new HashSet<>();
+        for (String val : allowedProp.split(",")) {
+            allowed.add(Long.decode(val.trim()));
+        }
 
         Http3Settings settings = new Http3Settings(
                 (id, value) -> allowed.contains(id));
 
-        settings.enableH3Datagram(true);
-        settings.enableConnectProtocol(true);
+        long wtMaxStreamsUni = WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.uni", 0L);
+        long wtMaxStreamsBidi = WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.bidi", 0L);
+        long wtInitialMaxData = WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.data", 0L);
 
-        // SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
-        // settings.put(0x2b603742L, 1L);
-        // SETTINGS_WEBTRANSPORT_MAX_SESSIONS (0xc671706a) - draft-07
-        // settings.put(0xc671706aL, 100L);
+        long quicMaxStreamsUni = WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L);
+        long quicMaxStreamsBidi = WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
+        long quicInitialMaxData = WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
+
+        // Validate that QUIC limits are not lesser than WebTransport initial session limits
+        validateConfig(quicMaxStreamsBidi, wtMaxStreamsBidi, quicMaxStreamsUni, wtMaxStreamsUni, quicInitialMaxData, wtInitialMaxData);
+
+        settings.enableH3Datagram(WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_h3_datagram", false));
+        settings.enableConnectProtocol(WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_connect_protocol", false));
+
         // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
-        settings.put(0x2c7cf000L, 1L);
+        settings.put(0x2c7cf000L, WebTransportConfig.getLong("webtransport4j.webtransport.settings.wt_enabled.value", 0L));
         //SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
-        settings.put(0x2b64L, 10L);
+        settings.put(0x2b64L, wtMaxStreamsUni);
         //SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
-        settings.put(0x2b65L, 10L);
+        settings.put(0x2b65L, wtMaxStreamsBidi);
         //SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
-        settings.put(0x2b61L, 10000L);
+        settings.put(0x2b61L, wtInitialMaxData);
 
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
-                .maxIdleTimeout(30, TimeUnit.SECONDS)
-                .initialMaxData(10_000_000)
-                .initialMaxStreamDataBidirectionalLocal(1_000_000)
-                .initialMaxStreamDataBidirectionalRemote(1_000_000)
-                .initialMaxStreamsBidirectional(100)
-                .datagram(10000, 10000)
-                .initialMaxStreamsUnidirectional(100)
-                .initialMaxStreamDataUnidirectional(1_000_000)
+                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS)
+                .initialMaxData(quicInitialMaxData)
+                .initialMaxStreamDataBidirectionalLocal(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
+                .initialMaxStreamDataBidirectionalRemote(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
+                .initialMaxStreamsBidirectional(quicMaxStreamsBidi)
+                .datagram(
+                        WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
+                        WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
+                .initialMaxStreamsUnidirectional(quicMaxStreamsUni)
+                .initialMaxStreamDataUnidirectional(WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
                 .tokenHandler(InsecureQuicTokenHandler.INSTANCE)
                 .handler(new ChannelInitializer<QuicChannel>() {
                     @Override
@@ -235,5 +249,20 @@ logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().
                 .channel();
         logger.debug("✅ WebTransport server listening on " + PORT);
         ch.closeFuture().sync();
+    }
+
+    static void validateConfig(long quicMaxBidi, long wtMaxBidi, long quicMaxUni, long wtMaxUni, long quicMaxData, long wtMaxData) {
+        if (quicMaxBidi < wtMaxBidi) {
+            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.bidi (" + quicMaxBidi 
+                + ") must be greater than or equal to webtransport.initial.max.streams.bidi (" + wtMaxBidi + ")");
+        }
+        if (quicMaxUni < wtMaxUni) {
+            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.uni (" + quicMaxUni 
+                + ") must be greater than or equal to webtransport.initial.max.streams.uni (" + wtMaxUni + ")");
+        }
+        if (quicMaxData < wtMaxData) {
+            throw new IllegalArgumentException("Configuration Mismatch: quic.initial.max.data (" + quicMaxData 
+                + ") must be greater than or equal to webtransport.initial.max.data (" + wtMaxData + ")");
+        }
     }
 }

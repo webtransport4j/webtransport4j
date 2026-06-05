@@ -62,15 +62,15 @@ public class WebTransportSessionManager {
             flowControlEnabled = true;
         }
         if((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-            uniMax = 100L;
+            uniMax = WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
             WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
         }
         if((biMax == null || biMax == 0L) && flowControlEnabled){
-            biMax = 100L;
+            biMax = WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
             WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
         }
         if((dataMax == null || dataMax == 0L) && flowControlEnabled){
-            dataMax = 10000L;
+            dataMax = WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
             WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
         }
 

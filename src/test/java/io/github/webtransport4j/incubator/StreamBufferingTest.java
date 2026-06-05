@@ -180,4 +180,37 @@ public class StreamBufferingTest {
         // Verify: parent connection was NOT closed
         verify(mockParent, never()).close();
     }
+
+    @Test
+    public void testWebTransportConfigFallbackDefaults() {
+        assertEquals("default-string", WebTransportConfig.get("nonexistent.key.string", "default-string"));
+        assertEquals(42, WebTransportConfig.getInt("nonexistent.key.int", 42));
+        assertEquals(100L, WebTransportConfig.getLong("nonexistent.key.long", 100L));
+        assertTrue(WebTransportConfig.getBoolean("nonexistent.key.bool", true));
+        assertFalse(WebTransportConfig.getBoolean("nonexistent.key.bool.false", false));
+    }
+
+    @Test
+    public void testConfigValidationSuccess() {
+        // QUIC limits are greater than or equal to WT limits
+        WebTransportServer.validateConfig(10, 5, 20, 10, 1000, 500);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testConfigValidationBidiMismatch() {
+        // QUIC bidi is smaller than WT bidi
+        WebTransportServer.validateConfig(4, 5, 20, 10, 1000, 500);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testConfigValidationUniMismatch() {
+        // QUIC uni is smaller than WT uni
+        WebTransportServer.validateConfig(10, 5, 9, 10, 1000, 500);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void testConfigValidationDataMismatch() {
+        // QUIC initial max data is smaller than WT initial max data
+        WebTransportServer.validateConfig(10, 5, 20, 10, 499, 500);
+    }
 }
