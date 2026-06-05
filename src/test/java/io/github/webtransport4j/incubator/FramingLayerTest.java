@@ -12,6 +12,7 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -280,6 +281,8 @@ public class FramingLayerTest {
         when(mockCtx.channel()).thenReturn(mockStream);
         when(mockStream.parent()).thenReturn(mockParent);
         when(mockStream.streamId()).thenReturn(100L);
+        io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+        when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
 
         io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
         when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -305,23 +308,17 @@ public class FramingLayerTest {
         when(mgrAttr.get()).thenReturn(mgr);
         when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
-        io.netty.util.Attribute<java.util.concurrent.atomic.AtomicLong> currentBidiAttr = mock(io.netty.util.Attribute.class);
-        java.util.concurrent.atomic.AtomicLong currentBidi = new java.util.concurrent.atomic.AtomicLong(1L);
-        when(currentBidiAttr.get()).thenReturn(currentBidi);
-        when(mockParent.attr(WebTransportUtils.CURRENT_STREAMS_BIDI)).thenReturn(currentBidiAttr);
+        io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+        when(defaultBidiAttr.get()).thenReturn(10L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
 
-        io.netty.util.Attribute<java.util.concurrent.atomic.AtomicLong> currentUniAttr = mock(io.netty.util.Attribute.class);
-        java.util.concurrent.atomic.AtomicLong currentUni = new java.util.concurrent.atomic.AtomicLong(0L);
-        when(currentUniAttr.get()).thenReturn(currentUni);
-        when(mockParent.attr(WebTransportUtils.CURRENT_STREAMS_UNI)).thenReturn(currentUniAttr);
+        io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+        when(defaultUniAttr.get()).thenReturn(10L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
 
-        io.netty.util.Attribute<java.util.concurrent.atomic.AtomicLong> maxUniAttr = mock(io.netty.util.Attribute.class);
-        when(maxUniAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicLong(100L));
-        when(mockParent.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI)).thenReturn(maxUniAttr);
-
-        io.netty.util.Attribute<java.util.concurrent.atomic.AtomicLong> maxBidiAttr = mock(io.netty.util.Attribute.class);
-        when(maxBidiAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicLong(100L));
-        when(mockParent.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI)).thenReturn(maxBidiAttr);
+        io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+        when(defaultDataAttr.get()).thenReturn(10000L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
 
         // Mock EventLoop and Promise for createUniStream / createBiStream
         io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -349,12 +346,91 @@ public class FramingLayerTest {
         assertTrue(mgr.hasSession(100L));
 
         // Verify decrement of BIDI streams
-        assertEquals(0L, currentBidi.get());
+        assertEquals(0L, mgr.get(100L).getCurrentStreamsBidi());
 
         // Verify response sent
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
         verify(mockCtx).writeAndFlush(captor.capture());
         io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getValue();
         assertEquals("200", respFrame.headers().status().toString());
+    }
+
+    @Test
+    public void testHandshakeWithWebTransportSettingsOverrides() throws Exception {
+        WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+
+        ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+        QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
+        QuicChannel mockParent = mock(QuicChannel.class);
+
+        when(mockCtx.channel()).thenReturn(mockStreamChannel);
+        when(mockStreamChannel.parent()).thenReturn(mockParent);
+        when(mockStreamChannel.streamId()).thenReturn(200L);
+        io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+        when(mockStreamChannel.closeFuture()).thenReturn(mockCloseFuture);
+
+        io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+        when(mockStreamChannel.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+        when(mockCtx.pipeline()).thenReturn(mock(io.netty.channel.ChannelPipeline.class));
+        when(mockStreamChannel.config()).thenReturn(mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class));
+
+        // Attributes on Parent (QuicChannel)
+        io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr = mock(io.netty.util.Attribute.class);
+        when(allowedOriginsAttr.get()).thenReturn(null); // allow all
+        when(mockParent.attr(WebTransportServer.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
+
+        io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+        when(mockParent.attr(WebTransportServer.SESSION_PATH_KEY)).thenReturn(pathAttr);
+
+        WebTransportSessionManager mgr = new WebTransportSessionManager();
+        io.netty.util.Attribute<WebTransportSessionManager> mgrAttr = mock(io.netty.util.Attribute.class);
+        when(mgrAttr.get()).thenReturn(mgr);
+        when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+        // Connection-level limits: 50L bidi, 60L uni, 50000L data
+        io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+        when(defaultBidiAttr.get()).thenReturn(50L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+
+        io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+        when(defaultUniAttr.get()).thenReturn(60L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
+
+        io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+        when(defaultDataAttr.get()).thenReturn(50000L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+
+        // Mock EventLoop and Promise for createUniStream / createBiStream
+        io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+        when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+        io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+        when(mockEventLoop.newPromise()).thenReturn(mockPromise);
+        when(mockPromise.addListener(any())).thenReturn(mockPromise);
+
+        // Mock createStream
+        io.netty.util.concurrent.Future mockFuture = mock(io.netty.util.concurrent.Future.class);
+        when(mockParent.createStream(any(), any())).thenReturn(mockFuture);
+        when(mockFuture.addListener(any())).thenReturn(mockFuture);
+
+        // Http3HeadersFrame
+        io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+        io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+        mockHeaders.method("CONNECT");
+        mockHeaders.path("/webtransport-test");
+        mockHeaders.set(":protocol", "webtransport-h3");
+        when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+        handler.channelRead(mockCtx, mockHeadersFrame);
+
+        // Verify registration
+        assertTrue(mgr.hasSession(200L));
+        WebTransportSession session = mgr.get(200L);
+        assertNotNull(session);
+
+        // Verify that settings overrode the connection-level limits
+        assertEquals(50L, session.getSettingsInitialMaxStreamsBidi());
+        assertEquals(60L, session.getSettingsInitialMaxStreamsUni());
+        assertEquals(50000L, session.getSettingsInitialMaxData());
     }
 }

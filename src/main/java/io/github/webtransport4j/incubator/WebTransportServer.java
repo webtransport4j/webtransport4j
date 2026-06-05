@@ -20,7 +20,6 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.AttributeKey;
 import java.io.File;
 import java.net.InetSocketAddress;
@@ -28,15 +27,8 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.log4j.Logger;
 
-import static io.github.webtransport4j.incubator.WebTransportUtils.CURRENT_STREAMS_BIDI;
-import static io.github.webtransport4j.incubator.WebTransportUtils.CURRENT_STREAMS_UNI;
-import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
-import static io.github.webtransport4j.incubator.WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
-import static io.github.webtransport4j.incubator.WebTransportUtils.incrementCounter;
 import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableLengthInt;
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
@@ -128,12 +120,13 @@ public class WebTransportServer {
                 .handler(new ChannelInitializer<QuicChannel>() {
                     @Override
                     protected void initChannel(QuicChannel ch) {
-
-                        ch.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).setIfAbsent(new AtomicLong(settings.get(0x2b64L)==null?0L:settings.get(0x2b64L)));
-
-                        ch.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).setIfAbsent(new AtomicLong(settings.get(0x2b65L)==null?0L:settings.get(0x2b65L)));
-                        ch.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).setIfAbsent(new AtomicLong(0L));
-                        ch.attr(WebTransportUtils.CURRENT_STREAMS_UNI).setIfAbsent(new AtomicLong(0L));
+                        long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
+                        long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
+                        long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
+                        ch.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI).set(defUni);
+                        ch.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
+                        ch.attr(WebTransportUtils.SETTINGS_MAX_DATA).set(defData);
+                        
                         
                         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
                         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
@@ -156,12 +149,6 @@ public class WebTransportServer {
                                 new ChannelInitializer<QuicStreamChannel>() {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
-                                        boolean isBidi = stream.type() == QuicStreamType.BIDIRECTIONAL;
-                                        incrementCounter(
-                                                stream.parent(),
-                                                isBidi ? CURRENT_STREAMS_BIDI : CURRENT_STREAMS_UNI
-                                        );
-                                         
                                         QuicChannel quic = stream.parent();
                                         
                                         String path = quic.attr(SESSION_PATH_KEY).get();

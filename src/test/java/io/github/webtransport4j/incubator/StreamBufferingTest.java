@@ -10,6 +10,7 @@ import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import java.nio.charset.StandardCharsets;
@@ -132,17 +133,6 @@ public class StreamBufferingTest {
     @Test
     public void testStreamLimitExceededClosesSession() throws Exception {
         QuicChannel mockParent = mock(QuicChannel.class);
-        
-        // Setup limit = 1
-        Attribute<AtomicLong> limitAttr = mock(Attribute.class);
-        when(limitAttr.get()).thenReturn(new AtomicLong(1L));
-        when(mockParent.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-
-        // Setup current stream count = 1 (already at limit before incrementing)
-        Attribute<AtomicLong> currentAttr = mock(Attribute.class);
-        AtomicLong currentCount = new AtomicLong(1L);
-        when(currentAttr.get()).thenReturn(currentCount);
-        when(mockParent.attr(WebTransportUtils.CURRENT_STREAMS_BIDI)).thenReturn(currentAttr);
 
         // Setup Session Manager with a session
         WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -150,11 +140,21 @@ public class StreamBufferingTest {
         when(mgrAttr.get()).thenReturn(mgr);
         when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
+        // Mock DEFAULT connection limits so they are read by register()
+        Attribute<Long> defaultBidiAttr = mock(Attribute.class);
+        when(defaultBidiAttr.get()).thenReturn(1L);
+        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+
         QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
         when(mockConnectStream.streamId()).thenReturn(100L);
+        when(mockConnectStream.parent()).thenReturn(mockParent);
         when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
         when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(mock(Attribute.class));
         mgr.register(mockConnectStream);
+
+        // Setup current stream count = 1 (already at limit before incrementing)
+        WebTransportSession session = mgr.get(100L);
+        session.setCurrentStreamsBidi(1L);
 
         // New incoming stream
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -162,23 +162,22 @@ public class StreamBufferingTest {
         when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
         when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
 
-        // Simulate WebTransportServer.java stream init logic
+        // Simulate WebTransportServer.java / RawWebTransportHandler.java stream init logic
         boolean isBidi = mockStream.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
-        long value = WebTransportUtils.incrementCounter(mockStream.parent(), isBidi ? WebTransportUtils.CURRENT_STREAMS_BIDI : WebTransportUtils.CURRENT_STREAMS_UNI);
+        long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
         
-        long maxAllowed = mockStream.parent().attr(isBidi ? WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI : WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get().get();
+        long maxAllowed = isBidi ? session.getSettingsInitialMaxStreamsBidi() : session.getSettingsInitialMaxStreamsUni();
         
         if (value > maxAllowed) {
-            mgr.closeAllWithFlowControlError();
+            mgr.closeSessionWithFlowControlError(100L);
             mockStream.shutdown(0x045d4487, mockStream.newPromise());
-            mockStream.parent().close();
         }
 
         // Verify: CONNECT stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
         verify(mockConnectStream).shutdown(eq(0x045d4487), any(io.netty.channel.ChannelPromise.class));
         // Verify: the offending stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
         verify(mockStream).shutdown(eq(0x045d4487), any(io.netty.channel.ChannelPromise.class));
-        // Verify: parent connection was closed
-        verify(mockParent).close();
+        // Verify: parent connection was NOT closed
+        verify(mockParent, never()).close();
     }
 }

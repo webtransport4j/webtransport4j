@@ -9,7 +9,6 @@ import io.github.webtransport4j.incubator.applayer.ServerPushService;
 import io.github.webtransport4j.incubator.applayer.StreamSender;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -19,7 +18,6 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class WebTransportUtils {
     private static final org.apache.log4j.Logger logger = org.apache.log4j.Logger.getLogger(WebTransportUtils.class.getName());
@@ -29,64 +27,40 @@ public class WebTransportUtils {
 
     public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
     public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
-    public static final AttributeKey<AtomicLong> SETTINGS_WT_INITIAL_MAX_STREAMS_UNI =
-            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_STREAMS_UNI");
 
-    public static final AttributeKey<java.util.concurrent.atomic.AtomicLong> SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI =
-            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI");
+    public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_UNI");
+    public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_BIDI");
+    public static final AttributeKey<Long> SETTINGS_MAX_DATA = AttributeKey.valueOf("SETTINGS_MAX_DATA");
+    
 
-    public static final AttributeKey<java.util.concurrent.atomic.AtomicLong> SETTINGS_WT_INITIAL_MAX_DATA =
-            AttributeKey.valueOf("SETTINGS_WT_INITIAL_MAX_DATA");
-
-    public static final AttributeKey<AtomicLong> CURRENT_STREAMS_UNI =
-            AttributeKey.valueOf("CURRENT_STREAMS_UNI");
-
-    public static final  AttributeKey<java.util.concurrent.atomic.AtomicLong> CURRENT_STREAMS_BIDI =
-            AttributeKey.valueOf("CURRENT_STREAMS_BIDI");
-
-    public static boolean tryCreateStream(AtomicLong current, AtomicLong max) {
-        if (current.get() >= max.get()) {
-            logger.warn("❌ WebTransport stream limit exceeded: " + current.get() + " >= " + max.get() + ". Stream creation failed.");
-            return false;
-        }
-        current.incrementAndGet();
-        return true;
-    }
-
-
-    public static long incrementCounter(Channel channel,
-                                         AttributeKey<AtomicLong> key) {
-        AtomicLong counter = channel.attr(key).get();
-        if (counter == null) {
-            channel.attr(key).setIfAbsent(new AtomicLong());
-            counter = channel.attr(key).get();
-        }
-        return counter.incrementAndGet();
-    }
-    public static long decrementCounter(Channel channel,
-                                        AttributeKey<AtomicLong> key) {
-        AtomicLong counter = channel.attr(key).get();
-        if (counter == null) {
-            channel.attr(key).setIfAbsent(new AtomicLong());
-            counter = channel.attr(key).get();
-        }
-        return counter.decrementAndGet();
-    }
     /**
      * Creates a new Server-Initiated Unidirectional Stream.
      * @param connection The parent QUIC Connection
      * @param sessionId The WebTransport Session ID to bind to
      * @return A Future that completes with the StreamSender
      */
-    public static Future<StreamSender> createUniStream(QuicChannel connection, long sessionId, String key, Optional<Boolean> byPassLimit) {
-        Promise<StreamSender> promise = connection.eventLoop().newPromise();
-        if (!byPassLimit.orElse(false) && !tryCreateStream(connection.attr(CURRENT_STREAMS_UNI).get(), connection.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get())){
-            promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Unidirectional stream limit exceeded"));
+    public static Future<StreamSender> createUniStream(QuicStreamChannel connectStreamChannel, String key, Optional<Boolean> byPassLimit) {
+        Promise<StreamSender> promise = connectStreamChannel.parent().eventLoop().newPromise();
+        WebTransportSessionManager mgr = connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+        if (session == null) {
+            promise.setFailure(new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
             return promise;
         }
 
+        if (!byPassLimit.orElse(false)) {
+            long current = session.getCurrentStreamsUni();
+            long max = session.getSettingsInitialMaxStreamsUni();
+            if (current >= max) {
+                logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
+                promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Unidirectional stream limit exceeded"));
+                return promise;
+            }
+            session.incrementAndGetCurrentStreamsUni();
+        }
+
         // 1. Request Stream Creation
-        connection.createStream(QuicStreamType.UNIDIRECTIONAL, new ChannelInboundHandlerAdapter())
+        connectStreamChannel.parent().createStream(QuicStreamType.UNIDIRECTIONAL, new ChannelInboundHandlerAdapter())
                 .addListener((Future<QuicStreamChannel> future) -> {
                     if (!future.isSuccess()) {
                         promise.setFailure(future.cause());
@@ -96,7 +70,7 @@ public class WebTransportUtils {
                     QuicStreamChannel stream = future.getNow();
                     
                     // Set channel attributes so other handlers/logs can retrieve them
-                    stream.attr(SESSION_ID_KEY).set(sessionId);
+                    stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
                     stream.attr(STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
 
                     // 2. Write the Mandatory Header: [0x54] [SessionID]
@@ -104,8 +78,9 @@ public class WebTransportUtils {
                     ByteBuf header = Unpooled.buffer(16);
                     try {
                         writeVarInt(header, UNI_STREAM_TYPE);
-                        writeVarInt(header, sessionId);
+                        writeVarInt(header, connectStreamChannel.streamId());
                         stream.writeAndFlush(header);
+                        session.getActiveUni().add(stream);
                         StreamSender sender = new StreamSender(stream);
                         if (key != null) {
                             ServerPushService.INSTANCE.register(key, sender);
@@ -128,15 +103,28 @@ public class WebTransportUtils {
      * @param sessionId The WebTransport Session ID to bind to
      * @return A Future that completes with the StreamSender
      */
-    public static Future<StreamSender> createBiStream(QuicChannel connection, long sessionId, String key, Optional<Boolean> byPassLimit)  {
-        Promise<StreamSender> promise = connection.eventLoop().newPromise();
-        if (!byPassLimit.orElse(false) && !tryCreateStream(connection.attr(CURRENT_STREAMS_BIDI).get(), connection.attr(SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).get())){
-            promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Bidirectional stream limit exceeded"));
+    public static Future<StreamSender> createBiStream(QuicStreamChannel connectStreamChannel, String key, Optional<Boolean> byPassLimit)  {
+        Promise<StreamSender> promise = connectStreamChannel.parent().eventLoop().newPromise();
+        WebTransportSessionManager mgr = connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+        if (session == null) {
+            promise.setFailure(new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
             return promise;
         }
 
+        if (!byPassLimit.orElse(false)) {
+            long current = session.getCurrentStreamsBidi();
+            long max = session.getSettingsInitialMaxStreamsBidi();
+            if (current >= max) {
+                logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
+                promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Bidirectional stream limit exceeded"));
+                return promise;
+            }
+            session.incrementAndGetCurrentStreamsBidi();
+        }
+
         // 1. Request Stream Creation
-        connection.createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInboundHandlerAdapter())
+        connectStreamChannel.parent().createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInboundHandlerAdapter())
                 .addListener((Future<QuicStreamChannel> future) -> {
                     if (!future.isSuccess()) {
                         promise.setFailure(future.cause());
@@ -146,12 +134,12 @@ public class WebTransportUtils {
                     QuicStreamChannel stream = future.getNow();
 
                     // Set channel attributes so other handlers/logs can retrieve them
-                    stream.attr(SESSION_ID_KEY).set(sessionId);
+                    stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
                     stream.attr(STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
 
                     // Configure pipeline to handle incoming data from client
                     stream.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
-                    String path = connection.attr(WebTransportServer.SESSION_PATH_KEY).get();
+                    String path = connectStreamChannel.parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
                     if (path != null && path.contains("socket.io")) {
                         stream.pipeline().addLast(new EngineIoFrameDecoder());
                     }
@@ -162,8 +150,9 @@ public class WebTransportUtils {
                     ByteBuf header = Unpooled.buffer(16);
                     try {
                         writeVarInt(header, BI_STREAM_TYPE);
-                        writeVarInt(header, sessionId);
+                        writeVarInt(header, connectStreamChannel.streamId());
                         stream.writeAndFlush(header);
+                        session.getActiveBi().add(stream);
                         StreamSender sender = new StreamSender(stream);
                         if (key != null) {
                             ServerPushService.INSTANCE.register(key, sender);
@@ -268,12 +257,12 @@ public class WebTransportUtils {
     }
 
     public static void sendMaxStreamsCapsule(QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-        ByteBuf buf = connectStream.alloc().buffer();
+        ByteBuf buf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
         try {
             long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
             writeVarInt(buf, capsuleType);
             
-            ByteBuf valBuf = connectStream.alloc().buffer();
+            ByteBuf valBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
             try {
                 writeVarInt(valBuf, maxStreams);
                 int len = valBuf.readableBytes();
@@ -290,7 +279,7 @@ public class WebTransportUtils {
             
             // Hex dump of the actual HTTP/3 DATA frame bytes (Type=0x00, Length=totalBytes, Payload=capsuleBytes)
             String frameHex = "";
-            ByteBuf frameBuf = connectStream.alloc().buffer();
+            ByteBuf frameBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
             try {
                 writeVarInt(frameBuf, 0x00); // HTTP/3 DATA Frame Type
                 writeVarInt(frameBuf, totalBytes); // Payload Length
@@ -304,17 +293,96 @@ public class WebTransportUtils {
             logger.info("   ├── Capsule Bytes:      " + capsuleHex);
             logger.info("   └── HTTP/3 Frame Bytes: " + frameHex);
 
-            connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf))
-                .addListener(future -> {
-                    if (future.isSuccess()) {
+            Object future = connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
+            if (future instanceof io.netty.channel.ChannelFuture) {
+                ((io.netty.channel.ChannelFuture) future).addListener(f -> {
+                    if (f.isSuccess()) {
                         logger.info("✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for Type 0x" + Long.toHexString(capsuleType));
                     } else {
-                        logger.error("❌ Capsule writeAndFlush FAILED for Type 0x" + Long.toHexString(capsuleType), future.cause());
+                        logger.error("❌ Capsule writeAndFlush FAILED for Type 0x" + Long.toHexString(capsuleType), f.cause());
                     }
                 });
+            } else if (future instanceof io.netty.util.concurrent.Future) {
+                ((io.netty.util.concurrent.Future<?>) future).addListener(f -> {
+                    if (f.isSuccess()) {
+                        logger.info("✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for Type 0x" + Long.toHexString(capsuleType));
+                    } else {
+                        logger.error("❌ Capsule writeAndFlush FAILED for Type 0x" + Long.toHexString(capsuleType), f.cause());
+                    }
+                });
+            } else {
+                logger.info("✅ Capsule writeAndFlush called (no future returned) for Type 0x" + Long.toHexString(capsuleType));
+            }
         } catch (Exception e) {
-            buf.release();
+            if (buf.refCnt() > 0) {
+                buf.release();
+            }
             logger.error("Failed to send WT_MAX_STREAMS capsule", e);
+        }
+    }
+
+    public static void sendMaxDataCapsule(QuicStreamChannel connectStream, long maxData) {
+        ByteBuf buf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+        try {
+            long capsuleType = 0x190B4D3DL;
+            writeVarInt(buf, capsuleType);
+            
+            ByteBuf valBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+            try {
+                writeVarInt(valBuf, maxData);
+                int len = valBuf.readableBytes();
+                writeVarInt(buf, len);
+                buf.writeBytes(valBuf);
+            } finally {
+                valBuf.release();
+            }
+            
+            int totalBytes = buf.readableBytes();
+            
+            // Hex dump of raw capsule bytes (Type, Length, Value)
+            String capsuleHex = io.netty.buffer.ByteBufUtil.hexDump(buf);
+            
+            // Hex dump of the actual HTTP/3 DATA frame bytes (Type=0x00, Length=totalBytes, Payload=capsuleBytes)
+            String frameHex = "";
+            ByteBuf frameBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+            try {
+                writeVarInt(frameBuf, 0x00); // HTTP/3 DATA Frame Type
+                writeVarInt(frameBuf, totalBytes); // Payload Length
+                frameBuf.writeBytes(buf.duplicate());
+                frameHex = io.netty.buffer.ByteBufUtil.hexDump(frameBuf);
+            } finally {
+                frameBuf.release();
+            }
+
+            logger.info("📤 Writing DefaultHttp3DataFrame with WT_MAX_DATA Capsule (Type: 0x" + Long.toHexString(capsuleType) + ", Limit: " + maxData + ", Total Bytes: " + totalBytes + ")");
+            logger.info("   ├── Capsule Bytes:      " + capsuleHex);
+            logger.info("   └── HTTP/3 Frame Bytes: " + frameHex);
+
+            Object future = connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
+            if (future instanceof io.netty.channel.ChannelFuture) {
+                ((io.netty.channel.ChannelFuture) future).addListener(f -> {
+                    if (f.isSuccess()) {
+                        logger.info("✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for Type 0x" + Long.toHexString(capsuleType));
+                    } else {
+                        logger.error("❌ Capsule writeAndFlush FAILED for Type 0x" + Long.toHexString(capsuleType), f.cause());
+                    }
+                });
+            } else if (future instanceof io.netty.util.concurrent.Future) {
+                ((io.netty.util.concurrent.Future<?>) future).addListener(f -> {
+                    if (f.isSuccess()) {
+                        logger.info("✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for Type 0x" + Long.toHexString(capsuleType));
+                    } else {
+                        logger.error("❌ Capsule writeAndFlush FAILED for Type 0x" + Long.toHexString(capsuleType), f.cause());
+                    }
+                });
+            } else {
+                logger.info("✅ Capsule writeAndFlush called (no future returned) for Type 0x" + Long.toHexString(capsuleType));
+            }
+        } catch (Exception e) {
+            if (buf.refCnt() > 0) {
+                buf.release();
+            }
+            logger.error("Failed to send WT_MAX_DATA capsule", e);
         }
     }
 }

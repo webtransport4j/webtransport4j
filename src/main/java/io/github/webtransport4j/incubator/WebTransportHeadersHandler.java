@@ -32,6 +32,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
         logger.debug("=======================================");
         logger.debug("📜 HTTP/3 Headers Received: " + frame.headers().path());
+        CharSequence scheme = frame.headers().scheme();
+        CharSequence authority = frame.headers().authority();
         CharSequence path = frame.headers().path();
         CharSequence method = frame.headers().method();
         CharSequence protocol = frame.headers().get(":protocol");
@@ -74,46 +76,19 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
 
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+            connectStream.closeFuture().addListener(f -> {
+                mgr.unregister(connectStream);
+            });
             mgr.register(connectStream);
-            
-            // Send WT_MAX_STREAMS capsules to grant stream credit to the client only if not already set
-            java.util.concurrent.atomic.AtomicLong bidiLimit = quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).get();
-            logger.info("🔍 Handshake check: bidiLimit is " + (bidiLimit == null ? "null" : bidiLimit.get()));
-            if (bidiLimit == null || bidiLimit.get() == 0) {
-                if (bidiLimit == null) {
-                    quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).set(new java.util.concurrent.atomic.AtomicLong(100L));
-                } else {
-                    bidiLimit.set(100L);
-                }
-                logger.info("📡 Sending BIDI WT_MAX_STREAMS capsule (100)");
-                WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, 100L); // BIDI limit
-            }
-
-            java.util.concurrent.atomic.AtomicLong uniLimit = quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get();
-            logger.info("🔍 Handshake check: uniLimit is " + (uniLimit == null ? "null" : uniLimit.get()));
-            if (uniLimit == null || uniLimit.get() == 0) {
-                if (uniLimit == null) {
-                    quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).set(new java.util.concurrent.atomic.AtomicLong(100L));
-                } else {
-                    uniLimit.set(100L);
-                }
-                logger.info("📡 Sending UNI WT_MAX_STREAMS capsule (100)");
-                WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, 100L); // UNI limit
-            }
-
-            logger.info("before value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
-            WebTransportUtils.decrementCounter(quic, WebTransportUtils.CURRENT_STREAMS_BIDI);
-            logger.info("After value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
+            long sessionId = connectStream.streamId();
             boolean isConnectSocketIo = pathStr.contains("socket.io");
             if (!isConnectSocketIo) {
-                long sessionId = connectStream.streamId();
-
                 // Trigger server initiated uni-stream - test code
                 logger.debug(
                         "⏰ Creating Server-Push Stream for Session "
                                 + sessionId);
                 logger.debug("⏳ Creating Push Stream...");
-                WebTransportUtils.createUniStream(quic, sessionId, null, Optional.of(true))
+                WebTransportUtils.createUniStream(connectStream, null, Optional.of(true))
                         .addListener(future -> {
                             if (future.isSuccess()) {
                                 StreamSender sender = (StreamSender) future.getNow();
@@ -147,7 +122,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                         });
                 // TEST: Create a Bi-Directional Stream
                 logger.info("⏳ Creating Bi-Directional Stream...");
-                WebTransportUtils.createBiStream(quic, sessionId, null, Optional.of(true))
+                WebTransportUtils.createBiStream(connectStream, null, Optional.of(true))
                         .addListener(future -> {
                             if (future.isSuccess()) {
                                 StreamSender sender = (StreamSender) future.getNow();

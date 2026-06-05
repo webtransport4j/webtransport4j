@@ -4,6 +4,8 @@ import org.apache.log4j.Logger;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 
 public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = Logger.getLogger(RawWebTransportHandler.class.getName());
@@ -13,71 +15,97 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        if (ctx.channel() instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
-        long streamId = ((io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel()).streamId();
-    
-        if (streamId == 0) {
-            ctx.fireChannelRead(msg);
-            return;
-        }
-    }
         if (!(msg instanceof ByteBuf)) {
             ctx.fireChannelRead(msg);
             return;
         }
         ByteBuf data = (ByteBuf) msg;
-       
-        if (!protocolHeaderConsumed) {
-            data.markReaderIndex();
-
-            long streamType = WebTransportUtils.readVariableLengthInt(data);
-            if (streamType == -1) {
-                data.resetReaderIndex();
+        if (ctx.channel() instanceof QuicStreamChannel) {
+            long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
+            if (streamId == 0) {
+                ctx.fireChannelRead(msg);
                 return;
             }
+        
+            if (!protocolHeaderConsumed) {
+                data.markReaderIndex();
 
-            long sessionId = WebTransportUtils.readVariableLengthInt(data);
-            if (sessionId == -1) {
-                data.resetReaderIndex();
-                return;
-            }
-            io.netty.handler.codec.quic.QuicChannel quic = (io.netty.handler.codec.quic.QuicChannel) ctx.channel().parent();
-            WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
-            if (mgr == null || !mgr.hasSession(sessionId)) {
-                if (mgr != null && ctx.channel() instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
+                long streamType = WebTransportUtils.readVariableLengthInt(data);
+                if (streamType == -1) {
                     data.resetReaderIndex();
-                    boolean buffered = mgr.bufferStream(sessionId, (io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel(), data);
-                    if (buffered) {
-                        ctx.channel().config().setAutoRead(false);
-                        return;
+                    return;
+                }
+
+                long sessionId = WebTransportUtils.readVariableLengthInt(data);
+                if (sessionId == -1) {
+                    data.resetReaderIndex();
+                    return;
+                }
+                QuicChannel quic = (QuicChannel) ctx.channel().parent();
+                WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                if (mgr == null || !mgr.hasSession(sessionId)) {
+                    if (mgr != null && ctx.channel() instanceof QuicStreamChannel) {
+                        data.resetReaderIndex();
+                        boolean buffered = mgr.bufferStream(sessionId, (QuicStreamChannel) ctx.channel(), data);
+                        if (buffered) {
+                            ctx.channel().config().setAutoRead(false);
+                            return;
+                        }
                     }
+                    logger.warn("❌ Unknown Session ID (or buffering failed): " + sessionId);
+                    data.release();
+                    if (ctx.channel() instanceof QuicStreamChannel) {
+                        ((QuicStreamChannel) ctx.channel()).shutdown(0x3994bd84, ctx.newPromise());
+                    } else {
+                        ctx.close();
+                    }
+                    return;
                 }
-                logger.warn("❌ Unknown Session ID (or buffering failed): " + sessionId);
-                data.release();
-                if (ctx.channel() instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
-                    ((io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel()).shutdown(0x3994bd84, ctx.newPromise());
+
+                if (streamType == 0x41) {
+                    logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: " + sessionId + " | StreamID: " + ctx.channel().id());
+                } else if (streamType == 0x54) {
+                    logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: " + sessionId);
                 } else {
-                    ctx.close();
+                    logger.warn("❓ Unknown Stream Type: " + streamType);
                 }
-                return;
+                
+                ctx.channel().attr(WebTransportUtils.STREAM_TYPE_KEY).set(streamType);
+                ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
+                
+                WebTransportSession session = mgr.get(sessionId);
+                if (session == null) {
+                    return;
+                }
+                boolean isBidi = (streamType == 0x41);
+                long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
+                long maxAllowed = isBidi ? session.getSettingsInitialMaxStreamsBidi() : session.getSettingsInitialMaxStreamsUni();
+
+                if (value > maxAllowed) {
+                    logger.warn("❌ WebTransport stream limit exceeded for session " + sessionId + ": " + value + " > " + maxAllowed);
+                    mgr.closeSessionWithFlowControlError(sessionId);
+                    if (ctx.channel() instanceof QuicStreamChannel) {
+                        ((QuicStreamChannel) ctx.channel()).shutdown(0x045d4487, ctx.newPromise());
+                    } else {
+                        ctx.close();
+                    }
+                    return;
+                }
+
+                logger.debug("✅ Protocol Header Consumed | Type: " + streamType + " Session: " + sessionId);
+                protocolHeaderConsumed = true;
+
+                QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+                if (isBidi) {
+                    session.getActiveBi().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveBi().remove(streamChannel));
+                } else {
+                    session.getActiveUni().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveUni().remove(streamChannel));
+                }
             }
 
-            if (streamType == 0x41) {
-                logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: " + sessionId + " | StreamID: " + ctx.channel().id());
-            } else if (streamType == 0x54) {
-                logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: " + sessionId);
-            } else {
-                logger.warn("❓ Unknown Stream Type: " + streamType);
-            }
-            
-            ctx.channel().attr(WebTransportUtils.STREAM_TYPE_KEY).set(streamType);
-            ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
-            
-            logger.debug("✅ Protocol Header Consumed | Type: " + streamType + " Session: " + sessionId);
-            protocolHeaderConsumed = true;
         }
-
-       
         if (!data.isReadable()) {
             data.release();
             return;

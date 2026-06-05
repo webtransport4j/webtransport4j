@@ -1,6 +1,7 @@
 package io.github.webtransport4j.incubator;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
 
@@ -44,10 +45,40 @@ public class WebTransportSessionManager {
      */
     public void register(QuicStreamChannel connectStream) {
         long sessionStreamId = connectStream.streamId();
-        connectStream.attr(WebTransportUtils.SESSION_ID_KEY).set(sessionStreamId);
+        if (connectStream.attr(WebTransportUtils.SESSION_ID_KEY) != null) {
+            connectStream.attr(WebTransportUtils.SESSION_ID_KEY).set(sessionStreamId);
+        }
+
+        QuicChannel quic = (QuicChannel) connectStream.parent();
+        
+        Long uniMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI) != null 
+                ? quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI).get() : null;
+        Long biMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI) != null 
+                ? quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI).get() : null;
+        Long dataMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_DATA) != null 
+                ? quic.attr(WebTransportUtils.SETTINGS_MAX_DATA).get() : null;
+        boolean flowControlEnabled = false;
+        if ((uniMax != null && uniMax > 0L) || (biMax != null && biMax > 0L) || (dataMax != null && dataMax > 0L)) {
+            flowControlEnabled = true;
+        }
+        if((uniMax == null || uniMax == 0L) && flowControlEnabled) {
+            uniMax = 100L;
+            WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
+        }
+        if((biMax == null || biMax == 0L) && flowControlEnabled){
+            biMax = 100L;
+            WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
+        }
+        if((dataMax == null || dataMax == 0L) && flowControlEnabled){
+            dataMax = 10000L;
+            WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
+        }
 
         // Create the session state
-        WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream);
+        long uniMaxVal = uniMax != null ? uniMax : 0L;
+        long biMaxVal = biMax != null ? biMax : 0L;
+        long dataMaxVal = dataMax != null ? dataMax : 0L;
+        WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, uniMaxVal, biMaxVal, dataMaxVal, flowControlEnabled);
 
         sessions.put(sessionStreamId, session);
         logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
@@ -103,10 +134,28 @@ public class WebTransportSessionManager {
     /**
      * Removes a specific session (e.g., when the CONNECT stream is closed).
      */
-    public void remove(long sessionStreamId) {
+    public void unregister(QuicStreamChannel connecStreamChannel) {
+        long sessionStreamId = connecStreamChannel.streamId();
         WebTransportSession removed = sessions.remove(sessionStreamId);
         if (removed != null) {
+            for (QuicStreamChannel activeStream : removed.getActiveBi()) {
+                activeStream.close();
+            }
+            for (QuicStreamChannel activeStream : removed.getActiveUni()) {
+                activeStream.close();
+            }
             logger.debug("🗑️ SessionManager: Removed Session ID " + sessionStreamId);
+        }
+    }
+
+    /**
+     * Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487).
+     */
+    public void closeSessionWithFlowControlError(long sessionId) {
+        WebTransportSession session = sessions.remove(sessionId);
+        if (session != null) {
+            logger.info("❌ Closing CONNECT stream for session " + sessionId + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
+            session.getConnectStream().shutdown(0x045d4487, session.getConnectStream().newPromise());
         }
     }
 
@@ -116,10 +165,10 @@ public class WebTransportSessionManager {
      */
     public void closeAllWithFlowControlError() {
         for (WebTransportSession session : sessions.values()) {
-            logger.info("❌ Closing CONNECT stream for session " + session.sessionStreamId + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
-            session.connectStream.shutdown(0x045d4487, session.connectStream.newPromise());
-            if (session.connectStream.parent() != null) {
-                session.connectStream.parent().close();
+            logger.info("❌ Closing CONNECT stream for session " + session.getSessionStreamId() + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
+            session.getConnectStream().shutdown(0x045d4487, session.getConnectStream().newPromise());
+            if (session.getConnectStream().parent() != null) {
+                session.getConnectStream().parent().close();
             }
         }
         closeAll();
