@@ -108,9 +108,9 @@ public class WebTransportServer {
         // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
         settings.put(0x2c7cf000L, 1L);
         //SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
-        settings.put(0x2b64L, 100L);
+        settings.put(0x2b64L, 10L);
         //SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
-        settings.put(0x2b65L, 100L);
+        settings.put(0x2b65L, 10L);
         //SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, 10000L);
 
@@ -157,25 +157,13 @@ public class WebTransportServer {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
                                         boolean isBidi = stream.type() == QuicStreamType.BIDIRECTIONAL;
-                                        long value = incrementCounter(
+                                        incrementCounter(
                                                 stream.parent(),
                                                 isBidi ? CURRENT_STREAMS_BIDI : CURRENT_STREAMS_UNI
                                         );
                                          
                                         QuicChannel quic = stream.parent();
-                                        java.util.concurrent.atomic.AtomicLong limitAttr = quic.attr(isBidi ? SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI : SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get();
-                                        long maxAllowed = (limitAttr != null) ? limitAttr.get() : 0L;
-                                         
-                                        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
-                                         if (value > maxAllowed) {
-                                             logger.warn("❌ WebTransport stream limit exceeded: " + value + " > " + maxAllowed + ". Closing connection.");
-                                             if (mgr != null) {
-                                                 mgr.closeAllWithFlowControlError();
-                                             }
-                                             stream.shutdown(0x045d4487, stream.newPromise());
-                                             quic.close();
-                                             return;
-                                         }
+                                        
                                         String path = quic.attr(SESSION_PATH_KEY).get();
                                         boolean isSocketIo = (path != null && path.contains("socket.io"));
 

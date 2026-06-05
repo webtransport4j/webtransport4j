@@ -14,6 +14,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.ReferenceCountUtil;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.apache.log4j.Logger;
 
@@ -74,6 +75,32 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
             mgr.register(connectStream);
+            
+            // Send WT_MAX_STREAMS capsules to grant stream credit to the client only if not already set
+            java.util.concurrent.atomic.AtomicLong bidiLimit = quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).get();
+            logger.info("🔍 Handshake check: bidiLimit is " + (bidiLimit == null ? "null" : bidiLimit.get()));
+            if (bidiLimit == null || bidiLimit.get() == 0) {
+                if (bidiLimit == null) {
+                    quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI).set(new java.util.concurrent.atomic.AtomicLong(100L));
+                } else {
+                    bidiLimit.set(100L);
+                }
+                logger.info("📡 Sending BIDI WT_MAX_STREAMS capsule (100)");
+                WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, 100L); // BIDI limit
+            }
+
+            java.util.concurrent.atomic.AtomicLong uniLimit = quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).get();
+            logger.info("🔍 Handshake check: uniLimit is " + (uniLimit == null ? "null" : uniLimit.get()));
+            if (uniLimit == null || uniLimit.get() == 0) {
+                if (uniLimit == null) {
+                    quic.attr(WebTransportUtils.SETTINGS_WT_INITIAL_MAX_STREAMS_UNI).set(new java.util.concurrent.atomic.AtomicLong(100L));
+                } else {
+                    uniLimit.set(100L);
+                }
+                logger.info("📡 Sending UNI WT_MAX_STREAMS capsule (100)");
+                WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, 100L); // UNI limit
+            }
+
             logger.info("before value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
             WebTransportUtils.decrementCounter(quic, WebTransportUtils.CURRENT_STREAMS_BIDI);
             logger.info("After value "+ quic.attr(WebTransportUtils.CURRENT_STREAMS_BIDI).get());
@@ -86,7 +113,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                         "⏰ Creating Server-Push Stream for Session "
                                 + sessionId);
                 logger.debug("⏳ Creating Push Stream...");
-                WebTransportUtils.createUniStream(quic, sessionId, null)
+                WebTransportUtils.createUniStream(quic, sessionId, null, Optional.of(true))
                         .addListener(future -> {
                             if (future.isSuccess()) {
                                 StreamSender sender = (StreamSender) future.getNow();
@@ -120,7 +147,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                         });
                 // TEST: Create a Bi-Directional Stream
                 logger.info("⏳ Creating Bi-Directional Stream...");
-                WebTransportUtils.createBiStream(quic, sessionId, null)
+                WebTransportUtils.createBiStream(quic, sessionId, null, Optional.of(true))
                         .addListener(future -> {
                             if (future.isSuccess()) {
                                 StreamSender sender = (StreamSender) future.getNow();
