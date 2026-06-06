@@ -10,7 +10,6 @@ import io.github.webtransport4j.incubator.applayer.StreamSender;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.AttributeKey;
@@ -31,6 +30,10 @@ public class WebTransportUtils {
     public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_UNI");
     public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_BIDI");
     public static final AttributeKey<Long> SETTINGS_MAX_DATA = AttributeKey.valueOf("SETTINGS_MAX_DATA");
+
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_UNI");
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_BIDI");
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_DATA = AttributeKey.valueOf("PEER_SETTINGS_MAX_DATA");
     
 
     /**
@@ -50,7 +53,7 @@ public class WebTransportUtils {
 
         if (!byPassLimit.orElse(false)) {
             long current = session.getCurrentStreamsUni();
-            long max = session.getSettingsInitialMaxStreamsUni();
+            long max = session.getSettingsMaxStreamsUni();
             if (current >= max) {
                 logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
                 promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Unidirectional stream limit exceeded"));
@@ -80,7 +83,8 @@ public class WebTransportUtils {
                         writeVarInt(header, UNI_STREAM_TYPE);
                         writeVarInt(header, connectStreamChannel.streamId());
                         stream.writeAndFlush(header);
-                        session.getActiveUni().add(stream);
+                        session.getActiveServerInitiatedUni().add(stream);
+                        stream.closeFuture().addListener(f -> session.getActiveServerInitiatedUni().remove(stream));
                         StreamSender sender = new StreamSender(stream);
                         if (key != null) {
                             ServerPushService.INSTANCE.register(key, sender);
@@ -114,7 +118,7 @@ public class WebTransportUtils {
 
         if (!byPassLimit.orElse(false)) {
             long current = session.getCurrentStreamsBidi();
-            long max = session.getSettingsInitialMaxStreamsBidi();
+            long max = session.getSettingsMaxStreamsBidi();
             if (current >= max) {
                 logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
                 promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Bidirectional stream limit exceeded"));
@@ -152,7 +156,8 @@ public class WebTransportUtils {
                         writeVarInt(header, BI_STREAM_TYPE);
                         writeVarInt(header, connectStreamChannel.streamId());
                         stream.writeAndFlush(header);
-                        session.getActiveBi().add(stream);
+                        session.getActiveServerInitiatedBi().add(stream);
+                        stream.closeFuture().addListener(f -> session.getActiveServerInitiatedBi().remove(stream));
                         StreamSender sender = new StreamSender(stream);
                         if (key != null) {
                             ServerPushService.INSTANCE.register(key, sender);

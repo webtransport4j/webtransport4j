@@ -24,8 +24,8 @@ public class FramingLayerTest {
         EmbeddedChannel channel = new EmbeddedChannel(new WebTransportDatagramHandler());
 
         ByteBuf input = Unpooled.buffer();
-        // Write Session ID (varint 42)
-        WebTransportUtils.writeVarInt(input, 42);
+        // Write Session ID (varint 40)
+        WebTransportUtils.writeVarInt(input, 40);
         // Write Payload "Hello"
         input.writeBytes("Hello".getBytes(StandardCharsets.UTF_8));
 
@@ -35,7 +35,7 @@ public class FramingLayerTest {
         assertTrue(output instanceof WebTransportDatagramFrame);
 
         WebTransportDatagramFrame frame = (WebTransportDatagramFrame) output;
-        assertEquals(42L, frame.sessionId());
+        assertEquals(40L, frame.sessionId());
         assertEquals("Hello", frame.content().toString(StandardCharsets.UTF_8));
         frame.release();
     }
@@ -429,8 +429,35 @@ public class FramingLayerTest {
         assertNotNull(session);
 
         // Verify that settings overrode the connection-level limits
-        assertEquals(50L, session.getSettingsInitialMaxStreamsBidi());
-        assertEquals(60L, session.getSettingsInitialMaxStreamsUni());
-        assertEquals(50000L, session.getSettingsInitialMaxData());
+        assertEquals(50L, session.getSettingsMaxStreamsBidi());
+        assertEquals(60L, session.getSettingsMaxStreamsUni());
+        assertEquals(50000L, session.getSettingsMaxData());
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testWebTransportHeadersHandlerInvalidSessionId() throws Exception {
+        WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+        ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+        QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+        QuicChannel mockParent = mock(QuicChannel.class);
+
+        when(mockCtx.channel()).thenReturn(mockStream);
+        when(mockStream.parent()).thenReturn(mockParent);
+        // streamId 101 % 4 = 1 != 0 (invalid)
+        when(mockStream.streamId()).thenReturn(101L);
+
+        // Http3HeadersFrame
+        io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+        io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+        mockHeaders.method("CONNECT");
+        mockHeaders.path("/webtransport-test");
+        mockHeaders.set(":protocol", "webtransport-h3");
+        when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+        handler.channelRead(mockCtx, mockHeadersFrame);
+
+        // Verify connection close with H3_ID_ERROR (0x0108) was called on mockParent
+        verify(mockParent).close(eq(true), eq(0x0108), any(ByteBuf.class));
     }
 }

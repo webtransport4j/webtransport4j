@@ -166,7 +166,7 @@ public class StreamBufferingTest {
         boolean isBidi = mockStream.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
         long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
         
-        long maxAllowed = isBidi ? session.getSettingsInitialMaxStreamsBidi() : session.getSettingsInitialMaxStreamsUni();
+        long maxAllowed = isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
         
         if (value > maxAllowed) {
             mgr.closeSessionWithFlowControlError(100L);

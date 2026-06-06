@@ -28,19 +28,26 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
                 logger.debug("🔧 Received protocol capsule on EventLoop: 0x" + Long.toHexString(capsule.capsuleType()));
             }
             if (capsule.capsuleType() == 0x2843L) {
-                logger.info("❌ CLOSE_WEBTRANSPORT_SESSION capsule received. Closing connection.");
-                Channel parent = (ctx.channel() instanceof QuicStreamChannel)
-                        ? ((QuicStreamChannel) ctx.channel()).parent()
-                        : ctx.channel();
-                if (parent != null) {
-                    parent.close();
+                // Read 32-bit error code if payload is present
+                long errorCode = 0;
+                String errorMessage = "";
+                ByteBuf content = capsule.content();
+                if (content.readableBytes() >= 4) {
+                    errorCode = content.readUnsignedInt();
+                    if (content.isReadable()) {
+                        errorMessage = content.toString(io.netty.util.CharsetUtil.UTF_8);
+                    }
                 }
+                logger.info("❌ CLOSE_WEBTRANSPORT_SESSION capsule received. Code: " + errorCode + ", Message: '" + errorMessage + "'. Closing session.");
+                
+                // Cleanly close only this WebTransport session stream
                 ctx.close();
             } else {
                 logger.warn("⚠️ Received unhandled protocol capsule: 0x" + Long.toHexString(capsule.capsuleType()));
             }
             return;
-        }
+    }
+
 
         Channel channel = ctx.channel();
 

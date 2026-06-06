@@ -9,6 +9,7 @@ import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3DataFrame;
+import io.netty.handler.codec.http3.Http3ErrorCode;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -48,6 +49,21 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         if ("CONNECT".contentEquals(method)
                 && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
             QuicChannel quic = (QuicChannel) ctx.channel().parent();
+            QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+            long sessionId = connectStream.streamId();
+            //verify it is client-iniated bi directional stream as per below RFC
+            //https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
+            // Client-Initiated Bi-Directional: 0x0, 0x4, 0x8, ... → type=0 mod 4
+            if (sessionId % 4L != 0L) {
+                logger.warn("❌ Rejecting connection from invalid session id: " + sessionId);
+                if (quic != null) {
+                    quic.close(true, (int) Http3ErrorCode.H3_ID_ERROR.code(), io.netty.buffer.Unpooled.EMPTY_BUFFER);
+                } else {
+                    ctx.close();
+                }
+                ReferenceCountUtil.release(frame);
+                return;
+            }
 
             // Validate CORS allowed origins
             CharSequence origin = frame.headers().get("origin");
@@ -75,12 +91,12 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
             WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
 
-            QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+            
             connectStream.closeFuture().addListener(f -> {
                 mgr.unregister(connectStream);
             });
             mgr.register(connectStream);
-            long sessionId = connectStream.streamId();
+            
             boolean isConnectSocketIo = pathStr.contains("socket.io");
             if (!isConnectSocketIo) {
                 // Trigger server initiated uni-stream - test code
@@ -153,9 +169,12 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                                 logger.error("❌ Failed to create Bi Stream", future.cause());
                             }
                         });
+                      
             }
 
+            
         }
+       
         ReferenceCountUtil.release(frame);
     }
 

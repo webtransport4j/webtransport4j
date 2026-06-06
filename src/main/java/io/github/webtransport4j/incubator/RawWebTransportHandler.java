@@ -79,7 +79,7 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
                 }
                 boolean isBidi = (streamType == 0x41);
                 long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
-                long maxAllowed = isBidi ? session.getSettingsInitialMaxStreamsBidi() : session.getSettingsInitialMaxStreamsUni();
+                long maxAllowed = isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
 
                 if (value > maxAllowed) {
                     logger.warn("❌ WebTransport stream limit exceeded for session " + sessionId + ": " + value + " > " + maxAllowed);
@@ -97,11 +97,11 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
 
                 QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
                 if (isBidi) {
-                    session.getActiveBi().add(streamChannel);
-                    streamChannel.closeFuture().addListener(future -> session.getActiveBi().remove(streamChannel));
+                    session.getActiveClientInitiatedBi().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
                 } else {
-                    session.getActiveUni().add(streamChannel);
-                    streamChannel.closeFuture().addListener(future -> session.getActiveUni().remove(streamChannel));
+                    session.getActiveClientInitiatedUni().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
                 }
             }
 

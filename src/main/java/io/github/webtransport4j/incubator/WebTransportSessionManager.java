@@ -78,7 +78,23 @@ public class WebTransportSessionManager {
         long uniMaxVal = uniMax != null ? uniMax : 0L;
         long biMaxVal = biMax != null ? biMax : 0L;
         long dataMaxVal = dataMax != null ? dataMax : 0L;
-        WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, uniMaxVal, biMaxVal, dataMaxVal, flowControlEnabled);
+
+        Long peerUni = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI) != null 
+                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI).get() : null;
+        Long peerBidi = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI) != null 
+                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI).get() : null;
+        Long peerData = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA) != null 
+                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA).get() : null;
+
+        long peerUniVal = peerUni != null ? peerUni : 0L;
+        long peerBidiVal = peerBidi != null ? peerBidi : 0L;
+        long peerDataVal = peerData != null ? peerData : 0L;
+
+        WebTransportSession session = new WebTransportSession(
+                sessionStreamId, connectStream,
+                uniMaxVal, biMaxVal, dataMaxVal,
+                peerUniVal, peerBidiVal, peerDataVal,
+                flowControlEnabled);
 
         sessions.put(sessionStreamId, session);
         logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
@@ -138,10 +154,16 @@ public class WebTransportSessionManager {
         long sessionStreamId = connecStreamChannel.streamId();
         WebTransportSession removed = sessions.remove(sessionStreamId);
         if (removed != null) {
-            for (QuicStreamChannel activeStream : removed.getActiveBi()) {
+            for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedBi()) {
                 activeStream.close();
             }
-            for (QuicStreamChannel activeStream : removed.getActiveUni()) {
+            for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedBi()) {
+                activeStream.close();
+            }
+            for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedUni()) {
+                activeStream.close();
+            }
+            for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedUni()) {
                 activeStream.close();
             }
             logger.debug("🗑️ SessionManager: Removed Session ID " + sessionStreamId);

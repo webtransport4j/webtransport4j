@@ -1,8 +1,6 @@
 package io.github.webtransport4j.incubator;
 
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.util.internal.ConcurrentSet;
-
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -15,37 +13,58 @@ public class WebTransportSession {
 
     private final long sessionStreamId;
     private final QuicStreamChannel connectStream;
-    private final Set<QuicStreamChannel> activeUni;
-    private final Set<QuicStreamChannel> activeBi;
-    private final AtomicLong settingsInitialMaxStreamsUni;
-    private final AtomicLong settingsInitialMaxStreamsBidi;
-    private final AtomicLong settingsInitialMaxData;
+    private final Set<QuicStreamChannel> activeClientInitiatedUni;
+    private final Set<QuicStreamChannel> activeServerInitiatedUni;
+    private final Set<QuicStreamChannel> activeClientInitiatedBi;
+    private final Set<QuicStreamChannel> activeServerInitiatedBi;
+    private final AtomicLong settingsMaxStreamsUni;
+    private final AtomicLong settingsMaxStreamsBidi;
+    private final AtomicLong settingsMaxData;
+    private final AtomicLong peerSettingsMaxStreamsUni;
+    private final AtomicLong peerSettingsMaxStreamsBidi;
+    private final AtomicLong peerSettingsMaxData;
     private final AtomicLong currentStreamsUni = new AtomicLong(0L);
     private final AtomicLong currentStreamsBidi = new AtomicLong(0L);
     private final boolean flowControlEnabled;
 
     WebTransportSession(long sessionStreamId,
                         QuicStreamChannel connectStream,
-                        long initialMaxStreamsUni,
-                        long initialMaxStreamsBidi,
-                        long initialMaxData,
+                        long maxStreamsUni,
+                        long maxStreamsBidi,
+                        long maxData,
+                        long peerMaxStreamsUni,
+                        long peerMaxStreamsBidi,
+                        long peerMaxData,
                     boolean flowControlEnabled) {
         this.sessionStreamId = sessionStreamId;
         this.connectStream = connectStream;
-        this.settingsInitialMaxStreamsUni = new AtomicLong(initialMaxStreamsUni);
-        this.settingsInitialMaxStreamsBidi = new AtomicLong(initialMaxStreamsBidi);
-        this.settingsInitialMaxData = new AtomicLong(initialMaxData);
+        this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
+        this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
+        this.settingsMaxData = new AtomicLong(maxData);
+        this.peerSettingsMaxStreamsUni = new AtomicLong(peerMaxStreamsUni);
+        this.peerSettingsMaxStreamsBidi = new AtomicLong(peerMaxStreamsBidi);
+        this.peerSettingsMaxData = new AtomicLong(peerMaxData);
         this.flowControlEnabled = flowControlEnabled;
-        this.activeBi = ConcurrentHashMap.newKeySet();
-        this.activeUni = ConcurrentHashMap.newKeySet();
+        this.activeClientInitiatedBi = ConcurrentHashMap.newKeySet();
+        this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet();
+        this.activeClientInitiatedUni = ConcurrentHashMap.newKeySet();
+        this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet();
     }
 
-    public Set<QuicStreamChannel> getActiveUni() {
-        return activeUni;
+    public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
+        return activeClientInitiatedUni;
     }
 
-    public Set<QuicStreamChannel> getActiveBi() {
-        return activeBi;
+    public Set<QuicStreamChannel> getActiveServerInitiatedUni() {
+        return activeServerInitiatedUni;
+    }
+
+    public Set<QuicStreamChannel> getActiveClientInitiatedBi() {
+        return activeClientInitiatedBi;
+    }
+
+    public Set<QuicStreamChannel> getActiveServerInitiatedBi() {
+        return activeServerInitiatedBi;
     }
 
     public boolean isFlowControlEnabled() {
@@ -60,16 +79,40 @@ public class WebTransportSession {
         return connectStream;
     }
 
-    public long getSettingsInitialMaxStreamsUni() {
-        return settingsInitialMaxStreamsUni.get();
+    public long getSettingsMaxStreamsUni() {
+        return settingsMaxStreamsUni.get();
     }
 
-    public long getSettingsInitialMaxStreamsBidi() {
-        return settingsInitialMaxStreamsBidi.get();
+    public long getSettingsMaxStreamsBidi() {
+        return settingsMaxStreamsBidi.get();
     }
 
-    public long getSettingsInitialMaxData() {
-        return settingsInitialMaxData.get();
+    public long getSettingsMaxData() {
+        return settingsMaxData.get();
+    }
+
+    public long getPeerSettingsMaxStreamsUni() {
+        return peerSettingsMaxStreamsUni.get();
+    }
+
+    public void setPeerSettingsMaxStreamsUni(long value) {
+        this.peerSettingsMaxStreamsUni.set(value);
+    }
+
+    public long getPeerSettingsMaxStreamsBidi() {
+        return peerSettingsMaxStreamsBidi.get();
+    }
+
+    public void setPeerSettingsMaxStreamsBidi(long value) {
+        this.peerSettingsMaxStreamsBidi.set(value);
+    }
+
+    public long getPeerSettingsMaxData() {
+        return peerSettingsMaxData.get();
+    }
+
+    public void setPeerSettingsMaxData(long value) {
+        this.peerSettingsMaxData.set(value);
     }
 
     public long getCurrentStreamsUni() {

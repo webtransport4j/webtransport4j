@@ -15,6 +15,7 @@ import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.http3.Http3SettingsFrame;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
@@ -134,6 +135,7 @@ public class WebTransportServer {
                 .handler(new ChannelInitializer<QuicChannel>() {
                     @Override
                     protected void initChannel(QuicChannel ch) {
+                        logger.debug("Opening quic connection "+ ch.id());
                         long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
                         long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
                         long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
@@ -197,7 +199,33 @@ logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().
                                         });
                                     }
                                 },
-                                null,
+                                new ChannelInboundHandlerAdapter() {
+                                    @Override
+                                    public void channelRead(
+                                            ChannelHandlerContext ctx,
+                                            Object msg) {
+                                        if (msg instanceof Http3SettingsFrame) {
+                                            Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
+                                            logger.debug("PEER SETTINGS: " + settingsFrame);
+                                            io.netty.handler.codec.http3.Http3Settings settings = settingsFrame.settings();
+                                            if (settings != null) {
+                                                QuicChannel quic = null;
+                                                if (ctx.channel() instanceof QuicStreamChannel) {
+                                                    quic = ((QuicStreamChannel) ctx.channel()).parent();
+                                                } else if (ctx.channel() instanceof QuicChannel) {
+                                                    quic = (QuicChannel) ctx.channel();
+                                                }
+                                                if (quic != null) {
+                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
+                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI).set(settings.get(0x2b65L));
+                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
+                                                }
+                                            }
+                                        }
+                                        ctx.fireChannelRead(msg);
+                                    }
+
+                                },
                                 (streamType) -> {
                                     if (streamType == 0x54) {
                                         return new ChannelInitializer<QuicStreamChannel>() {
