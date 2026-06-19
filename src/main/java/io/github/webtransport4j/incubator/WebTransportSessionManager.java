@@ -147,6 +147,10 @@ public class WebTransportSessionManager {
         return sessions.get(sessionStreamId);
     }
 
+    public int sessionsSize() {
+        return sessions.size();
+    }
+
     /**
      * Removes a specific session (e.g., when the CONNECT stream is closed).
      */

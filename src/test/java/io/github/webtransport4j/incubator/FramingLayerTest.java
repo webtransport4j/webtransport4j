@@ -611,6 +611,7 @@ public class FramingLayerTest {
             verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
             io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
             assertEquals("200", respFrame.headers().status().toString());
+            mgr.closeAll();
         }
 
         // Case 2: Origin "https://evil.com" -> Should be FORBIDDEN
@@ -650,6 +651,89 @@ public class FramingLayerTest {
             verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
             io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
             assertEquals("200", respFrame.headers().status().toString());
+            mgr.closeAll();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testSimultaneousSessionLimitRejection() throws Exception {
+        // Set maximum sessions limit to 1
+        System.setProperty("webtransport4j.webtransport.max_sessions_per_connection", "1");
+        try {
+            WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+            ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+            QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+            QuicChannel mockParent = mock(QuicChannel.class);
+
+            when(mockCtx.channel()).thenReturn(mockStream);
+            when(mockStream.parent()).thenReturn(mockParent);
+            when(mockStream.streamId()).thenReturn(100L);
+            io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+            when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+            io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+            when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+            io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig = mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+            when(mockStream.config()).thenReturn(mockConfig);
+            when(mockConfig.isAutoRead()).thenReturn(true);
+
+            io.netty.channel.ChannelPipeline mockPipeline = mock(io.netty.channel.ChannelPipeline.class);
+            when(mockCtx.pipeline()).thenReturn(mockPipeline);
+            when(mockPipeline.names()).thenReturn(java.util.Collections.emptyList());
+
+            // Mock ALLOWED_ORIGINS to allow everything
+            io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr = mock(io.netty.util.Attribute.class);
+            when(allowedOriginsAttr.get()).thenReturn(null);
+            when(mockParent.attr(WebTransportServer.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
+
+            io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+            when(mockParent.attr(WebTransportServer.SESSION_PATH_KEY)).thenReturn(pathAttr);
+
+            // Setup session manager with 1 active session registered
+            WebTransportSessionManager mgr = new WebTransportSessionManager();
+            QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
+            when(existingStream.streamId()).thenReturn(40L);
+            when(existingStream.parent()).thenReturn(mockParent);
+            when(existingStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(mock(io.netty.util.Attribute.class));
+            mgr.register(existingStream);
+
+            io.netty.util.Attribute<WebTransportSessionManager> mgrAttr = mock(io.netty.util.Attribute.class);
+            when(mgrAttr.get()).thenReturn(mgr);
+            when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+            io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+            when(defaultBidiAttr.get()).thenReturn(10L);
+            when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+
+            io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+            when(defaultUniAttr.get()).thenReturn(10L);
+            when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
+
+            io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+            when(defaultDataAttr.get()).thenReturn(10000L);
+            when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+
+            // Setup new CONNECT request
+            io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+            io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+            mockHeaders.method("CONNECT");
+            mockHeaders.scheme("https");
+            mockHeaders.authority("localhost:4433");
+            mockHeaders.path("/webtransport-test");
+            mockHeaders.set(":protocol", "webtransport-h3");
+            when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+            // Execute channelRead — this should trigger simultaneous session limit (since 1 session is already registered)
+            handler.channelRead(mockCtx, mockHeadersFrame);
+
+            // Verify status 429 Too Many Requests response is sent
+            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+            verify(mockCtx).writeAndFlush(captor.capture());
+            io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getValue();
+            assertEquals("429", respFrame.headers().status().toString());
+        } finally {
+            System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");
         }
     }
 }

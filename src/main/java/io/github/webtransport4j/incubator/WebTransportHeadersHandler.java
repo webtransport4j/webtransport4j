@@ -103,6 +103,18 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                 return;
             }
 
+            WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+            int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
+            if (mgr != null && mgr.sessionsSize() >= maxSessions) {
+                logger.warn("❌ Rejecting connection: Max simultaneous sessions per connection reached (" + maxSessions + ")");
+                Http3Headers responseHeaders = new DefaultHttp3Headers();
+                responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
+                ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+                ctx.close();
+                ReferenceCountUtil.release(frame);
+                return;
+            }
+
             String pathStr = path.toString();
             quic.attr(WebTransportServer.SESSION_PATH_KEY).set(pathStr);
 
@@ -114,9 +126,6 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             logger.debug("🌊 Stream 0 AutoRead: " + ctx.channel().config().isAutoRead());
             logger.debug("🌊 Stream 0 Pipeline post-handshake: " + ctx.pipeline().names());
 
-            WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
-
-            
             connectStream.closeFuture().addListener(f -> {
                 mgr.unregister(connectStream);
             });
