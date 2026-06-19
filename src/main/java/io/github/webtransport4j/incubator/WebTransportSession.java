@@ -15,6 +15,20 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class WebTransportSession {
 
+    // Default initial capacity for stream tracking sets.
+    // Most sessions have few concurrent streams; avoids 16-bucket default of ConcurrentHashMap.
+    private static final int STREAM_SET_INITIAL_CAPACITY = 4;
+
+    // Sentinel empty queue for sessions without flow control
+    @SuppressWarnings("rawtypes")
+    private static final Queue EMPTY_QUEUE = new java.util.AbstractQueue() {
+        @Override public boolean offer(Object e) { return false; }
+        @Override public Object poll() { return null; }
+        @Override public Object peek() { return null; }
+        @Override public java.util.Iterator iterator() { return java.util.Collections.emptyIterator(); }
+        @Override public int size() { return 0; }
+    };
+
     private final long sessionStreamId;
 
     private final QuicStreamChannel connectStream;
@@ -43,14 +57,11 @@ public class WebTransportSession {
     private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
     private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
 
-    // Cumulative byte counters for session-level flow control
-    private final AtomicLong cumulativeBytesSent = new AtomicLong(0L);
-    private final AtomicLong cumulativeBytesReceived = new AtomicLong(0L);
-
-    // Queue for pending writes when flow control blocks them
-    private final Queue<PendingWrite> pendingWrites = new ConcurrentLinkedQueue<>();
-    // Tracks the last peer limit for which a WT_DATA_BLOCKED capsule was sent
-    private final AtomicLong lastSentDataBlockedLimit = new AtomicLong(-1L);
+    // Flow control fields — only allocated when flowControlEnabled is true
+    private final AtomicLong cumulativeBytesSent;
+    private final AtomicLong cumulativeBytesReceived;
+    private final Queue<PendingWrite> pendingWrites;
+    private final AtomicLong lastSentDataBlockedLimit;
 
     private final boolean flowControlEnabled;
 
@@ -59,6 +70,7 @@ public class WebTransportSession {
     private final long initialMaxStreamsBidi;
     private final long initialMaxData;
 
+    @SuppressWarnings("unchecked")
     WebTransportSession(long sessionStreamId,
             QuicStreamChannel connectStream,
             long maxStreamsUni,
@@ -70,20 +82,38 @@ public class WebTransportSession {
             boolean flowControlEnabled) {
         this.sessionStreamId = sessionStreamId;
         this.connectStream = connectStream;
+        this.flowControlEnabled = flowControlEnabled;
+
+        // Stream limits — always needed
         this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
         this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
+        this.settingsMaxData = new AtomicLong(maxData);
         this.initialMaxStreamsUni = maxStreamsUni;
         this.initialMaxStreamsBidi = maxStreamsBidi;
-        this.settingsMaxData = new AtomicLong(maxData);
         this.initialMaxData = maxData;
+
         this.peerSettingsMaxStreamsUni = new AtomicLong(peerMaxStreamsUni);
         this.peerSettingsMaxStreamsBidi = new AtomicLong(peerMaxStreamsBidi);
         this.peerSettingsMaxData = new AtomicLong(peerMaxData);
-        this.flowControlEnabled = flowControlEnabled;
-        this.activeClientInitiatedBi = ConcurrentHashMap.newKeySet();
-        this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet();
-        this.activeClientInitiatedUni = ConcurrentHashMap.newKeySet();
-        this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet();
+
+        // Active stream sets — use small initial capacity to reduce memory footprint
+        this.activeClientInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
+        this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
+        this.activeClientInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
+        this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
+
+        // Flow control objects — skip allocation when disabled
+        if (flowControlEnabled) {
+            this.cumulativeBytesSent = new AtomicLong(0L);
+            this.cumulativeBytesReceived = new AtomicLong(0L);
+            this.pendingWrites = new ConcurrentLinkedQueue<>();
+            this.lastSentDataBlockedLimit = new AtomicLong(-1L);
+        } else {
+            this.cumulativeBytesSent = null;
+            this.cumulativeBytesReceived = null;
+            this.pendingWrites = (Queue<PendingWrite>) EMPTY_QUEUE;
+            this.lastSentDataBlockedLimit = null;
+        }
     }
 
     public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
