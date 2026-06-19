@@ -334,6 +334,8 @@ public class FramingLayerTest {
         io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
         io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
         mockHeaders.method("CONNECT");
+        mockHeaders.scheme("https");
+        mockHeaders.authority("localhost");
         mockHeaders.path("/webtransport-test");
         mockHeaders.set(":protocol", "webtransport-h3");
         when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
@@ -415,6 +417,8 @@ public class FramingLayerTest {
         io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
         io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
         mockHeaders.method("CONNECT");
+        mockHeaders.scheme("https");
+        mockHeaders.authority("localhost");
         mockHeaders.path("/webtransport-test");
         mockHeaders.set(":protocol", "webtransport-h3");
         when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
@@ -449,6 +453,8 @@ public class FramingLayerTest {
         io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
         io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
         mockHeaders.method("CONNECT");
+        mockHeaders.scheme("https");
+        mockHeaders.authority("localhost");
         mockHeaders.path("/webtransport-test");
         mockHeaders.set(":protocol", "webtransport-h3");
         when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
@@ -526,5 +532,124 @@ public class FramingLayerTest {
         // Create Bi Stream - Second creation should fail (exceeds limit 1)
         WebTransportUtils.createBiStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
         verify(mockPromise, times(2)).setFailure(any(IllegalStateException.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testAllowedOriginsAndAuthorityMatching() throws Exception {
+        WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+        ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+        QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+        QuicChannel mockParent = mock(QuicChannel.class);
+
+        when(mockCtx.channel()).thenReturn(mockStream);
+        when(mockStream.parent()).thenReturn(mockParent);
+        when(mockStream.streamId()).thenReturn(100L);
+        io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+        when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+        io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+        when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+        io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig = mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+        when(mockStream.config()).thenReturn(mockConfig);
+        when(mockConfig.isAutoRead()).thenReturn(true);
+
+        io.netty.channel.ChannelPipeline mockPipeline = mock(io.netty.channel.ChannelPipeline.class);
+        when(mockCtx.pipeline()).thenReturn(mockPipeline);
+        when(mockPipeline.names()).thenReturn(java.util.Collections.emptyList());
+
+        // Configure allowed origins: [google.com, localhost]
+        io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr = mock(io.netty.util.Attribute.class);
+        when(allowedOriginsAttr.get()).thenReturn(java.util.Arrays.asList("google.com", "localhost"));
+        when(mockParent.attr(WebTransportServer.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
+
+        io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+        when(mockParent.attr(WebTransportServer.SESSION_PATH_KEY)).thenReturn(pathAttr);
+
+        WebTransportSessionManager mgr = new WebTransportSessionManager();
+        io.netty.util.Attribute<WebTransportSessionManager> mgrAttr = mock(io.netty.util.Attribute.class);
+        when(mgrAttr.get()).thenReturn(mgr);
+        when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+        io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+        when(defaultBidiAttr.get()).thenReturn(10L);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+
+        io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+        when(defaultUniAttr.get()).thenReturn(10L);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
+
+        io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+        when(defaultDataAttr.get()).thenReturn(10000L);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+
+        // Mock EventLoop and Promise for stream creation
+        io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+        when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+        io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+        when(mockEventLoop.newPromise()).thenReturn(mockPromise);
+        when(mockPromise.addListener(any())).thenReturn(mockPromise);
+        io.netty.util.concurrent.Future mockFuture = mock(io.netty.util.concurrent.Future.class);
+        when(mockParent.createStream(any(), any())).thenReturn(mockFuture);
+        when(mockFuture.addListener(any())).thenReturn(mockFuture);
+
+        // Case 1: Origin "https://localhost:4433" -> Should be ALLOWED
+        {
+            io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+            io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+            mockHeaders.method("CONNECT");
+            mockHeaders.scheme("https");
+            mockHeaders.authority("localhost:4433");
+            mockHeaders.path("/webtransport-test");
+            mockHeaders.set(":protocol", "webtransport-h3");
+            mockHeaders.set("origin", "https://localhost:4433");
+            when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+            handler.channelRead(mockCtx, mockHeadersFrame);
+
+            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+            verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
+            io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
+            assertEquals("200", respFrame.headers().status().toString());
+        }
+
+        // Case 2: Origin "https://evil.com" -> Should be FORBIDDEN
+        {
+            io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+            io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+            mockHeaders.method("CONNECT");
+            mockHeaders.scheme("https");
+            mockHeaders.authority("localhost:4433");
+            mockHeaders.path("/webtransport-test");
+            mockHeaders.set(":protocol", "webtransport-h3");
+            mockHeaders.set("origin", "https://evil.com");
+            when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+            handler.channelRead(mockCtx, mockHeadersFrame);
+
+            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+            verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
+            io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
+            assertEquals("403", respFrame.headers().status().toString());
+        }
+
+        // Case 3: Origin absent, Authority "localhost:4433" (e.g. backend client) -> Should be ALLOWED
+        {
+            io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame = mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+            io.netty.handler.codec.http3.Http3Headers mockHeaders = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+            mockHeaders.method("CONNECT");
+            mockHeaders.scheme("https");
+            mockHeaders.authority("localhost:4433");
+            mockHeaders.path("/webtransport-test");
+            mockHeaders.set(":protocol", "webtransport-h3");
+            when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+            handler.channelRead(mockCtx, mockHeadersFrame);
+
+            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+            verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
+            io.netty.handler.codec.http3.Http3HeadersFrame respFrame = (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
+            assertEquals("200", respFrame.headers().status().toString());
+        }
     }
 }

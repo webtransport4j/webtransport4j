@@ -51,6 +51,28 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         if ("CONNECT".contentEquals(method)
                 && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
+            // Validate scheme: MUST be "https" as per draft-15 section 4.4
+            if (scheme == null || !"https".contentEquals(scheme)) {
+                logger.warn("❌ Rejecting connection from invalid scheme: " + scheme);
+                Http3Headers responseHeaders = new DefaultHttp3Headers();
+                responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
+                ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+                ctx.close();
+                ReferenceCountUtil.release(frame);
+                return;
+            }
+
+            // Validate authority: MUST be present as per draft-15 section 4.4
+            if (authority == null || authority.length() == 0) {
+                logger.warn("❌ Rejecting connection due to missing :authority");
+                Http3Headers responseHeaders = new DefaultHttp3Headers();
+                responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
+                ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+                ctx.close();
+                ReferenceCountUtil.release(frame);
+                return;
+            }
+
             QuicChannel quic = (QuicChannel) ctx.channel().parent();
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
             long sessionId = connectStream.streamId();
@@ -68,11 +90,11 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                 return;
             }
 
-            // Validate CORS allowed origins
+            // Validate CORS allowed origins and authority host
             CharSequence origin = frame.headers().get("origin");
             java.util.List<String> allowed = quic.attr(WebTransportServer.ALLOWED_ORIGINS).get();
-            if (!isOriginAllowed(allowed, origin)) {
-                logger.warn("❌ Rejecting connection from unauthorized origin: " + origin);
+            if (!isAllowed(allowed, origin, authority)) {
+                logger.warn("❌ Rejecting connection from unauthorized origin: " + origin + " (authority: " + authority + ")");
                 Http3Headers responseHeaders = new DefaultHttp3Headers();
                 responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
                 ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
@@ -196,18 +218,45 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         ReferenceCountUtil.release(frame);
     }
 
-    private boolean isOriginAllowed(java.util.List<String> allowedOrigins, CharSequence origin) {
-        if (allowedOrigins == null || allowedOrigins.isEmpty()) {
+    private boolean isAllowed(java.util.List<String> allowedOrigins, CharSequence origin, CharSequence authority) {
+        if (allowedOrigins == null || allowedOrigins.isEmpty() || allowedOrigins.contains("*")) {
             return true;
         }
-        if (origin == null) {
-            return allowedOrigins.contains("*");
+
+        // If origin is present, we MUST validate it (no fallback to authority if it fails validation)
+        if (origin != null) {
+            String originHost = extractHost(origin.toString());
+            return originHost != null && allowedOrigins.contains(originHost);
         }
-        String originStr = origin.toString();
-        if (allowedOrigins.contains("*")) {
-            return true;
+
+        // If origin is absent (non-browser clients), fall back to checking host extracted from authority
+        if (authority != null) {
+            String authorityHost = extractHost(authority.toString());
+            return authorityHost != null && allowedOrigins.contains(authorityHost);
         }
-        return allowedOrigins.contains(originStr);
+
+        return false;
+    }
+
+    private String extractHost(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            String uriStr = value.trim();
+            if (!uriStr.contains("://")) {
+                uriStr = "https://" + uriStr;
+            }
+            java.net.URI uri = new java.net.URI(uriStr);
+            String host = uri.getHost();
+            if (host == null) {
+                // In case URI host is null (e.g. for "*"), fallback to value
+                return uriStr.substring(uriStr.indexOf("://") + 3);
+            }
+            return host;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
