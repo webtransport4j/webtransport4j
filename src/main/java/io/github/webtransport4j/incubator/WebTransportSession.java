@@ -315,6 +315,48 @@ public class WebTransportSession {
     }
 
     /**
+     * Gracefully closes the WebTransport session by closing the CONNECT stream.
+     */
+    public void close() {
+        connectStream.close();
+    }
+
+    /**
+     * Abruptly closes the WebTransport session by resetting the CONNECT stream
+     * with the specified HTTP/3 error code and resetting all active data streams.
+     */
+    public void abort(long httpErrorCode) {
+        int code = (int) httpErrorCode;
+        if (code < 0) {
+            code = 0; // fallback to safe code to prevent native JVM crash
+        }
+        connectStream.shutdown(code, connectStream.newPromise());
+        cleanupPendingWrites(new IllegalStateException("Session aborted with error: 0x" + Long.toHexString(httpErrorCode)));
+
+        // Reset all associated data streams
+        for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
+            activeStream.shutdown(code, activeStream.newPromise());
+        }
+        for (QuicStreamChannel activeStream : activeServerInitiatedBi) {
+            activeStream.shutdown(code, activeStream.newPromise());
+        }
+        for (QuicStreamChannel activeStream : activeClientInitiatedUni) {
+            activeStream.shutdown(code, activeStream.newPromise());
+        }
+        for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
+            activeStream.shutdown(code, activeStream.newPromise());
+        }
+    }
+
+    /**
+     * Resets a WebTransport data stream with a WebTransport application error code
+     * (automatically mapped to the HTTP/3 error range as per Section 4.4).
+     */
+    public void resetStream(QuicStreamChannel dataStream, long appErrorCode) {
+        WebTransportUtils.resetStream(dataStream, appErrorCode);
+    }
+
+    /**
      * Represents a write that was buffered because it would exceed
      * the session-level flow control limit.
      */

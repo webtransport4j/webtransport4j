@@ -147,6 +147,19 @@ public class WebTransportIntegrationTest {
                                                 } else if (ctx.channel() instanceof QuicChannel) {
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
+
+                                                // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is enabled (1)
+                                                if (!settings.h3DatagramEnabled()) {
+                                                    System.out.println("SERVER: WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection.");
+                                                    if (quic != null) {
+                                                        quic.close(true, 0x61616164, io.netty.buffer.Unpooled.EMPTY_BUFFER);
+                                                    } else {
+                                                        ctx.close();
+                                                    }
+                                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                                    return;
+                                                }
+
                                                 System.out.println("SERVER: Settings parent quic channel: " + quic);
                                                 if (quic != null) {
                                                     quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
@@ -881,6 +894,447 @@ public class WebTransportIntegrationTest {
         });
 
         assertTrue("Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+        quicClient.close().sync();
+    }
+
+    @Test
+    public void testRequirementsNotMetRejection() throws Exception {
+        // Build client ssl context
+        QuicSslContext clientSslContext = QuicSslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .applicationProtocols(Http3.supportedApplicationProtocols())
+                .build();
+
+        // client disables H3 Datagram
+        Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+        clientSettings.enableH3Datagram(false); // violates WebTransport requirements
+        clientSettings.enableConnectProtocol(true);
+        clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+
+        CountDownLatch closeLatch = new CountDownLatch(1);
+
+        ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
+                .sslContext(clientSslContext)
+                .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+                .initialMaxData(10000000)
+                .initialMaxStreamDataBidirectionalLocal(1000000)
+                .initialMaxStreamDataBidirectionalRemote(1000000)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(100)
+                .datagram(10000, 10000)
+                .build();
+
+        Channel clientChannel = new Bootstrap()
+                .group(clientGroup)
+                .channel(NioDatagramChannel.class)
+                .handler(clientCodec)
+                .bind(0)
+                .sync()
+                .channel();
+
+        QuicChannelBootstrap bootstrap = QuicChannel.newBootstrap(clientChannel)
+                .handler(new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {
+                        ch.pipeline().addLast(new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                    @Override
+                                    protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true
+                        ));
+                    }
+                })
+                .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+
+        QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+        // Watch for QUIC connection close
+        quicClient.closeFuture().addListener(f -> {
+            closeLatch.countDown();
+        });
+
+        // Wait for the connection to be rejected and closed by server
+        assertTrue("Connection close timed out", closeLatch.await(5, TimeUnit.SECONDS));
+        assertFalse(quicClient.isActive());
+    }
+
+    @Test
+    public void testSessionResetStream() throws Exception {
+        // Build client ssl context
+        QuicSslContext clientSslContext = QuicSslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .applicationProtocols(Http3.supportedApplicationProtocols())
+                .build();
+
+        Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+        clientSettings.enableH3Datagram(true);
+        clientSettings.enableConnectProtocol(true);
+        clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+        clientSettings.put(0x2b64L, 10L);
+        clientSettings.put(0x2b65L, 10L);
+        clientSettings.put(0x2b61L, 10000L);
+
+        CountDownLatch handshakeLatch = new CountDownLatch(1);
+        final QuicStreamChannel[] connectStream = new QuicStreamChannel[1];
+
+        ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
+                .sslContext(clientSslContext)
+                .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+                .initialMaxData(10000000)
+                .initialMaxStreamDataBidirectionalLocal(1000000)
+                .initialMaxStreamDataBidirectionalRemote(1000000)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(100)
+                .datagram(10000, 10000)
+                .build();
+
+        Channel clientChannel = new Bootstrap()
+                .group(clientGroup)
+                .channel(NioDatagramChannel.class)
+                .handler(clientCodec)
+                .bind(0)
+                .sync()
+                .channel();
+
+        QuicChannelBootstrap bootstrap = QuicChannel.newBootstrap(clientChannel)
+                .handler(new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {
+                        ch.pipeline().addLast(new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                    @Override
+                                    protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true
+                        ));
+                    }
+                })
+                .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+        QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+        // 1. Handshake Connect Stream Creation
+        Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                        if (msg instanceof Http3HeadersFrame) {
+                            Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
+                            if ("200".equals(headersFrame.headers().status().toString())) {
+                                connectStream[0] = (QuicStreamChannel) ctx.channel();
+                                handshakeLatch.countDown();
+                            }
+                        }
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                Http3Headers headers = new DefaultHttp3Headers();
+                headers.method("CONNECT");
+                headers.scheme("https");
+                headers.path("/test-integration");
+                headers.authority("localhost");
+                headers.set(":protocol", "webtransport");
+                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+            }
+        });
+
+        assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(connectStream[0]);
+        long sessionId = connectStream[0].streamId();
+
+        final QuicStreamChannel[] bidiStream = new QuicStreamChannel[1];
+        final CountDownLatch bidiEchoLatch = new CountDownLatch(1);
+        final Throwable[] caughtBidiException = new Throwable[1];
+        final CountDownLatch bidiResetLatch = new CountDownLatch(1);
+
+        quicClient.createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addFirst(new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                        ctx.channel().eventLoop().execute(() -> {
+                            java.util.List<String> toRemove = new java.util.ArrayList<>();
+                            for (String name : ctx.pipeline().names()) {
+                                ChannelHandler h = ctx.pipeline().get(name);
+                                if (h != null && h != this && (name.contains("Http3") || h.getClass().getName().contains("Http3"))) {
+                                    toRemove.add(name);
+                                }
+                            }
+                            for (String name : toRemove) {
+                                try {
+                                    ctx.pipeline().remove(name);
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                        super.handlerAdded(ctx);
+                    }
+                });
+
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<ByteBuf>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                        String response = msg.toString(StandardCharsets.UTF_8);
+                        System.out.println("DEBUG: Client bidi stream received: " + response);
+                        if (response.contains("ACK BI")) {
+                            bidiEchoLatch.countDown();
+                        }
+                    }
+
+                    @Override
+                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                        System.out.println("DEBUG: Client bidi stream exception: " + cause);
+                        caughtBidiException[0] = cause;
+                        bidiResetLatch.countDown();
+                        ctx.close();
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                bidiStream[0] = ch;
+                ByteBuf data = ch.alloc().directBuffer();
+                WebTransportUtils.writeVarInt(data, 0x41);
+                WebTransportUtils.writeVarInt(data, sessionId);
+                data.writeBytes("Payload message".getBytes(StandardCharsets.UTF_8));
+                ch.writeAndFlush(data);
+            }
+        });
+
+        assertTrue("Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(bidiStream[0]);
+
+        // Retrieve server-side session
+        WebTransportSessionManager serverMgr = serverConnectionChannel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        assertNotNull(serverMgr);
+        WebTransportSession serverSession = serverMgr.get(sessionId);
+        assertNotNull(serverSession);
+
+        // Find the server-side stream
+        assertEquals(1, serverSession.getActiveClientInitiatedBi().size());
+        QuicStreamChannel serverStream = serverSession.getActiveClientInitiatedBi().iterator().next();
+        assertNotNull(serverStream);
+
+        // Reset the stream with application error code 500L
+        serverSession.resetStream(serverStream, 500L);
+
+        // Verify client bidi stream received the mapped/fallback application error code
+        assertTrue("Client did not receive stream reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(caughtBidiException[0]);
+        assertTrue(caughtBidiException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        io.netty.handler.codec.quic.QuicStreamResetException resetExc = (io.netty.handler.codec.quic.QuicStreamResetException) caughtBidiException[0];
+        
+        long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(resetExc.applicationProtocolCode());
+        assertEquals(500L, wtErrorCode);
+
+        quicClient.close().sync();
+    }
+
+    @Test
+    public void testSessionAbort() throws Exception {
+        // Build client ssl context
+        QuicSslContext clientSslContext = QuicSslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .applicationProtocols(Http3.supportedApplicationProtocols())
+                .build();
+
+        Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+        clientSettings.enableH3Datagram(true);
+        clientSettings.enableConnectProtocol(true);
+        clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+        clientSettings.put(0x2b64L, 10L);
+        clientSettings.put(0x2b65L, 10L);
+        clientSettings.put(0x2b61L, 10000L);
+
+        CountDownLatch handshakeLatch = new CountDownLatch(1);
+        final QuicStreamChannel[] connectStream = new QuicStreamChannel[1];
+
+        ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
+                .sslContext(clientSslContext)
+                .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+                .initialMaxData(10000000)
+                .initialMaxStreamDataBidirectionalLocal(1000000)
+                .initialMaxStreamDataBidirectionalRemote(1000000)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(100)
+                .datagram(10000, 10000)
+                .build();
+
+        Channel clientChannel = new Bootstrap()
+                .group(clientGroup)
+                .channel(NioDatagramChannel.class)
+                .handler(clientCodec)
+                .bind(0)
+                .sync()
+                .channel();
+
+        QuicChannelBootstrap bootstrap = QuicChannel.newBootstrap(clientChannel)
+                .handler(new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {
+                        ch.pipeline().addLast(new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                    @Override
+                                    protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true
+                        ));
+                    }
+                })
+                .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+        QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+        final Throwable[] caughtConnectException = new Throwable[1];
+        final CountDownLatch connectResetLatch = new CountDownLatch(1);
+
+        // 1. Handshake Connect Stream Creation
+        Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                        if (msg instanceof Http3HeadersFrame) {
+                            Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
+                            if ("200".equals(headersFrame.headers().status().toString())) {
+                                connectStream[0] = (QuicStreamChannel) ctx.channel();
+                                
+                                // Register reset listener on connect stream
+                                ctx.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                                    @Override
+                                    public void exceptionCaught(ChannelHandlerContext c, Throwable cause) {
+                                        System.out.println("DEBUG: Client CONNECT stream exception: " + cause);
+                                        caughtConnectException[0] = cause;
+                                        connectResetLatch.countDown();
+                                        c.close();
+                                    }
+                                });
+                                
+                                handshakeLatch.countDown();
+                            }
+                        }
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                Http3Headers headers = new DefaultHttp3Headers();
+                headers.method("CONNECT");
+                headers.scheme("https");
+                headers.path("/test-integration");
+                headers.authority("localhost");
+                headers.set(":protocol", "webtransport");
+                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+            }
+        });
+
+        assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(connectStream[0]);
+        long sessionId = connectStream[0].streamId();
+
+        final QuicStreamChannel[] bidiStream = new QuicStreamChannel[1];
+        final CountDownLatch bidiEchoLatch = new CountDownLatch(1);
+        final Throwable[] caughtBidiException = new Throwable[1];
+        final CountDownLatch bidiResetLatch = new CountDownLatch(1);
+
+        quicClient.createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addFirst(new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                        ctx.channel().eventLoop().execute(() -> {
+                            java.util.List<String> toRemove = new java.util.ArrayList<>();
+                            for (String name : ctx.pipeline().names()) {
+                                ChannelHandler h = ctx.pipeline().get(name);
+                                if (h != null && h != this && (name.contains("Http3") || h.getClass().getName().contains("Http3"))) {
+                                    toRemove.add(name);
+                                }
+                            }
+                            for (String name : toRemove) {
+                                try {
+                                    ctx.pipeline().remove(name);
+                                } catch (Exception ignored) {}
+                            }
+                        });
+                        super.handlerAdded(ctx);
+                    }
+                });
+
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<ByteBuf>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                        String response = msg.toString(StandardCharsets.UTF_8);
+                        System.out.println("DEBUG: Client bidi stream received: " + response);
+                        if (response.contains("ACK BI")) {
+                            bidiEchoLatch.countDown();
+                        }
+                    }
+
+                    @Override
+                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                        System.out.println("DEBUG: Client bidi stream exception: " + cause);
+                        caughtBidiException[0] = cause;
+                        bidiResetLatch.countDown();
+                        ctx.close();
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                bidiStream[0] = ch;
+                ByteBuf data = ch.alloc().directBuffer();
+                WebTransportUtils.writeVarInt(data, 0x41);
+                WebTransportUtils.writeVarInt(data, sessionId);
+                data.writeBytes("Payload message".getBytes(StandardCharsets.UTF_8));
+                ch.writeAndFlush(data);
+            }
+        });
+
+        assertTrue("Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(bidiStream[0]);
+
+        // Retrieve server-side session
+        WebTransportSessionManager serverMgr = serverConnectionChannel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        assertNotNull(serverMgr);
+        WebTransportSession serverSession = serverMgr.get(sessionId);
+        assertNotNull(serverSession);
+
+        // Abruptly close/abort session with HTTP/3 error code 0x1001L
+        serverSession.abort(0x1001L);
+
+        // Verify client connect stream was reset with error code 0x1001L
+        assertTrue("Client CONNECT stream did not reset", connectResetLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(caughtConnectException[0]);
+        assertTrue(caughtConnectException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        assertEquals(0x1001L, ((io.netty.handler.codec.quic.QuicStreamResetException) caughtConnectException[0]).applicationProtocolCode());
+
+        // Verify client bidi stream was reset with error code 0x1001L
+        assertTrue("Client bidi stream did not reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(caughtBidiException[0]);
+        assertTrue(caughtBidiException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        assertEquals(0x1001L, ((io.netty.handler.codec.quic.QuicStreamResetException) caughtBidiException[0]).applicationProtocolCode());
+
         quicClient.close().sync();
     }
 }

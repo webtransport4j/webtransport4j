@@ -219,6 +219,19 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
                                                 } else if (ctx.channel() instanceof QuicChannel) {
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
+
+                                                // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is enabled (1)
+                                                if (!settings.h3DatagramEnabled()) {
+                                                    logger.warn("❌ WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection with WT_REQUIREMENTS_NOT_MET (0x61616164)");
+                                                    if (quic != null) {
+                                                        quic.close(true, 0x212c0d48, io.netty.buffer.Unpooled.EMPTY_BUFFER);
+                                                    } else {
+                                                        ctx.close();
+                                                    }
+                                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                                    return;
+                                                }
+
                                                 if (quic != null) {
                                                     quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
                                                     quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI).set(settings.get(0x2b65L));

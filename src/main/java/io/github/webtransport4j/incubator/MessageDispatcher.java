@@ -394,7 +394,14 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         if (cause instanceof io.netty.handler.codec.quic.QuicStreamResetException) {
-            logger.debug("🌊 Stream reset by peer: " + cause.getMessage());
+            io.netty.handler.codec.quic.QuicStreamResetException reset = (io.netty.handler.codec.quic.QuicStreamResetException) cause;
+            long httpErrorCode = reset.applicationProtocolCode();
+            if (WebTransportUtils.isWebTransportApplicationError(httpErrorCode)) {
+                long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(httpErrorCode);
+                logger.info("🌊 Stream reset by peer with WebTransport application error code: 0x" + Long.toHexString(wtErrorCode) + " (" + wtErrorCode + ")");
+            } else {
+                logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x" + Long.toHexString(httpErrorCode));
+            }
         } else {
             logger.error("❌ Pipeline error: ", cause);
         }

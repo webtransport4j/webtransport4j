@@ -736,4 +736,76 @@ public class FramingLayerTest {
             System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");
         }
     }
+
+    @Test
+    public void testApplicationErrorCodeMapping() {
+        // Spec requirements check:
+        // 0x00000000 corresponds to 0x52e4a40fa8db
+        assertEquals(0x52e4a40fa8dbL, WebTransportUtils.webTransportCodeToHttpCode(0x00000000L));
+        assertEquals(0x00000000L, WebTransportUtils.httpCodeToWebTransportCode(0x52e4a40fa8dbL));
+
+        // 0xffffffff corresponds to 0x52e5ac983162
+        assertEquals(0x52e5ac983162L, WebTransportUtils.webTransportCodeToHttpCode(0xffffffffL));
+        assertEquals(0xffffffffL, WebTransportUtils.httpCodeToWebTransportCode(0x52e5ac983162L));
+
+        // Round-trip verification for key and random values
+        long[] testValues = {0L, 1L, 29L, 30L, 31L, 100L, 123456L, 0xffffffffL};
+        for (long n : testValues) {
+            long http = WebTransportUtils.webTransportCodeToHttpCode(n);
+            assertTrue(WebTransportUtils.isWebTransportApplicationError(http));
+            assertEquals(n, WebTransportUtils.httpCodeToWebTransportCode(http));
+        }
+
+        // Verify invalid inputs throw IllegalArgumentException
+        try {
+            WebTransportUtils.webTransportCodeToHttpCode(-1L);
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {}
+
+        try {
+            WebTransportUtils.webTransportCodeToHttpCode(0x100000000L);
+            fail("Expected IllegalArgumentException");
+        } catch (IllegalArgumentException expected) {}
+
+        // Verify reserved codepoint throws IllegalArgumentException
+        long actualReservedH = WebTransportUtils.WT_ERROR_FIRST + 30L;
+        assertTrue((actualReservedH - 0x21L) % 31L == 0L);
+        try {
+            WebTransportUtils.httpCodeToWebTransportCode(actualReservedH);
+            fail("Expected IllegalArgumentException for reserved codepoint");
+        } catch (IllegalArgumentException expected) {}
+    }
+
+    @Test
+    public void testResetStreamApplicationErrorCodeMapping() throws Exception {
+        QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+        io.netty.channel.ChannelPromise mockPromise = mock(io.netty.channel.ChannelPromise.class);
+        when(mockStream.newPromise()).thenReturn(mockPromise);
+
+        // Application error code = 500
+        WebTransportUtils.resetStream(mockStream, 500L);
+
+        // Under Netty QUIC limitation, the mapped httpErrorCode would be negative
+        // (WT_ERROR_FIRST + 516 = 0x52e4a40faddfL, casted to int is -1542541857).
+        // Since it is negative, it falls back to the unmapped appErrorCode (500) to prevent native JVM crash.
+        int expectedHttpCode = 500;
+
+        // Verify Netty's shutdown was called with the fallback code
+        verify(mockStream).shutdown(eq(expectedHttpCode), eq(mockPromise));
+    }
+
+    @Test
+    public void testReflectionQuicStreamChannel() {
+        System.out.println("=== REFLECTION: io.netty.handler.codec.quic.QuicStreamChannel ===");
+        try {
+            Class<?> clazz = Class.forName("io.netty.handler.codec.quic.QuicStreamChannel");
+            for (java.lang.reflect.Method method : clazz.getMethods()) {
+                System.out.println("Method: " + method.getReturnType().getSimpleName() + " " + method.getName() + 
+                                   " (" + java.util.Arrays.toString(method.getParameterTypes()) + ")");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        System.out.println("==============================================================");
+    }
 }

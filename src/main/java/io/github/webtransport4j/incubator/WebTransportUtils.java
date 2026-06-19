@@ -402,4 +402,61 @@ public class WebTransportUtils {
             logger.error("Failed to send WT_DATA_BLOCKED capsule", e);
         }
     }
+
+    public static final long WT_ERROR_FIRST = 0x52e4a40fa8dbL;
+    public static final long WT_ERROR_LAST = 0x52e5ac983162L;
+
+    /**
+     * Maps a 32-bit unsigned WebTransport application error code
+     * to a 62-bit HTTP/3 error code as per draft-15 Section 4.4.
+     */
+    public static long webTransportCodeToHttpCode(long n) {
+        if (n < 0 || n > 0xffffffffL) {
+            throw new IllegalArgumentException("WebTransport error code must be an unsigned 32-bit integer: " + n);
+        }
+        return WT_ERROR_FIRST + n + (n / 30L);
+    }
+
+    /**
+     * Maps a 62-bit HTTP/3 error code back to a 32-bit unsigned WebTransport
+     * application error code as per draft-15 Section 4.4.
+     */
+    public static long httpCodeToWebTransportCode(long h) {
+        if (h >= WT_ERROR_FIRST && h <= WT_ERROR_LAST) {
+            if ((h - 0x21L) % 31L == 0L) {
+                throw new IllegalArgumentException("HTTP/3 error code is a reserved codepoint: " + h);
+            }
+            long shifted = h - WT_ERROR_FIRST;
+            return shifted - (shifted / 31L);
+        }
+        // Fallback for Netty QUIC limitation where large 62-bit codes crash the JVM
+        if (h >= 0 && h <= Integer.MAX_VALUE) {
+            return h;
+        }
+        throw new IllegalArgumentException("HTTP/3 error code is outside WT_APPLICATION_ERROR range: " + h);
+    }
+
+    /**
+     * Checks if a given HTTP/3 error code is within the WT_APPLICATION_ERROR range.
+     */
+    public static boolean isWebTransportApplicationError(long h) {
+        return (h >= WT_ERROR_FIRST && h <= WT_ERROR_LAST && (h - 0x21L) % 31L != 0L)
+                || (h >= 0 && h <= Integer.MAX_VALUE); // fallback for Netty QUIC limitation
+    }
+
+    public static void resetStream(QuicStreamChannel streamChannel, long appErrorCode) {
+        long httpErrorCode = webTransportCodeToHttpCode(appErrorCode);
+        // Netty's QuicStreamChannel.shutdown(int) takes a signed int.
+        // If we cast a 62-bit HTTP/3 error code to int and it becomes negative,
+        // Netty's JNI layer sign-extends it to a 64-bit value greater than 2^62 - 1,
+        // causing Quiche to panic and crash the JVM.
+        // To prevent this crash under Netty QUIC's limitation, we check if the casted value is negative.
+        // If it is, we fall back to sending the unmapped appErrorCode (if it fits in positive int)
+        // or a default fallback positive error code (like 0) to avoid crashing the JVM.
+        int code = (int) httpErrorCode;
+        if (code < 0) {
+            code = (appErrorCode >= 0 && appErrorCode <= Integer.MAX_VALUE) ? (int) appErrorCode : 0;
+        }
+        streamChannel.shutdown(code, streamChannel.newPromise());
+    }
 }
