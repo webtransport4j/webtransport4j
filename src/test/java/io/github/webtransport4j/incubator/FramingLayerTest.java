@@ -12,8 +12,6 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ConcurrentHashMap;
-
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
@@ -310,15 +308,15 @@ public class FramingLayerTest {
 
         io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
         when(defaultBidiAttr.get()).thenReturn(10L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
 
         io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
         when(defaultUniAttr.get()).thenReturn(10L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
 
         io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
         when(defaultDataAttr.get()).thenReturn(10000L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
 
         // Mock EventLoop and Promise for createUniStream / createBiStream
         io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -346,7 +344,7 @@ public class FramingLayerTest {
         assertTrue(mgr.hasSession(100L));
 
         // Verify decrement of BIDI streams
-        assertEquals(0L, mgr.get(100L).getCurrentStreamsBidi());
+        assertEquals(0L, mgr.get(100L).getClientInitiatedStreamsBidi());
 
         // Verify response sent
         ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
@@ -391,15 +389,15 @@ public class FramingLayerTest {
         // Connection-level limits: 50L bidi, 60L uni, 50000L data
         io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
         when(defaultBidiAttr.get()).thenReturn(50L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
 
         io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
         when(defaultUniAttr.get()).thenReturn(60L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(defaultUniAttr);
 
         io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
         when(defaultDataAttr.get()).thenReturn(50000L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
 
         // Mock EventLoop and Promise for createUniStream / createBiStream
         io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -459,5 +457,74 @@ public class FramingLayerTest {
 
         // Verify connection close with H3_ID_ERROR (0x0108) was called on mockParent
         verify(mockParent).close(eq(true), eq(0x0108), any(ByteBuf.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testServerInitiatedStreamLimits() throws Exception {
+        QuicChannel mockParent = mock(QuicChannel.class);
+        QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+        when(mockConnectStream.parent()).thenReturn(mockParent);
+        when(mockConnectStream.streamId()).thenReturn(100L);
+
+        io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+        when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+        io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+        when(mockEventLoop.newPromise()).thenReturn(mockPromise);
+
+        // Setup Session Manager
+        WebTransportSessionManager mgr = new WebTransportSessionManager();
+        io.netty.util.Attribute<WebTransportSessionManager> mgrAttr = mock(io.netty.util.Attribute.class);
+        when(mgrAttr.get()).thenReturn(mgr);
+        when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+        // Set up limits on parent so register() can read them
+        io.netty.util.Attribute<Long> localLimitAttr = mock(io.netty.util.Attribute.class);
+        when(localLimitAttr.get()).thenReturn(5L);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(localLimitAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(localLimitAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
+
+        when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(mock(io.netty.util.Attribute.class));
+
+        mgr.register(mockConnectStream);
+        WebTransportSession session = mgr.get(100L);
+        assertNotNull(session);
+
+        // peerSettingsMaxStreamsUni = 2, peerSettingsMaxStreamsBidi = 1
+        session.setPeerSettingsMaxStreamsUni(2L);
+        session.setPeerSettingsMaxStreamsBidi(1L);
+
+        // Mock createStream to return successful future
+        QuicStreamChannel mockNewStream = mock(QuicStreamChannel.class);
+        when(mockNewStream.attr(any(io.netty.util.AttributeKey.class))).thenReturn(mock(io.netty.util.Attribute.class));
+        when(mockNewStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+
+        io.netty.util.concurrent.Future<QuicStreamChannel> successFuture = mock(io.netty.util.concurrent.Future.class);
+        when(successFuture.isSuccess()).thenReturn(true);
+        when(successFuture.getNow()).thenReturn(mockNewStream);
+        when(mockParent.createStream(any(), any())).thenReturn(successFuture);
+        when(successFuture.addListener(any())).thenAnswer(inv -> {
+            io.netty.util.concurrent.GenericFutureListener listener = inv.getArgument(0);
+            listener.operationComplete(successFuture);
+            return successFuture;
+        });
+
+        // 1. Create Uni Stream - First creation should succeed
+        WebTransportUtils.createUniStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+
+        // Create Uni Stream - Second creation should succeed
+        WebTransportUtils.createUniStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+
+        // Create Uni Stream - Third creation should fail (exceeds limit 2)
+        WebTransportUtils.createUniStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        verify(mockPromise).setFailure(any(IllegalStateException.class));
+
+        // 2. Create Bi Stream - First creation should succeed
+        WebTransportUtils.createBiStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        
+        // Create Bi Stream - Second creation should fail (exceeds limit 1)
+        WebTransportUtils.createBiStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        verify(mockPromise, times(2)).setFailure(any(IllegalStateException.class));
     }
 }

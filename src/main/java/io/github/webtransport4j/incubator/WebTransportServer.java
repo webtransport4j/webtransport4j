@@ -118,7 +118,7 @@ public class WebTransportServer {
         settings.put(0x2b65L, wtMaxStreamsBidi);
         //SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, wtInitialMaxData);
-
+        logger.info("Server side settings : " + settings);
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
                 .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS)
@@ -139,9 +139,9 @@ public class WebTransportServer {
                         long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
                         long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
                         long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
-                        ch.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI).set(defUni);
-                        ch.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
-                        ch.attr(WebTransportUtils.SETTINGS_MAX_DATA).set(defData);
+                        ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
+                        ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
+                        ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(defData);
                         
                         
                         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
@@ -216,13 +216,13 @@ logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
                                                 if (quic != null) {
-                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
-                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI).set(settings.get(0x2b65L));
-                                                    quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI).set(settings.get(0x2b65L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
                                                 }
                                             }
                                         }
-                                        ctx.fireChannelRead(msg);
+                                        io.netty.util.ReferenceCountUtil.release(msg);
                                     }
 
                                 },

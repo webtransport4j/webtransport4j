@@ -42,11 +42,50 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
                 
                 // Cleanly close only this WebTransport session stream
                 ctx.close();
+            } else if (capsule.capsuleType() == 0x190B4D43L || capsule.capsuleType() == 0x190B4D44L) {
+                boolean isBidi = (capsule.capsuleType() == 0x190B4D43L);
+                ByteBuf content = capsule.content();
+                long maxStreams = WebTransportUtils.readVariableLengthInt(content);
+                if (maxStreams != -1) {
+                    io.netty.handler.codec.quic.QuicChannel quic = null;
+                    if (ctx.channel() instanceof QuicStreamChannel) {
+                        quic = ((QuicStreamChannel) ctx.channel()).parent();
+                    } else if (ctx.channel() instanceof io.netty.handler.codec.quic.QuicChannel) {
+                        quic = (io.netty.handler.codec.quic.QuicChannel) ctx.channel();
+                    }
+                    if (quic != null) {
+                        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                        if (mgr != null) {
+                            WebTransportSession session = mgr.get(capsule.sessionId());
+                            if (session != null) {
+                                long activeCount = isBidi ? session.getActiveClientInitiatedBi().size() : session.getActiveClientInitiatedUni().size();
+                                long initialLimit = isBidi ? session.getInitialMaxStreamsBidi() : session.getInitialMaxStreamsUni();
+                                long remaining = initialLimit - activeCount;
+                                if (remaining > 0) {
+                                    long newLimit = maxStreams + remaining;
+                                    if (isBidi) {
+                                        session.setSettingsMaxStreamsBidi(newLimit);
+                                    } else {
+                                        session.setSettingsMaxStreamsUni(newLimit);
+                                    }
+                                    logger.info("📈 Extending local stream max due to WT_STREAMS_BLOCKED | Session: " + capsule.sessionId() 
+                                        + " | Type: " + (isBidi ? "BIDI" : "UNI") 
+                                        + " | New Limit: " + newLimit + " (Remaining active allowed: " + remaining + ")");
+                                    WebTransportUtils.sendMaxStreamsCapsule(session.getConnectStream(), isBidi, newLimit);
+                                } else {
+                                    logger.info("ℹ️ Received WT_STREAMS_BLOCKED but no remaining active slots | Session: " + capsule.sessionId() 
+                                        + " | Type: " + (isBidi ? "BIDI" : "UNI") 
+                                        + " | Active: " + activeCount + " >= Initial: " + initialLimit);
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 logger.warn("⚠️ Received unhandled protocol capsule: 0x" + Long.toHexString(capsule.capsuleType()));
             }
             return;
-    }
+        }
 
 
         Channel channel = ctx.channel();

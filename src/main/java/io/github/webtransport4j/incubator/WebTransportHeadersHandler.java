@@ -2,7 +2,10 @@ package io.github.webtransport4j.incubator;
 
 import io.github.webtransport4j.incubator.applayer.ServerPushService;
 import io.github.webtransport4j.incubator.applayer.StreamSender;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
@@ -104,18 +107,19 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                         "⏰ Creating Server-Push Stream for Session "
                                 + sessionId);
                 logger.debug("⏳ Creating Push Stream...");
-                WebTransportUtils.createUniStream(connectStream, null, Optional.of(true))
+                WebTransportUtils.createUniStream(connectStream, Optional.of(true), new ChannelInboundHandlerAdapter())
                         .addListener(future -> {
                             if (future.isSuccess()) {
-                                StreamSender sender = (StreamSender) future.getNow();
-                                String key = "stream-" + sender.stream().id().asShortText();
+                                QuicStreamChannel stream = (QuicStreamChannel) future.getNow();
+                                StreamSender sender = new StreamSender(stream);
+                                String key = "stream-" + stream.id().asShortText();
                                 ServerPushService.INSTANCE.register(key, sender);
-                                logger.debug("🚀 Push Stream Ready! ID: " + sender.stream().id());
+                                logger.debug("🚀 Push Stream Ready! ID: " + stream.id());
 
                                 final io.netty.util.concurrent.ScheduledFuture<?>[] pushFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
                                 pushFuture[0] = quic.eventLoop()
                                         .scheduleAtFixedRate(() -> {
-                                            if (sender.stream().isActive() && connectStream.isActive()) {
+                                            if (stream.isActive() && connectStream.isActive()) {
                                                 ServerPushService.INSTANCE.sendTo(key, "Continuous Uni Stream Message: " + System.nanoTime());
                                             } else {
                                                 if (pushFuture[0] != null) {
@@ -138,18 +142,30 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                         });
                 // TEST: Create a Bi-Directional Stream
                 logger.info("⏳ Creating Bi-Directional Stream...");
-                WebTransportUtils.createBiStream(connectStream, null, Optional.of(true))
+                ChannelHandler streamInitializer = new ChannelInitializer<QuicStreamChannel>() {
+                    @Override
+                    protected void initChannel(QuicStreamChannel ch) {
+                        ch.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + ch.streamId()));
+                        if (isConnectSocketIo) {
+                            ch.pipeline().addLast(new EngineIoFrameDecoder());
+                        }
+                        ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
+                        ch.pipeline().addLast(new MessageDispatcher());
+                    }
+                };
+                WebTransportUtils.createBiStream(connectStream, Optional.of(true), streamInitializer)
                         .addListener(future -> {
                             if (future.isSuccess()) {
-                                StreamSender sender = (StreamSender) future.getNow();
-                                String biKey = "bi-stream-" + sender.stream().id().asShortText();
+                                QuicStreamChannel stream = (QuicStreamChannel) future.getNow();
+                                StreamSender sender = new StreamSender(stream);
+                                String biKey = "bi-stream-" + stream.id().asShortText();
                                 ServerPushService.INSTANCE.register(biKey, sender);
-                                logger.info("✅ Bi-Directional Stream Ready! ID: " + sender.stream().id());
+                                logger.info("✅ Bi-Directional Stream Ready! ID: " + stream.id());
                                 
                                 final io.netty.util.concurrent.ScheduledFuture<?>[] biFuture = new io.netty.util.concurrent.ScheduledFuture<?>[1];
                                 biFuture[0] = quic.eventLoop()
                                         .scheduleAtFixedRate(() -> {
-                                            if (sender.stream().isActive() && connectStream.isActive()) {
+                                            if (stream.isActive() && connectStream.isActive()) {
                                                 ServerPushService.INSTANCE.sendTo(biKey, "Continuous Bi Stream Message: " + System.nanoTime());
                                             } else {
                                                 if (biFuture[0] != null) {

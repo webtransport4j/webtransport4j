@@ -143,7 +143,7 @@ public class StreamBufferingTest {
         // Mock DEFAULT connection limits so they are read by register()
         Attribute<Long> defaultBidiAttr = mock(Attribute.class);
         when(defaultBidiAttr.get()).thenReturn(1L);
-        when(mockParent.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
+        when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(defaultBidiAttr);
 
         QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
         when(mockConnectStream.streamId()).thenReturn(100L);
@@ -154,7 +154,7 @@ public class StreamBufferingTest {
 
         // Setup current stream count = 1 (already at limit before incrementing)
         WebTransportSession session = mgr.get(100L);
-        session.setCurrentStreamsBidi(1L);
+        session.setClientInitiatedStreamsBidi(1L);
 
         // New incoming stream
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -164,7 +164,7 @@ public class StreamBufferingTest {
 
         // Simulate WebTransportServer.java / RawWebTransportHandler.java stream init logic
         boolean isBidi = mockStream.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
-        long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
+        long value = isBidi ? session.incrementAndGetClientInitiatedStreamsBidi() : session.incrementAndGetClientInitiatedStreamsUni();
         
         long maxAllowed = isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
         

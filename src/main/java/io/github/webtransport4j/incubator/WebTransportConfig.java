@@ -1,5 +1,6 @@
 package io.github.webtransport4j.incubator;
 
+import io.netty.util.AttributeKey;
 import java.io.InputStream;
 import java.util.Properties;
 import org.apache.log4j.Logger;
@@ -7,6 +8,19 @@ import org.apache.log4j.Logger;
 public class WebTransportConfig {
     private static final Logger logger = Logger.getLogger(WebTransportConfig.class.getName());
     private static final Properties properties = new Properties();
+
+    private WebTransportConfig() {
+        throw new UnsupportedOperationException("Utility class cannot be instantiated");
+    }
+
+    public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("LOCAL_SETTINGS_MAX_STREAMS_UNI");
+    public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("LOCAL_SETTINGS_MAX_STREAMS_BIDI");
+    public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_DATA = AttributeKey.valueOf("LOCAL_SETTINGS_MAX_DATA");
+
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_UNI");
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_BIDI");
+    public static final AttributeKey<Long> PEER_SETTINGS_MAX_DATA = AttributeKey.valueOf("PEER_SETTINGS_MAX_DATA");
+
 
     static {
         try (InputStream in = WebTransportConfig.class.getClassLoader()

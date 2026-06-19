@@ -5,11 +5,9 @@ package io.github.webtransport4j.incubator;
  * @date 20/01/26 10:58 pm
  */
 
-import io.github.webtransport4j.incubator.applayer.ServerPushService;
-import io.github.webtransport4j.incubator.applayer.StreamSender;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.AttributeKey;
@@ -27,23 +25,17 @@ public class WebTransportUtils {
     public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
     public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
 
-    public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_UNI");
-    public static final AttributeKey<Long> SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("SETTINGS_MAX_STREAMS_BIDI");
-    public static final AttributeKey<Long> SETTINGS_MAX_DATA = AttributeKey.valueOf("SETTINGS_MAX_DATA");
 
-    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_UNI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_UNI");
-    public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_BIDI = AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_BIDI");
-    public static final AttributeKey<Long> PEER_SETTINGS_MAX_DATA = AttributeKey.valueOf("PEER_SETTINGS_MAX_DATA");
-    
 
     /**
      * Creates a new Server-Initiated Unidirectional Stream.
-     * @param connection The parent QUIC Connection
-     * @param sessionId The WebTransport Session ID to bind to
-     * @return A Future that completes with the StreamSender
+     * @param connectStreamChannel The parent connect stream channel
+     * @param byPassLimit Whether to bypass flow control stream limits
+     * @param streamHandler The channel handler to add to the stream pipeline
+     * @return A Future that completes with the QuicStreamChannel
      */
-    public static Future<StreamSender> createUniStream(QuicStreamChannel connectStreamChannel, String key, Optional<Boolean> byPassLimit) {
-        Promise<StreamSender> promise = connectStreamChannel.parent().eventLoop().newPromise();
+    public static Future<QuicStreamChannel> createUniStream(QuicStreamChannel connectStreamChannel, Optional<Boolean> byPassLimit, ChannelHandler streamHandler) {
+        Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
         WebTransportSessionManager mgr = connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
         WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
         if (session == null) {
@@ -52,18 +44,18 @@ public class WebTransportUtils {
         }
 
         if (!byPassLimit.orElse(false)) {
-            long current = session.getCurrentStreamsUni();
-            long max = session.getSettingsMaxStreamsUni();
+            long current = session.getServerInitiatedStreamsUni();
+            long max = session.getPeerSettingsMaxStreamsUni();
             if (current >= max) {
                 logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
                 promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Unidirectional stream limit exceeded"));
                 return promise;
             }
-            session.incrementAndGetCurrentStreamsUni();
+            session.incrementAndGetServerInitiatedStreamsUni();
         }
 
         // 1. Request Stream Creation
-        connectStreamChannel.parent().createStream(QuicStreamType.UNIDIRECTIONAL, new ChannelInboundHandlerAdapter())
+        connectStreamChannel.parent().createStream(QuicStreamType.UNIDIRECTIONAL, streamHandler)
                 .addListener((Future<QuicStreamChannel> future) -> {
                     if (!future.isSuccess()) {
                         promise.setFailure(future.cause());
@@ -85,12 +77,8 @@ public class WebTransportUtils {
                         stream.writeAndFlush(header);
                         session.getActiveServerInitiatedUni().add(stream);
                         stream.closeFuture().addListener(f -> session.getActiveServerInitiatedUni().remove(stream));
-                        StreamSender sender = new StreamSender(stream);
-                        if (key != null) {
-                            ServerPushService.INSTANCE.register(key, sender);
-                        }
 
-                        promise.setSuccess(sender);
+                        promise.setSuccess(stream);
                     } catch (Exception e) {
                         header.release();
                         stream.close();
@@ -103,12 +91,13 @@ public class WebTransportUtils {
 
     /**
      * Creates a new Server-Initiated Bidirectional Stream.
-     * @param connection The parent QUIC Connection
-     * @param sessionId The WebTransport Session ID to bind to
-     * @return A Future that completes with the StreamSender
+     * @param connectStreamChannel The parent connect stream channel
+     * @param byPassLimit Whether to bypass flow control stream limits
+     * @param streamHandler The channel handler to add to the stream pipeline
+     * @return A Future that completes with the QuicStreamChannel
      */
-    public static Future<StreamSender> createBiStream(QuicStreamChannel connectStreamChannel, String key, Optional<Boolean> byPassLimit)  {
-        Promise<StreamSender> promise = connectStreamChannel.parent().eventLoop().newPromise();
+    public static Future<QuicStreamChannel> createBiStream(QuicStreamChannel connectStreamChannel, Optional<Boolean> byPassLimit, ChannelHandler streamHandler)  {
+        Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
         WebTransportSessionManager mgr = connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
         WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
         if (session == null) {
@@ -117,18 +106,18 @@ public class WebTransportUtils {
         }
 
         if (!byPassLimit.orElse(false)) {
-            long current = session.getCurrentStreamsBidi();
-            long max = session.getSettingsMaxStreamsBidi();
+            long current = session.getServerInitiatedStreamsBidi();
+            long max = session.getPeerSettingsMaxStreamsBidi();
             if (current >= max) {
                 logger.warn("❌ WebTransport stream limit exceeded for session " + connectStreamChannel.streamId() + ": " + current + " >= " + max + ". Stream creation failed.");
                 promise.setFailure(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Bidirectional stream limit exceeded"));
                 return promise;
             }
-            session.incrementAndGetCurrentStreamsBidi();
+            session.incrementAndGetServerInitiatedStreamsBidi();
         }
 
         // 1. Request Stream Creation
-        connectStreamChannel.parent().createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInboundHandlerAdapter())
+        connectStreamChannel.parent().createStream(QuicStreamType.BIDIRECTIONAL, streamHandler)
                 .addListener((Future<QuicStreamChannel> future) -> {
                     if (!future.isSuccess()) {
                         promise.setFailure(future.cause());
@@ -141,15 +130,6 @@ public class WebTransportUtils {
                     stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
                     stream.attr(STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
 
-                    // Configure pipeline to handle incoming data from client
-                    stream.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
-                    String path = connectStreamChannel.parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
-                    if (path != null && path.contains("socket.io")) {
-                        stream.pipeline().addLast(new EngineIoFrameDecoder());
-                    }
-                    stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
-                    stream.pipeline().addLast(new MessageDispatcher());
-
                     // 2. Write the Mandatory Header: [0x41] [SessionID]
                     ByteBuf header = Unpooled.buffer(16);
                     try {
@@ -158,12 +138,8 @@ public class WebTransportUtils {
                         stream.writeAndFlush(header);
                         session.getActiveServerInitiatedBi().add(stream);
                         stream.closeFuture().addListener(f -> session.getActiveServerInitiatedBi().remove(stream));
-                        StreamSender sender = new StreamSender(stream);
-                        if (key != null) {
-                            ServerPushService.INSTANCE.register(key, sender);
-                        }
 
-                        promise.setSuccess(sender);
+                        promise.setSuccess(stream);
                     } catch (Exception e) {
                         header.release();
                         stream.close();

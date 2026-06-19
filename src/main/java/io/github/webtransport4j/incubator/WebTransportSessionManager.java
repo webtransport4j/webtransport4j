@@ -51,12 +51,12 @@ public class WebTransportSessionManager {
 
         QuicChannel quic = (QuicChannel) connectStream.parent();
         
-        Long uniMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI) != null 
-                ? quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_UNI).get() : null;
-        Long biMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI) != null 
-                ? quic.attr(WebTransportUtils.SETTINGS_MAX_STREAMS_BIDI).get() : null;
-        Long dataMax = quic != null && quic.attr(WebTransportUtils.SETTINGS_MAX_DATA) != null 
-                ? quic.attr(WebTransportUtils.SETTINGS_MAX_DATA).get() : null;
+        Long uniMax = quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null 
+                ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).get() : null;
+        Long biMax = quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null 
+                ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get() : null;
+        Long dataMax = quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA) != null 
+                ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).get() : null;
         boolean flowControlEnabled = false;
         if ((uniMax != null && uniMax > 0L) || (biMax != null && biMax > 0L) || (dataMax != null && dataMax > 0L)) {
             flowControlEnabled = true;
@@ -79,12 +79,12 @@ public class WebTransportSessionManager {
         long biMaxVal = biMax != null ? biMax : 0L;
         long dataMaxVal = dataMax != null ? dataMax : 0L;
 
-        Long peerUni = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI) != null 
-                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_UNI).get() : null;
-        Long peerBidi = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI) != null 
-                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_STREAMS_BIDI).get() : null;
-        Long peerData = quic != null && quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA) != null 
-                ? quic.attr(WebTransportUtils.PEER_SETTINGS_MAX_DATA).get() : null;
+        Long peerUni = quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI) != null 
+                ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).get() : null;
+        Long peerBidi = quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI) != null 
+                ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI).get() : null;
+        Long peerData = quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA) != null 
+                ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA).get() : null;
 
         long peerUniVal = peerUni != null ? peerUni : 0L;
         long peerBidiVal = peerBidi != null ? peerBidi : 0L;

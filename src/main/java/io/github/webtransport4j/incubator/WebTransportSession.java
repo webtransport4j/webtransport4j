@@ -12,20 +12,37 @@ import java.util.concurrent.atomic.AtomicLong;
 public class WebTransportSession {
 
     private final long sessionStreamId;
+    
     private final QuicStreamChannel connectStream;
+    
     private final Set<QuicStreamChannel> activeClientInitiatedUni;
     private final Set<QuicStreamChannel> activeServerInitiatedUni;
     private final Set<QuicStreamChannel> activeClientInitiatedBi;
     private final Set<QuicStreamChannel> activeServerInitiatedBi;
+
+    // Local stream limits (how many streams we allow the client to initiate)
     private final AtomicLong settingsMaxStreamsUni;
     private final AtomicLong settingsMaxStreamsBidi;
     private final AtomicLong settingsMaxData;
+
+    // Peer stream limits (how many streams the client allows the server to initiate)
     private final AtomicLong peerSettingsMaxStreamsUni;
     private final AtomicLong peerSettingsMaxStreamsBidi;
     private final AtomicLong peerSettingsMaxData;
-    private final AtomicLong currentStreamsUni = new AtomicLong(0L);
-    private final AtomicLong currentStreamsBidi = new AtomicLong(0L);
+
+    // Cumulative stream counters for streams initiated by the Client
+    private final AtomicLong clientInitiatedStreamsUni = new AtomicLong(0L);
+    private final AtomicLong clientInitiatedStreamsBidi = new AtomicLong(0L);
+
+    // Cumulative stream counters for streams initiated by the Server
+    private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
+    private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
+
     private final boolean flowControlEnabled;
+
+    // Initial allowed concurrent limits set at the start of the session
+    private final long initialMaxStreamsUni;
+    private final long initialMaxStreamsBidi;
 
     WebTransportSession(long sessionStreamId,
                         QuicStreamChannel connectStream,
@@ -40,6 +57,8 @@ public class WebTransportSession {
         this.connectStream = connectStream;
         this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
         this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
+        this.initialMaxStreamsUni = maxStreamsUni;
+        this.initialMaxStreamsBidi = maxStreamsBidi;
         this.settingsMaxData = new AtomicLong(maxData);
         this.peerSettingsMaxStreamsUni = new AtomicLong(peerMaxStreamsUni);
         this.peerSettingsMaxStreamsBidi = new AtomicLong(peerMaxStreamsBidi);
@@ -115,25 +134,57 @@ public class WebTransportSession {
         this.peerSettingsMaxData.set(value);
     }
 
-    public long getCurrentStreamsUni() {
-        return currentStreamsUni.get();
+    public long getClientInitiatedStreamsUni() {
+        return clientInitiatedStreamsUni.get();
     }
 
-    public long getCurrentStreamsBidi() {
-        return currentStreamsBidi.get();
+    public long getClientInitiatedStreamsBidi() {
+        return clientInitiatedStreamsBidi.get();
     }
-    public long incrementAndGetCurrentStreamsBidi() {
-        return currentStreamsBidi.incrementAndGet();
+    public long incrementAndGetClientInitiatedStreamsBidi() {
+        return clientInitiatedStreamsBidi.incrementAndGet();
     }
-    public long incrementAndGetCurrentStreamsUni() {
-        return currentStreamsUni.incrementAndGet();
+    public long incrementAndGetClientInitiatedStreamsUni() {
+        return clientInitiatedStreamsUni.incrementAndGet();
     }   
 
-    public void setCurrentStreamsUni(long currentStreamsUni) {
-        this.currentStreamsUni.set(currentStreamsUni);
+    public void setClientInitiatedStreamsUni(long clientInitiatedStreamsUni) {
+        this.clientInitiatedStreamsUni.set(clientInitiatedStreamsUni);
     }
 
-    public void setCurrentStreamsBidi(long currentStreamsBidi) {
-        this.currentStreamsBidi.set(currentStreamsBidi);
+    public void setClientInitiatedStreamsBidi(long clientInitiatedStreamsBidi) {
+        this.clientInitiatedStreamsBidi.set(clientInitiatedStreamsBidi);
     }   
+
+    public long getInitialMaxStreamsUni() {
+        return initialMaxStreamsUni;
+    }
+
+    public long getInitialMaxStreamsBidi() {
+        return initialMaxStreamsBidi;
+    }
+
+    public void setSettingsMaxStreamsUni(long value) {
+        this.settingsMaxStreamsUni.set(value);
+    }
+
+    public void setSettingsMaxStreamsBidi(long value) {
+        this.settingsMaxStreamsBidi.set(value);
+    }
+
+    public long getServerInitiatedStreamsUni() {
+        return serverInitiatedStreamsUni.get();
+    }
+
+    public long getServerInitiatedStreamsBidi() {
+        return serverInitiatedStreamsBidi.get();
+    }
+
+    public long incrementAndGetServerInitiatedStreamsUni() {
+        return serverInitiatedStreamsUni.incrementAndGet();
+    }
+
+    public long incrementAndGetServerInitiatedStreamsBidi() {
+        return serverInitiatedStreamsBidi.incrementAndGet();
+    }
 }

@@ -78,7 +78,7 @@ public class RawWebTransportHandler extends ChannelInboundHandlerAdapter {
                     return;
                 }
                 boolean isBidi = (streamType == 0x41);
-                long value = isBidi ? session.incrementAndGetCurrentStreamsBidi() : session.incrementAndGetCurrentStreamsUni();
+                long value = isBidi ? session.incrementAndGetClientInitiatedStreamsBidi() : session.incrementAndGetClientInitiatedStreamsUni();
                 long maxAllowed = isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
 
                 if (value > maxAllowed) {
