@@ -159,6 +159,8 @@ public class WebTransportServer {
                         ch.attr(ALLOWED_ORIGINS).set(allowedOrigins);
                         ch.pipeline().addLast(new WebTransportDatagramHandler());
                         logger.debug("🔧 Added WebTransportDatagramHandler. Pipeline now: " + ch.pipeline().names());
+                        ch.pipeline().addLast(new WebTransportCapsuleHandler());
+                        logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: " + ch.pipeline().names());
                         ch.pipeline().addLast(new MessageDispatcher());
                         logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + ch.pipeline().names());
                         ch.pipeline().addLast(new Http3ServerConnectionHandler(
@@ -186,9 +188,11 @@ logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: " + strea
                                         stream.pipeline().addLast(new WebTransportHeadersHandler());
 logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportDataHandler());
-logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipeline().names());
+                                        stream.pipeline().addLast(new WebTransportCapsuleHandler());
+                                        logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: " + stream.pipeline().names());
                                         stream.pipeline().addLast(new MessageDispatcher());
-logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
                                         // DEBUG: Catch-all exception handler
                                         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                                             @Override
@@ -260,6 +264,7 @@ logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().
                                                     }
                                                 });
                                                 ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
+                                                ch.pipeline().addLast(new WebTransportCapsuleHandler());
                                                 ch.pipeline().addLast(new MessageDispatcher());
                                             }
                                         };

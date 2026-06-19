@@ -252,7 +252,7 @@ public class FramingLayerTest {
 
     @Test
     public void testMessageDispatcherCloseCapsuleSync() throws Exception {
-        MessageDispatcher dispatcher = new MessageDispatcher();
+        WebTransportCapsuleHandler handler = new WebTransportCapsuleHandler();
         ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
 
@@ -261,7 +261,7 @@ public class FramingLayerTest {
         ByteBuf data = Unpooled.buffer(0);
         WebTransportCapsule closeCapsule = new WebTransportCapsule(101L, 0x2843L, data);
 
-        dispatcher.channelRead(mockCtx, closeCapsule);
+        handler.channelRead(mockCtx, closeCapsule);
 
         // Verified: Closing happens synchronously on the EventLoop without offloading
         verify(mockCtx).close();

@@ -123,7 +123,7 @@ public class StreamBufferingTest {
         handler.channelRead(mockCtx, data);
 
         // Verify: stream was shut down with error code WT_BUFFERED_STREAM_REJECTED (0x3994bd84)
-        verify(rejectedStream).shutdown(eq(0x3994bd84), any(io.netty.channel.ChannelPromise.class));
+        verify(rejectedStream).shutdown(eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED), any(io.netty.channel.ChannelPromise.class));
         assertEquals(0, data.refCnt()); // Verified: Released
         
         mgr.closeAll(); // Clean up session manager
@@ -170,13 +170,13 @@ public class StreamBufferingTest {
         
         if (value > maxAllowed) {
             mgr.closeSessionWithFlowControlError(100L);
-            mockStream.shutdown(0x045d4487, mockStream.newPromise());
+            mockStream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, mockStream.newPromise());
         }
 
         // Verify: CONNECT stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
-        verify(mockConnectStream).shutdown(eq(0x045d4487), any(io.netty.channel.ChannelPromise.class));
+        verify(mockConnectStream).shutdown(eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR), any(io.netty.channel.ChannelPromise.class));
         // Verify: the offending stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
-        verify(mockStream).shutdown(eq(0x045d4487), any(io.netty.channel.ChannelPromise.class));
+        verify(mockStream).shutdown(eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR), any(io.netty.channel.ChannelPromise.class));
         // Verify: parent connection was NOT closed
         verify(mockParent, never()).close();
     }

@@ -101,7 +101,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             mgr.register(connectStream);
             
             boolean isConnectSocketIo = pathStr.contains("socket.io");
-            if (!isConnectSocketIo) {
+            boolean enableServerPush = WebTransportConfig.getBoolean("webtransport4j.webtransport.enable_server_push", true);
+            if (!isConnectSocketIo && enableServerPush) {
                 // Trigger server initiated uni-stream - test code
                 logger.debug(
                         "⏰ Creating Server-Push Stream for Session "
@@ -150,6 +151,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                             ch.pipeline().addLast(new EngineIoFrameDecoder());
                         }
                         ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
+                        ch.pipeline().addLast(new WebTransportCapsuleHandler());
                         ch.pipeline().addLast(new MessageDispatcher());
                     }
                 };

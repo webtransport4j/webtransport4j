@@ -154,6 +154,7 @@ public class WebTransportSessionManager {
         long sessionStreamId = connecStreamChannel.streamId();
         WebTransportSession removed = sessions.remove(sessionStreamId);
         if (removed != null) {
+            removed.cleanupPendingWrites(new IllegalStateException("WebTransport session closed"));
             for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedBi()) {
                 activeStream.close();
             }
@@ -177,7 +178,8 @@ public class WebTransportSessionManager {
         WebTransportSession session = sessions.remove(sessionId);
         if (session != null) {
             logger.info("❌ Closing CONNECT stream for session " + sessionId + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
-            session.getConnectStream().shutdown(0x045d4487, session.getConnectStream().newPromise());
+            session.cleanupPendingWrites(new IllegalStateException("WT_FLOW_CONTROL_ERROR: Peer session-level flow control limit exceeded"));
+            session.getConnectStream().shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
         }
     }
 
@@ -188,7 +190,7 @@ public class WebTransportSessionManager {
     public void closeAllWithFlowControlError() {
         for (WebTransportSession session : sessions.values()) {
             logger.info("❌ Closing CONNECT stream for session " + session.getSessionStreamId() + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
-            session.getConnectStream().shutdown(0x045d4487, session.getConnectStream().newPromise());
+            session.getConnectStream().shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
             if (session.getConnectStream().parent() != null) {
                 session.getConnectStream().parent().close();
             }
@@ -200,8 +202,12 @@ public class WebTransportSessionManager {
         if (!sessions.isEmpty()) {
             logger.debug(
                     "💥 SessionManager: Closing all " + sessions.size() + " active sessions due to connection close.");
+            for (WebTransportSession session : sessions.values()) {
+                session.cleanupPendingWrites(new java.nio.channels.ClosedChannelException());
+            }
             sessions.clear();
         }
+
         for (java.util.List<PendingStream> pendingList : bufferedStreams.values()) {
             for (PendingStream pending : pendingList) {
                 pending.data.release();

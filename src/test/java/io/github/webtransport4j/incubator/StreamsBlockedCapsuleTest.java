@@ -17,7 +17,7 @@ public class StreamsBlockedCapsuleTest {
     @SuppressWarnings("unchecked")
     @Test
     public void testBidiStreamsBlockedExtendsLimit() throws Exception {
-        MessageDispatcher dispatcher = new MessageDispatcher();
+        WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
         ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
         QuicChannel mockParent = mock(QuicChannel.class);
@@ -78,7 +78,7 @@ public class StreamsBlockedCapsuleTest {
     @SuppressWarnings("unchecked")
     @Test
     public void testUniStreamsBlockedExtendsLimit() throws Exception {
-        MessageDispatcher dispatcher = new MessageDispatcher();
+        WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
         ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
         QuicChannel mockParent = mock(QuicChannel.class);
@@ -141,7 +141,7 @@ public class StreamsBlockedCapsuleTest {
     @SuppressWarnings("unchecked")
     @Test
     public void testStreamsBlockedNoExtensionIfAtLimit() throws Exception {
-        MessageDispatcher dispatcher = new MessageDispatcher();
+        WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
         ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
         QuicChannel mockParent = mock(QuicChannel.class);
@@ -200,7 +200,7 @@ public class StreamsBlockedCapsuleTest {
     @SuppressWarnings("unchecked")
     @Test
     public void testSequentialLimitExtensions() throws Exception {
-        MessageDispatcher dispatcher = new MessageDispatcher();
+        WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
         ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
         QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
         QuicChannel mockParent = mock(QuicChannel.class);

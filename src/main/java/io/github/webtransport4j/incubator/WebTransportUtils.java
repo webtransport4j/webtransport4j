@@ -21,9 +21,15 @@ public class WebTransportUtils {
 
     public static final AttributeKey<Long> SESSION_ID_KEY = AttributeKey.valueOf("wt.session.id");
     public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
+    public static final AttributeKey<Boolean> SERVER_INITIATED_KEY = AttributeKey.valueOf("wt.stream.server_initiated");
 
     public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
     public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
+
+    // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-15 spec)
+    public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
+    public static final int WT_SESSION_GONE = 0x170d7b68;
+    public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
 
 
 
@@ -67,6 +73,7 @@ public class WebTransportUtils {
                     // Set channel attributes so other handlers/logs can retrieve them
                     stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
                     stream.attr(STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
+                    stream.attr(SERVER_INITIATED_KEY).set(true);
 
                     // 2. Write the Mandatory Header: [0x54] [SessionID]
                     // We write this synchronously before giving the stream to the user.
@@ -129,6 +136,7 @@ public class WebTransportUtils {
                     // Set channel attributes so other handlers/logs can retrieve them
                     stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
                     stream.attr(STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
+                    stream.attr(SERVER_INITIATED_KEY).set(true);
 
                     // 2. Write the Mandatory Header: [0x41] [SessionID]
                     ByteBuf header = Unpooled.buffer(16);
@@ -364,6 +372,34 @@ public class WebTransportUtils {
                 buf.release();
             }
             logger.error("Failed to send WT_MAX_DATA capsule", e);
+        }
+    }
+
+    public static void sendDataBlockedCapsule(QuicStreamChannel connectStream, long maxData) {
+        ByteBuf buf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+        try {
+            long capsuleType = 0x190B4D41L;
+            writeVarInt(buf, capsuleType);
+            
+            ByteBuf valBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+            try {
+                writeVarInt(valBuf, maxData);
+                int len = valBuf.readableBytes();
+                writeVarInt(buf, len);
+                buf.writeBytes(valBuf);
+            } finally {
+                valBuf.release();
+            }
+            
+            int totalBytes = buf.readableBytes();
+            logger.info("📤 Writing DefaultHttp3DataFrame with WT_DATA_BLOCKED Capsule (Type: 0x" + Long.toHexString(capsuleType) + ", Limit: " + maxData + ", Total Bytes: " + totalBytes + ")");
+
+            connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
+        } catch (Exception e) {
+            if (buf.refCnt() > 0) {
+                buf.release();
+            }
+            logger.error("Failed to send WT_DATA_BLOCKED capsule", e);
         }
     }
 }
