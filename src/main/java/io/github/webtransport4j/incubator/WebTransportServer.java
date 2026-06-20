@@ -30,15 +30,18 @@ import java.util.concurrent.TimeUnit;
 import org.apache.log4j.Logger;
 
 import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableLengthInt;
+
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
     static int PORT = 4433;
     static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
 
-    public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey.valueOf("wt.business.executor");
+    public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey
+            .valueOf("wt.business.executor");
     private static java.util.concurrent.ExecutorService businessExecutor;
 
-    public static final AttributeKey<java.util.List<String>> ALLOWED_ORIGINS = AttributeKey.valueOf("wt.allowed.origins");
+    public static final AttributeKey<java.util.List<String>> ALLOWED_ORIGINS = AttributeKey
+            .valueOf("wt.allowed.origins");
     private static java.util.List<String> allowedOrigins;
 
     public static void main(String[] args) throws Exception {
@@ -46,7 +49,8 @@ public class WebTransportServer {
         String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
         allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
 
-        int poolSize = WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2);
+        int poolSize = WebTransportConfig.getInt("webtransport4j.business.pool.size",
+                Runtime.getRuntime().availableProcessors() * 2);
         int queueCapacity = WebTransportConfig.getInt("webtransport4j.business.queue.capacity", 10000);
         businessExecutor = new java.util.concurrent.ThreadPoolExecutor(
                 poolSize,
@@ -54,7 +58,9 @@ public class WebTransportServer {
                 60L, TimeUnit.SECONDS,
                 new java.util.concurrent.LinkedBlockingQueue<>(queueCapacity),
                 new java.util.concurrent.ThreadFactory() {
-                    private final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(1);
+                    private final java.util.concurrent.atomic.AtomicInteger count = new java.util.concurrent.atomic.AtomicInteger(
+                            1);
+
                     @Override
                     public Thread newThread(Runnable r) {
                         Thread t = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
@@ -62,8 +68,7 @@ public class WebTransportServer {
                         return t;
                     }
                 },
-                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy()
-        );
+                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered. Stopping executor...");
@@ -79,7 +84,8 @@ public class WebTransportServer {
 
         logger.debug("🚀 STARTING DEBUG SERVER...");
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
-        String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", "/Users/sam/Documents/localhost-key.pem");
+        String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path",
+                "/Users/sam/Documents/localhost-key.pem");
         String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", "/Users/sam/Documents/localhost.pem");
         QuicSslContext sslContext = QuicSslContextBuilder.forServer(
                 new File(keyPath),
@@ -87,7 +93,8 @@ public class WebTransportServer {
                 new File(certPath))
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
-        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.allowed", "0x2c7cf000,0x2b64,0x2b65,0x2b61");
+        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.allowed",
+                "0x2c7cf000,0x2b64,0x2b65,0x2b61");
         Set<Long> allowed = new HashSet<>();
         for (String val : allowedProp.split(",")) {
             allowed.add(Long.decode(val.trim()));
@@ -104,46 +111,54 @@ public class WebTransportServer {
         long quicMaxStreamsBidi = WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
         long quicInitialMaxData = WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
 
-        // Validate that QUIC limits are not lesser than WebTransport initial session limits
-        validateConfig(quicMaxStreamsBidi, wtMaxStreamsBidi, quicMaxStreamsUni, wtMaxStreamsUni, quicInitialMaxData, wtInitialMaxData);
+        // Validate that QUIC limits are not lesser than WebTransport initial session
+        // limits
+        validateConfig(quicMaxStreamsBidi, wtMaxStreamsBidi, quicMaxStreamsUni, wtMaxStreamsUni, quicInitialMaxData,
+                wtInitialMaxData);
 
-        settings.enableH3Datagram(WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_h3_datagram", false));
-        settings.enableConnectProtocol(WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_connect_protocol", false));
+        settings.enableH3Datagram(
+                WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_h3_datagram", false));
+        settings.enableConnectProtocol(
+                WebTransportConfig.getBoolean("webtransport4j.webtransport.settings.enable_connect_protocol", false));
 
         // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
-        settings.put(0x2c7cf000L, WebTransportConfig.getLong("webtransport4j.webtransport.settings.wt_enabled.value", 0L));
-        //SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
+        settings.put(0x2c7cf000L,
+                WebTransportConfig.getLong("webtransport4j.webtransport.settings.wt_enabled.value", 0L));
+        // SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
         settings.put(0x2b64L, wtMaxStreamsUni);
-        //SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
+        // SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
         settings.put(0x2b65L, wtMaxStreamsBidi);
-        //SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
+        // SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, wtInitialMaxData);
         logger.info("Server side settings : " + settings);
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
-                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS)
+                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0),
+                        TimeUnit.SECONDS)
                 .initialMaxData(quicInitialMaxData)
-                .initialMaxStreamDataBidirectionalLocal(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
-                .initialMaxStreamDataBidirectionalRemote(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
+                .initialMaxStreamDataBidirectionalLocal(
+                        WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
+                .initialMaxStreamDataBidirectionalRemote(
+                        WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
                 .initialMaxStreamsBidirectional(quicMaxStreamsBidi)
                 .datagram(
                         WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
                         WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
                 .initialMaxStreamsUnidirectional(quicMaxStreamsUni)
-                .initialMaxStreamDataUnidirectional(WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
+                .initialMaxStreamDataUnidirectional(
+                        WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
                 .tokenHandler(InsecureQuicTokenHandler.INSTANCE)
                 .handler(new ChannelInitializer<QuicChannel>() {
                     @Override
                     protected void initChannel(QuicChannel ch) {
-                        logger.debug("Opening quic connection "+ ch.id());
+                        logger.debug("Opening quic connection " + ch.id());
                         long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
                         long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
                         long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(defData);
-                        
-                        
+
                         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
                         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
                         String ip = remote.getAddress().getHostAddress();
@@ -168,31 +183,40 @@ public class WebTransportServer {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
                                         QuicChannel quic = stream.parent();
-                                        
+
                                         String path = quic.attr(SESSION_PATH_KEY).get();
                                         boolean isSocketIo = (path != null && path.contains("socket.io"));
 
                                         stream.pipeline().addFirst(new WebTransportDetectorHandler());
-logger.debug("🔧 Added WebTransportDetectorHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportDetectorHandler. Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline()
                                                 .addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
-logger.debug("🔧 Added QuicGlobalSniffer (per‑stream). Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added QuicGlobalSniffer (per‑stream). Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline().addLast(new RawWebTransportHandler());
-logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: "
+                                                + stream.pipeline().names());
                                         if (isSocketIo) {
                                             stream.pipeline().addLast(new EngineIoFrameDecoder());
-logger.debug("🔧 Added EngineIoFrameDecoder. Pipeline now: " + stream.pipeline().names());
+                                            logger.debug("🔧 Added EngineIoFrameDecoder. Pipeline now: "
+                                                    + stream.pipeline().names());
                                         }
                                         stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
-logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportHeadersHandler());
-logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportDataHandler());
-                                        logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportDataHandler. Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline().addLast(new WebTransportCapsuleHandler());
-                                        logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: "
+                                                + stream.pipeline().names());
                                         stream.pipeline().addLast(new MessageDispatcher());
-                                        logger.debug("🔧 Added MessageDispatcher. Pipeline now: " + stream.pipeline().names());
+                                        logger.debug("🔧 Added MessageDispatcher. Pipeline now: "
+                                                + stream.pipeline().names());
                                         // DEBUG: Catch-all exception handler
                                         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                                             @Override
@@ -211,7 +235,8 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
                                         if (msg instanceof Http3SettingsFrame) {
                                             Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
                                             logger.debug("PEER SETTINGS: " + settingsFrame);
-                                            io.netty.handler.codec.http3.Http3Settings settings = settingsFrame.settings();
+                                            io.netty.handler.codec.http3.Http3Settings settings = settingsFrame
+                                                    .settings();
                                             if (settings != null) {
                                                 QuicChannel quic = null;
                                                 if (ctx.channel() instanceof QuicStreamChannel) {
@@ -220,11 +245,14 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
 
-                                                // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is enabled (1)
+                                                // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is
+                                                // enabled (1)
                                                 if (!settings.h3DatagramEnabled()) {
-                                                    logger.warn("❌ WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection with WT_REQUIREMENTS_NOT_MET (0x61616164)");
+                                                    logger.warn(
+                                                            "❌ WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection with WT_REQUIREMENTS_NOT_MET (0x61616164)");
                                                     if (quic != null) {
-                                                        quic.close(true, 0x212c0d48, io.netty.buffer.Unpooled.EMPTY_BUFFER);
+                                                        quic.close(true, 0x212c0d48,
+                                                                io.netty.buffer.Unpooled.EMPTY_BUFFER);
                                                     } else {
                                                         ctx.close();
                                                     }
@@ -233,9 +261,12 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
                                                 }
 
                                                 if (quic != null) {
-                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).set(settings.get(0x2b64L));
-                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI).set(settings.get(0x2b65L));
-                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI)
+                                                            .set(settings.get(0x2b64L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI)
+                                                            .set(settings.get(0x2b65L));
+                                                    quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)
+                                                            .set(settings.get(0x2b61L));
                                                 }
                                             }
                                         }
@@ -257,7 +288,8 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
                                                             ByteBuf data = (ByteBuf) msg;
                                                             if (!sessionHeaderRead) {
                                                                 long sessionId = readVariableLengthInt(data);
-                                                                ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
+                                                                ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY)
+                                                                        .set(sessionId);
                                                                 sessionHeaderRead = true;
                                                             }
                                                             if (!data.isReadable()) {
@@ -297,18 +329,19 @@ logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: " + stream.pi
         ch.closeFuture().sync();
     }
 
-    static void validateConfig(long quicMaxBidi, long wtMaxBidi, long quicMaxUni, long wtMaxUni, long quicMaxData, long wtMaxData) {
+    static void validateConfig(long quicMaxBidi, long wtMaxBidi, long quicMaxUni, long wtMaxUni, long quicMaxData,
+            long wtMaxData) {
         if (quicMaxBidi < wtMaxBidi) {
-            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.bidi (" + quicMaxBidi 
-                + ") must be greater than or equal to webtransport.initial.max.streams.bidi (" + wtMaxBidi + ")");
+            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.bidi (" + quicMaxBidi
+                    + ") must be greater than or equal to webtransport.initial.max.streams.bidi (" + wtMaxBidi + ")");
         }
         if (quicMaxUni < wtMaxUni) {
-            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.uni (" + quicMaxUni 
-                + ") must be greater than or equal to webtransport.initial.max.streams.uni (" + wtMaxUni + ")");
+            throw new IllegalArgumentException("Configuration Mismatch: quic.max.streams.uni (" + quicMaxUni
+                    + ") must be greater than or equal to webtransport.initial.max.streams.uni (" + wtMaxUni + ")");
         }
         if (quicMaxData < wtMaxData) {
-            throw new IllegalArgumentException("Configuration Mismatch: quic.initial.max.data (" + quicMaxData 
-                + ") must be greater than or equal to webtransport.initial.max.data (" + wtMaxData + ")");
+            throw new IllegalArgumentException("Configuration Mismatch: quic.initial.max.data (" + quicMaxData
+                    + ") must be greater than or equal to webtransport.initial.max.data (" + wtMaxData + ")");
         }
     }
 }
