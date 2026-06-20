@@ -106,7 +106,7 @@ public class WebTransportServer {
                 new File(certPath))
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
-        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.allowed",
+        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.nonstandardallowed",
                 "0x2c7cf000,0x2b64,0x2b65,0x2b61");
         Set<Long> allowed = new HashSet<>();
         for (String val : allowedProp.split(",")) {
