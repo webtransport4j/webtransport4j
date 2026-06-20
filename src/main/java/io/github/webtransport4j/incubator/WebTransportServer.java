@@ -22,6 +22,8 @@ import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.AttributeKey;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
@@ -34,6 +36,9 @@ import static io.github.webtransport4j.incubator.WebTransportUtils.readVariableL
 public class WebTransportServer {
     private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
     static int PORT = 4433;
+    public static final AttributeKey<GlobalTrafficShapingHandler> CONN_TRAFFIC_SHAPER =
+            AttributeKey.valueOf("wt.conn.traffic.shaper");
+    static GlobalTrafficShapingHandler globalTrafficShaper;
     static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
 
     public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey
@@ -72,6 +77,9 @@ public class WebTransportServer {
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered. Stopping executor...");
+            if (globalTrafficShaper != null) {
+                globalTrafficShaper.release();
+            }
             businessExecutor.shutdown();
             try {
                 if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -84,6 +92,11 @@ public class WebTransportServer {
 
         logger.debug("🚀 STARTING DEBUG SERVER...");
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
+        long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
+        long globalReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
+        if (globalWriteLimit > 0 || globalReadLimit > 0) {
+            globalTrafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+        }
         String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path",
                 "/Users/sam/Documents/localhost-key.pem");
         String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", "/Users/sam/Documents/localhost.pem");
@@ -158,6 +171,14 @@ public class WebTransportServer {
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(defData);
+ 
+                        long connWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.connection.write.limit", 0L);
+                        long connReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.connection.read.limit", 0L);
+                        if (connWriteLimit > 0 || connReadLimit > 0) {
+                            GlobalTrafficShapingHandler connShaper = new GlobalTrafficShapingHandler(ch.eventLoop(), connWriteLimit, connReadLimit);
+                            ch.attr(CONN_TRAFFIC_SHAPER).set(connShaper);
+                            ch.closeFuture().addListener(f -> connShaper.release());
+                        }
 
                         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
                         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
@@ -183,6 +204,7 @@ public class WebTransportServer {
                                     @Override
                                     protected void initChannel(QuicStreamChannel stream) {
                                         QuicChannel quic = stream.parent();
+                                        addTrafficShapers(stream);
 
                                         String path = quic.attr(SESSION_PATH_KEY).get();
                                         boolean isSocketIo = (path != null && path.contains("socket.io"));
@@ -279,6 +301,7 @@ public class WebTransportServer {
                                         return new ChannelInitializer<QuicStreamChannel>() {
                                             @Override
                                             protected void initChannel(QuicStreamChannel ch) {
+                                                addTrafficShapers(ch);
                                                 ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                                                     private boolean sessionHeaderRead = false;
 
@@ -342,6 +365,26 @@ public class WebTransportServer {
         if (quicMaxData < wtMaxData) {
             throw new IllegalArgumentException("Configuration Mismatch: quic.initial.max.data (" + quicMaxData
                     + ") must be greater than or equal to webtransport.initial.max.data (" + wtMaxData + ")");
+        }
+    }
+
+    static void addTrafficShapers(QuicStreamChannel stream) {
+        QuicChannel quic = stream.parent();
+        if (globalTrafficShaper != null) {
+            stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShaper);
+            logger.debug("🔧 Added global traffic shaper to stream " + stream.streamId());
+        }
+        GlobalTrafficShapingHandler connShaper = quic.attr(CONN_TRAFFIC_SHAPER).get();
+        if (connShaper != null) {
+            stream.pipeline().addFirst("conn-traffic-shaper", connShaper);
+            logger.debug("🔧 Added connection traffic shaper to stream " + stream.streamId());
+        }
+        long streamWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.stream.write.limit", 0L);
+        long streamReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.stream.read.limit", 0L);
+        if (streamWriteLimit > 0 || streamReadLimit > 0) {
+            ChannelTrafficShapingHandler streamShaper = new ChannelTrafficShapingHandler(streamWriteLimit, streamReadLimit);
+            stream.pipeline().addFirst("stream-traffic-shaper", streamShaper);
+            logger.debug("🔧 Added stream traffic shaper to stream " + stream.streamId());
         }
     }
 }

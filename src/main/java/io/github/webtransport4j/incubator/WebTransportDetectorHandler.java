@@ -9,6 +9,8 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 
 public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
     private static final Logger logger = Logger.getLogger(WebTransportDetectorHandler.class.getName());
@@ -89,7 +91,8 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
             }
             if (h instanceof QuicGlobalSniffer || h instanceof RawWebTransportHandler
                     || h instanceof EngineIoFrameDecoder || h instanceof WebTransportStreamFrameDecoder
-                    || h instanceof MessageDispatcher) {
+                    || h instanceof MessageDispatcher || h instanceof GlobalTrafficShapingHandler
+                    || h instanceof ChannelTrafficShapingHandler) {
                 continue;
             }
             toRemove.add(name);

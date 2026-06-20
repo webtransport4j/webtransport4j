@@ -56,12 +56,43 @@ public class WebTransportConfig {
         return properties.getProperty(key, defaultValue);
     }
 
+    private static long evaluateExpression(String val) {
+        val = val.trim();
+        if (val.contains("*")) {
+            String[] parts = val.split("\\*");
+            long result = 1;
+            for (String part : parts) {
+                result *= Long.parseLong(part.trim());
+            }
+            return result;
+        }
+        return Long.parseLong(val);
+    }
+
     public static int getInt(String key, int defaultValue) {
-        return Integer.parseInt(get(key, String.valueOf(defaultValue)));
+        String val = get(key, null);
+        if (val == null) {
+            return defaultValue;
+        }
+        try {
+            return (int) evaluateExpression(val);
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to parse int value for key '" + key + "': " + val + ". Using default: " + defaultValue, e);
+            return defaultValue;
+        }
     }
 
     public static long getLong(String key, long defaultValue) {
-        return Long.parseLong(get(key, String.valueOf(defaultValue)));
+        String val = get(key, null);
+        if (val == null) {
+            return defaultValue;
+        }
+        try {
+            return evaluateExpression(val);
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to parse long value for key '" + key + "': " + val + ". Using default: " + defaultValue, e);
+            return defaultValue;
+        }
     }
 
     public static boolean getBoolean(String key, boolean defaultValue) {
