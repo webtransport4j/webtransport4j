@@ -40,6 +40,10 @@ public class WebTransportServer {
             AttributeKey.valueOf("wt.conn.traffic.shaper");
     static GlobalTrafficShapingHandler globalTrafficShaper;
     static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
+    public static final AttributeKey<Boolean> PEER_SETTINGS_RECEIVED =
+            AttributeKey.valueOf("wt.peer.settings.received");
+    public static final AttributeKey<Boolean> PEER_SETTINGS_VALID =
+            AttributeKey.valueOf("wt.peer.settings.valid");
 
     public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR = AttributeKey
             .valueOf("wt.business.executor");
@@ -171,6 +175,8 @@ public class WebTransportServer {
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
                         ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(defData);
+                        ch.attr(PEER_SETTINGS_RECEIVED).set(false);
+                        ch.attr(PEER_SETTINGS_VALID).set(false);
  
                         long connWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.connection.write.limit", 0L);
                         long connReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.connection.read.limit", 0L);
@@ -267,16 +273,31 @@ public class WebTransportServer {
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
 
+                                                boolean valid = settings.h3DatagramEnabled();
+                                                if (quic != null) {
+                                                    quic.attr(PEER_SETTINGS_RECEIVED).set(true);
+                                                    quic.attr(PEER_SETTINGS_VALID).set(valid);
+                                                }
+
                                                 // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is
                                                 // enabled (1)
-                                                if (!settings.h3DatagramEnabled()) {
+                                                // NOTE: Do NOT close the connection immediately here.
+                                                // Per RFC, CONNECT requests can arrive before or after SETTINGS
+                                                // (out of order on different streams). If we close immediately,
+                                                // a late-arriving CONNECT never gets a proper H3_MESSAGE_ERROR
+                                                // reset. Instead, we mark the connection invalid via attributes
+                                                // and let WebTransportHeadersHandler reject CONNECT requests.
+                                                if (!valid) {
                                                     logger.warn(
-                                                            "❌ WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection with WT_REQUIREMENTS_NOT_MET (0x61616164)");
+                                                            "❌ WebTransport requirements not met: Client does not support H3 Datagrams. Treating all established sessions as malformed.");
                                                     if (quic != null) {
-                                                        quic.close(true, 0x212c0d48,
-                                                                io.netty.buffer.Unpooled.EMPTY_BUFFER);
-                                                    } else {
-                                                        ctx.close();
+                                                        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                                                        if (mgr != null) {
+                                                            for (WebTransportSession session : new java.util.ArrayList<>(mgr.getSessions())) {
+                                                                logger.warn("⚡️ Resetting established session ID " + session.getSessionStreamId() + " with H3_MESSAGE_ERROR");
+                                                                session.getConnectStream().shutdown(0x010e, session.getConnectStream().newPromise());
+                                                            }
+                                                        }
                                                     }
                                                     io.netty.util.ReferenceCountUtil.release(msg);
                                                     return;

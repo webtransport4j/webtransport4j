@@ -159,14 +159,28 @@ public class WebTransportIntegrationTest {
                                                     quic = (QuicChannel) ctx.channel();
                                                 }
 
+                                                boolean valid = settings.h3DatagramEnabled();
+                                                // Set attributes so WebTransportHeadersHandler can check them
+                                                if (quic != null) {
+                                                    quic.attr(WebTransportServer.PEER_SETTINGS_RECEIVED).set(true);
+                                                    quic.attr(WebTransportServer.PEER_SETTINGS_VALID).set(valid);
+                                                }
+
                                                 // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is enabled (1)
-                                                if (!settings.h3DatagramEnabled()) {
-                                                    System.out.println("SERVER: WebTransport requirements not met: Client does not support H3 Datagrams. Closing connection.");
+                                                if (!valid) {
+                                                    System.out.println("SERVER: WebTransport requirements not met: Client does not support H3 Datagrams. Marking invalid and resetting sessions.");
+                                                    // Reset all established sessions with H3_MESSAGE_ERROR (0x010e)
                                                     if (quic != null) {
-                                                        quic.close(true, 0x61616164, io.netty.buffer.Unpooled.EMPTY_BUFFER);
-                                                    } else {
-                                                        ctx.close();
+                                                        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                                                        if (mgr != null) {
+                                                            for (WebTransportSession session : new java.util.ArrayList<>(mgr.getSessions())) {
+                                                                System.out.println("SERVER: Resetting established session ID " + session.getSessionStreamId() + " with H3_MESSAGE_ERROR");
+                                                                session.getConnectStream().shutdown(0x010e, session.getConnectStream().newPromise());
+                                                            }
+                                                        }
                                                     }
+                                                    // Don't close connection immediately — let WebTransportHeadersHandler
+                                                    // reject new CONNECT requests via PEER_SETTINGS_VALID attribute check
                                                     io.netty.util.ReferenceCountUtil.release(msg);
                                                     return;
                                                 }
@@ -930,13 +944,14 @@ public class WebTransportIntegrationTest {
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
 
-        // client disables H3 Datagram
+        // client disables H3 Datagram — violates WebTransport requirements
         Http3Settings clientSettings = new Http3Settings((id, value) -> true);
-        clientSettings.enableH3Datagram(false); // violates WebTransport requirements
+        clientSettings.enableH3Datagram(false);
         clientSettings.enableConnectProtocol(true);
         clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
 
-        CountDownLatch closeLatch = new CountDownLatch(1);
+        CountDownLatch resetLatch = new CountDownLatch(1);
+        final Throwable[] caughtException = new Throwable[1];
 
         ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
                 .sslContext(clientSslContext)
@@ -946,7 +961,6 @@ public class WebTransportIntegrationTest {
                 .initialMaxStreamDataBidirectionalRemote(1000000)
                 .initialMaxStreamsBidirectional(100)
                 .initialMaxStreamsUnidirectional(100)
-                .datagram(10000, 10000)
                 .build();
 
         Channel clientChannel = new Bootstrap()
@@ -978,14 +992,45 @@ public class WebTransportIntegrationTest {
 
         QuicChannel quicClient = bootstrap.connect().sync().getNow();
 
-        // Watch for QUIC connection close
-        quicClient.closeFuture().addListener(f -> {
-            closeLatch.countDown();
+        // Send a WebTransport CONNECT — server should reject with stream reset
+        // because the client's SETTINGS didn't enable H3 Datagrams
+        Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                        // ignore
+                    }
+
+                    @Override
+                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                        caughtException[0] = cause;
+                        resetLatch.countDown();
+                        ctx.close();
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                Http3Headers headers = new DefaultHttp3Headers();
+                headers.method("CONNECT");
+                headers.scheme("https");
+                headers.path("/test-integration");
+                headers.authority("localhost");
+                headers.set(":protocol", "webtransport");
+                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+            }
         });
 
-        // Wait for the connection to be rejected and closed by server
-        assertTrue("Connection close timed out", closeLatch.await(5, TimeUnit.SECONDS));
-        assertFalse(quicClient.isActive());
+        assertTrue("CONNECT stream was not reset due to invalid peer settings", resetLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(caughtException[0]);
+        assertTrue("Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName(),
+                caughtException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        assertEquals(0x010eL, ((io.netty.handler.codec.quic.QuicStreamResetException) caughtException[0]).applicationProtocolCode());
+
+        quicClient.close().sync();
     }
 
     @Test
@@ -2319,6 +2364,103 @@ public class WebTransportIntegrationTest {
         long duration = endTime[0] - startTime;
         System.out.println("Coexistence Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
+
+        quicClient.close().sync();
+    }
+
+    @Test
+    public void testMalformedSettingsStreamReset() throws Exception {
+        // Build client ssl context
+        QuicSslContext clientSslContext = QuicSslContextBuilder.forClient()
+                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .applicationProtocols(Http3.supportedApplicationProtocols())
+                .build();
+
+        Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+        clientSettings.enableH3Datagram(false); // REQUIRED SETTING IS FALSE/MISSING
+        clientSettings.enableConnectProtocol(true);
+        clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+        clientSettings.put(0x2b64L, 10L);
+        clientSettings.put(0x2b65L, 10L);
+        clientSettings.put(0x2b61L, 10000L);
+
+        CountDownLatch resetLatch = new CountDownLatch(1);
+        final Throwable[] caughtException = new Throwable[1];
+
+        ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
+                .sslContext(clientSslContext)
+                .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+                .initialMaxData(10000000)
+                .initialMaxStreamDataBidirectionalLocal(1000000)
+                .initialMaxStreamDataBidirectionalRemote(1000000)
+                .initialMaxStreamsBidirectional(100)
+                .initialMaxStreamsUnidirectional(100)
+                .build();
+
+        Channel clientChannel = new Bootstrap()
+                .group(clientGroup)
+                .channel(NioDatagramChannel.class)
+                .handler(clientCodec)
+                .bind(0)
+                .sync()
+                .channel();
+
+        QuicChannelBootstrap bootstrap = QuicChannel.newBootstrap(clientChannel)
+                .handler(new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {
+                        ch.pipeline().addLast(new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                    @Override
+                                    protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true
+                        ));
+                    }
+                })
+                .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+        QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+        // Connect request
+        Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+                    @Override
+                    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                        // ignore
+                    }
+
+                    @Override
+                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                        caughtException[0] = cause;
+                        resetLatch.countDown();
+                        ctx.close();
+                    }
+                });
+            }
+        }).addListener((Future<QuicStreamChannel> f) -> {
+            if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                Http3Headers headers = new DefaultHttp3Headers();
+                headers.method("CONNECT");
+                headers.scheme("https");
+                headers.path("/test-integration");
+                headers.authority("localhost");
+                headers.set(":protocol", "webtransport");
+                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+            }
+        });
+
+        assertTrue("CONNECT stream did not reset due to malformed/invalid settings", resetLatch.await(5, TimeUnit.SECONDS));
+        assertNotNull(caughtException[0]);
+        assertTrue("Expected QuicStreamResetException", caughtException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        // H3_MESSAGE_ERROR is 0x010e (270)
+        assertEquals(0x010eL, ((io.netty.handler.codec.quic.QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
         quicClient.close().sync();
     }

@@ -75,6 +75,18 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
             QuicChannel quic = (QuicChannel) ctx.channel().parent();
             QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+
+            if (quic != null) {
+                Boolean settingsReceived = quic.attr(WebTransportServer.PEER_SETTINGS_RECEIVED).get();
+                Boolean settingsValid = quic.attr(WebTransportServer.PEER_SETTINGS_VALID).get();
+                if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
+                    logger.warn("❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams. Treating incoming session CONNECT stream as malformed and resetting with H3_MESSAGE_ERROR (0x010e).");
+                    connectStream.shutdown(0x010e, connectStream.newPromise());
+                    ReferenceCountUtil.release(frame);
+                    return;
+                }
+            }
+
             long sessionId = connectStream.streamId();
             //verify it is client-iniated bi directional stream as per below RFC
             //https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
