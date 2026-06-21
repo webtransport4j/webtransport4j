@@ -444,4 +444,55 @@ public class WebTransportUtils {
     }
     streamChannel.shutdown(code, streamChannel.newPromise());
   }
+
+  public static String formatHexBytes(ByteBuf buf) {
+    int len = buf.readableBytes();
+    if (len == 0) return "\n    ├── Wire Bytes: [ ]\n    └── Characters: ( )";
+
+    StringBuilder hexLine = new StringBuilder("[ ");
+    StringBuilder charLine = new StringBuilder("( ");
+
+    int readerIndex = buf.readerIndex();
+    for (int i = 0; i < len; i++) {
+      byte b = buf.getByte(readerIndex + i);
+      String hexStr = String.format("0x%02X", b);
+
+      String charStr;
+      if (b >= 32 && b < 127) {
+        charStr = String.format("'%c'", (char) b);
+      } else {
+        charStr = "'.'";
+      }
+
+      int maxLen = Math.max(hexStr.length(), charStr.length());
+
+      StringBuilder hexVal = new StringBuilder(hexStr);
+      while (hexVal.length() < maxLen) {
+        hexVal.append(" ");
+      }
+      StringBuilder charVal = new StringBuilder(charStr);
+      while (charVal.length() < maxLen) {
+        charVal.insert(0, " ").append(" ");
+      }
+      if (charVal.length() > maxLen) {
+        charVal.setLength(maxLen);
+      }
+
+      hexLine.append(hexVal);
+      charLine.append(charVal);
+
+      if (i < len - 1) {
+        hexLine.append(", ");
+        charLine.append(", ");
+      }
+    }
+
+    hexLine.append(" ]");
+    charLine.append(" )");
+    return "\n    ├── Wire Bytes: "
+        + hexLine.toString()
+        + "\n    └── Characters: "
+        + charLine.toString();
+  }
 }
+
