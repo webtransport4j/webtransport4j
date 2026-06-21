@@ -65,9 +65,10 @@ public class WebTransportUtils {
                 + " >= "
                 + max
                 + ". Stream creation failed.");
+        sendStreamsBlockedCapsule(session.getConnectStream(), false, max);
         promise.setFailure(
             new IllegalStateException(
-                "WT_FLOW_CONTROL_ERROR: Unidirectional stream limit exceeded"));
+                "Unidirectional stream limit exceeded"));
         return promise;
       }
       session.incrementAndGetServerInitiatedStreamsUni();
@@ -148,9 +149,10 @@ public class WebTransportUtils {
                 + " >= "
                 + max
                 + ". Stream creation failed.");
+        sendStreamsBlockedCapsule(session.getConnectStream(), true, max);
         promise.setFailure(
             new IllegalStateException(
-                "WT_FLOW_CONTROL_ERROR: Bidirectional stream limit exceeded"));
+                "Bidirectional stream limit exceeded"));
         return promise;
       }
       session.incrementAndGetServerInitiatedStreamsBidi();
@@ -508,6 +510,44 @@ public class WebTransportUtils {
         buf.release();
       }
       logger.error("Failed to send WT_DATA_BLOCKED capsule", e);
+    }
+  }
+
+  public static void sendStreamsBlockedCapsule(
+      QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
+    ByteBuf buf =
+        (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+    try {
+      long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
+      writeVarInt(buf, capsuleType);
+
+      ByteBuf valBuf =
+          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+      try {
+        writeVarInt(valBuf, maxStreams);
+        int len = valBuf.readableBytes();
+        writeVarInt(buf, len);
+        buf.writeBytes(valBuf);
+      } finally {
+        valBuf.release();
+      }
+
+      int totalBytes = buf.readableBytes();
+      logger.info(
+          "📤 Writing DefaultHttp3DataFrame with WT_STREAMS_BLOCKED Capsule (Type: 0x"
+              + Long.toHexString(capsuleType)
+              + ", Maximum Streams: "
+              + maxStreams
+              + ", Total Bytes: "
+              + totalBytes
+              + ")");
+
+      connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
+    } catch (Exception e) {
+      if (buf.refCnt() > 0) {
+        buf.release();
+      }
+      logger.error("Failed to send WT_STREAMS_BLOCKED capsule", e);
     }
   }
 

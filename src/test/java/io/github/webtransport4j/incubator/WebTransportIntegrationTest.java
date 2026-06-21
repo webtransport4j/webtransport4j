@@ -36,6 +36,56 @@ public class WebTransportIntegrationTest {
 
   private void setUpServer(long initialMaxData) throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
+    WebTransportServer.registerHandler(
+        "/test-integration",
+        new WebTransportHandler() {
+          @Override
+          public void onSessionReady(WebTransportSession session) {
+            System.out.println("TEST SERVER: Session ready: " + session.getSessionStreamId());
+          }
+
+          @Override
+          public void onSessionClosed(WebTransportSession session) {
+            System.out.println("TEST SERVER: Session closed: " + session.getSessionStreamId());
+          }
+
+          @Override
+          public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+            System.out.println(
+                "TEST SERVER: Incoming stream: "
+                    + stream.streamId()
+                    + " (bidi="
+                    + stream.isBidirectional()
+                    + ")");
+            stream.onData(
+                data -> {
+                  String content = data.toString(StandardCharsets.UTF_8);
+                  System.out.println(
+                      "TEST SERVER: Received on stream " + stream.streamId() + ": " + content);
+                  if (stream.isBidirectional()) {
+                    stream.writeText(
+                        "ACK BI: I received the message from " + session.path() + ": " + content);
+                  } else {
+                    System.out.println(
+                        "Unidirectional message received from client :"
+                            + session.path()
+                            + ": "
+                            + content);
+                  }
+                });
+          }
+
+          @Override
+          public void onDatagramReceived(WebTransportSession session, ByteBuf data) {
+            String content = data.toString(StandardCharsets.UTF_8);
+            System.out.println("TEST SERVER: Received datagram: " + content);
+            ByteBuf resp = session.getConnectStream().alloc().directBuffer();
+            resp.writeBytes(
+                ("ACK DG: I received the message from " + session.path() + ": " + content)
+                    .getBytes(StandardCharsets.UTF_8));
+            session.sendDatagram(resp);
+          }
+        });
     serverGroup = new NioEventLoopGroup(1);
     clientGroup = new NioEventLoopGroup(1);
 
@@ -267,6 +317,7 @@ public class WebTransportIntegrationTest {
 
   @After
   public void tearDown() throws Exception {
+    WebTransportServer.registerHandler("/test-integration", null);
     if (serverChannel != null) {
       serverChannel.close().sync();
     }

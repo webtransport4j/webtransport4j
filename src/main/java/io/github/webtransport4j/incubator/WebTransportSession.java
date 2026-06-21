@@ -1,8 +1,12 @@
 package io.github.webtransport4j.incubator;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Promise;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,7 +54,7 @@ public class WebTransportSession {
       };
 
   private final long sessionStreamId;
-
+  private final String path;
   private final QuicStreamChannel connectStream;
 
   private final Set<QuicStreamChannel> activeClientInitiatedUni;
@@ -94,6 +98,7 @@ public class WebTransportSession {
   WebTransportSession(
       long sessionStreamId,
       QuicStreamChannel connectStream,
+      String path,
       long maxStreamsUni,
       long maxStreamsBidi,
       long maxData,
@@ -102,6 +107,7 @@ public class WebTransportSession {
       long peerMaxData,
       boolean flowControlEnabled) {
     this.sessionStreamId = sessionStreamId;
+    this.path = path;
     this.connectStream = connectStream;
     this.flowControlEnabled = flowControlEnabled;
 
@@ -141,16 +147,60 @@ public class WebTransportSession {
     return activeClientInitiatedUni;
   }
 
+  public Set<WebTransportStream> getClientInitiatedUniStreams() {
+    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    for (QuicStreamChannel ch : activeClientInitiatedUni) {
+      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      if (s != null) {
+        streams.add(s);
+      }
+    }
+    return streams;
+  }
+
   public Set<QuicStreamChannel> getActiveServerInitiatedUni() {
     return activeServerInitiatedUni;
+  }
+
+  public Set<WebTransportStream> getServerInitiatedUniStreams() {
+    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    for (QuicStreamChannel ch : activeServerInitiatedUni) {
+      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      if (s != null) {
+        streams.add(s);
+      }
+    }
+    return streams;
   }
 
   public Set<QuicStreamChannel> getActiveClientInitiatedBi() {
     return activeClientInitiatedBi;
   }
 
+  public Set<WebTransportStream> getClientInitiatedBiStreams() {
+    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    for (QuicStreamChannel ch : activeClientInitiatedBi) {
+      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      if (s != null) {
+        streams.add(s);
+      }
+    }
+    return streams;
+  }
+
   public Set<QuicStreamChannel> getActiveServerInitiatedBi() {
     return activeServerInitiatedBi;
+  }
+
+  public Set<WebTransportStream> getServerInitiatedBiStreams() {
+    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    for (QuicStreamChannel ch : activeServerInitiatedBi) {
+      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      if (s != null) {
+        streams.add(s);
+      }
+    }
+    return streams;
   }
 
   public boolean isFlowControlEnabled() {
@@ -380,6 +430,39 @@ public class WebTransportSession {
   }
 
   /**
+   * Sends a datagram package over the WebTransport session.
+   *
+   * @param data The datagram payload.
+   * @return A future that is notified when the write completes.
+   */
+  public io.netty.util.concurrent.Future<Void> sendDatagram(ByteBuf data) {
+    io.netty.channel.Channel parentChannel = connectStream.parent();
+    ByteBuf header = parentChannel.alloc().directBuffer();
+    WebTransportUtils.writeVarInt(header, sessionStreamId);
+    
+    io.netty.buffer.CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
+    composite.addComponent(true, header);
+    composite.addComponent(true, data);
+    
+    return parentChannel.writeAndFlush(composite);
+  }
+
+  /**
+   * Sends a datagram package over the WebTransport session.
+   *
+   * @param data The datagram payload byte array.
+   * @return A future that is notified when the write completes.
+   */
+  public io.netty.util.concurrent.Future<Void> sendDatagram(byte[] data) {
+    io.netty.channel.Channel parentChannel = connectStream.parent();
+    ByteBuf buffer = parentChannel.alloc().directBuffer();
+    WebTransportUtils.writeVarInt(buffer, sessionStreamId);
+    buffer.writeBytes(data);
+    return parentChannel.writeAndFlush(buffer);
+  }
+
+
+  /**
    * Represents a write that was buffered because it would exceed the session-level flow control
    * limit.
    */
@@ -405,5 +488,97 @@ public class WebTransportSession {
     public ChannelPromise getPromise() {
       return promise;
     }
+  }
+
+  public String path() {
+    return path;
+  }
+
+  public static final ChannelHandler DEFAULT_UNI_INITIALIZER = new ChannelInitializer<QuicStreamChannel>() {
+    @Override
+    protected void initChannel(QuicStreamChannel ch) {
+      // Unidirectional write-only stream, no read pipeline handlers needed
+    }
+  };
+
+  public static final ChannelHandler DEFAULT_BI_INITIALIZER = new ChannelInitializer<QuicStreamChannel>() {
+    @Override
+    protected void initChannel(QuicStreamChannel ch) {
+      ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
+      ch.pipeline().addLast(new WebTransportCapsuleHandler());
+      ch.pipeline().addLast(new MessageDispatcher());
+    }
+  };
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream() {
+    return createUniStream(DEFAULT_UNI_INITIALIZER);
+  }
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream(ChannelHandler streamHandler) {
+    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
+    WebTransportUtils.createUniStream(this.connectStream, java.util.Optional.empty(), streamHandler)
+        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+          if (f.isSuccess()) {
+            QuicStreamChannel ch = f.getNow();
+            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
+            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            promise.setSuccess(stream);
+          } else {
+            promise.setFailure(f.cause());
+          }
+        });
+    return promise;
+  }
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream(boolean bypassLimit, ChannelHandler streamHandler) {
+    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
+    WebTransportUtils.createUniStream(this.connectStream, java.util.Optional.of(bypassLimit), streamHandler)
+        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+          if (f.isSuccess()) {
+            QuicStreamChannel ch = f.getNow();
+            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
+            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            promise.setSuccess(stream);
+          } else {
+            promise.setFailure(f.cause());
+          }
+        });
+    return promise;
+  }
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream() {
+    return createBiStream(DEFAULT_BI_INITIALIZER);
+  }
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream(ChannelHandler streamHandler) {
+    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
+    WebTransportUtils.createBiStream(this.connectStream, java.util.Optional.empty(), streamHandler)
+        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+          if (f.isSuccess()) {
+            QuicStreamChannel ch = f.getNow();
+            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
+            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            promise.setSuccess(stream);
+          } else {
+            promise.setFailure(f.cause());
+          }
+        });
+    return promise;
+  }
+
+  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream(boolean bypassLimit, ChannelHandler streamHandler) {
+    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
+    WebTransportUtils.createBiStream(this.connectStream, java.util.Optional.of(bypassLimit), streamHandler)
+        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+          if (f.isSuccess()) {
+            QuicStreamChannel ch = f.getNow();
+            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
+            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            promise.setSuccess(stream);
+          } else {
+            promise.setFailure(f.cause());
+          }
+        });
+    return promise;
   }
 }

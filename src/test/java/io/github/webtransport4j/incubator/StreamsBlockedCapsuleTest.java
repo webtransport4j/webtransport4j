@@ -275,4 +275,48 @@ public class StreamsBlockedCapsuleTest {
     verify(mockConnectStream, times(2)).writeAndFlush(any());
     assertEquals(0, capsule2.refCnt());
   }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStreamLimitExceededSendsStreamsBlockedCapsule() throws Exception {
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+
+    when(mockConnectStream.streamId()).thenReturn(100L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.newPromise()).thenAnswer(invocation -> new io.netty.util.concurrent.DefaultPromise<>(io.netty.util.concurrent.ImmediateEventExecutor.INSTANCE));
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+    when(mgrAttr.get()).thenReturn(mgr);
+    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    Attribute<Long> limitAttr = mock(Attribute.class);
+    when(limitAttr.get()).thenReturn(1L);
+    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+
+    mgr.register(mockConnectStream);
+    WebTransportSession session = mgr.get(100L);
+    assertNotNull(session);
+
+    session.setPeerSettingsMaxStreamsUni(0L);
+    session.setPeerSettingsMaxStreamsBidi(0L);
+
+    io.netty.util.concurrent.Future<QuicStreamChannel> f1 =
+        WebTransportUtils.createUniStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+    assertTrue(f1.isDone());
+    assertFalse(f1.isSuccess());
+
+    io.netty.util.concurrent.Future<QuicStreamChannel> f2 =
+        WebTransportUtils.createBiStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+    assertTrue(f2.isDone());
+    assertFalse(f2.isSuccess());
+
+    verify(mockConnectStream, times(2)).writeAndFlush(any());
+  }
 }

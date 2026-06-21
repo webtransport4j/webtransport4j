@@ -102,14 +102,20 @@ public class WebTransportSessionManager {
             ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA).get()
             : null;
 
-    long peerUniVal = peerUni != null ? peerUni : 0L;
-    long peerBidiVal = peerBidi != null ? peerBidi : 0L;
-    long peerDataVal = peerData != null ? peerData : 0L;
+    long peerUniVal = peerUni != null ? peerUni : Long.MAX_VALUE;
+    long peerBidiVal = peerBidi != null ? peerBidi : Long.MAX_VALUE;
+    long peerDataVal = peerData != null ? peerData : Long.MAX_VALUE;
+
+    String pathStr = null;
+    if (quic != null && quic.attr(WebTransportServer.SESSION_PATH_KEY) != null) {
+      pathStr = quic.attr(WebTransportServer.SESSION_PATH_KEY).get();
+    }
 
     WebTransportSession session =
         new WebTransportSession(
             sessionStreamId,
             connectStream,
+            pathStr,
             uniMaxVal,
             biMaxVal,
             dataMaxVal,
@@ -120,6 +126,15 @@ public class WebTransportSessionManager {
 
     sessions.put(sessionStreamId, session);
     logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
+
+    WebTransportHandler handler = WebTransportServer.getHandler(pathStr);
+    if (handler != null) {
+      try {
+        handler.onSessionReady(session);
+      } catch (Exception e) {
+        logger.error("Error in onSessionReady callback", e);
+      }
+    }
 
     // Release any buffered streams waiting for this session
     java.util.List<PendingStream> pending = bufferedStreams.remove(sessionStreamId);
@@ -204,6 +219,14 @@ public class WebTransportSessionManager {
       }
       for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedUni()) {
         activeStream.close();
+      }
+      WebTransportHandler handler = WebTransportServer.getHandler(removed.path());
+      if (handler != null) {
+        try {
+          handler.onSessionClosed(removed);
+        } catch (Exception e) {
+          logger.error("Error in onSessionClosed callback", e);
+        }
       }
       logger.debug("🗑️ SessionManager: Removed Session ID " + sessionStreamId);
     }

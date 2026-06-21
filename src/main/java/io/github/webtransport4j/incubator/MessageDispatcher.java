@@ -1,12 +1,11 @@
 package io.github.webtransport4j.incubator;
 
-import static io.github.webtransport4j.incubator.WebTransportUtils.writeVarInt;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.AttributeKey;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,6 +13,9 @@ import java.util.concurrent.TimeUnit;
 import org.apache.log4j.Logger;
 
 public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> {
+
+  public static final AttributeKey<WebTransportStream> WT_STREAM_KEY = AttributeKey.valueOf("wt.stream.instance");
+  public static final AttributeKey<Boolean> STREAM_NOTIFIED = AttributeKey.valueOf("wt.stream.notified");
 
   private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
   private static final ExecutorService businessPool =
@@ -86,41 +88,12 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
             if (isSocketIo) {
               processSocketIOPacket(channel, finalPath, finalType, finalSessionId, msg.content());
             } else {
-              processBusinessLogic(channel, finalPath, finalType, finalSessionId, msg);
+              tryDispatchToHandler(channel, finalSessionId, msg);
             }
           } finally {
             msg.release();
           }
         });
-  }
-
-  private void processBusinessLogic(
-      Channel channel, String path, String type, long sessionId, WebTransportFrame frame) {
-    try {
-      ByteBuf payload = frame.content();
-      String content = payload.toString(StandardCharsets.UTF_8);
-      logger.debug("⚡️ [APP LAYER] Dispatched to Controller:");
-      logger.debug("    Path: " + path);
-      logger.debug("    Type: " + type);
-      logger.debug("    Session ID: " + sessionId);
-      logger.debug("    Data: " + content);
-
-      // simulating the reply
-      if ("BIDIRECTIONAL".equals(type)) {
-        if (channel instanceof QuicStreamChannel) {
-          reply(channel, "ACK BI: I received the message from " + path + ": " + content);
-        }
-      }
-      if ("UNIDIRECTIONAL".equals(type)) {
-        logger.info("Unidirectional message received from client :" + path + ": " + content);
-      }
-      if ("DATAGRAM".equals(type)) {
-        sendDatagram(
-            channel, sessionId, "ACK DG: I received the message from " + path + ": " + content);
-      }
-    } catch (Exception e) {
-      logger.error("Error in business logic", e);
-    }
   }
 
   private void processSocketIOPacket(
@@ -375,27 +348,6 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
             });
   }
 
-  private void sendDatagram(Channel channel, long sessionId, String text) {
-    Channel rawChannel = (channel instanceof QuicStreamChannel) ? channel.parent() : channel;
-
-    rawChannel
-        .eventLoop()
-        .execute(
-            () -> {
-              ByteBuf buffer = rawChannel.alloc().directBuffer();
-              writeVarInt(buffer, sessionId);
-              buffer.writeBytes(text.getBytes(StandardCharsets.UTF_8));
-              if (logger.isDebugEnabled()) {
-                logger.debug(
-                    "✅ Datagram Sent: "
-                        + text
-                        + " | Session ID: "
-                        + sessionId
-                        + formatHexBytes(buffer));
-              }
-              rawChannel.writeAndFlush(buffer);
-            });
-  }
 
   private void startPingSchedule(Channel channel) {
     if (pingFuture != null) {
@@ -433,6 +385,16 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
 
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      WebTransportStream stream = ctx.channel().attr(WT_STREAM_KEY).get();
+      if (stream != null && stream.getErrorHandler() != null) {
+        try {
+          stream.getErrorHandler().accept(cause);
+        } catch (Exception e) {
+          logger.error("Error in stream onError handler", e);
+        }
+      }
+    }
     if (cause instanceof io.netty.handler.codec.quic.QuicStreamResetException) {
       io.netty.handler.codec.quic.QuicStreamResetException reset =
           (io.netty.handler.codec.quic.QuicStreamResetException) cause;
@@ -453,6 +415,83 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
       logger.error("❌ Pipeline error: ", cause);
     }
     ctx.close();
+  }
+
+  private boolean tryDispatchToHandler(Channel channel, long sessionId, WebTransportFrame frame) {
+    WebTransportSessionManager mgr = null;
+    if (channel instanceof QuicStreamChannel) {
+      mgr = ((QuicStreamChannel) channel).parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+    } else {
+      mgr = channel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+    }
+
+    if (mgr == null) {
+      return false;
+    }
+
+    WebTransportSession session = mgr.get(sessionId);
+    if (session == null || session.path() == null) {
+      return false;
+    }
+
+    WebTransportHandler handler = WebTransportServer.getHandler(session.path());
+    if (handler == null) {
+      return false;
+    }
+
+    try {
+      if (frame instanceof WebTransportStreamFrame) {
+        QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
+        WebTransportStream stream = streamChannel.attr(WT_STREAM_KEY).get();
+        if (stream == null) {
+          stream = new WebTransportStream(streamChannel, sessionId);
+          streamChannel.attr(WT_STREAM_KEY).set(stream);
+          
+          final WebTransportStream finalStream = stream;
+          streamChannel.closeFuture().addListener(f -> {
+            if (finalStream.getCloseHandler() != null) {
+              try {
+                finalStream.getCloseHandler().run();
+              } catch (Exception e) {
+                logger.error("Error in stream onClose handler", e);
+              }
+            }
+          });
+        }
+
+        // Notify incoming stream if client-initiated and not yet notified
+        Boolean serverInitiated = streamChannel.attr(WebTransportUtils.SERVER_INITIATED_KEY).get();
+        if (!Boolean.TRUE.equals(serverInitiated)) {
+          if (!Boolean.TRUE.equals(streamChannel.attr(STREAM_NOTIFIED).get())) {
+            streamChannel.attr(STREAM_NOTIFIED).set(true);
+            try {
+              handler.onIncomingStream(session, stream);
+            } catch (Exception e) {
+              logger.error("Error in onIncomingStream callback", e);
+            }
+          }
+        }
+
+        // Dispatch data
+        if (stream.getDataConsumer() != null) {
+          try {
+            stream.getDataConsumer().accept(frame.content());
+          } catch (Exception e) {
+            logger.error("Error in stream onData callback", e);
+          }
+        }
+      } else if (frame instanceof WebTransportDatagramFrame) {
+        try {
+          handler.onDatagramReceived(session, frame.content());
+        } catch (Exception e) {
+          logger.error("Error in onDatagramReceived callback", e);
+        }
+      }
+      return true;
+    } catch (Exception e) {
+      logger.error("Exception in tryDispatchToHandler", e);
+      return false;
+    }
   }
 
   private static String formatHexBytes(ByteBuf buf) {

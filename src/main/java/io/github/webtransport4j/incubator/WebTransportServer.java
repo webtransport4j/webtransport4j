@@ -36,6 +36,22 @@ import org.apache.log4j.Logger;
 public class WebTransportServer {
   private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
   static int PORT = 4433;
+  
+  private static final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
+
+  public static void registerHandler(String path, WebTransportHandler handler) {
+    if (handler == null) {
+      handlers.remove(path);
+    } else {
+      handlers.put(path, handler);
+    }
+  }
+
+  public static WebTransportHandler getHandler(String path) {
+    if (path == null) return null;
+    return handlers.get(path);
+  }
+
   public static final AttributeKey<GlobalTrafficShapingHandler> CONN_TRAFFIC_SHAPER =
       AttributeKey.valueOf("wt.conn.traffic.shaper");
   static GlobalTrafficShapingHandler globalTrafficShaper;
@@ -55,6 +71,8 @@ public class WebTransportServer {
 
   public static void main(String[] args) throws Exception {
     PORT = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+    registerHandler("/test", new WebTransportTestHandler());
+    registerHandler("/chat", new WebTransportChatHandler());
     String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
     allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
 
