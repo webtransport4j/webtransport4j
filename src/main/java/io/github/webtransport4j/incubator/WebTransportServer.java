@@ -25,7 +25,6 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
-import io.netty.util.AttributeKey;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
