@@ -52,8 +52,32 @@ public class WebTransportServer {
   }
 
   static GlobalTrafficShapingHandler globalTrafficShaper;
-  private static java.util.concurrent.ExecutorService businessExecutor;
+  private static final java.util.concurrent.ExecutorService businessExecutor =
+      new java.util.concurrent.ThreadPoolExecutor(
+          WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2),
+          WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2),
+          60L,
+          TimeUnit.SECONDS,
+          new java.util.concurrent.LinkedBlockingQueue<>(
+              WebTransportConfig.getInt("webtransport4j.business.queue.capacity", 10000)),
+          new java.util.concurrent.ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger count =
+                new java.util.concurrent.atomic.AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+              Thread t = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
+              t.setDaemon(true);
+              return t;
+            }
+          },
+          new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+
   private static java.util.List<String> allowedOrigins;
+
+  public static java.util.concurrent.ExecutorService getBusinessExecutor() {
+    return businessExecutor;
+  }
 
   public static void main(String[] args) throws Exception {
     PORT = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
@@ -61,30 +85,6 @@ public class WebTransportServer {
     registerHandler("/chat", new WebTransportChatHandler());
     String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
     allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
-
-    int poolSize =
-        WebTransportConfig.getInt(
-            "webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2);
-    int queueCapacity = WebTransportConfig.getInt("webtransport4j.business.queue.capacity", 10000);
-    businessExecutor =
-        new java.util.concurrent.ThreadPoolExecutor(
-            poolSize,
-            poolSize,
-            60L,
-            TimeUnit.SECONDS,
-            new java.util.concurrent.LinkedBlockingQueue<>(queueCapacity),
-            new java.util.concurrent.ThreadFactory() {
-              private final java.util.concurrent.atomic.AtomicInteger count =
-                  new java.util.concurrent.atomic.AtomicInteger(1);
-
-              @Override
-              public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
-                t.setDaemon(true);
-                return t;
-              }
-            },
-            new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
 
     Runtime.getRuntime()
         .addShutdownHook(
