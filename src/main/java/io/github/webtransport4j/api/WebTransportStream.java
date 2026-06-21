@@ -10,7 +10,6 @@ import io.netty.util.concurrent.Future;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class WebTransportStream {

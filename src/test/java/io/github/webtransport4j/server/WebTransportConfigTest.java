@@ -1,10 +1,5 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.*;
-import io.github.webtransport4j.server.*;
-import io.github.webtransport4j.example.*;
-
-
 import static org.junit.Assert.*;
 
 import org.junit.After;

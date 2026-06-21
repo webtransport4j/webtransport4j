@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.*;
-import io.github.webtransport4j.server.*;
 import io.github.webtransport4j.example.*;
 
 
@@ -34,10 +33,6 @@ import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import org.apache.log4j.Logger;
 
@@ -266,7 +261,7 @@ public class WebTransportServer {
                                 new ChannelInitializer<QuicStreamChannel>() {
                                   @Override
                                   protected void initChannel(QuicStreamChannel stream) {
-                                    QuicChannel quic = stream.parent();
+                                  
                                     addTrafficShapers(stream);
 
                                     stream.pipeline().addFirst(new WebTransportDetectorHandler());

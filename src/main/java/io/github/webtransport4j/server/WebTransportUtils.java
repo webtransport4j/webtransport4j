@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.*;
-import io.github.webtransport4j.server.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
