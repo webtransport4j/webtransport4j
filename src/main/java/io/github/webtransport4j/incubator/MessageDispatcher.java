@@ -6,14 +6,35 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.log4j.Logger;
 
 public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> {
 
   private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
   private static final ExecutorService businessPool =
-      Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
+      new ThreadPoolExecutor(
+          WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2),
+          WebTransportConfig.getInt("webtransport4j.business.pool.size", Runtime.getRuntime().availableProcessors() * 2),
+          0L,
+          TimeUnit.MILLISECONDS,
+          new LinkedBlockingQueue<>(
+              WebTransportConfig.getInt("webtransport4j.business.queue.capacity", 10000)),
+          new ThreadFactory() {
+            private final AtomicInteger count = new AtomicInteger(0);
+            @Override
+            public Thread newThread(Runnable r) {
+              Thread t = new Thread(r);
+              t.setName("webtransport-business-thread-" + count.getAndIncrement());
+              t.setDaemon(true);
+              return t;
+            }
+          });
 
   @Override
   protected void channelRead0(ChannelHandlerContext ctx, WebTransportFrame msg) {
@@ -42,14 +63,21 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
       executor = businessPool;
     }
 
-    executor.submit(
-        () -> {
-          try {
-            tryDispatchToHandler(channel, finalSessionId, msg);
-          } finally {
-            msg.release();
-          }
-        });
+    try {
+      executor.execute(
+          () -> {
+            try {
+              tryDispatchToHandler(channel, finalSessionId, msg);
+            } catch (Throwable t) {
+              logger.error("Uncaught exception/error during business logic execution", t);
+            } finally {
+              msg.release();
+            }
+          });
+    } catch (RejectedExecutionException e) {
+      logger.error("Task submission rejected by business executor. Releasing message buffer.", e);
+      msg.release();
+    }
   }
 
 
