@@ -5,7 +5,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import org.apache.log4j.Logger;
 
@@ -112,6 +111,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
 
     WebTransportHandler handler = WebTransportServer.getHandler(session.path());
     if (handler == null) {
+      logger.error("No handler registered for path: " + session.path());
       return false;
     }
 
