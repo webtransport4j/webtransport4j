@@ -37,7 +37,14 @@ public class WebTransportServer {
   static int PORT = 4433;
   
   private static final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
-  private static final WebTransportHandler defaultHandler = new DefaultPathHandler();
+  private static WebTransportHandler defaultHandler;
+
+  public WebTransportServer(WebTransportHandler defaultHandler) {
+    if (defaultHandler == null) {
+      throw new IllegalArgumentException("defaultHandler cannot be null");
+    }
+    WebTransportServer.defaultHandler = defaultHandler;
+  }
 
   public static void registerHandler(String path, WebTransportHandler handler) {
     if (handler == null) {
@@ -84,6 +91,11 @@ public class WebTransportServer {
   }
 
   public static void main(String[] args) throws Exception {
+    WebTransportServer server = new WebTransportServer(new DefaultPathHandler());
+    server.start();
+  }
+
+  public void start() throws Exception {
     if (defaultHandler == null) {
       throw new IllegalStateException("Server cannot start without a registered default path handler.");
     }
