@@ -28,14 +28,19 @@ public class DefaultPathHandler implements WebTransportHandler {
     stream.onClose(() -> logger.info("🔒 [DEFAULT HANDLER] Stream " + stream.streamId() + " closed."));
     stream.onError(err -> logger.error("❌ [DEFAULT HANDLER] Stream " + stream.streamId() + " error: ", err));
 
-    stream.onData(data -> {
-      String content = data.toString(java.nio.charset.StandardCharsets.UTF_8);
-      logger.info("📩 [DEFAULT HANDLER] Received data on stream " + stream.streamId() + ": " + content);
-      if (isBidi) {
-        String replyText = "DEFAULT ACK BI: " + content;
-        stream.writeText(replyText);
-      }
-    });
+    
+    stream.onData(
+        new LengthPrefixedCodec(
+            stream.channel().alloc()),
+        message -> {
+            System.out.println(
+                "✅ ["+ stream.streamId() + "] Received data: "+message.toString(java.nio.charset.StandardCharsets.UTF_8));
+
+            ByteBuf msgBuf = io.netty.buffer.Unpooled.copiedBuffer("dsdsds", java.nio.charset.StandardCharsets.UTF_8);
+            ByteBuf encodedBuf = new LengthPrefixedCodec(stream.channel().alloc()).encode(stream.channel().alloc(), msgBuf);
+            stream.write(encodedBuf);
+        }
+    );
   }
 
   @Override

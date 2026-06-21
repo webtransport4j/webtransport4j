@@ -1,5 +1,6 @@
 package io.github.webtransport4j.api;
 
+import io.github.webtransport4j.example.StreamCodec;
 import io.github.webtransport4j.server.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -46,7 +47,34 @@ public class WebTransportStream {
   }
 
   public void onData(Consumer<ByteBuf> consumer) {
+
+    if (this.dataConsumer != null) {
+        throw new IllegalStateException(
+            "onData handler already registered");
+    }
+
     this.dataConsumer = consumer;
+  }
+
+  public <T> void onData(
+        StreamCodec<T> codec,
+        Consumer<T> consumer) {
+
+    // Create the auto-releasing wrapper once per stream instead of once per chunk
+    // to prevent unnecessary garbage collection overhead in high-throughput streams.
+    Consumer<T> autoReleasingConsumer = msg -> {
+        try {
+            consumer.accept(msg);
+        } finally {
+            // safeRelease prevents IllegalReferenceCountExceptions from masking
+            // primary exceptions if the user manually released it already.
+            io.netty.util.ReferenceCountUtil.safeRelease(msg);
+        }
+    };
+
+    this.onData(data -> {
+        codec.decode(data, autoReleasingConsumer);
+    });
   }
 
   public void onClose(Runnable handler) {
