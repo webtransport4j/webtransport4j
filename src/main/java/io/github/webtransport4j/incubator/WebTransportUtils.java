@@ -287,18 +287,7 @@ public class WebTransportUtils {
         (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
     try {
       long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
-      writeVarInt(buf, capsuleType);
-
-      ByteBuf valBuf =
-          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-      try {
-        writeVarInt(valBuf, maxStreams);
-        int len = valBuf.readableBytes();
-        writeVarInt(buf, len);
-        buf.writeBytes(valBuf);
-      } finally {
-        valBuf.release();
-      }
+      writeCapsule(buf, capsuleType, maxStreams);
 
       int totalBytes = buf.readableBytes();
 
@@ -382,18 +371,7 @@ public class WebTransportUtils {
         (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
     try {
       long capsuleType = 0x190B4D3DL;
-      writeVarInt(buf, capsuleType);
-
-      ByteBuf valBuf =
-          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-      try {
-        writeVarInt(valBuf, maxData);
-        int len = valBuf.readableBytes();
-        writeVarInt(buf, len);
-        buf.writeBytes(valBuf);
-      } finally {
-        valBuf.release();
-      }
+      writeCapsule(buf, capsuleType, maxData);
 
       int totalBytes = buf.readableBytes();
 
@@ -477,18 +455,7 @@ public class WebTransportUtils {
         (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
     try {
       long capsuleType = 0x190B4D41L;
-      writeVarInt(buf, capsuleType);
-
-      ByteBuf valBuf =
-          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-      try {
-        writeVarInt(valBuf, maxData);
-        int len = valBuf.readableBytes();
-        writeVarInt(buf, len);
-        buf.writeBytes(valBuf);
-      } finally {
-        valBuf.release();
-      }
+      writeCapsule(buf, capsuleType, maxData);
 
       int totalBytes = buf.readableBytes();
       logger.info(
@@ -515,18 +482,7 @@ public class WebTransportUtils {
         (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
     try {
       long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
-      writeVarInt(buf, capsuleType);
-
-      ByteBuf valBuf =
-          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-      try {
-        writeVarInt(valBuf, maxStreams);
-        int len = valBuf.readableBytes();
-        writeVarInt(buf, len);
-        buf.writeBytes(valBuf);
-      } finally {
-        valBuf.release();
-      }
+      writeCapsule(buf, capsuleType, maxStreams);
 
       int totalBytes = buf.readableBytes();
       logger.info(
