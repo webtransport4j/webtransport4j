@@ -37,6 +37,7 @@ public class WebTransportServer {
   static int PORT = 4433;
   
   private static final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
+  private static WebTransportHandler defaultHandler;
 
   public static void registerHandler(String path, WebTransportHandler handler) {
     if (handler == null) {
@@ -46,9 +47,14 @@ public class WebTransportServer {
     }
   }
 
+  public static void registerDefaultHandler(WebTransportHandler handler) {
+    defaultHandler = handler;
+  }
+
   public static WebTransportHandler getHandler(String path) {
-    if (path == null) return null;
-    return handlers.get(path);
+    if (path == null) return defaultHandler;
+    WebTransportHandler handler = handlers.get(path);
+    return (handler != null) ? handler : defaultHandler;
   }
 
   static GlobalTrafficShapingHandler globalTrafficShaper;
