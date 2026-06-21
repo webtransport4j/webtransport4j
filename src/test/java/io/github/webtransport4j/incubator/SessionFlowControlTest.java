@@ -37,7 +37,7 @@ public class SessionFlowControlTest {
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with initial limits
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -46,20 +46,20 @@ public class SessionFlowControlTest {
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     Attribute<Long> bidiLimitAttr = mockAttribute(5L);
     Attribute<Long> uniLimitAttr = mockAttribute(5L);
     Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
     Attribute<Long> peerDataLimitAttr = mockAttribute(1000L);
 
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -95,7 +95,7 @@ public class SessionFlowControlTest {
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with initial limits
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -104,7 +104,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     Attribute<Long> bidiLimitAttr = mockAttribute(5L);
@@ -112,13 +112,13 @@ public class SessionFlowControlTest {
     Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
     Attribute<Long> peerDataLimitAttr = mockAttribute(1000L);
 
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -151,7 +151,7 @@ public class SessionFlowControlTest {
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with settingsMaxData = 100
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -160,7 +160,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     Attribute<Long> bidiLimitAttr = mockAttribute(5L);
@@ -168,13 +168,13 @@ public class SessionFlowControlTest {
     Attribute<Long> localDataLimitAttr = mockAttribute(100L);
     Attribute<Long> peerDataLimitAttr = mockAttribute(1000L);
 
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -183,9 +183,9 @@ public class SessionFlowControlTest {
     Attribute<Long> streamTypeAttr = mockAttribute(0x41L);
     Attribute<Boolean> serverInitAttr = mockAttribute(true);
 
-    when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
-    when(mockStream.attr(WebTransportUtils.STREAM_TYPE_KEY)).thenReturn(streamTypeAttr);
-    when(mockStream.attr(WebTransportUtils.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(streamTypeAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
 
     // Send 50 bytes (below limit of 100)
     ByteBuf data1 = Unpooled.copiedBuffer(new byte[50]);
@@ -226,7 +226,7 @@ public class SessionFlowControlTest {
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with peerSettingsMaxData = 100
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -235,20 +235,20 @@ public class SessionFlowControlTest {
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     Attribute<Long> bidiLimitAttr = mockAttribute(5L);
     Attribute<Long> uniLimitAttr = mockAttribute(5L);
     Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
     Attribute<Long> peerDataLimitAttr = mockAttribute(100L);
 
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
     WebTransportSession session = mgr.get(100L);
@@ -257,8 +257,8 @@ public class SessionFlowControlTest {
     Attribute<Long> streamSessIdAttr = mockAttribute(100L);
     Attribute<Boolean> serverInitAttr = mockAttribute(false);
 
-    when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
-    when(mockStream.attr(WebTransportUtils.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
 
     // Write 60 bytes (below limit of 100)
     ChannelPromise promise1 = mock(ChannelPromise.class);
@@ -308,7 +308,7 @@ public class SessionFlowControlTest {
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with initialMaxData = 1000
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -317,20 +317,20 @@ public class SessionFlowControlTest {
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     Attribute<Long> bidiLimitAttr = mockAttribute(5L);
     Attribute<Long> uniLimitAttr = mockAttribute(5L);
     Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
     Attribute<Long> peerDataLimitAttr = mockAttribute(1000L);
 
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 

@@ -95,7 +95,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         QuicChannel quic = getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
-              quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
             WebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
@@ -195,7 +195,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         QuicChannel quic = getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
-              quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
             WebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
@@ -245,7 +245,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         QuicChannel quic = getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
-              quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
             WebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null && session.isFlowControlEnabled()) {
@@ -289,7 +289,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         QuicChannel quic = getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
-              quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
             WebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {

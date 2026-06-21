@@ -14,8 +14,7 @@ import org.apache.log4j.Logger;
 
 public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> {
 
-  public static final AttributeKey<WebTransportStream> WT_STREAM_KEY = AttributeKey.valueOf("wt.stream.instance");
-  public static final AttributeKey<Boolean> STREAM_NOTIFIED = AttributeKey.valueOf("wt.stream.notified");
+
 
   private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
   private static final ExecutorService businessPool =
@@ -44,19 +43,19 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
       String pathAttr = null;
       if (channel instanceof QuicStreamChannel) {
         pathAttr =
-            ((QuicStreamChannel) channel).parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
+            ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
       }
       path = (pathAttr != null) ? pathAttr : "?";
     } else if (msg instanceof WebTransportDatagramFrame) {
       transportType = "DATAGRAM";
-      String pathAttr = channel.attr(WebTransportServer.SESSION_PATH_KEY).get();
+      String pathAttr = channel.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
       path = (pathAttr != null) ? pathAttr : "?";
     } else if (msg instanceof WebTransportCapsule) {
       transportType = "CAPSULE";
       String pathAttr = null;
       if (channel instanceof QuicStreamChannel) {
         pathAttr =
-            ((QuicStreamChannel) channel).parent().attr(WebTransportServer.SESSION_PATH_KEY).get();
+            ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
       }
       path = (pathAttr != null) ? pathAttr : "?";
     } else {
@@ -73,9 +72,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     java.util.concurrent.ExecutorService executor = null;
     if (channel instanceof QuicStreamChannel) {
       executor =
-          ((QuicStreamChannel) channel).parent().attr(WebTransportServer.BUSINESS_EXECUTOR).get();
+          ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
     } else {
-      executor = channel.attr(WebTransportServer.BUSINESS_EXECUTOR).get();
+      executor = channel.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
     }
     if (executor == null) {
       executor = businessPool;
@@ -317,10 +316,10 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
                 path =
                     ((QuicStreamChannel) channel)
                         .parent()
-                        .attr(WebTransportServer.SESSION_PATH_KEY)
+                        .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
                         .get();
               } else {
-                path = channel.attr(WebTransportServer.SESSION_PATH_KEY).get();
+                path = channel.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
               }
               boolean isSocketIo = (path != null && path.contains("socket.io"));
 
@@ -386,7 +385,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
   @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
     if (ctx.channel() instanceof QuicStreamChannel) {
-      WebTransportStream stream = ctx.channel().attr(WT_STREAM_KEY).get();
+      WebTransportStream stream = ctx.channel().attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (stream != null && stream.getErrorHandler() != null) {
         try {
           stream.getErrorHandler().accept(cause);
@@ -420,9 +419,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
   private boolean tryDispatchToHandler(Channel channel, long sessionId, WebTransportFrame frame) {
     WebTransportSessionManager mgr = null;
     if (channel instanceof QuicStreamChannel) {
-      mgr = ((QuicStreamChannel) channel).parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+      mgr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     } else {
-      mgr = channel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+      mgr = channel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     }
 
     if (mgr == null) {
@@ -442,10 +441,10 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     try {
       if (frame instanceof WebTransportStreamFrame) {
         QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
-        WebTransportStream stream = streamChannel.attr(WT_STREAM_KEY).get();
+        WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
         if (stream == null) {
           stream = new WebTransportStream(streamChannel, sessionId);
-          streamChannel.attr(WT_STREAM_KEY).set(stream);
+          streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
           
           final WebTransportStream finalStream = stream;
           streamChannel.closeFuture().addListener(f -> {
@@ -460,10 +459,10 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         }
 
         // Notify incoming stream if client-initiated and not yet notified
-        Boolean serverInitiated = streamChannel.attr(WebTransportUtils.SERVER_INITIATED_KEY).get();
+        Boolean serverInitiated = streamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).get();
         if (!Boolean.TRUE.equals(serverInitiated)) {
-          if (!Boolean.TRUE.equals(streamChannel.attr(STREAM_NOTIFIED).get())) {
-            streamChannel.attr(STREAM_NOTIFIED).set(true);
+          if (!Boolean.TRUE.equals(streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).get())) {
+            streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).set(true);
             try {
               handler.onIncomingStream(session, stream);
             } catch (Exception e) {

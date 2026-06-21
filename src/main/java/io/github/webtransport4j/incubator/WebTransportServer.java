@@ -52,21 +52,8 @@ public class WebTransportServer {
     return handlers.get(path);
   }
 
-  public static final AttributeKey<GlobalTrafficShapingHandler> CONN_TRAFFIC_SHAPER =
-      AttributeKey.valueOf("wt.conn.traffic.shaper");
   static GlobalTrafficShapingHandler globalTrafficShaper;
-  static final AttributeKey<String> SESSION_PATH_KEY = AttributeKey.valueOf("wt.session.path.key");
-  public static final AttributeKey<Boolean> PEER_SETTINGS_RECEIVED =
-      AttributeKey.valueOf("wt.peer.settings.received");
-  public static final AttributeKey<Boolean> PEER_SETTINGS_VALID =
-      AttributeKey.valueOf("wt.peer.settings.valid");
-
-  public static final AttributeKey<java.util.concurrent.ExecutorService> BUSINESS_EXECUTOR =
-      AttributeKey.valueOf("wt.business.executor");
   private static java.util.concurrent.ExecutorService businessExecutor;
-
-  public static final AttributeKey<java.util.List<String>> ALLOWED_ORIGINS =
-      AttributeKey.valueOf("wt.allowed.origins");
   private static java.util.List<String> allowedOrigins;
 
   public static void main(String[] args) throws Exception {
@@ -217,11 +204,11 @@ public class WebTransportServer {
                     long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
                     long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
                     long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(defData);
-                    ch.attr(PEER_SETTINGS_RECEIVED).set(false);
-                    ch.attr(PEER_SETTINGS_VALID).set(false);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(defData);
+                    ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
+                    ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
 
                     long connWriteLimit =
                         WebTransportConfig.getLong(
@@ -233,7 +220,7 @@ public class WebTransportServer {
                       GlobalTrafficShapingHandler connShaper =
                           new GlobalTrafficShapingHandler(
                               ch.eventLoop(), connWriteLimit, connReadLimit);
-                      ch.attr(CONN_TRAFFIC_SHAPER).set(connShaper);
+                      ch.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).set(connShaper);
                       ch.closeFuture().addListener(f -> connShaper.release());
                     }
 
@@ -247,10 +234,10 @@ public class WebTransportServer {
                     logger.debug("    ├── 🌍 Remote IP:   " + ip);
                     logger.debug("    ├── 🚪 Remote Port: " + port);
                     logger.debug("    └── 🆔 Channel ID:  " + nettyId);
-                    ch.attr(WebTransportSessionManager.WT_SESSION_MGR)
+                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                         .set(new WebTransportSessionManager());
-                    ch.attr(BUSINESS_EXECUTOR).set(businessExecutor);
-                    ch.attr(ALLOWED_ORIGINS).set(allowedOrigins);
+                    ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
+                    ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
                     ch.pipeline().addLast(new WebTransportDatagramHandler());
                     logger.debug(
                         "🔧 Added WebTransportDatagramHandler. Pipeline now: "
@@ -271,7 +258,7 @@ public class WebTransportServer {
                                     QuicChannel quic = stream.parent();
                                     addTrafficShapers(stream);
 
-                                    String path = quic.attr(SESSION_PATH_KEY).get();
+                                    String path = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
                                     boolean isSocketIo =
                                         (path != null && path.contains("socket.io"));
 
@@ -349,8 +336,8 @@ public class WebTransportServer {
 
                                         boolean valid = settings.h3DatagramEnabled();
                                         if (quic != null) {
-                                          quic.attr(PEER_SETTINGS_RECEIVED).set(true);
-                                          quic.attr(PEER_SETTINGS_VALID).set(valid);
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
                                         }
 
                                         // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
@@ -374,7 +361,7 @@ public class WebTransportServer {
                                                   + " established sessions as malformed.");
                                           if (quic != null) {
                                             WebTransportSessionManager mgr =
-                                                quic.attr(WebTransportSessionManager.WT_SESSION_MGR)
+                                                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                                                     .get();
                                             if (mgr != null) {
                                               for (WebTransportSession session :
@@ -397,12 +384,12 @@ public class WebTransportServer {
 
                                         if (quic != null) {
                                           quic.attr(
-                                                  WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI)
+                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
                                               .set(settings.get(0x2b64L));
                                           quic.attr(
-                                                  WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI)
+                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
                                               .set(settings.get(0x2b65L));
-                                          quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
                                               .set(settings.get(0x2b61L));
                                         }
                                       }
@@ -430,7 +417,7 @@ public class WebTransportServer {
                                                         long sessionId =
                                                             readVariableLengthInt(data);
                                                         ctx.channel()
-                                                            .attr(WebTransportUtils.SESSION_ID_KEY)
+                                                            .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
                                                             .set(sessionId);
                                                         sessionHeaderRead = true;
                                                       }
@@ -442,14 +429,13 @@ public class WebTransportServer {
                                                           ctx.channel()
                                                               .parent()
                                                               .attr(
-                                                                  WebTransportServer
-                                                                      .SESSION_PATH_KEY)
+                                                                  WebTransportAttributeKeys.SESSION_PATH_KEY)
                                                               .get();
                                                       ctx.channel()
-                                                          .attr(WebTransportUtils.STREAM_TYPE_KEY)
+                                                          .attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)
                                                           .set(streamType);
                                                       ctx.channel()
-                                                          .attr(WebTransportServer.SESSION_PATH_KEY)
+                                                          .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
                                                           .set(savedPath);
                                                       ctx.fireChannelRead(msg);
                                                     } else {
@@ -521,7 +507,7 @@ public class WebTransportServer {
       stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShaper);
       logger.debug("🔧 Added global traffic shaper to stream " + stream.streamId());
     }
-    GlobalTrafficShapingHandler connShaper = quic.attr(CONN_TRAFFIC_SHAPER).get();
+    GlobalTrafficShapingHandler connShaper = quic.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).get();
     if (connShaper != null) {
       stream.pipeline().addFirst("conn-traffic-shaper", connShaper);
       logger.debug("🔧 Added connection traffic shaper to stream " + stream.streamId());

@@ -15,9 +15,7 @@ import org.apache.log4j.Logger;
 public class WebTransportSessionManager {
   private static final Logger logger = Logger.getLogger(WebTransportSessionManager.class.getName());
 
-  // Key used to attach this manager to the Parent QUIC Channel
-  public static final AttributeKey<WebTransportSessionManager> WT_SESSION_MGR =
-      AttributeKey.valueOf("wt.session.manager");
+
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
@@ -41,23 +39,23 @@ public class WebTransportSessionManager {
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(QuicStreamChannel connectStream) {
     long sessionStreamId = connectStream.streamId();
-    if (connectStream.attr(WebTransportUtils.SESSION_ID_KEY) != null) {
-      connectStream.attr(WebTransportUtils.SESSION_ID_KEY).set(sessionStreamId);
+    if (connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
+      connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
     }
 
     QuicChannel quic = (QuicChannel) connectStream.parent();
 
     Long uniMax =
-        quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
-            ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
             : null;
     Long biMax =
-        quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
-            ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
             : null;
     Long dataMax =
-        quic != null && quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA) != null
-            ? quic.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
             : null;
     boolean flowControlEnabled = false;
     if ((uniMax != null && uniMax > 0L)
@@ -90,16 +88,16 @@ public class WebTransportSessionManager {
     long dataMaxVal = dataMax != null ? dataMax : 0L;
 
     Long peerUni =
-        quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI) != null
-            ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get()
             : null;
     Long peerBidi =
-        quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
-            ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
             : null;
     Long peerData =
-        quic != null && quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA) != null
-            ? quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA).get()
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get()
             : null;
 
     long peerUniVal = peerUni != null ? peerUni : Long.MAX_VALUE;
@@ -107,8 +105,8 @@ public class WebTransportSessionManager {
     long peerDataVal = peerData != null ? peerData : Long.MAX_VALUE;
 
     String pathStr = null;
-    if (quic != null && quic.attr(WebTransportServer.SESSION_PATH_KEY) != null) {
-      pathStr = quic.attr(WebTransportServer.SESSION_PATH_KEY).get();
+    if (quic != null && quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+      pathStr = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
     }
 
     WebTransportSession session =

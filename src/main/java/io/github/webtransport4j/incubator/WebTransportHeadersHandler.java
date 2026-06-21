@@ -70,8 +70,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
 
       if (quic != null) {
-        io.netty.util.Attribute<Boolean> receivedAttr = quic.attr(WebTransportServer.PEER_SETTINGS_RECEIVED);
-        io.netty.util.Attribute<Boolean> validAttr = quic.attr(WebTransportServer.PEER_SETTINGS_VALID);
+        io.netty.util.Attribute<Boolean> receivedAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
+        io.netty.util.Attribute<Boolean> validAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);
         Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
         Boolean settingsValid = validAttr != null ? validAttr.get() : null;
         if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
@@ -103,7 +103,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
       // Validate CORS allowed origins and authority host
       CharSequence origin = frame.headers().get("origin");
-      java.util.List<String> allowed = quic.attr(WebTransportServer.ALLOWED_ORIGINS).get();
+      java.util.List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
       if (!isAllowed(allowed, origin, authority)) {
         logger.warn(
             "❌ Rejecting connection from unauthorized origin: "
@@ -119,7 +119,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         return;
       }
 
-      WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+      WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
       int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
       if (mgr != null && mgr.sessionsSize() >= maxSessions) {
         logger.warn(
@@ -135,7 +135,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       }
 
       String pathStr = path.toString();
-      quic.attr(WebTransportServer.SESSION_PATH_KEY).set(pathStr);
+      quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
 
       logger.info("✅ Handshake Success for Path: " + pathStr);
       Http3Headers responseHeaders = new DefaultHttp3Headers();

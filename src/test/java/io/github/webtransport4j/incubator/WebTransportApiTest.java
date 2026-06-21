@@ -66,26 +66,26 @@ public class WebTransportApiTest {
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     Attribute<Long> localLimitAttr = mock(Attribute.class);
     when(localLimitAttr.get()).thenReturn(10L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(localLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(localLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
 
     Attribute<Long> peerLimitAttr = mock(Attribute.class);
     when(peerLimitAttr.get()).thenReturn(10L);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(peerLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI)).thenReturn(peerLimitAttr);
-    when(mockParent.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)).thenReturn(peerLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(peerLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)).thenReturn(peerLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerLimitAttr);
 
     Attribute<String> pathAttr = mock(Attribute.class);
     when(pathAttr.get()).thenReturn("/test-api");
-    when(mockParent.attr(WebTransportServer.SESSION_PATH_KEY)).thenReturn(pathAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
     Attribute<Long> sessIdAttr = mock(Attribute.class);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     mgr.register(mockConnectStream);
 
@@ -134,18 +134,18 @@ public class WebTransportApiTest {
 
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     Attribute<Long> localLimitAttr = mock(Attribute.class);
     when(localLimitAttr.get()).thenReturn(10L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(localLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(localLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(mock(Attribute.class));
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(mock(Attribute.class));
 
     Attribute<String> pathAttr = mock(Attribute.class);
     when(pathAttr.get()).thenReturn("/test-api");
-    when(mockParent.attr(WebTransportServer.SESSION_PATH_KEY)).thenReturn(pathAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
     mgr.register(mockConnectStream);
 
@@ -159,15 +159,15 @@ public class WebTransportApiTest {
     when(mockStreamChannel.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
 
     Attribute<WebTransportStream> streamAttr = mock(Attribute.class);
-    when(mockStreamChannel.attr(MessageDispatcher.WT_STREAM_KEY)).thenReturn(streamAttr);
+    when(mockStreamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);
 
     Attribute<Boolean> notifiedAttr = mock(Attribute.class);
-    when(mockStreamChannel.attr(MessageDispatcher.STREAM_NOTIFIED)).thenReturn(notifiedAttr);
+    when(mockStreamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED)).thenReturn(notifiedAttr);
 
     Attribute<Boolean> serverInitAttr = mock(Attribute.class);
-    when(mockStreamChannel.attr(WebTransportUtils.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
+    when(mockStreamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
 
-    when(mockParent.attr(WebTransportServer.BUSINESS_EXECUTOR)).thenReturn(mock(Attribute.class));
+    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(mock(Attribute.class));
 
     ByteBuf data = Unpooled.copiedBuffer("Hello API", StandardCharsets.UTF_8);
     WebTransportStreamFrame frame = new WebTransportStreamFrame(100L, 200L, true, data);

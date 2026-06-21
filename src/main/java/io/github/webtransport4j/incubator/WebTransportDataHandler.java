@@ -183,7 +183,7 @@ public class WebTransportDataHandler extends Http3RequestStreamInboundHandler {
                   capType, capLen, io.netty.buffer.ByteBufUtil.hexDump(capVal)));
         }
 
-        Long sessId = ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).get();
+        Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
         long sessionId =
             (sessId != null)
                 ? sessId

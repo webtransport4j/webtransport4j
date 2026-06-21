@@ -24,7 +24,7 @@ public class StreamBufferingTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // 2. Mock Stream Channel and context
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -43,8 +43,8 @@ public class StreamBufferingTest {
     // Setup channel attributes
     Attribute<Long> typeAttr = mock(Attribute.class);
     Attribute<Long> sessIdAttr = mock(Attribute.class);
-    when(mockStream.attr(WebTransportUtils.STREAM_TYPE_KEY)).thenReturn(typeAttr);
-    when(mockStream.attr(WebTransportUtils.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(typeAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     // 3. Prepare data with WT Headers (Session ID 100, BIDI stream type 0x41)
     ByteBuf data = Unpooled.buffer();
@@ -65,7 +65,7 @@ public class StreamBufferingTest {
     // 5. Register the session now (representing CONNECT arrival)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
     mgr.register(mockConnectStream);
@@ -88,7 +88,7 @@ public class StreamBufferingTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Buffer 50 streams (MAX_BUFFERED_STREAMS)
     for (int i = 0; i < 50; i++) {
@@ -140,19 +140,19 @@ public class StreamBufferingTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Mock DEFAULT connection limits so they are read by register()
     Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(1L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(defaultBidiAttr);
 
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
 

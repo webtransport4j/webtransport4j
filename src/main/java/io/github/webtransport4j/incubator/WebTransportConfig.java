@@ -13,19 +13,7 @@ public class WebTransportConfig {
     throw new UnsupportedOperationException("Utility class cannot be instantiated");
   }
 
-  public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_STREAMS_UNI =
-      AttributeKey.valueOf("LOCAL_SETTINGS_MAX_STREAMS_UNI");
-  public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_STREAMS_BIDI =
-      AttributeKey.valueOf("LOCAL_SETTINGS_MAX_STREAMS_BIDI");
-  public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_DATA =
-      AttributeKey.valueOf("LOCAL_SETTINGS_MAX_DATA");
 
-  public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_UNI =
-      AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_UNI");
-  public static final AttributeKey<Long> PEER_SETTINGS_MAX_STREAMS_BIDI =
-      AttributeKey.valueOf("PEER_SETTINGS_MAX_STREAMS_BIDI");
-  public static final AttributeKey<Long> PEER_SETTINGS_MAX_DATA =
-      AttributeKey.valueOf("PEER_SETTINGS_MAX_DATA");
 
   static {
     try (InputStream in =

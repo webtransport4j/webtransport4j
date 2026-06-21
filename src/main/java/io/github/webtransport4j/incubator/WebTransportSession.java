@@ -5,7 +5,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Promise;
 import java.util.Queue;
 import java.util.Set;
@@ -150,7 +149,7 @@ public class WebTransportSession {
   public Set<WebTransportStream> getClientInitiatedUniStreams() {
     Set<WebTransportStream> streams = new java.util.HashSet<>();
     for (QuicStreamChannel ch : activeClientInitiatedUni) {
-      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
         streams.add(s);
       }
@@ -165,7 +164,7 @@ public class WebTransportSession {
   public Set<WebTransportStream> getServerInitiatedUniStreams() {
     Set<WebTransportStream> streams = new java.util.HashSet<>();
     for (QuicStreamChannel ch : activeServerInitiatedUni) {
-      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
         streams.add(s);
       }
@@ -180,7 +179,7 @@ public class WebTransportSession {
   public Set<WebTransportStream> getClientInitiatedBiStreams() {
     Set<WebTransportStream> streams = new java.util.HashSet<>();
     for (QuicStreamChannel ch : activeClientInitiatedBi) {
-      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
         streams.add(s);
       }
@@ -195,7 +194,7 @@ public class WebTransportSession {
   public Set<WebTransportStream> getServerInitiatedBiStreams() {
     Set<WebTransportStream> streams = new java.util.HashSet<>();
     for (QuicStreamChannel ch : activeServerInitiatedBi) {
-      WebTransportStream s = ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).get();
+      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
         streams.add(s);
       }
@@ -521,7 +520,7 @@ public class WebTransportSession {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             promise.setSuccess(stream);
           } else {
             promise.setFailure(f.cause());
@@ -537,7 +536,7 @@ public class WebTransportSession {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             promise.setSuccess(stream);
           } else {
             promise.setFailure(f.cause());
@@ -557,7 +556,7 @@ public class WebTransportSession {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             promise.setSuccess(stream);
           } else {
             promise.setFailure(f.cause());
@@ -573,7 +572,7 @@ public class WebTransportSession {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(AttributeKey.<WebTransportStream>valueOf("wt.stream.instance")).set(stream);
+            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             promise.setSuccess(stream);
           } else {
             promise.setFailure(f.cause());

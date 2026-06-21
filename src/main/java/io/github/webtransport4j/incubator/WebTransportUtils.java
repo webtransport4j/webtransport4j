@@ -18,10 +18,7 @@ public class WebTransportUtils {
   private static final org.apache.log4j.Logger logger =
       org.apache.log4j.Logger.getLogger(WebTransportUtils.class.getName());
 
-  public static final AttributeKey<Long> SESSION_ID_KEY = AttributeKey.valueOf("wt.session.id");
-  public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
-  public static final AttributeKey<Boolean> SERVER_INITIATED_KEY =
-      AttributeKey.valueOf("wt.stream.server_initiated");
+
 
   public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
   public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
@@ -45,7 +42,7 @@ public class WebTransportUtils {
       ChannelHandler streamHandler) {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
-        connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
@@ -88,9 +85,9 @@ public class WebTransportUtils {
               QuicStreamChannel stream = future.getNow();
 
               // Set channel attributes so other handlers/logs can retrieve them
-              stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
-              stream.attr(STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
-              stream.attr(SERVER_INITIATED_KEY).set(true);
+              stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(connectStreamChannel.streamId());
+              stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
+              stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
 
               // 2. Write the Mandatory Header: [0x54] [SessionID]
               // We write this synchronously before giving the stream to the user.
@@ -129,7 +126,7 @@ public class WebTransportUtils {
       ChannelHandler streamHandler) {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
-        connectStreamChannel.parent().attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
@@ -172,9 +169,9 @@ public class WebTransportUtils {
               QuicStreamChannel stream = future.getNow();
 
               // Set channel attributes so other handlers/logs can retrieve them
-              stream.attr(SESSION_ID_KEY).set(connectStreamChannel.streamId());
-              stream.attr(STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
-              stream.attr(SERVER_INITIATED_KEY).set(true);
+              stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(connectStreamChannel.streamId());
+              stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
+              stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
 
               // 2. Write the Mandatory Header: [0x41] [SessionID]
               ByteBuf header = Unpooled.buffer(16);

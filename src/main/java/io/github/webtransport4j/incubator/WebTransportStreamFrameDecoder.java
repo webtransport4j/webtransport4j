@@ -18,8 +18,8 @@ public class WebTransportStreamFrameDecoder extends SimpleChannelInboundHandler<
     }
 
     QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
-    Long typeAttr = stream.attr(WebTransportUtils.STREAM_TYPE_KEY).get();
-    Long sessId = stream.attr(WebTransportUtils.SESSION_ID_KEY).get();
+    Long typeAttr = stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get();
+    Long sessId = stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
 
     long sessionId = (sessId != null) ? sessId : stream.streamId();
     boolean bidirectional = (typeAttr == null || typeAttr != 0x54);

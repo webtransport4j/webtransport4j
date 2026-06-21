@@ -129,7 +129,7 @@ public class WebTransportIntegrationTest {
                               ByteBuf data = (ByteBuf) msg;
                               if (!sessionHeaderRead) {
                                 long sessionId = WebTransportUtils.readVariableLengthInt(data);
-                                ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
+                                ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
                                 sessionHeaderRead = true;
                               }
                               if (!data.isReadable()) {
@@ -164,11 +164,11 @@ public class WebTransportIntegrationTest {
                   @Override
                   protected void initChannel(QuicChannel ch) {
                     serverConnectionChannel = ch;
-                    ch.attr(WebTransportSessionManager.WT_SESSION_MGR)
+                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                         .set(new WebTransportSessionManager());
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(initialMaxData);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(initialMaxData);
 
                     long connWriteLimit =
                         WebTransportConfig.getLong(
@@ -180,7 +180,7 @@ public class WebTransportIntegrationTest {
                       io.netty.handler.traffic.GlobalTrafficShapingHandler connShaper =
                           new io.netty.handler.traffic.GlobalTrafficShapingHandler(
                               ch.eventLoop(), connWriteLimit, connReadLimit);
-                      ch.attr(WebTransportServer.CONN_TRAFFIC_SHAPER).set(connShaper);
+                      ch.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).set(connShaper);
                       ch.closeFuture().addListener(f -> connShaper.release());
                     }
 
@@ -236,9 +236,9 @@ public class WebTransportIntegrationTest {
                                         // Set attributes so WebTransportHeadersHandler can check
                                         // them
                                         if (quic != null) {
-                                          quic.attr(WebTransportServer.PEER_SETTINGS_RECEIVED)
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED)
                                               .set(true);
-                                          quic.attr(WebTransportServer.PEER_SETTINGS_VALID)
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID)
                                               .set(valid);
                                         }
 
@@ -253,7 +253,7 @@ public class WebTransportIntegrationTest {
                                           // (0x010e)
                                           if (quic != null) {
                                             WebTransportSessionManager mgr =
-                                                quic.attr(WebTransportSessionManager.WT_SESSION_MGR)
+                                                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                                                     .get();
                                             if (mgr != null) {
                                               for (WebTransportSession session :
@@ -282,12 +282,12 @@ public class WebTransportIntegrationTest {
                                             "SERVER: Settings parent quic channel: " + quic);
                                         if (quic != null) {
                                           quic.attr(
-                                                  WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI)
+                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
                                               .set(settings.get(0x2b64L));
                                           quic.attr(
-                                                  WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI)
+                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
                                               .set(settings.get(0x2b65L));
-                                          quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)
+                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
                                               .set(settings.get(0x2b61L));
                                         }
                                       }
@@ -657,11 +657,11 @@ public class WebTransportIntegrationTest {
                                     "CLIENT CONTROL: settings received: " + settings);
                                 QuicChannel quic = ((QuicStreamChannel) ctx.channel()).parent();
                                 if (quic != null) {
-                                  quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_UNI)
+                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
                                       .set(settings.get(0x2b64L));
-                                  quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_STREAMS_BIDI)
+                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
                                       .set(settings.get(0x2b65L));
-                                  quic.attr(WebTransportConfig.PEER_SETTINGS_MAX_DATA)
+                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
                                       .set(settings.get(0x2b61L));
                                 }
                               }
@@ -681,11 +681,11 @@ public class WebTransportIntegrationTest {
                 new ChannelInitializer<QuicChannel>() {
                   @Override
                   protected void initChannel(QuicChannel ch) {
-                    ch.attr(WebTransportSessionManager.WT_SESSION_MGR)
+                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                         .set(new WebTransportSessionManager());
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
-                    ch.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA).set(10000L);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
+                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(10000L);
 
                     ch.pipeline()
                         .addLast(
@@ -718,15 +718,15 @@ public class WebTransportIntegrationTest {
                                                             .parent();
                                                     if (quic != null) {
                                                       quic.attr(
-                                                              WebTransportConfig
+                                                              WebTransportAttributeKeys
                                                                   .PEER_SETTINGS_MAX_STREAMS_UNI)
                                                           .set(settings.get(0x2b64L));
                                                       quic.attr(
-                                                              WebTransportConfig
+                                                              WebTransportAttributeKeys
                                                                   .PEER_SETTINGS_MAX_STREAMS_BIDI)
                                                           .set(settings.get(0x2b65L));
                                                       quic.attr(
-                                                              WebTransportConfig
+                                                              WebTransportAttributeKeys
                                                                   .PEER_SETTINGS_MAX_DATA)
                                                           .set(settings.get(0x2b61L));
                                                       System.out.println(
@@ -797,7 +797,7 @@ public class WebTransportIntegrationTest {
                                                   ByteBuf capVal = payload.readSlice((int) capLen);
                                                   Long sessId =
                                                       ((QuicStreamChannel) c.channel())
-                                                          .attr(WebTransportUtils.SESSION_ID_KEY)
+                                                          .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
                                                           .get();
                                                   long sessionId =
                                                       (sessId != null)
@@ -846,7 +846,7 @@ public class WebTransportIntegrationTest {
 
     // Let the client session manager register the CONNECT stream
     WebTransportSessionManager clientMgr =
-        quicClient.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        quicClient.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     assertNotNull(clientMgr);
     clientMgr.register(connectStream[0]);
 
@@ -907,8 +907,8 @@ public class WebTransportIntegrationTest {
     WebTransportUtils.writeVarInt(headerData, 0x41);
     WebTransportUtils.writeVarInt(headerData, sessionId);
 
-    bidiStream[0].attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
-    bidiStream[0].attr(WebTransportUtils.SERVER_INITIATED_KEY).set(false);
+    bidiStream[0].attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
+    bidiStream[0].attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(false);
 
     // Send stream header
     bidiStream[0].writeAndFlush(headerData).sync();
@@ -1545,7 +1545,7 @@ public class WebTransportIntegrationTest {
 
     // Retrieve server-side session
     WebTransportSessionManager serverMgr =
-        serverConnectionChannel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        serverConnectionChannel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     assertNotNull(serverMgr);
     WebTransportSession serverSession = serverMgr.get(sessionId);
     assertNotNull(serverSession);
@@ -1778,7 +1778,7 @@ public class WebTransportIntegrationTest {
 
     // Retrieve server-side session
     WebTransportSessionManager serverMgr =
-        serverConnectionChannel.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        serverConnectionChannel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     assertNotNull(serverMgr);
     WebTransportSession serverSession = serverMgr.get(sessionId);
     assertNotNull(serverSession);

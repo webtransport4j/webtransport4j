@@ -31,7 +31,7 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
 
       if (!protocolHeaderConsumed) {
         io.netty.util.Attribute<Boolean> serverInitiatedAttr =
-            ctx.channel().attr(WebTransportUtils.SERVER_INITIATED_KEY);
+            ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
         Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
         if (Boolean.TRUE.equals(serverInitiated)) {
           protocolHeaderConsumed = true;
@@ -53,7 +53,7 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
           return;
         }
         QuicChannel quic = (QuicChannel) ctx.channel().parent();
-        WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr == null || !mgr.hasSession(sessionId)) {
           if (mgr != null && ctx.channel() instanceof QuicStreamChannel) {
             data.resetReaderIndex();
@@ -86,8 +86,8 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
           logger.warn("❓ Unknown Stream Type: " + streamType);
         }
 
-        ctx.channel().attr(WebTransportUtils.STREAM_TYPE_KEY).set(streamType);
-        ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY).set(sessionId);
+        ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
+        ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
 
         WebTransportSession session = mgr.get(sessionId);
         if (session == null) {
@@ -140,12 +140,12 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
         int payloadBytes = data.readableBytes();
         if (payloadBytes > 0) {
           io.netty.util.Attribute<Long> sessionIdAttr =
-              ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY);
+              ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
           Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
           if (sessionId != null) {
             QuicChannel quic = (QuicChannel) ctx.channel().parent();
             WebTransportSessionManager mgr =
-                quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
             if (mgr != null) {
               WebTransportSession session = mgr.get(sessionId);
               if (session != null && session.isFlowControlEnabled()) {
@@ -210,7 +210,7 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
 
     ByteBuf data = (ByteBuf) msg;
     io.netty.util.Attribute<Boolean> serverInitiatedAttr =
-        ctx.channel().attr(WebTransportUtils.SERVER_INITIATED_KEY);
+        ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
     Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
 
     // For server-initiated streams, the very first write is the stream header
@@ -225,7 +225,7 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
 
     // Retrieve the WebTransport Session ID mapped to this stream channel.
     io.netty.util.Attribute<Long> sessionIdAttr =
-        ctx.channel().attr(WebTransportUtils.SESSION_ID_KEY);
+        ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
     Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
     if (sessionId == null) {
       super.write(ctx, msg, promise);
@@ -234,7 +234,7 @@ public class RawWebTransportHandler extends ChannelDuplexHandler {
 
     // Retrieve the WebTransportSessionManager attached to the parent QUIC Connection Channel.
     QuicChannel quic = (QuicChannel) ctx.channel().parent();
-    WebTransportSessionManager mgr = quic.attr(WebTransportSessionManager.WT_SESSION_MGR).get();
+    WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     if (mgr == null) {
       super.write(ctx, msg, promise);
       return;

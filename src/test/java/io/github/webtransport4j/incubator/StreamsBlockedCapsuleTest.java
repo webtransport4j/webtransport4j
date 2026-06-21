@@ -30,21 +30,21 @@ public class StreamsBlockedCapsuleTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 100L) with initial limits (maxStreamsUni = 10, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(5L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -92,26 +92,26 @@ public class StreamsBlockedCapsuleTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 200L) with initial limits (maxStreamsUni = 8, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(200L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
     Attribute<Long> uniLimitAttr = mock(Attribute.class);
     when(uniLimitAttr.get()).thenReturn(8L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(uniLimitAttr);
 
     Attribute<Long> bidiLimitAttr = mock(Attribute.class);
     when(bidiLimitAttr.get()).thenReturn(5L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(bidiLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(bidiLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -158,21 +158,21 @@ public class StreamsBlockedCapsuleTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 300L) with initial limits (maxStreamsBidi = 2)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(300L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(2L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -218,21 +218,21 @@ public class StreamsBlockedCapsuleTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Register session (ID = 400L) with initial limits (maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(400L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
-    when(mockConnectStream.attr(WebTransportUtils.SESSION_ID_KEY))
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(5L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -292,13 +292,13 @@ public class StreamsBlockedCapsuleTest {
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportSessionManager.WT_SESSION_MGR)).thenReturn(mgrAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(1L);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportConfig.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
     WebTransportSession session = mgr.get(100L);
