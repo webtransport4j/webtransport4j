@@ -281,13 +281,12 @@ public class WebTransportUtils {
     }
   }
 
-  public static void sendMaxStreamsCapsule(
-      QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
+  private static void sendCapsule(
+      QuicStreamChannel connectStream, long capsuleType, long value, String capsuleName) {
     ByteBuf buf =
         (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
     try {
-      long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
-      writeCapsule(buf, capsuleType, maxStreams);
+      writeCapsule(buf, capsuleType, value);
 
       int totalBytes = buf.readableBytes();
 
@@ -309,10 +308,12 @@ public class WebTransportUtils {
       }
 
       logger.info(
-          "📤 Writing DefaultHttp3DataFrame with WT_MAX_STREAMS Capsule (Type: 0x"
+          "📤 Writing DefaultHttp3DataFrame with "
+              + capsuleName
+              + " Capsule (Type: 0x"
               + Long.toHexString(capsuleType)
-              + ", Limit: "
-              + maxStreams
+              + ", Value/Limit: "
+              + value
               + ", Total Bytes: "
               + totalBytes
               + ")");
@@ -362,145 +363,28 @@ public class WebTransportUtils {
       if (buf.refCnt() > 0) {
         buf.release();
       }
-      logger.error("Failed to send WT_MAX_STREAMS capsule", e);
+      logger.error("Failed to send " + capsuleName + " capsule", e);
     }
+  }
+
+  public static void sendMaxStreamsCapsule(
+      QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
+    long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
+    sendCapsule(connectStream, capsuleType, maxStreams, "WT_MAX_STREAMS");
   }
 
   public static void sendMaxDataCapsule(QuicStreamChannel connectStream, long maxData) {
-    ByteBuf buf =
-        (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-    try {
-      long capsuleType = 0x190B4D3DL;
-      writeCapsule(buf, capsuleType, maxData);
-
-      int totalBytes = buf.readableBytes();
-
-      // Hex dump of raw capsule bytes (Type, Length, Value)
-      String capsuleHex = io.netty.buffer.ByteBufUtil.hexDump(buf);
-
-      // Hex dump of the actual HTTP/3 DATA frame bytes (Type=0x00, Length=totalBytes,
-      // Payload=capsuleBytes)
-      String frameHex = "";
-      ByteBuf frameBuf =
-          (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-      try {
-        writeVarInt(frameBuf, 0x00); // HTTP/3 DATA Frame Type
-        writeVarInt(frameBuf, totalBytes); // Payload Length
-        frameBuf.writeBytes(buf.duplicate());
-        frameHex = io.netty.buffer.ByteBufUtil.hexDump(frameBuf);
-      } finally {
-        frameBuf.release();
-      }
-
-      logger.info(
-          "📤 Writing DefaultHttp3DataFrame with WT_MAX_DATA Capsule (Type: 0x"
-              + Long.toHexString(capsuleType)
-              + ", Limit: "
-              + maxData
-              + ", Total Bytes: "
-              + totalBytes
-              + ")");
-      logger.info("   ├── Capsule Bytes:      " + capsuleHex);
-      logger.info("   └── HTTP/3 Frame Bytes: " + frameHex);
-
-      Object future =
-          connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
-      if (future instanceof io.netty.channel.ChannelFuture) {
-        ((io.netty.channel.ChannelFuture) future)
-            .addListener(
-                f -> {
-                  if (f.isSuccess()) {
-                    logger.info(
-                        "✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for"
-                            + " Type 0x"
-                            + Long.toHexString(capsuleType));
-                  } else {
-                    logger.error(
-                        "❌ Capsule writeAndFlush FAILED for Type 0x"
-                            + Long.toHexString(capsuleType),
-                        f.cause());
-                  }
-                });
-      } else if (future instanceof io.netty.util.concurrent.Future) {
-        ((io.netty.util.concurrent.Future<?>) future)
-            .addListener(
-                f -> {
-                  if (f.isSuccess()) {
-                    logger.info(
-                        "✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for"
-                            + " Type 0x"
-                            + Long.toHexString(capsuleType));
-                  } else {
-                    logger.error(
-                        "❌ Capsule writeAndFlush FAILED for Type 0x"
-                            + Long.toHexString(capsuleType),
-                        f.cause());
-                  }
-                });
-      } else {
-        logger.info(
-            "✅ Capsule writeAndFlush called (no future returned) for Type 0x"
-                + Long.toHexString(capsuleType));
-      }
-    } catch (Exception e) {
-      if (buf.refCnt() > 0) {
-        buf.release();
-      }
-      logger.error("Failed to send WT_MAX_DATA capsule", e);
-    }
+    sendCapsule(connectStream, 0x190B4D3DL, maxData, "WT_MAX_DATA");
   }
 
   public static void sendDataBlockedCapsule(QuicStreamChannel connectStream, long maxData) {
-    ByteBuf buf =
-        (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-    try {
-      long capsuleType = 0x190B4D41L;
-      writeCapsule(buf, capsuleType, maxData);
-
-      int totalBytes = buf.readableBytes();
-      logger.info(
-          "📤 Writing DefaultHttp3DataFrame with WT_DATA_BLOCKED Capsule (Type: 0x"
-              + Long.toHexString(capsuleType)
-              + ", Limit: "
-              + maxData
-              + ", Total Bytes: "
-              + totalBytes
-              + ")");
-
-      connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
-    } catch (Exception e) {
-      if (buf.refCnt() > 0) {
-        buf.release();
-      }
-      logger.error("Failed to send WT_DATA_BLOCKED capsule", e);
-    }
+    sendCapsule(connectStream, 0x190B4D41L, maxData, "WT_DATA_BLOCKED");
   }
 
   public static void sendStreamsBlockedCapsule(
       QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-    ByteBuf buf =
-        (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-    try {
-      long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
-      writeCapsule(buf, capsuleType, maxStreams);
-
-      int totalBytes = buf.readableBytes();
-      logger.info(
-          "📤 Writing DefaultHttp3DataFrame with WT_STREAMS_BLOCKED Capsule (Type: 0x"
-              + Long.toHexString(capsuleType)
-              + ", Maximum Streams: "
-              + maxStreams
-              + ", Total Bytes: "
-              + totalBytes
-              + ")");
-
-      connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
-    } catch (Exception e) {
-      if (buf.refCnt() > 0) {
-        buf.release();
-      }
-      logger.error("Failed to send WT_STREAMS_BLOCKED capsule", e);
-    }
+    long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
+    sendCapsule(connectStream, capsuleType, maxStreams, "WT_STREAMS_BLOCKED");
   }
 
   public static final long WT_ERROR_FIRST = 0x52e4a40fa8dbL;
