@@ -107,7 +107,6 @@ public class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
       }
       if (h instanceof QuicGlobalSniffer
           || h instanceof RawWebTransportHandler
-          || h instanceof EngineIoFrameDecoder
           || h instanceof WebTransportStreamFrameDecoder
           || h instanceof MessageDispatcher
           || h instanceof GlobalTrafficShapingHandler

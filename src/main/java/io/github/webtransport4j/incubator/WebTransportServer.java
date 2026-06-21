@@ -257,10 +257,6 @@ public class WebTransportServer {
                                     QuicChannel quic = stream.parent();
                                     addTrafficShapers(stream);
 
-                                    String path = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
-                                    boolean isSocketIo =
-                                        (path != null && path.contains("socket.io"));
-
                                     stream.pipeline().addFirst(new WebTransportDetectorHandler());
                                     logger.debug(
                                         "🔧 Added WebTransportDetectorHandler. Pipeline now: "
@@ -276,12 +272,6 @@ public class WebTransportServer {
                                     logger.debug(
                                         "🔧 Added RawWebTransportHandler. Pipeline now: "
                                             + stream.pipeline().names());
-                                    if (isSocketIo) {
-                                      stream.pipeline().addLast(new EngineIoFrameDecoder());
-                                      logger.debug(
-                                          "🔧 Added EngineIoFrameDecoder. Pipeline now: "
-                                              + stream.pipeline().names());
-                                    }
                                     stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                     logger.debug(
                                         "🔧 Added WebTransportStreamFrameDecoder. Pipeline now: "
