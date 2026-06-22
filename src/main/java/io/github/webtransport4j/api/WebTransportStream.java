@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 public class WebTransportStream {
-  private final QuicStreamChannel channel;
+  private final QuicStreamChannel streamChannel;
   private final long sessionId;
   private final long streamId;
   private final boolean bidirectional;
@@ -25,7 +25,7 @@ public class WebTransportStream {
   private final java.util.Map<String, Object> attributes = new java.util.concurrent.ConcurrentHashMap<>();
 
   public WebTransportStream(QuicStreamChannel channel, long sessionId) {
-    this.channel = channel;
+    this.streamChannel = channel;
     this.sessionId = sessionId;
     this.streamId = channel.streamId();
     this.bidirectional = (channel.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
@@ -44,7 +44,7 @@ public class WebTransportStream {
   }
 
   public QuicStreamChannel channel() {
-    return channel;
+    return streamChannel;
   }
 
   public void onData(Consumer<ByteBuf> consumer) {
@@ -106,7 +106,7 @@ public class WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public Future<Void> write(ByteBuf data) {
-    return channel.writeAndFlush(data);
+    return streamChannel.writeAndFlush(data);
   }
 
   /**
@@ -120,7 +120,7 @@ public class WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public Future<Void> write(byte[] data) {
-    return channel.writeAndFlush(Unpooled.wrappedBuffer(data));
+    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data));
   }
 
   /**
@@ -136,7 +136,7 @@ public class WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public Future<Void> write(byte[] data, int offset, int length) {
-    return channel.writeAndFlush(Unpooled.wrappedBuffer(data, offset, length));
+    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data, offset, length));
   }
 
   /**
@@ -150,7 +150,7 @@ public class WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public Future<Void> write(ByteBuffer data) {
-    return channel.writeAndFlush(Unpooled.wrappedBuffer(data));
+    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data));
   }
 
   /**
@@ -171,7 +171,7 @@ public class WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public Future<Void> writeText(String text, java.nio.charset.Charset charset) {
-    return channel.writeAndFlush(Unpooled.copiedBuffer(text, charset));
+    return streamChannel.writeAndFlush(Unpooled.copiedBuffer(text, charset));
   }
 
   /**
@@ -186,11 +186,11 @@ public class WebTransportStream {
   }
 
   public void close() {
-    channel.close();
+    streamChannel.close();
   }
 
   public void reset(long appErrorCode) {
-    WebTransportUtils.resetStream(channel, appErrorCode);
+    WebTransportUtils.resetStream(streamChannel, appErrorCode);
   }
 
   public boolean hasAttribute(String key) {
