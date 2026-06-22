@@ -83,7 +83,8 @@ public class WebTransportConfigTest {
     assertNotNull(executor);
     assertTrue(executor instanceof java.util.concurrent.ThreadPoolExecutor);
     java.util.concurrent.ThreadPoolExecutor tp = (java.util.concurrent.ThreadPoolExecutor) executor;
-    assertTrue(tp.getQueue() instanceof java.util.concurrent.LinkedBlockingQueue);
+    assertTrue(tp.getQueue() instanceof java.util.concurrent.ArrayBlockingQueue);
+    assertEquals(10000, tp.getQueue().remainingCapacity());
     executor.shutdown();
   }
 }

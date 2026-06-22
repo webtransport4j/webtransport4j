@@ -8,6 +8,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
 
+import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -97,12 +98,91 @@ public class WebTransportStream {
     return errorHandler;
   }
 
+  /**
+   * Writes and flushes a Netty {@link ByteBuf} to the stream.
+   * Netty will automatically manage the reference count and release the buffer once sent.
+   *
+   * @param data the buffer to write
+   * @return a future that completes when the write operation is done
+   */
   public Future<Void> write(ByteBuf data) {
     return channel.writeAndFlush(data);
   }
 
+  /**
+   * Writes and flushes a byte array to the stream.
+   * This is a zero-copy operation that wraps the byte array in a buffer.
+   * <p>
+   * <strong>Caveat:</strong> The underlying array must not be modified until the returned
+   * future completes, as it is read directly by the network transport thread.
+   *
+   * @param data the byte array to write
+   * @return a future that completes when the write operation is done
+   */
+  public Future<Void> write(byte[] data) {
+    return channel.writeAndFlush(Unpooled.wrappedBuffer(data));
+  }
+
+  /**
+   * Writes and flushes a slice of a byte array to the stream.
+   * This is a zero-copy operation that wraps the array slice in a buffer.
+   * <p>
+   * <strong>Caveat:</strong> The underlying array must not be modified until the returned
+   * future completes, as it is read directly by the network transport thread.
+   *
+   * @param data the byte array containing the slice
+   * @param offset the starting index in the array
+   * @param length the number of bytes to write
+   * @return a future that completes when the write operation is done
+   */
+  public Future<Void> write(byte[] data, int offset, int length) {
+    return channel.writeAndFlush(Unpooled.wrappedBuffer(data, offset, length));
+  }
+
+  /**
+   * Writes and flushes a NIO {@link ByteBuffer} to the stream.
+   * This is a zero-copy operation that wraps the buffer.
+   * <p>
+   * <strong>Caveat:</strong> The underlying buffer must not be modified or written to until
+   * the returned future completes.
+   *
+   * @param data the buffer to write
+   * @return a future that completes when the write operation is done
+   */
+  public Future<Void> write(ByteBuffer data) {
+    return channel.writeAndFlush(Unpooled.wrappedBuffer(data));
+  }
+
+  /**
+   * Writes and flushes a text string to the stream encoded as UTF-8.
+   *
+   * @param text the text to write
+   * @return a future that completes when the write operation is done
+   */
   public Future<Void> writeText(String text) {
-    return channel.writeAndFlush(Unpooled.copiedBuffer(text, CharsetUtil.UTF_8));
+    return writeText(text, CharsetUtil.UTF_8);
+  }
+
+  /**
+   * Writes and flushes a text string to the stream encoded using the specified charset.
+   *
+   * @param text the text to write
+   * @param charset the character encoding to use
+   * @return a future that completes when the write operation is done
+   */
+  public Future<Void> writeText(String text, java.nio.charset.Charset charset) {
+    return channel.writeAndFlush(Unpooled.copiedBuffer(text, charset));
+  }
+
+  /**
+   * Writes and flushes a text string to the stream encoded using the charset name.
+   *
+   * @param text the text to write
+   * @param charsetName the name of the character encoding to use
+   * @return a future that completes when the write operation is done
+   */
+  public Future<Void> writeText(String text, String charsetName) {
+    return writeText(text, java.nio.charset.Charset.forName(charsetName));
   }
 
   public void close() {
