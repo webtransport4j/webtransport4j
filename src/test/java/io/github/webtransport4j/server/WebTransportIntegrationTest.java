@@ -29,6 +29,7 @@ public class WebTransportIntegrationTest {
   private Channel serverChannel;
   private int port;
   private QuicChannel serverConnectionChannel;
+  private WebTransportServer webTransportServer;
 
   @Before
   public void setUp() throws Exception {
@@ -37,7 +38,8 @@ public class WebTransportIntegrationTest {
 
   private void setUpServer(long initialMaxData) throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
-    WebTransportServer.registerHandler(
+    webTransportServer = new WebTransportServer();
+    webTransportServer.registerHandler(
         "/test-integration",
         new WebTransportHandler() {
           @Override
@@ -165,6 +167,7 @@ public class WebTransportIntegrationTest {
                   @Override
                   protected void initChannel(QuicChannel ch) {
                     serverConnectionChannel = ch;
+                    ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(webTransportServer);
                     ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                         .set(new WebTransportSessionManager());
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
@@ -318,7 +321,9 @@ public class WebTransportIntegrationTest {
 
   @After
   public void tearDown() throws Exception {
-    WebTransportServer.registerHandler("/test-integration", null);
+    if (webTransportServer != null) {
+      webTransportServer.registerHandler("/test-integration", null);
+    }
     if (serverChannel != null) {
       serverChannel.close().sync();
     }

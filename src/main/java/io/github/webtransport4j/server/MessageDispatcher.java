@@ -120,7 +120,16 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
       return false;
     }
 
-    WebTransportHandler handler = WebTransportServer.getHandler(session.path());
+    WebTransportServer server = null;
+    if (channel instanceof QuicStreamChannel) {
+      io.netty.util.Attribute<WebTransportServer> attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+      server = attr != null ? attr.get() : null;
+    } else {
+      io.netty.util.Attribute<WebTransportServer> attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+      server = attr != null ? attr.get() : null;
+    }
+
+    WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : new WebTransportHandler() {};
     if (handler == null) {
       logger.error("No handler registered for path: " + session.path());
       return false;

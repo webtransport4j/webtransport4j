@@ -38,19 +38,24 @@ import org.apache.log4j.Logger;
 
 public class WebTransportServer {
   private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
-  public static int PORT = 4433;
+  private int port;
   
-  private static final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
-  private static WebTransportHandler defaultHandler;
+  private final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
+  private WebTransportHandler defaultHandler;
 
   public WebTransportServer(WebTransportHandler defaultHandler) {
     if (defaultHandler == null) {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
-    WebTransportServer.defaultHandler = defaultHandler;
+    this.defaultHandler = defaultHandler;
   }
 
-  public static void registerHandler(String path, WebTransportHandler handler) {
+  public WebTransportServer(){
+    this.defaultHandler = new WebTransportHandler(){};
+  }
+
+  public void registerHandler(String path, WebTransportHandler handler) {
+    if (path == null) throw new IllegalArgumentException("path cannot be null");
     if (handler == null) {
       handlers.remove(path);
     } else {
@@ -58,10 +63,14 @@ public class WebTransportServer {
     }
   }
 
-  public static WebTransportHandler getHandler(String path) {
+  public WebTransportHandler getHandler(String path) {
     if (path == null) return defaultHandler;
     WebTransportHandler handler = handlers.get(path);
-    return (handler != null) ? handler : defaultHandler;
+    return (handler != null) ? handler : this.defaultHandler;
+  }
+
+  public int getPort() {
+    return port;
   }
 
 
@@ -72,7 +81,7 @@ public class WebTransportServer {
   private static final java.util.concurrent.ExecutorService businessExecutor =
       BusinessExecutorFactory.create();
 
-  private static java.util.List<String> allowedOrigins;
+  private java.util.List<String> allowedOrigins;
 
   public static java.util.concurrent.ExecutorService getBusinessExecutor() {
     return businessExecutor;
@@ -87,7 +96,7 @@ public class WebTransportServer {
     if (defaultHandler == null) {
       throw new IllegalStateException("Server cannot start without a registered default path handler.");
     }
-    PORT = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+    port = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
     registerHandler("/test", new WebTransportTestHandler());
     registerHandler("/chat", new WebTransportChatHandler());
     String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
@@ -240,6 +249,7 @@ public class WebTransportServer {
                     logger.debug("    ├── 🌍 Remote IP:   " + ip);
                     logger.debug("    ├── 🚪 Remote Port: " + port);
                     logger.debug("    └── 🆔 Channel ID:  " + nettyId);
+                    ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(WebTransportServer.this);
                     ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                         .set(new WebTransportSessionManager());
                     ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
@@ -457,10 +467,10 @@ public class WebTransportServer {
             .group(group)
             .channel(NioDatagramChannel.class)
             .handler(serverCodec)
-            .bind(new InetSocketAddress(PORT))
+            .bind(new InetSocketAddress(port))
             .sync()
             .channel();
-    logger.debug("✅ WebTransport server listening on " + PORT);
+    logger.debug("✅ WebTransport server listening on " + port);
     ch.closeFuture().sync();
   }
 

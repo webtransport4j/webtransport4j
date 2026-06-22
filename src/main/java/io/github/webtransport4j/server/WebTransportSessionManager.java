@@ -125,7 +125,9 @@ class WebTransportSessionManager {
     sessions.put(sessionStreamId, session);
     logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
 
-    WebTransportHandler handler = WebTransportServer.getHandler(pathStr);
+    io.netty.util.Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+    WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    WebTransportHandler handler = server != null ? server.getHandler(pathStr) : new WebTransportHandler() {};
     if (handler != null) {
       try {
         handler.onSessionReady(session);
@@ -218,7 +220,10 @@ class WebTransportSessionManager {
       for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedUni()) {
         activeStream.close();
       }
-      WebTransportHandler handler = WebTransportServer.getHandler(removed.path());
+      QuicChannel quic = (QuicChannel) connecStreamChannel.parent();
+      io.netty.util.Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+      WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+      WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
       if (handler != null) {
         try {
           handler.onSessionClosed(removed);

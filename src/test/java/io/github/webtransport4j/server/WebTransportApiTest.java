@@ -19,14 +19,16 @@ import org.junit.Test;
 
 public class WebTransportApiTest {
 
+  private WebTransportServer server;
+
   @Before
   public void setUp() {
-    WebTransportServer.registerHandler("/test-api", null);
+    server = new WebTransportServer();
   }
 
   @After
   public void tearDown() {
-    WebTransportServer.registerHandler("/test-api", null);
+    server = null;
   }
 
   @SuppressWarnings("unchecked")
@@ -55,14 +57,18 @@ public class WebTransportApiTest {
       public void onDatagramReceived(WebTransportSession session, ByteBuf data) {}
     };
 
-    WebTransportServer.registerHandler("/test-api", handler);
-    assertEquals(handler, WebTransportServer.getHandler("/test-api"));
+    server.registerHandler("/test-api", handler);
+    assertEquals(handler, server.getHandler("/test-api"));
 
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+
+    Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
+    when(serverAttr.get()).thenReturn(server);
+    when(mockParent.attr(WebTransportAttributeKeys.SERVER_KEY)).thenReturn(serverAttr);
 
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -124,7 +130,7 @@ public class WebTransportApiTest {
       public void onDatagramReceived(WebTransportSession session, ByteBuf data) {}
     };
 
-    WebTransportServer.registerHandler("/test-api", handler);
+    server.registerHandler("/test-api", handler);
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
@@ -132,6 +138,10 @@ public class WebTransportApiTest {
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+
+    Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
+    when(serverAttr.get()).thenReturn(server);
+    when(mockParent.attr(WebTransportAttributeKeys.SERVER_KEY)).thenReturn(serverAttr);
 
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);

@@ -11,6 +11,9 @@ public final class WebTransportAttributeKeys {
   private WebTransportAttributeKeys() {}
 
   // Session-related Attribute Keys
+  public static final AttributeKey<WebTransportServer> SERVER_KEY = 
+      AttributeKey.valueOf("wt.server.instance");
+
   public static final AttributeKey<Long> SESSION_ID_KEY = 
       AttributeKey.valueOf("wt.session.id");
   
