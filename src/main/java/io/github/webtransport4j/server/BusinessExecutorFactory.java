@@ -79,7 +79,7 @@ public final class BusinessExecutorFactory {
         final String queueType =
             WebTransportConfig.get(
                 "webtransport4j.business.queue.type",
-                "LINKED");
+                "RING_BUFFER");
 
         logger.info(
             "Using fixed thread pool. poolSize="
@@ -94,8 +94,8 @@ public final class BusinessExecutorFactory {
             if (queueCapacity == Integer.MAX_VALUE) {
                 logger.warn(
                     "⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity. "
-                        + "Falling back to LinkedBlockingQueue.");
-                queue = new LinkedBlockingQueue<Runnable>();
+                        + "Defaulting queue capacity to 10000.");
+                queue = new ArrayBlockingQueue<Runnable>(10000);
             } else {
                 queue = new ArrayBlockingQueue<Runnable>(queueCapacity);
             }
