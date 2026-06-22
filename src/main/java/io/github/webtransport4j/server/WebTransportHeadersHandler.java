@@ -145,13 +145,15 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       logger.debug("🌊 Stream 0 AutoRead: " + ctx.channel().config().isAutoRead());
       logger.debug("🌊 Stream 0 Pipeline post-handshake: " + ctx.pipeline().names());
 
-      connectStream
-          .closeFuture()
-          .addListener(
-              f -> {
-                mgr.unregister(connectStream);
-              });
-      mgr.register(connectStream);
+      if (mgr != null) {
+        connectStream
+            .closeFuture()
+            .addListener(
+                f -> {
+                  mgr.unregister(connectStream);
+                });
+        mgr.register(connectStream);
+      }
     }
 
     ReferenceCountUtil.release(frame);

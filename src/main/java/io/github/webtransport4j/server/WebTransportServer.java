@@ -54,18 +54,34 @@ public class WebTransportServer {
     this.defaultHandler = new WebTransportHandler(){};
   }
 
+  private static String normalizePath(String path) {
+    if (path == null) {
+      return null;
+    }
+    String trimmed = path.trim();
+    if (trimmed.length() > 1 && trimmed.endsWith("/")) {
+      return trimmed.substring(0, trimmed.length() - 1);
+    }
+    return trimmed;
+  }
+
   public void registerHandler(String path, WebTransportHandler handler) {
     if (path == null) throw new IllegalArgumentException("path cannot be null");
+    String normalized = normalizePath(path);
+    if (normalized.isEmpty() || !normalized.startsWith("/")) {
+      throw new IllegalArgumentException("path must not be empty and must start with '/'");
+    }
     if (handler == null) {
-      handlers.remove(path);
+      handlers.remove(normalized);
     } else {
-      handlers.put(path, handler);
+      handlers.put(normalized, handler);
     }
   }
 
   public WebTransportHandler getHandler(String path) {
     if (path == null) return defaultHandler;
-    WebTransportHandler handler = handlers.get(path);
+    String normalized = normalizePath(path);
+    WebTransportHandler handler = handlers.get(normalized);
     return (handler != null) ? handler : this.defaultHandler;
   }
 

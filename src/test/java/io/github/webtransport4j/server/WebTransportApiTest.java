@@ -191,4 +191,15 @@ public class WebTransportApiTest {
     assertNotNull(incomingStreamRef.get());
     assertEquals("Hello API", dataReceivedRef.get());
   }
+
+  @Test
+  public void testPathNormalization() {
+    WebTransportHandler handler = new WebTransportHandler() {};
+    server.registerHandler("/chat/", handler);
+    assertEquals(handler, server.getHandler("/chat"));
+    assertEquals(handler, server.getHandler("/chat/"));
+
+    server.registerHandler("/root", handler);
+    assertEquals(handler, server.getHandler("/root/"));
+  }
 }

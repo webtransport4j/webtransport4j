@@ -223,7 +223,7 @@ class WebTransportSessionManager {
       QuicChannel quic = (QuicChannel) connecStreamChannel.parent();
       io.netty.util.Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
       WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
-      WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
+      WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : new WebTransportHandler() {};
       if (handler != null) {
         try {
           handler.onSessionClosed(removed);
