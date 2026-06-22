@@ -69,23 +69,48 @@ public final class BusinessExecutorFactory {
                 "webtransport4j.business.pool.size",
                 Runtime.getRuntime().availableProcessors() * 2);
 
-        final int queueCapacity =
+        final int rawQueueCapacity =
             WebTransportConfig.getInt(
                 "webtransport4j.business.queue.capacity",
-                10000);
+                Integer.MAX_VALUE);
+
+        final int queueCapacity = rawQueueCapacity <= 0 ? Integer.MAX_VALUE : rawQueueCapacity;
+
+        final String queueType =
+            WebTransportConfig.get(
+                "webtransport4j.business.queue.type",
+                "LINKED");
 
         logger.info(
             "Using fixed thread pool. poolSize="
                 + poolSize
                 + ", queueCapacity="
-                + queueCapacity);
+                + queueCapacity
+                + ", queueType="
+                + queueType);
+
+        BlockingQueue<Runnable> queue;
+        if ("ARRAY".equalsIgnoreCase(queueType) || "RING_BUFFER".equalsIgnoreCase(queueType)) {
+            if (queueCapacity == Integer.MAX_VALUE) {
+                logger.warn(
+                    "⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity. "
+                        + "Falling back to LinkedBlockingQueue.");
+                queue = new LinkedBlockingQueue<Runnable>();
+            } else {
+                queue = new ArrayBlockingQueue<Runnable>(queueCapacity);
+            }
+        } else {
+            queue = queueCapacity == Integer.MAX_VALUE
+                ? new LinkedBlockingQueue<Runnable>()
+                : new LinkedBlockingQueue<Runnable>(queueCapacity);
+        }
 
         return new ThreadPoolExecutor(
             poolSize,
             poolSize,
             60L,
             TimeUnit.SECONDS,
-            new LinkedBlockingQueue<Runnable>(queueCapacity),
+            queue,
             new ThreadFactory() {
 
                 private final AtomicInteger count =

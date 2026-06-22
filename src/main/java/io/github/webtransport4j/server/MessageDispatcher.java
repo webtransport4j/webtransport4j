@@ -41,15 +41,16 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
 
     if(executor == null){
         try {
-              tryDispatchToHandler(channel, finalSessionId, msg);
-            } catch (Throwable t) {
-              logger.error("Uncaught exception/error during business logic execution", t);
-            } finally {
-              msg.release();
-            }
+          tryDispatchToHandler(channel, finalSessionId, msg);
+        } catch (Throwable t) {
+          logger.error("Uncaught exception/error during business logic execution", t);
+        } finally {
+          msg.release();
+        }
     } else {
+      boolean submitted = false;
       try {
-      executor.execute(
+        executor.execute(
           () -> {
             try {
               tryDispatchToHandler(channel, finalSessionId, msg);
@@ -58,11 +59,18 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
             } finally {
               msg.release();
             }
-          });
-    } catch (RejectedExecutionException e) {
-      logger.error("Task submission rejected by business executor. Releasing message buffer.", e);
-      msg.release();
-    }
+          }
+        );
+        submitted = true;
+      } catch (RejectedExecutionException e) {
+        logger.error("Task submission rejected by business executor.", e);
+      } catch (Throwable t) {
+        logger.error("Failed to submit task to business executor.", t);
+      } finally {
+        if (!submitted) {
+          msg.release();
+        }
+      }
     }
     
   }

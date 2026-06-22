@@ -12,6 +12,9 @@ public class WebTransportConfigTest {
   @After
   public void cleanup() {
     System.clearProperty("test.math.key");
+    System.clearProperty("webtransport4j.dispatch.execution.mode");
+    System.clearProperty("webtransport4j.business.queue.type");
+    System.clearProperty("webtransport4j.business.queue.capacity");
   }
 
   @Test
@@ -53,5 +56,34 @@ public class WebTransportConfigTest {
   @Test
   public void testGetLongDefaultValue() {
     assertEquals(555L, WebTransportConfig.getLong("nonexistent.key.for.test", 555L));
+  }
+
+  @Test
+  public void testBusinessExecutorFactoryFixedThreadPoolWithArrayQueue() {
+    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
+    System.setProperty("webtransport4j.business.queue.type", "ARRAY");
+    System.setProperty("webtransport4j.business.queue.capacity", "500");
+
+    java.util.concurrent.ExecutorService executor = BusinessExecutorFactory.create();
+    assertNotNull(executor);
+    assertTrue(executor instanceof java.util.concurrent.ThreadPoolExecutor);
+    java.util.concurrent.ThreadPoolExecutor tp = (java.util.concurrent.ThreadPoolExecutor) executor;
+    assertTrue(tp.getQueue() instanceof java.util.concurrent.ArrayBlockingQueue);
+    assertEquals(500, tp.getQueue().remainingCapacity());
+    executor.shutdown();
+  }
+
+  @Test
+  public void testBusinessExecutorFactoryUnboundedFallback() {
+    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
+    System.setProperty("webtransport4j.business.queue.type", "ARRAY");
+    System.setProperty("webtransport4j.business.queue.capacity", "0");
+
+    java.util.concurrent.ExecutorService executor = BusinessExecutorFactory.create();
+    assertNotNull(executor);
+    assertTrue(executor instanceof java.util.concurrent.ThreadPoolExecutor);
+    java.util.concurrent.ThreadPoolExecutor tp = (java.util.concurrent.ThreadPoolExecutor) executor;
+    assertTrue(tp.getQueue() instanceof java.util.concurrent.LinkedBlockingQueue);
+    executor.shutdown();
   }
 }
