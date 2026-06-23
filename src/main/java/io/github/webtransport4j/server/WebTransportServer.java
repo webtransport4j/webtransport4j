@@ -126,13 +126,15 @@ public class WebTransportServer {
                   if (globalTrafficShaper != null) {
                     globalTrafficShaper.release();
                   }
-                  businessExecutor.shutdown();
-                  try {
-                    if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                  if (businessExecutor != null) {
+                    businessExecutor.shutdown();
+                    try {
+                      if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                        businessExecutor.shutdownNow();
+                      }
+                    } catch (InterruptedException e) {
                       businessExecutor.shutdownNow();
                     }
-                  } catch (InterruptedException e) {
-                    businessExecutor.shutdownNow();
                   }
                 }));
 
@@ -158,19 +160,63 @@ public class WebTransportServer {
       }
     }
 
+
+
+    long sessionTimeout = WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
+    long sessionCacheSize = WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
+
     QuicSslContext sslContext;
     if (keyPath != null && certPath != null) {
-      sslContext =
-          QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
-              .applicationProtocols(Http3.supportedApplicationProtocols())
-              .build();
+      QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
+              .applicationProtocols(Http3.supportedApplicationProtocols());
+      if (sessionTimeout > 0) {
+        builder.sessionTimeout(sessionTimeout);
+      }
+      if (sessionCacheSize > 0) {
+        builder.sessionCacheSize(sessionCacheSize);
+      }
+      sslContext = builder.build();
     } else {
       logger.info("📡 No SSL cert/key configured and no localhost files found. Generating a self-signed certificate...");
+      @SuppressWarnings("deprecation")
       io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate();
-      sslContext =
-          QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
-              .applicationProtocols(Http3.supportedApplicationProtocols())
-              .build();
+      QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
+              .applicationProtocols(Http3.supportedApplicationProtocols());
+      if (sessionTimeout > 0) {
+        builder.sessionTimeout(sessionTimeout);
+      }
+      if (sessionCacheSize > 0) {
+        builder.sessionCacheSize(sessionCacheSize);
+      }
+      sslContext = builder.build();
+    }
+
+    String ticketKeysStr = WebTransportConfig.get("webtransport4j.ssl.session.ticket.keys", null);
+    if (ticketKeysStr != null && !ticketKeysStr.trim().isEmpty()) {
+      try {
+        String[] keysList = ticketKeysStr.split(",");
+        io.netty.handler.codec.quic.SslSessionTicketKey[] ticketKeys = new io.netty.handler.codec.quic.SslSessionTicketKey[keysList.length];
+        for (int i = 0; i < keysList.length; i++) {
+          String hex = keysList[i].trim();
+          if (hex.length() != 96) {
+            throw new IllegalArgumentException("Session ticket key must be exactly 96 hex characters (16 byte name + 16 byte HMAC + 16 byte AES)");
+          }
+          byte[] keyBytes = io.netty.buffer.ByteBufUtil.decodeHexDump(hex);
+          byte[] name = new byte[16];
+          byte[] hmacKey = new byte[16];
+          byte[] aesKey = new byte[16];
+          System.arraycopy(keyBytes, 0, name, 0, 16);
+          System.arraycopy(keyBytes, 16, hmacKey, 0, 16);
+          System.arraycopy(keyBytes, 32, aesKey, 0, 16);
+          ticketKeys[i] = new io.netty.handler.codec.quic.SslSessionTicketKey(name, hmacKey, aesKey);
+        }
+        if (sslContext.sessionContext() instanceof io.netty.handler.codec.quic.QuicSslSessionContext) {
+          ((io.netty.handler.codec.quic.QuicSslSessionContext) sslContext.sessionContext()).setTicketKeys(ticketKeys);
+          logger.info("🔑 Explicit TLS Session Ticket Keys loaded. 1-RTT Session Resumption across servers is fully supported.");
+        }
+      } catch (Exception e) {
+        logger.error("❌ Failed to parse webtransport4j.ssl.session.ticket.keys", e);
+      }
     }
     String allowedProp =
         WebTransportConfig.get(
@@ -272,6 +318,33 @@ public class WebTransportServer {
                     }
 
                     ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
+                    
+                    ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                        @Override
+                        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+                            if (evt instanceof io.netty.handler.ssl.SslHandshakeCompletionEvent) {
+                                io.netty.handler.ssl.SslHandshakeCompletionEvent sslEvent = (io.netty.handler.ssl.SslHandshakeCompletionEvent) evt;
+                                if (sslEvent.isSuccess()) {
+                                    QuicChannel quicChannel = (QuicChannel) ctx.channel();
+                                    
+                                    // You can use reflection to access the package-private isSessionReused() method
+                                    java.lang.reflect.Method method = quicChannel.sslEngine().getClass().getDeclaredMethod("isSessionReused");
+                                    method.setAccessible(true);
+                                    boolean sessionReused = (Boolean) method.invoke(quicChannel.sslEngine());
+                                    
+                                    if (sessionReused) {
+                                        logger.info("🚀 QUIC Connection Resumed! (1-RTT Session Resumption)");
+                                    } else {
+                                        logger.debug("Handshake complete. New QUIC Connection (Full 2-RTT Handshake).");
+                                    }
+                                    
+                                    quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY).set(sessionReused);
+                                }
+                            }
+                            super.userEventTriggered(ctx, evt);
+                        }
+                    });
+
                     InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
                     String ip = remote.getAddress().getHostAddress();
                     int port = remote.getPort();
@@ -509,11 +582,25 @@ public class WebTransportServer {
   public static io.netty.handler.codec.quic.QuicTokenHandler getTokenHandler() {
     String tokenHandlerType = WebTransportConfig.get("webtransport4j.quic.token.handler", "hmac");
     if ("insecure".equalsIgnoreCase(tokenHandlerType)) {
+      logger.info("🔑 QUIC Token Handler configured: INSECURE (InsecureQuicTokenHandler)");
       return InsecureQuicTokenHandler.INSTANCE;
     } else if ("hmac".equalsIgnoreCase(tokenHandlerType)) {
-      return new HmacQuicTokenHandler();
+      long expirationMs = WebTransportConfig.getLong("webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L);
+      String keyHex = WebTransportConfig.get("webtransport4j.quic.token.handler.hmac.key", null);
+      if (keyHex != null && !keyHex.trim().isEmpty()) {
+        byte[] key = parseHex(keyHex);
+        if (key != null && key.length >= 16) {
+          logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with custom configured key, expiration: " + expirationMs + "ms");
+          return new HmacQuicTokenHandler(key, expirationMs);
+        } else {
+          logger.warn("⚠️ Configured HMAC key is too short (must be at least 16 bytes / 32 hex characters). Falling back to random key.");
+        }
+      }
+      logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with randomly generated key, expiration: " + expirationMs + "ms");
+      return new HmacQuicTokenHandler(expirationMs);
     } else {
       try {
+        logger.info("🔑 QUIC Token Handler configured: Custom Class (" + tokenHandlerType + ")");
         return (io.netty.handler.codec.quic.QuicTokenHandler) Class.forName(tokenHandlerType)
             .getDeclaredConstructor()
             .newInstance();
@@ -521,6 +608,32 @@ public class WebTransportServer {
         logger.error("❌ Failed to load custom QuicTokenHandler: " + tokenHandlerType + ". Falling back to HmacQuicTokenHandler.", e);
         return new HmacQuicTokenHandler();
       }
+    }
+  }
+
+  private static byte[] parseHex(String hex) {
+    if (hex == null || hex.trim().isEmpty()) {
+      return null;
+    }
+    String normalized = hex.trim();
+    if (normalized.length() % 2 != 0) {
+      logger.warn("⚠️ HMAC key hex string length is not even: " + normalized + ". Falling back to plain string bytes.");
+      return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+    try {
+      byte[] data = new byte[normalized.length() / 2];
+      for (int i = 0; i < normalized.length(); i += 2) {
+        int high = Character.digit(normalized.charAt(i), 16);
+        int low = Character.digit(normalized.charAt(i + 1), 16);
+        if (high == -1 || low == -1) {
+          throw new IllegalArgumentException("Non-hex character found");
+        }
+        data[i / 2] = (byte) ((high << 4) + low);
+      }
+      return data;
+    } catch (Exception e) {
+      logger.warn("⚠️ Failed to parse HMAC key as hex, falling back to plain string bytes: " + e.getMessage());
+      return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
   }
 

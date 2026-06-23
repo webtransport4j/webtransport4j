@@ -15,6 +15,10 @@ public class WebTransportConfigTest {
     System.clearProperty("webtransport4j.dispatch.execution.mode");
     System.clearProperty("webtransport4j.business.queue.type");
     System.clearProperty("webtransport4j.business.queue.capacity");
+    System.clearProperty("webtransport4j.quic.token.handler.hmac.key");
+    System.clearProperty("webtransport4j.quic.token.handler.hmac.expiration.ms");
+    System.clearProperty("webtransport4j.ssl.session.timeout.seconds");
+    System.clearProperty("webtransport4j.ssl.session.cache.size");
   }
 
   @Test
@@ -86,5 +90,19 @@ public class WebTransportConfigTest {
     assertTrue(tp.getQueue() instanceof java.util.concurrent.ArrayBlockingQueue);
     assertEquals(10000, tp.getQueue().remainingCapacity());
     executor.shutdown();
+  }
+
+  @Test
+  public void testTokenHandlerProperties() {
+    System.setProperty("webtransport4j.quic.token.handler.hmac.key", "0123456789abcdef0123456789abcdef");
+    System.setProperty("webtransport4j.quic.token.handler.hmac.expiration.ms", "30000");
+    System.setProperty("webtransport4j.quic.early.data.enabled", "true");
+    System.setProperty("webtransport4j.ssl.session.timeout.seconds", "86400");
+    System.setProperty("webtransport4j.ssl.session.cache.size", "20480");
+
+    assertEquals("0123456789abcdef0123456789abcdef", WebTransportConfig.get("webtransport4j.quic.token.handler.hmac.key", null));
+    assertEquals(30000L, WebTransportConfig.getLong("webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L));
+    assertEquals(86400L, WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L));
+    assertEquals(20480L, WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L));
   }
 }

@@ -30,6 +30,10 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     this(generateRandomKey(), DEFAULT_EXPIRATION_MS);
   }
 
+  public HmacQuicTokenHandler(long expirationMs) {
+    this(generateRandomKey(), expirationMs);
+  }
+
   public HmacQuicTokenHandler(byte[] key, long expirationMs) {
     if (key == null || key.length < 16) {
       throw new IllegalArgumentException("Key must be at least 16 bytes");
@@ -38,7 +42,7 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     this.expirationMs = expirationMs;
   }
 
-  private static byte[] generateRandomKey() {
+  static byte[] generateRandomKey() {
     byte[] key = new byte[32];
     SECURE_RANDOM.nextBytes(key);
     return key;

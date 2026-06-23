@@ -4,6 +4,9 @@ import static org.junit.Assert.*;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.github.webtransport4j.api.WebTransportSession;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import org.junit.Test;
@@ -107,5 +110,54 @@ public class HmacQuicTokenHandlerTest {
     
     out.release();
     dcid.release();
+  }
+
+  @Test
+  public void testCustomExpirationConstructor() throws Exception {
+    HmacQuicTokenHandler handler = new HmacQuicTokenHandler(50L);
+    ByteBuf out = Unpooled.buffer();
+    ByteBuf dcid = Unpooled.buffer();
+    InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
+    
+    assertTrue(handler.writeToken(out, dcid, address));
+    
+    int resultImmediate = handler.validateToken(out, address);
+    assertTrue(resultImmediate >= 0);
+    
+    Thread.sleep(100L);
+    
+    out.readerIndex(0);
+    int resultExpired = handler.validateToken(out, address);
+    assertEquals(-1, resultExpired);
+    
+    out.release();
+    dcid.release();
+  }
+
+  private interface ResumedSSLSession extends javax.net.ssl.SSLSession {
+    boolean isSessionResumed();
+  }
+
+  @Test
+  public void testSessionResumptionCheck() throws Exception {
+    QuicStreamChannel mockConnectStream = org.mockito.Mockito.mock(QuicStreamChannel.class);
+    QuicChannel mockQuicChannel = org.mockito.Mockito.mock(QuicChannel.class);
+    javax.net.ssl.SSLEngine mockSslEngine = org.mockito.Mockito.mock(javax.net.ssl.SSLEngine.class);
+    ResumedSSLSession mockSession = org.mockito.Mockito.mock(ResumedSSLSession.class);
+    
+    org.mockito.Mockito.when(mockConnectStream.parent()).thenReturn(mockQuicChannel);
+    org.mockito.Mockito.when(mockQuicChannel.sslEngine()).thenReturn(mockSslEngine);
+    org.mockito.Mockito.when(mockSslEngine.getSession()).thenReturn(mockSession);
+    
+    // Case 1: Session is resumed
+    org.mockito.Mockito.when(mockSession.isSessionResumed()).thenReturn(true);
+    WebTransportSession wtSession = new WebTransportSession(
+        1L, mockConnectStream, "/test", 10, 10, 1000, 10, 10, 1000, false
+    );
+    assertTrue(wtSession.isSessionResumed());
+    
+    // Case 2: Session is NOT resumed
+    org.mockito.Mockito.when(mockSession.isSessionResumed()).thenReturn(false);
+    assertFalse(wtSession.isSessionResumed());
   }
 }

@@ -581,4 +581,59 @@ public class WebTransportSession {
         });
     return promise;
   }
+
+  /**
+   * Returns true if the underlying QUIC connection was established using TLS session resumption (1-RTT).
+   * 
+   * IMPORTANT: 1-RTT Session Resumption ONLY bypasses the heavy SSL cryptographic handshake.
+   * It still creates an entirely new QUIC connection under the hood. Any application state,
+   * business logic, or user authentication must still be manually reconstructed by your code!
+   * 
+   * This allows application handlers to identify if a connection is a resumed session (reconnected)
+   * and potentially fast-track database lookups using the same user tokens.
+   */
+  public boolean isSessionResumed() {
+    try {
+      io.netty.channel.Channel parent = connectStream.parent();
+      if (parent instanceof io.netty.handler.codec.quic.QuicChannel) {
+        io.netty.handler.codec.quic.QuicChannel quicChannel = (io.netty.handler.codec.quic.QuicChannel) parent;
+        
+        // 1. Try to read from the attribute set by the handshake completion event
+        Boolean resumedAttr = quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY).get();
+        if (resumedAttr != null) {
+          return resumedAttr;
+        }
+
+        // 2. Fallback: Check SSLEngine directly if handshake event hasn't fired or attribute is missing
+        javax.net.ssl.SSLEngine engine = quicChannel.sslEngine();
+        if (engine != null) {
+          try {
+            java.lang.reflect.Method m = engine.getClass().getMethod("isSessionReused");
+            m.setAccessible(true);
+            return (Boolean) m.invoke(engine);
+          } catch (NoSuchMethodException ignored) {
+          }
+          
+          javax.net.ssl.SSLSession session = engine.getSession();
+          if (session != null) {
+            try {
+              java.lang.reflect.Method m = session.getClass().getMethod("isSessionReused");
+              m.setAccessible(true);
+              return (Boolean) m.invoke(session);
+            } catch (NoSuchMethodException ignored) {
+            }
+            
+            try {
+              java.lang.reflect.Method m = session.getClass().getMethod("isSessionResumed");
+              m.setAccessible(true);
+              return (Boolean) m.invoke(session);
+            } catch (NoSuchMethodException ignored) {
+            }
+          }
+        }
+      }
+    } catch (Exception ignored) {
+    }
+    return false;
+  }
 }

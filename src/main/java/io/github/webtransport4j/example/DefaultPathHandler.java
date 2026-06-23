@@ -10,7 +10,7 @@ public class DefaultPathHandler implements WebTransportHandler {
   @Override
   public void onSessionReady(WebTransportSession session) {
     logger.info("🟢 [DEFAULT HANDLER] WebTransport Session Ready. Path: " + session.path()
-        + " | Session Stream ID: " + session.getSessionStreamId());
+        + " | Session Stream ID: " + session.getSessionStreamId() + " | Is Session Resumed? : " + session.isSessionResumed());
   }
 
   @Override
