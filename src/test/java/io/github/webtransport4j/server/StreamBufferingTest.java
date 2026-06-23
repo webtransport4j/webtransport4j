@@ -13,13 +13,12 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
-import org.mockito.ArgumentCaptor;
 
 public class StreamBufferingTest {
 
   @SuppressWarnings("unchecked")
   @Test
-  public void testOutOfOrderStreamBufferingAndReplay() throws Exception {
+  public void testOutOfOrderStreamFailsImmediately() throws Exception {
     // 1. Mock Parent QUIC Channel and Session Manager
     QuicChannel mockParent = mock(QuicChannel.class);
     WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -58,78 +57,15 @@ public class StreamBufferingTest {
     // 4. Inbound read when CONNECT session has NOT been registered yet
     handler.channelRead(mockCtx, data);
 
-    // Verify: auto-read was disabled on the stream channel
-    verify(mockConfig).setAutoRead(false);
-    // Verify: no data was fired downstream yet
-    verify(mockCtx, never()).fireChannelRead(any());
-
-    // 5. Register the session now (representing CONNECT arrival)
-    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.streamId()).thenReturn(100L);
-    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
-        .thenReturn(mock(Attribute.class));
-
-    mgr.register(mockConnectStream);
-
-    // Verify: auto-read was turned back on
-    verify(mockConfig).setAutoRead(true);
-    // Verify: buffered bytes replayed on the pipeline
-    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-    verify(mockPipeline).fireChannelRead(captor.capture());
-
-    ByteBuf replayedData = (ByteBuf) captor.getValue();
-    assertEquals(0, replayedData.readerIndex()); // Verified: Reader index was reset back to 0
-    replayedData.release();
-  }
-
-  @SuppressWarnings("unchecked")
-  @Test
-  public void testBufferedStreamLimitExceeded() throws Exception {
-    QuicChannel mockParent = mock(QuicChannel.class);
-    WebTransportSessionManager mgr = new WebTransportSessionManager();
-    Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
-    when(mgrAttr.get()).thenReturn(mgr);
-    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
-
-    // Buffer 50 streams (MAX_BUFFERED_STREAMS)
-    for (int i = 0; i < 50; i++) {
-      QuicStreamChannel s = mock(QuicStreamChannel.class);
-      when(s.streamId()).thenReturn(1000L + i);
-      ByteBuf d = Unpooled.buffer();
-      WebTransportUtils.writeVarInt(d, 0x41);
-      WebTransportUtils.writeVarInt(d, 100);
-      assertTrue(mgr.bufferStream(100, s, d));
-      d.release();
-    }
-
-    // Try to buffer the 51st stream
-    QuicStreamChannel rejectedStream = mock(QuicStreamChannel.class);
-    when(rejectedStream.parent()).thenReturn(mockParent);
-    when(rejectedStream.streamId()).thenReturn(2000L);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
-    when(rejectedStream.config()).thenReturn(mockConfig);
-
-    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
-    when(mockCtx.channel()).thenReturn(rejectedStream);
-    io.netty.channel.ChannelPromise mockPromise = mock(io.netty.channel.ChannelPromise.class);
-    when(mockCtx.newPromise()).thenReturn(mockPromise);
-
-    ByteBuf data = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(data, 0x41);
-    WebTransportUtils.writeVarInt(data, 100);
-
-    RawWebTransportHandler handler = new RawWebTransportHandler();
-    handler.channelRead(mockCtx, data);
-
     // Verify: stream was shut down with error code WT_BUFFERED_STREAM_REJECTED (0x3994bd84)
-    verify(rejectedStream)
+    verify(mockStream)
         .shutdown(
             eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED),
             any(io.netty.channel.ChannelPromise.class));
-    assertEquals(0, data.refCnt()); // Verified: Released
-
-    mgr.closeAll(); // Clean up session manager
+    // Verify: data was released
+    assertEquals(0, data.refCnt());
+    // Verify: no data was fired downstream
+    verify(mockCtx, never()).fireChannelRead(any());
   }
 
   @SuppressWarnings("unchecked")

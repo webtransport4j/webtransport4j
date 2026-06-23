@@ -8,6 +8,7 @@ import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
+import java.io.IOException;
 import java.nio.channels.ClosedChannelException;
 import org.apache.log4j.Logger;
 
@@ -58,15 +59,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
         QuicChannel quic = (QuicChannel) ctx.channel().parent();
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr == null || !mgr.hasSession(sessionId)) {
-          if (mgr != null && ctx.channel() instanceof QuicStreamChannel) {
-            data.resetReaderIndex();
-            boolean buffered = mgr.bufferStream(sessionId, (QuicStreamChannel) ctx.channel(), data);
-            if (buffered) {
-              ctx.channel().config().setAutoRead(false);
-              return;
-            }
-          }
-          logger.warn("❌ Unknown Session ID (or buffering failed): " + sessionId);
+          logger.warn("❌ Unknown Session ID: " + sessionId);
           data.release();
           if (ctx.channel() instanceof QuicStreamChannel) {
             ((QuicStreamChannel) ctx.channel())
@@ -277,27 +270,20 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
         }
       }
 
-      // Wrap and buffer the write
-      WebTransportSession.PendingWrite pendingWrite =
-          new WebTransportSession.PendingWrite((QuicStreamChannel) ctx.channel(), data, promise);
-      session.getPendingWrites().add(pendingWrite);
-
-      // Add close listener to release the buffer and fail promise if the stream is closed before
-      // flushing
-      if (ctx.channel().closeFuture() != null) {
-        ctx.channel()
-            .closeFuture()
-            .addListener(
-                future -> {
-                  if (session.getPendingWrites().remove(pendingWrite)) {
-                    try {
-                      data.release();
-                    } catch (Exception ignored) {
-                    }
-                    promise.tryFailure(new ClosedChannelException());
-                  }
-                });
+      // Fail the write request immediately and release buffer to avoid leaks
+      try {
+        data.release();
+      } catch (Exception ignored) {
       }
+      promise.setFailure(
+          new IOException(
+              "Flow control limit exceeded: cumulative sent ("
+                  + currentSent
+                  + ") + write ("
+                  + bytesToWrite
+                  + ") exceeds peer limit ("
+                  + peerLimit
+                  + ")"));
       return;
     }
 

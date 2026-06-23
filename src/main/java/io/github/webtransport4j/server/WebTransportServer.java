@@ -30,12 +30,10 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.codec.quic.QuicSslSessionContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
-import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.ReferenceCountUtil;
 import java.io.File;
-import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -315,32 +313,6 @@ public class WebTransportServer {
 
                     ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
                     
-                    ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-                        @Override
-                        public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-                            if (evt instanceof SslHandshakeCompletionEvent) {
-                                SslHandshakeCompletionEvent sslEvent = (SslHandshakeCompletionEvent) evt;
-                                if (sslEvent.isSuccess()) {
-                                    QuicChannel quicChannel = (QuicChannel) ctx.channel();
-                                    
-                                    // You can use reflection to access the package-private isSessionReused() method
-                                    Method method = quicChannel.sslEngine().getClass().getDeclaredMethod("isSessionReused");
-                                    method.setAccessible(true);
-                                    boolean sessionReused = (Boolean) method.invoke(quicChannel.sslEngine());
-                                    
-                                    if (sessionReused) {
-                                        logger.info("🚀 QUIC Connection Resumed! (1-RTT Session Resumption)");
-                                    } else {
-                                        logger.debug("Handshake complete. New QUIC Connection (Full 2-RTT Handshake).");
-                                    }
-                                    
-                                    quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY).set(sessionReused);
-                                }
-                            }
-                            super.userEventTriggered(ctx, evt);
-                        }
-                    });
-
                     InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
                     String ip = remote.getAddress().getHostAddress();
                     int port = remote.getPort();

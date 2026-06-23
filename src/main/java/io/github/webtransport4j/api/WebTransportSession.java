@@ -4,15 +4,7 @@ import io.github.webtransport4j.server.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.buffer.CompositeByteBuf;
-import io.netty.util.Attribute;
 import io.netty.util.concurrent.Future;
-import io.netty.handler.codec.quic.QuicChannel;
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLSession;
-import java.lang.reflect.Method;
-import java.util.AbstractQueue;
-import java.util.Iterator;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
 import io.netty.channel.ChannelHandler;
@@ -20,10 +12,8 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.concurrent.Promise;
-import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -36,35 +26,7 @@ public class WebTransportSession {
   // Most sessions have few concurrent streams; avoids 16-bucket default of ConcurrentHashMap.
   private static final int STREAM_SET_INITIAL_CAPACITY = 4;
 
-  // Sentinel empty queue for sessions without flow control
-  @SuppressWarnings("rawtypes")
-  private static final Queue EMPTY_QUEUE =
-      new AbstractQueue() {
-        @Override
-        public boolean offer(Object e) {
-          return false;
-        }
 
-        @Override
-        public Object poll() {
-          return null;
-        }
-
-        @Override
-        public Object peek() {
-          return null;
-        }
-
-        @Override
-        public Iterator iterator() {
-          return Collections.emptyIterator();
-        }
-
-        @Override
-        public int size() {
-          return 0;
-        }
-      };
 
   private final long sessionStreamId;
   private final String path;
@@ -97,7 +59,6 @@ public class WebTransportSession {
   // Flow control fields — only allocated when flowControlEnabled is true
   private final AtomicLong cumulativeBytesSent;
   private final AtomicLong cumulativeBytesReceived;
-  private final Queue<PendingWrite> pendingWrites;
   private final AtomicLong lastSentDataBlockedLimit;
 
   private final boolean flowControlEnabled;
@@ -146,12 +107,10 @@ public class WebTransportSession {
     if (flowControlEnabled) {
       this.cumulativeBytesSent = new AtomicLong(0L);
       this.cumulativeBytesReceived = new AtomicLong(0L);
-      this.pendingWrites = new ConcurrentLinkedQueue<>();
       this.lastSentDataBlockedLimit = new AtomicLong(-1L);
     } else {
       this.cumulativeBytesSent = null;
       this.cumulativeBytesReceived = null;
-      this.pendingWrites = (Queue<PendingWrite>) EMPTY_QUEUE;
       this.lastSentDataBlockedLimit = null;
     }
   }
@@ -344,60 +303,12 @@ public class WebTransportSession {
     return this.cumulativeBytesReceived.addAndGet(value);
   }
 
-  // --- Flow control pending write support ---
-
-  /** Returns the queue of pending writes that are blocked by flow control. */
-  public Queue<PendingWrite> getPendingWrites() {
-    return pendingWrites;
-  }
-
   /**
    * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
    * sent. Callers use CAS operations on this.
    */
   public AtomicLong getLastSentDataBlockedLimit() {
     return lastSentDataBlockedLimit;
-  }
-
-  /**
-   * Flushes pending writes that now fit within the updated peer limit. Called when a WT_MAX_DATA
-   * capsule is received and the limit increases.
-   */
-  public void flushPendingWrites() {
-    long peerLimit = getPeerSettingsMaxData();
-    long currentSent = getCumulativeBytesSent();
-    while (true) {
-      PendingWrite pw = pendingWrites.peek();
-      if (pw == null) {
-        break;
-      }
-      int bytesToWrite = pw.getData().readableBytes();
-      if (currentSent + bytesToWrite > peerLimit) {
-        break; // Still blocked
-      }
-      // Remove and flush — bytes will be counted when the write
-      // re-enters the pipeline through RawWebTransportHandler.write()
-      pw = pendingWrites.poll();
-      if (pw != null) {
-        currentSent += pw.getData().readableBytes();
-        pw.getStreamChannel().writeAndFlush(pw.getData(), pw.getPromise());
-      }
-    }
-  }
-
-  /** Releases all pending writes and fails their promises. Called on session close. */
-  public void cleanupPendingWrites(Throwable cause) {
-    PendingWrite pw;
-    while ((pw = pendingWrites.poll()) != null) {
-      try {
-        pw.getData().release();
-      } catch (Exception ignored) {
-      }
-      try {
-        pw.getPromise().tryFailure(cause);
-      } catch (Exception ignored) {
-      }
-    }
   }
 
   /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
@@ -415,9 +326,6 @@ public class WebTransportSession {
       code = 0; // fallback to safe code to prevent native JVM crash
     }
     connectStream.shutdown(code, connectStream.newPromise());
-    cleanupPendingWrites(
-        new IllegalStateException(
-            "Session aborted with error: 0x" + Long.toHexString(httpErrorCode)));
 
     // Reset all associated data streams
     for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
@@ -475,33 +383,7 @@ public class WebTransportSession {
   }
 
 
-  /**
-   * Represents a write that was buffered because it would exceed the session-level flow control
-   * limit.
-   */
-  public static class PendingWrite {
-    private final QuicStreamChannel streamChannel;
-    private final ByteBuf data;
-    private final ChannelPromise promise;
 
-    public PendingWrite(QuicStreamChannel streamChannel, ByteBuf data, ChannelPromise promise) {
-      this.streamChannel = streamChannel;
-      this.data = data;
-      this.promise = promise;
-    }
-
-    public QuicStreamChannel getStreamChannel() {
-      return streamChannel;
-    }
-
-    public ByteBuf getData() {
-      return data;
-    }
-
-    public ChannelPromise getPromise() {
-      return promise;
-    }
-  }
 
   public String path() {
     return path;
@@ -595,61 +477,4 @@ public class WebTransportSession {
     return promise;
   }
 
-  /**
-   * Returns true if the underlying QUIC connection was established using TLS session resumption (1-RTT).
-   * 
-   * IMPORTANT: 1-RTT Session Resumption ONLY bypasses the heavy SSL cryptographic handshake.
-   * It still creates an entirely new QUIC connection under the hood. Any application state,
-   * business logic, or user authentication must still be manually reconstructed by your code!
-   * 
-   * This allows application handlers to identify if a connection is a resumed session (reconnected)
-   * and potentially fast-track database lookups using the same user tokens.
-   */
-  public boolean isSessionResumed() {
-    try {
-      Channel parent = connectStream.parent();
-      if (parent instanceof QuicChannel) {
-        QuicChannel quicChannel = (QuicChannel) parent;
-        
-        // 1. Try to read from the attribute set by the handshake completion event
-        Attribute<Boolean> attr = quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY);
-        if (attr != null) {
-          Boolean resumedAttr = attr.get();
-          if (resumedAttr != null) {
-            return resumedAttr;
-          }
-        }
-
-        // 2. Fallback: Check SSLEngine directly if handshake event hasn't fired or attribute is missing
-        SSLEngine engine = quicChannel.sslEngine();
-        if (engine != null) {
-          try {
-            Method m = engine.getClass().getMethod("isSessionReused");
-            m.setAccessible(true);
-            return (Boolean) m.invoke(engine);
-          } catch (NoSuchMethodException ignored) {
-          }
-          
-          SSLSession session = engine.getSession();
-          if (session != null) {
-            try {
-              Method m = session.getClass().getMethod("isSessionReused");
-              m.setAccessible(true);
-              return (Boolean) m.invoke(session);
-            } catch (NoSuchMethodException ignored) {
-            }
-            
-            try {
-              Method m = session.getClass().getMethod("isSessionResumed");
-              m.setAccessible(true);
-              return (Boolean) m.invoke(session);
-            } catch (NoSuchMethodException ignored) {
-            }
-          }
-        }
-      }
-    } catch (Exception ignored) {
-    }
-    return false;
-  }
 }

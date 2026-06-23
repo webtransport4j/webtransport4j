@@ -34,9 +34,6 @@ public final class WebTransportAttributeKeys {
   
   public static final AttributeKey<List<String>> ALLOWED_ORIGINS = 
       AttributeKey.valueOf("wt.allowed.origins");
-      
-  public static final AttributeKey<Boolean> SESSION_RESUMED_KEY = 
-      AttributeKey.valueOf("wt.session.resumed");
 
   // Stream-related Attribute Keys
   public static final AttributeKey<Long> STREAM_TYPE_KEY = 

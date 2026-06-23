@@ -61,8 +61,18 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         submitted = true;
       } catch (RejectedExecutionException e) {
         logger.error("Task submission rejected by business executor.", e);
+        if (channel instanceof QuicStreamChannel) {
+          ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
+        } else {
+          channel.close();
+        }
       } catch (Throwable t) {
         logger.error("Failed to submit task to business executor.", t);
+        if (channel instanceof QuicStreamChannel) {
+          ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
+        } else {
+          channel.close();
+        }
       } finally {
         if (!submitted) {
           msg.release();

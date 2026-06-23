@@ -216,7 +216,6 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                         + maxData
                         + " for session "
                         + capsule.sessionId());
-                session.flushPendingWrites();
               }
             }
           }

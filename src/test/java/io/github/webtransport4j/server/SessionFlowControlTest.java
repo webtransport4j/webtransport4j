@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.*;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
+import java.io.IOException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -206,7 +207,7 @@ public class SessionFlowControlTest {
 
   @SuppressWarnings("unchecked")
   @Test
-  public void testOutgoingDataExceedingLimitBuffersAndFlushes() throws Exception {
+  public void testOutgoingDataExceedingLimitFailsImmediately() throws Exception {
     RawWebTransportHandler handler = new RawWebTransportHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -272,25 +273,12 @@ public class SessionFlowControlTest {
     ByteBuf data2 = Unpooled.copiedBuffer(new byte[50]);
     handler.write(mockCtx, data2, promise2);
 
-    // Verify: promise2 is NOT failed, write is buffered
-    verify(promise2, never()).setFailure(any());
-    assertEquals(1, session.getPendingWrites().size());
-    assertEquals(data2, session.getPendingWrites().peek().getData());
+    // Verify: promise2 failed with IOException, data2 is released
+    verify(promise2).setFailure(any(IOException.class));
+    assertEquals(0, data2.refCnt());
 
     // Verify: WT_DATA_BLOCKED capsule was sent back to connectStream
     verify(mockConnectStream).writeAndFlush(any());
-
-    // Now update limit to 200 via WT_MAX_DATA capsule
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
-    ByteBuf payload = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(payload, 200);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D3DL, payload);
-
-    dispatcher.channelRead(mockCtx, capsule);
-
-    // Verify: pending write was flushed (written to stream channel)
-    verify(mockStream).writeAndFlush(data2, promise2);
-    assertEquals(0, session.getPendingWrites().size());
   }
 
   @SuppressWarnings("unchecked")

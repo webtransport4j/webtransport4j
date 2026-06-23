@@ -5,11 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
-import java.nio.channels.ClosedChannelException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.log4j.Logger;
@@ -26,21 +22,6 @@ class WebTransportSessionManager {
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
   private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
-
-  public static class PendingStream {
-    public final QuicStreamChannel channel;
-    public final ByteBuf data;
-
-    public PendingStream(QuicStreamChannel channel, ByteBuf data) {
-      this.channel = channel;
-      this.data = data;
-    }
-  }
-
-  private final Map<Long, List<PendingStream>> bufferedStreams =
-      new HashMap<>();
-  private int bufferedStreamCount = 0;
-  private static final int MAX_BUFFERED_STREAMS = 50;
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(QuicStreamChannel connectStream) {
@@ -142,53 +123,6 @@ class WebTransportSessionManager {
       }
     }
 
-    // Release any buffered streams waiting for this session
-    List<PendingStream> pending = bufferedStreams.remove(sessionStreamId);
-
-    if (pending != null) {
-      for (PendingStream pendingStream : pending) {
-        bufferedStreamCount--;
-        logger.debug(
-            "🚀 Releasing buffered stream: "
-                + pendingStream.channel.id()
-                + " for Session "
-                + sessionStreamId);
-
-        // Turn autoRead back on
-        pendingStream.channel.config().setAutoRead(true);
-
-        // Replay the buffered read on the stream's pipeline
-        pendingStream.channel.pipeline().fireChannelRead(pendingStream.data);
-      }
-    }
-  }
-
-  public boolean bufferStream(long sessionId, QuicStreamChannel stream, ByteBuf data) {
-    if (hasSession(sessionId)) {
-      return false; // Already registered, do not buffer
-    }
-
-    if (bufferedStreamCount >= MAX_BUFFERED_STREAMS) {
-      logger.warn("❌ Max buffered streams exceeded. Rejecting stream " + stream.id());
-      return false;
-    }
-
-    if (hasSession(sessionId)) {
-      return false;
-    }
-    bufferedStreams
-        .computeIfAbsent(sessionId, k -> new ArrayList<>())
-        .add(new PendingStream(stream, data.retain()));
-    bufferedStreamCount++;
-
-    logger.debug(
-        "📥 Buffered stream "
-            + stream.id()
-            + " waiting for Session "
-            + sessionId
-            + ". Total buffered: "
-            + bufferedStreamCount);
-    return true;
   }
 
   /** Required by the Demux handler to validate incoming Bidi streams. */
@@ -213,7 +147,6 @@ class WebTransportSessionManager {
     long sessionStreamId = connecStreamChannel.streamId();
     WebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed != null) {
-      removed.cleanupPendingWrites(new IllegalStateException("WebTransport session closed"));
       for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedBi()) {
         activeStream.close();
       }
@@ -249,9 +182,6 @@ class WebTransportSessionManager {
           "❌ Closing CONNECT stream for session "
               + sessionId
               + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
-      session.cleanupPendingWrites(
-          new IllegalStateException(
-              "WT_FLOW_CONTROL_ERROR: Peer session-level flow control limit exceeded"));
       session
           .getConnectStream()
           .shutdown(
@@ -286,19 +216,7 @@ class WebTransportSessionManager {
           "💥 SessionManager: Closing all "
               + sessions.size()
               + " active sessions due to connection close.");
-      for (WebTransportSession session : sessions.values()) {
-        session.cleanupPendingWrites(new ClosedChannelException());
-      }
       sessions.clear();
     }
-
-    for (List<PendingStream> pendingList : bufferedStreams.values()) {
-      for (PendingStream pending : pendingList) {
-        pending.data.release();
-        pending.channel.close();
-      }
-    }
-    bufferedStreams.clear();
-    bufferedStreamCount = 0;
   }
 }
