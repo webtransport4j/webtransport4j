@@ -5,12 +5,12 @@
                              http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.github.webtransport4j</groupId>
-    <artifactId>webtransport4j-incubator</artifactId>
+    <artifactId>webtransport4j</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>WebTransport4J Incubator</name>
-    <description>WebTransport4J Incubator project</description>
+    <name>WebTransport4J</name>
+    <description>WebTransport4Jproject</description>
 
     <properties>
         <maven.compiler.source>1.8</maven.compiler.source>

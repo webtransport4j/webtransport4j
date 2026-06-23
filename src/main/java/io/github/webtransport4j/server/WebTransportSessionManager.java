@@ -4,6 +4,12 @@ import io.github.webtransport4j.api.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.Attribute;
+import java.nio.channels.ClosedChannelException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.log4j.Logger;
@@ -31,8 +37,8 @@ class WebTransportSessionManager {
     }
   }
 
-  private final Map<Long, java.util.List<PendingStream>> bufferedStreams =
-      new java.util.HashMap<>();
+  private final Map<Long, List<PendingStream>> bufferedStreams =
+      new HashMap<>();
   private int bufferedStreamCount = 0;
   private static final int MAX_BUFFERED_STREAMS = 50;
 
@@ -125,7 +131,7 @@ class WebTransportSessionManager {
     sessions.put(sessionStreamId, session);
     logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
 
-    io.netty.util.Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+    Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : new WebTransportHandler() {};
     if (handler != null) {
@@ -137,7 +143,7 @@ class WebTransportSessionManager {
     }
 
     // Release any buffered streams waiting for this session
-    java.util.List<PendingStream> pending = bufferedStreams.remove(sessionStreamId);
+    List<PendingStream> pending = bufferedStreams.remove(sessionStreamId);
 
     if (pending != null) {
       for (PendingStream pendingStream : pending) {
@@ -171,7 +177,7 @@ class WebTransportSessionManager {
       return false;
     }
     bufferedStreams
-        .computeIfAbsent(sessionId, k -> new java.util.ArrayList<>())
+        .computeIfAbsent(sessionId, k -> new ArrayList<>())
         .add(new PendingStream(stream, data.retain()));
     bufferedStreamCount++;
 
@@ -198,7 +204,7 @@ class WebTransportSessionManager {
     return sessions.size();
   }
 
-  public java.util.Collection<WebTransportSession> getSessions() {
+  public Collection<WebTransportSession> getSessions() {
     return sessions.values();
   }
 
@@ -221,7 +227,7 @@ class WebTransportSessionManager {
         activeStream.close();
       }
       QuicChannel quic = (QuicChannel) connecStreamChannel.parent();
-      io.netty.util.Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+      Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
       WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
       WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : new WebTransportHandler() {};
       if (handler != null) {
@@ -281,12 +287,12 @@ class WebTransportSessionManager {
               + sessions.size()
               + " active sessions due to connection close.");
       for (WebTransportSession session : sessions.values()) {
-        session.cleanupPendingWrites(new java.nio.channels.ClosedChannelException());
+        session.cleanupPendingWrites(new ClosedChannelException());
       }
       sessions.clear();
     }
 
-    for (java.util.List<PendingStream> pendingList : bufferedStreams.values()) {
+    for (List<PendingStream> pendingList : bufferedStreams.values()) {
       for (PendingStream pending : pendingList) {
         pending.data.release();
         pending.channel.close();

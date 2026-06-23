@@ -7,6 +7,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.Attribute;
+import java.nio.channels.ClosedChannelException;
 import org.apache.log4j.Logger;
 
 class RawWebTransportHandler extends ChannelDuplexHandler {
@@ -31,7 +33,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       }
 
       if (!protocolHeaderConsumed) {
-        io.netty.util.Attribute<Boolean> serverInitiatedAttr =
+        Attribute<Boolean> serverInitiatedAttr =
             ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
         Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
         if (Boolean.TRUE.equals(serverInitiated)) {
@@ -140,7 +142,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       if (protocolHeaderConsumed) {
         int payloadBytes = data.readableBytes();
         if (payloadBytes > 0) {
-          io.netty.util.Attribute<Long> sessionIdAttr =
+          Attribute<Long> sessionIdAttr =
               ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
           Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
           if (sessionId != null) {
@@ -210,7 +212,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
 
     ByteBuf data = (ByteBuf) msg;
-    io.netty.util.Attribute<Boolean> serverInitiatedAttr =
+    Attribute<Boolean> serverInitiatedAttr =
         ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
     Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
 
@@ -225,7 +227,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
 
     // Retrieve the WebTransport Session ID mapped to this stream channel.
-    io.netty.util.Attribute<Long> sessionIdAttr =
+    Attribute<Long> sessionIdAttr =
         ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
     Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
     if (sessionId == null) {
@@ -292,7 +294,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                       data.release();
                     } catch (Exception ignored) {
                     }
-                    promise.tryFailure(new java.nio.channels.ClosedChannelException());
+                    promise.tryFailure(new ClosedChannelException());
                   }
                 });
       }

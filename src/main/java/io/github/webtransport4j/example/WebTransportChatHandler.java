@@ -7,6 +7,7 @@ import io.netty.util.concurrent.Future;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import org.apache.log4j.Logger;
 
 /**
@@ -65,7 +66,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
     stream.onError(err -> logger.error("💬 [CHAT] Stream error on " + stream.streamId() + ": ", err));
 
     // Register raw data consumer to demultiplex stream purpose using the first byte
-    stream.onData(new java.util.function.Consumer<ByteBuf>() {
+    stream.onData(new Consumer<ByteBuf>() {
       private byte streamPurpose = 0x00;
       private boolean purposeIdentified = false;
 

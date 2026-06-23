@@ -2,6 +2,19 @@ package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.server.*;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
+import io.netty.buffer.CompositeByteBuf;
+import io.netty.util.Attribute;
+import io.netty.util.concurrent.Future;
+import io.netty.handler.codec.quic.QuicChannel;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLSession;
+import java.lang.reflect.Method;
+import java.util.AbstractQueue;
+import java.util.Iterator;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Optional;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
@@ -26,7 +39,7 @@ public class WebTransportSession {
   // Sentinel empty queue for sessions without flow control
   @SuppressWarnings("rawtypes")
   private static final Queue EMPTY_QUEUE =
-      new java.util.AbstractQueue() {
+      new AbstractQueue() {
         @Override
         public boolean offer(Object e) {
           return false;
@@ -43,8 +56,8 @@ public class WebTransportSession {
         }
 
         @Override
-        public java.util.Iterator iterator() {
-          return java.util.Collections.emptyIterator();
+        public Iterator iterator() {
+          return Collections.emptyIterator();
         }
 
         @Override
@@ -148,7 +161,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getClientInitiatedUniStreams() {
-    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    Set<WebTransportStream> streams = new HashSet<>();
     for (QuicStreamChannel ch : activeClientInitiatedUni) {
       WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
@@ -163,7 +176,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getServerInitiatedUniStreams() {
-    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    Set<WebTransportStream> streams = new HashSet<>();
     for (QuicStreamChannel ch : activeServerInitiatedUni) {
       WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
@@ -178,7 +191,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getClientInitiatedBiStreams() {
-    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    Set<WebTransportStream> streams = new HashSet<>();
     for (QuicStreamChannel ch : activeClientInitiatedBi) {
       WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
@@ -193,7 +206,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getServerInitiatedBiStreams() {
-    Set<WebTransportStream> streams = new java.util.HashSet<>();
+    Set<WebTransportStream> streams = new HashSet<>();
     for (QuicStreamChannel ch : activeServerInitiatedBi) {
       WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
@@ -435,12 +448,12 @@ public class WebTransportSession {
    * @param data The datagram payload.
    * @return A future that is notified when the write completes.
    */
-  public io.netty.util.concurrent.Future<Void> sendDatagram(ByteBuf data) {
-    io.netty.channel.Channel parentChannel = connectStream.parent();
+  public Future<Void> sendDatagram(ByteBuf data) {
+    Channel parentChannel = connectStream.parent();
     ByteBuf header = parentChannel.alloc().directBuffer();
     WebTransportUtils.writeVarInt(header, sessionStreamId);
     
-    io.netty.buffer.CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
+    CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
     composite.addComponent(true, header);
     composite.addComponent(true, data);
     
@@ -453,8 +466,8 @@ public class WebTransportSession {
    * @param data The datagram payload byte array.
    * @return A future that is notified when the write completes.
    */
-  public io.netty.util.concurrent.Future<Void> sendDatagram(byte[] data) {
-    io.netty.channel.Channel parentChannel = connectStream.parent();
+  public Future<Void> sendDatagram(byte[] data) {
+    Channel parentChannel = connectStream.parent();
     ByteBuf buffer = parentChannel.alloc().directBuffer();
     WebTransportUtils.writeVarInt(buffer, sessionStreamId);
     buffer.writeBytes(data);
@@ -510,14 +523,14 @@ public class WebTransportSession {
     }
   };
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream() {
+  public Future<WebTransportStream> createUniStream() {
     return createUniStream(DEFAULT_UNI_INITIALIZER);
   }
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream(ChannelHandler streamHandler) {
+  public Future<WebTransportStream> createUniStream(ChannelHandler streamHandler) {
     Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createUniStream(this.connectStream, java.util.Optional.empty(), streamHandler)
-        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+    WebTransportUtils.createUniStream(this.connectStream, Optional.empty(), streamHandler)
+        .addListener((Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
@@ -530,10 +543,10 @@ public class WebTransportSession {
     return promise;
   }
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createUniStream(boolean bypassLimit, ChannelHandler streamHandler) {
+  public Future<WebTransportStream> createUniStream(boolean bypassLimit, ChannelHandler streamHandler) {
     Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createUniStream(this.connectStream, java.util.Optional.of(bypassLimit), streamHandler)
-        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+    WebTransportUtils.createUniStream(this.connectStream, Optional.of(bypassLimit), streamHandler)
+        .addListener((Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
@@ -546,14 +559,14 @@ public class WebTransportSession {
     return promise;
   }
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream() {
+  public Future<WebTransportStream> createBiStream() {
     return createBiStream(DEFAULT_BI_INITIALIZER);
   }
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream(ChannelHandler streamHandler) {
+  public Future<WebTransportStream> createBiStream(ChannelHandler streamHandler) {
     Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createBiStream(this.connectStream, java.util.Optional.empty(), streamHandler)
-        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+    WebTransportUtils.createBiStream(this.connectStream, Optional.empty(), streamHandler)
+        .addListener((Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
@@ -566,10 +579,10 @@ public class WebTransportSession {
     return promise;
   }
 
-  public io.netty.util.concurrent.Future<WebTransportStream> createBiStream(boolean bypassLimit, ChannelHandler streamHandler) {
+  public Future<WebTransportStream> createBiStream(boolean bypassLimit, ChannelHandler streamHandler) {
     Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createBiStream(this.connectStream, java.util.Optional.of(bypassLimit), streamHandler)
-        .addListener((io.netty.util.concurrent.Future<QuicStreamChannel> f) -> {
+    WebTransportUtils.createBiStream(this.connectStream, Optional.of(bypassLimit), streamHandler)
+        .addListener((Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
             WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
@@ -594,37 +607,40 @@ public class WebTransportSession {
    */
   public boolean isSessionResumed() {
     try {
-      io.netty.channel.Channel parent = connectStream.parent();
-      if (parent instanceof io.netty.handler.codec.quic.QuicChannel) {
-        io.netty.handler.codec.quic.QuicChannel quicChannel = (io.netty.handler.codec.quic.QuicChannel) parent;
+      Channel parent = connectStream.parent();
+      if (parent instanceof QuicChannel) {
+        QuicChannel quicChannel = (QuicChannel) parent;
         
         // 1. Try to read from the attribute set by the handshake completion event
-        Boolean resumedAttr = quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY).get();
-        if (resumedAttr != null) {
-          return resumedAttr;
+        Attribute<Boolean> attr = quicChannel.attr(WebTransportAttributeKeys.SESSION_RESUMED_KEY);
+        if (attr != null) {
+          Boolean resumedAttr = attr.get();
+          if (resumedAttr != null) {
+            return resumedAttr;
+          }
         }
 
         // 2. Fallback: Check SSLEngine directly if handshake event hasn't fired or attribute is missing
-        javax.net.ssl.SSLEngine engine = quicChannel.sslEngine();
+        SSLEngine engine = quicChannel.sslEngine();
         if (engine != null) {
           try {
-            java.lang.reflect.Method m = engine.getClass().getMethod("isSessionReused");
+            Method m = engine.getClass().getMethod("isSessionReused");
             m.setAccessible(true);
             return (Boolean) m.invoke(engine);
           } catch (NoSuchMethodException ignored) {
           }
           
-          javax.net.ssl.SSLSession session = engine.getSession();
+          SSLSession session = engine.getSession();
           if (session != null) {
             try {
-              java.lang.reflect.Method m = session.getClass().getMethod("isSessionReused");
+              Method m = session.getClass().getMethod("isSessionReused");
               m.setAccessible(true);
               return (Boolean) m.invoke(session);
             } catch (NoSuchMethodException ignored) {
             }
             
             try {
-              java.lang.reflect.Method m = session.getClass().getMethod("isSessionResumed");
+              Method m = session.getClass().getMethod("isSessionResumed");
               m.setAccessible(true);
               return (Boolean) m.invoke(session);
             } catch (NoSuchMethodException ignored) {

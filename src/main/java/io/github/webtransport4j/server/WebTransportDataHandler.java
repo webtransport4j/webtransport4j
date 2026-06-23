@@ -3,10 +3,12 @@ package io.github.webtransport4j.server;
 import static io.github.webtransport4j.server.WebTransportUtils.readVariableLengthInt;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http3.Http3DataFrame;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.ReferenceCountUtil;
 import org.apache.log4j.Logger;
 
@@ -180,14 +182,14 @@ class WebTransportDataHandler extends Http3RequestStreamInboundHandler {
           logger.debug(
               String.format(
                   "💊 Received Capsule | Type: 0x%X | Length: %d | Hex: %s",
-                  capType, capLen, io.netty.buffer.ByteBufUtil.hexDump(capVal)));
+                  capType, capLen, ByteBufUtil.hexDump(capVal)));
         }
 
         Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
         long sessionId =
             (sessId != null)
                 ? sessId
-                : ((io.netty.handler.codec.quic.QuicStreamChannel) ctx.channel()).streamId();
+                : ((QuicStreamChannel) ctx.channel()).streamId();
         WebTransportCapsule capsule = new WebTransportCapsule(sessionId, capType, capVal.retain());
         ctx.fireChannelRead(capsule);
 

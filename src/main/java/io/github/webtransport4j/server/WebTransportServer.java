@@ -1,13 +1,13 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.*;
-import io.github.webtransport4j.example.*;
 
 
 import static io.github.webtransport4j.server.WebTransportUtils.readVariableLengthInt;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -27,10 +27,18 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.SslSessionTicketKey;
+import io.netty.handler.codec.quic.QuicSslSessionContext;
+import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.util.ReferenceCountUtil;
 import java.io.File;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -112,43 +120,29 @@ public class WebTransportServer {
 
   private List<String> allowedOrigins;
 
-  public static void main(String[] args) throws Exception {
-    WebTransportServer server = new WebTransportServer(new DefaultPathHandler());
-    server.start();
-  }
+  private EventLoopGroup group;
+  private Channel channel;
+
+
 
   public void start() throws Exception {
     if (defaultHandler == null) {
       throw new IllegalStateException("Server cannot start without a registered default path handler.");
     }
     port = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
-    registerHandler("/test", new WebTransportTestHandler());
-    registerHandler("/chat", new WebTransportChatHandler());
     String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
-    allowedOrigins = java.util.Arrays.asList(originsProp.split(","));
+    allowedOrigins = Arrays.asList(originsProp.split(","));
 
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(
                 () -> {
-                  logger.info("Shutdown hook triggered. Stopping executor...");
-                  if (globalTrafficShaper != null) {
-                    globalTrafficShaper.release();
-                  }
-                  if (businessExecutor != null) {
-                    businessExecutor.shutdown();
-                    try {
-                      if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                        businessExecutor.shutdownNow();
-                      }
-                    } catch (InterruptedException e) {
-                      businessExecutor.shutdownNow();
-                    }
-                  }
+                  logger.info("Shutdown hook triggered. Stopping server...");
+                  stop();
                 }));
 
     logger.debug("🚀 STARTING DEBUG SERVER...");
-    EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
+    this.group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
     long globalWriteLimit =
         WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
     long globalReadLimit =
@@ -186,41 +180,31 @@ public class WebTransportServer {
       }
       sslContext = builder.build();
     } else {
-      logger.info("📡 No SSL cert/key configured and no localhost files found. Generating a self-signed certificate...");
-      @SuppressWarnings("deprecation")
-      io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate();
-      QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
-              .applicationProtocols(Http3.supportedApplicationProtocols());
-      if (sessionTimeout > 0) {
-        builder.sessionTimeout(sessionTimeout);
-      }
-      if (sessionCacheSize > 0) {
-        builder.sessionCacheSize(sessionCacheSize);
-      }
-      sslContext = builder.build();
+      throw new IllegalStateException("SSL key path and certificate path must be configured. "
+          + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path in configuration.");
     }
 
     String ticketKeysStr = WebTransportConfig.get("webtransport4j.ssl.session.ticket.keys", null);
     if (ticketKeysStr != null && !ticketKeysStr.trim().isEmpty()) {
       try {
         String[] keysList = ticketKeysStr.split(",");
-        io.netty.handler.codec.quic.SslSessionTicketKey[] ticketKeys = new io.netty.handler.codec.quic.SslSessionTicketKey[keysList.length];
+        SslSessionTicketKey[] ticketKeys = new SslSessionTicketKey[keysList.length];
         for (int i = 0; i < keysList.length; i++) {
           String hex = keysList[i].trim();
           if (hex.length() != 96) {
             throw new IllegalArgumentException("Session ticket key must be exactly 96 hex characters (16 byte name + 16 byte HMAC + 16 byte AES)");
           }
-          byte[] keyBytes = io.netty.buffer.ByteBufUtil.decodeHexDump(hex);
+          byte[] keyBytes = ByteBufUtil.decodeHexDump(hex);
           byte[] name = new byte[16];
           byte[] hmacKey = new byte[16];
           byte[] aesKey = new byte[16];
           System.arraycopy(keyBytes, 0, name, 0, 16);
           System.arraycopy(keyBytes, 16, hmacKey, 0, 16);
           System.arraycopy(keyBytes, 32, aesKey, 0, 16);
-          ticketKeys[i] = new io.netty.handler.codec.quic.SslSessionTicketKey(name, hmacKey, aesKey);
+          ticketKeys[i] = new SslSessionTicketKey(name, hmacKey, aesKey);
         }
-        if (sslContext.sessionContext() instanceof io.netty.handler.codec.quic.QuicSslSessionContext) {
-          ((io.netty.handler.codec.quic.QuicSslSessionContext) sslContext.sessionContext()).setTicketKeys(ticketKeys);
+        if (sslContext.sessionContext() instanceof QuicSslSessionContext) {
+          ((QuicSslSessionContext) sslContext.sessionContext()).setTicketKeys(ticketKeys);
           logger.info("🔑 Explicit TLS Session Ticket Keys loaded. 1-RTT Session Resumption across servers is fully supported.");
         }
       } catch (Exception e) {
@@ -334,13 +318,13 @@ public class WebTransportServer {
                     ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                         @Override
                         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-                            if (evt instanceof io.netty.handler.ssl.SslHandshakeCompletionEvent) {
-                                io.netty.handler.ssl.SslHandshakeCompletionEvent sslEvent = (io.netty.handler.ssl.SslHandshakeCompletionEvent) evt;
+                            if (evt instanceof SslHandshakeCompletionEvent) {
+                                SslHandshakeCompletionEvent sslEvent = (SslHandshakeCompletionEvent) evt;
                                 if (sslEvent.isSuccess()) {
                                     QuicChannel quicChannel = (QuicChannel) ctx.channel();
                                     
                                     // You can use reflection to access the package-private isSessionReused() method
-                                    java.lang.reflect.Method method = quicChannel.sslEngine().getClass().getDeclaredMethod("isSessionReused");
+                                    Method method = quicChannel.sslEngine().getClass().getDeclaredMethod("isSessionReused");
                                     method.setAccessible(true);
                                     boolean sessionReused = (Boolean) method.invoke(quicChannel.sslEngine());
                                     
@@ -488,7 +472,7 @@ public class WebTransportServer {
                                                     .get();
                                             if (mgr != null) {
                                               for (WebTransportSession session :
-                                                  new java.util.ArrayList<>(mgr.getSessions())) {
+                                                  new ArrayList<>(mgr.getSessions())) {
                                                 logger.warn(
                                                     "⚡️ Resetting established session ID "
                                                         + session.getSessionStreamId()
@@ -501,7 +485,7 @@ public class WebTransportServer {
                                               }
                                             }
                                           }
-                                          io.netty.util.ReferenceCountUtil.release(msg);
+                                          ReferenceCountUtil.release(msg);
                                           return;
                                         }
 
@@ -517,7 +501,7 @@ public class WebTransportServer {
                                         }
                                       }
                                     }
-                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                    ReferenceCountUtil.release(msg);
                                   }
                                 },
                                 (streamType) -> {
@@ -579,7 +563,7 @@ public class WebTransportServer {
                   }
                 })
             .build();
-    Channel ch =
+    this.channel =
         new Bootstrap()
             .group(group)
             .channel(NioDatagramChannel.class)
@@ -588,10 +572,47 @@ public class WebTransportServer {
             .sync()
             .channel();
     logger.debug("✅ WebTransport server listening on " + port);
-    ch.closeFuture().sync();
+    this.channel.closeFuture().sync();
   }
 
-  public static io.netty.handler.codec.quic.QuicTokenHandler getTokenHandler() {
+  public void stop() {
+    logger.info("Stopping WebTransport server...");
+    if (channel != null) {
+      try {
+        channel.close().sync();
+      } catch (Exception e) {
+        logger.error("Error closing server channel", e);
+      } finally {
+        channel = null;
+      }
+    }
+    if (group != null) {
+      try {
+        group.shutdownGracefully().sync();
+      } catch (Exception e) {
+        logger.error("Error shutting down event loop group", e);
+      } finally {
+        group = null;
+      }
+    }
+    if (globalTrafficShaper != null) {
+      globalTrafficShaper.release();
+      globalTrafficShaper = null;
+    }
+    if (businessExecutor != null) {
+      businessExecutor.shutdown();
+      try {
+        if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+          businessExecutor.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        businessExecutor.shutdownNow();
+      }
+    }
+    logger.info("WebTransport server stopped successfully.");
+  }
+
+  public static QuicTokenHandler getTokenHandler() {
     String tokenHandlerType = WebTransportConfig.get("webtransport4j.quic.token.handler", "hmac");
     if ("insecure".equalsIgnoreCase(tokenHandlerType)) {
       logger.info("🔑 QUIC Token Handler configured: INSECURE (InsecureQuicTokenHandler)");
@@ -613,7 +634,7 @@ public class WebTransportServer {
     } else {
       try {
         logger.info("🔑 QUIC Token Handler configured: Custom Class (" + tokenHandlerType + ")");
-        return (io.netty.handler.codec.quic.QuicTokenHandler) Class.forName(tokenHandlerType)
+        return (QuicTokenHandler) Class.forName(tokenHandlerType)
             .getDeclaredConstructor()
             .newInstance();
       } catch (Exception e) {
