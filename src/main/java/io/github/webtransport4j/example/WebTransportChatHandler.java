@@ -198,7 +198,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
     // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
     for (ChatUser roomMember : users.values()) {
       if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
-        if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.channel().isActive()) {
+        if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.streamChannel().isActive()) {
           // Send raw voice data to peer (retaining duplicate to safely share bytes across channels)
           roomMember.serverVoiceStream.write(payload.retainedDuplicate());
         }
@@ -209,7 +209,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   // --- Helper Methods ---
 
   private void sendControlReply(ChatUser user, String reply) {
-    if (user.controlStream != null && user.controlStream.channel().isActive()) {
+    if (user.controlStream != null && user.controlStream.streamChannel().isActive()) {
       user.controlStream.writeText(reply);
     } else {
       logger.warn("⚠️ Control stream not active for user " + user.username + ", unable to send: " + reply);
@@ -224,7 +224,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
         if (excludeUser != null && roomMember.session == excludeUser.session) {
           continue; // Skip the sender
         }
-        if (roomMember.chatStream != null && roomMember.chatStream.channel().isActive()) {
+        if (roomMember.chatStream != null && roomMember.chatStream.streamChannel().isActive()) {
           roomMember.chatStream.writeText(message);
         }
       }

@@ -93,16 +93,31 @@ public class WebTransportIntegrationTest {
     clientGroup = new NioEventLoopGroup(1);
 
     // Server SSL
-    String keyPath =
-        WebTransportConfig.get(
-            "webtransport4j.ssl.key.path", "/Users/sam/Documents/localhost-key.pem");
-    String certPath =
-        WebTransportConfig.get(
-            "webtransport4j.ssl.cert.path", "/Users/sam/Documents/localhost.pem");
-    QuicSslContext serverSslContext =
-        QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .build();
+    String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
+    String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
+
+    if (keyPath == null && certPath == null) {
+      File keyFile = new File("localhost-key.pem");
+      File certFile = new File("localhost.pem");
+      if (keyFile.exists() && certFile.exists()) {
+        keyPath = keyFile.getAbsolutePath();
+        certPath = certFile.getAbsolutePath();
+      }
+    }
+
+    QuicSslContext serverSslContext;
+    if (keyPath != null && certPath != null) {
+      serverSslContext =
+          QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
+              .applicationProtocols(Http3.supportedApplicationProtocols())
+              .build();
+    } else {
+      io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate();
+      serverSslContext =
+          QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
+              .applicationProtocols(Http3.supportedApplicationProtocols())
+              .build();
+    }
 
     // Server Settings
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
@@ -161,7 +176,7 @@ public class WebTransportIntegrationTest {
             .initialMaxStreamsBidirectional(100)
             .initialMaxStreamsUnidirectional(100)
             .datagram(10000, 10000)
-            .tokenHandler(InsecureQuicTokenHandler.INSTANCE)
+            .tokenHandler(WebTransportServer.getTokenHandler())
             .handler(
                 new ChannelInitializer<QuicChannel>() {
                   @Override

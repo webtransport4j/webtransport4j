@@ -43,7 +43,7 @@ public class WebTransportStream {
     return bidirectional;
   }
 
-  public QuicStreamChannel channel() {
+  public QuicStreamChannel streamChannel() {
     return streamChannel;
   }
 
@@ -174,16 +174,6 @@ public class WebTransportStream {
     return streamChannel.writeAndFlush(Unpooled.copiedBuffer(text, charset));
   }
 
-  /**
-   * Writes and flushes a text string to the stream encoded using the charset name.
-   *
-   * @param text the text to write
-   * @param charsetName the name of the character encoding to use
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> writeText(String text, String charsetName) {
-    return writeText(text, java.nio.charset.Charset.forName(charsetName));
-  }
 
   public void close() {
     streamChannel.close();

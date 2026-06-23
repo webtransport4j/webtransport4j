@@ -146,16 +146,32 @@ public class WebTransportServer {
       globalTrafficShaper =
           new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
     }
-    String keyPath =
-        WebTransportConfig.get(
-            "webtransport4j.ssl.key.path", "/Users/sam/Documents/localhost-key.pem");
-    String certPath =
-        WebTransportConfig.get(
-            "webtransport4j.ssl.cert.path", "/Users/sam/Documents/localhost.pem");
-    QuicSslContext sslContext =
-        QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .build();
+    String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
+    String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
+
+    if (keyPath == null && certPath == null) {
+      File keyFile = new File("localhost-key.pem");
+      File certFile = new File("localhost.pem");
+      if (keyFile.exists() && certFile.exists()) {
+        keyPath = keyFile.getAbsolutePath();
+        certPath = certFile.getAbsolutePath();
+      }
+    }
+
+    QuicSslContext sslContext;
+    if (keyPath != null && certPath != null) {
+      sslContext =
+          QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
+              .applicationProtocols(Http3.supportedApplicationProtocols())
+              .build();
+    } else {
+      logger.info("📡 No SSL cert/key configured and no localhost files found. Generating a self-signed certificate...");
+      io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate();
+      sslContext =
+          QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
+              .applicationProtocols(Http3.supportedApplicationProtocols())
+              .build();
+    }
     String allowedProp =
         WebTransportConfig.get(
             "webtransport4j.webtransport.settings.nonstandardallowed",
@@ -226,7 +242,7 @@ public class WebTransportServer {
             .initialMaxStreamsUnidirectional(quicMaxStreamsUni)
             .initialMaxStreamDataUnidirectional(
                 WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
-            .tokenHandler(InsecureQuicTokenHandler.INSTANCE)
+            .tokenHandler(getTokenHandler())
             .handler(
                 new ChannelInitializer<QuicChannel>() {
                   @Override
@@ -488,6 +504,24 @@ public class WebTransportServer {
             .channel();
     logger.debug("✅ WebTransport server listening on " + port);
     ch.closeFuture().sync();
+  }
+
+  public static io.netty.handler.codec.quic.QuicTokenHandler getTokenHandler() {
+    String tokenHandlerType = WebTransportConfig.get("webtransport4j.quic.token.handler", "hmac");
+    if ("insecure".equalsIgnoreCase(tokenHandlerType)) {
+      return InsecureQuicTokenHandler.INSTANCE;
+    } else if ("hmac".equalsIgnoreCase(tokenHandlerType)) {
+      return new HmacQuicTokenHandler();
+    } else {
+      try {
+        return (io.netty.handler.codec.quic.QuicTokenHandler) Class.forName(tokenHandlerType)
+            .getDeclaredConstructor()
+            .newInstance();
+      } catch (Exception e) {
+        logger.error("❌ Failed to load custom QuicTokenHandler: " + tokenHandlerType + ". Falling back to HmacQuicTokenHandler.", e);
+        return new HmacQuicTokenHandler();
+      }
+    }
   }
 
   public static void validateConfig(

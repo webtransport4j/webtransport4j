@@ -31,13 +31,13 @@ public class DefaultPathHandler implements WebTransportHandler {
     
     stream.onData(
         new LengthPrefixedCodec(
-            stream.channel().alloc()),
+            stream.streamChannel().alloc()),
         message -> {
             System.out.println(
-                "✅ ["+ stream.streamId() + "] Received data: "+message.toString(java.nio.charset.StandardCharsets.UTF_8));
+                "      ["+ stream.streamId() + "] Received data: "+message.toString(java.nio.charset.StandardCharsets.UTF_8));
 
             ByteBuf msgBuf = io.netty.buffer.Unpooled.copiedBuffer("dsdsds", java.nio.charset.StandardCharsets.UTF_8);
-            ByteBuf encodedBuf = new LengthPrefixedCodec(stream.channel().alloc()).encode(stream.channel().alloc(), msgBuf);
+            ByteBuf encodedBuf = new LengthPrefixedCodec(stream.streamChannel().alloc()).encode(stream.streamChannel().alloc(), msgBuf);
             stream.write(encodedBuf);
         }
     );
