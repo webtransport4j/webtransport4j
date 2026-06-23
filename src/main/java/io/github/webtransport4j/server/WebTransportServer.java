@@ -484,44 +484,85 @@ public class WebTransportServer {
                                         addTrafficShapers(ch);
                                         ch.pipeline()
                                             .addLast(
-                                                new ChannelInboundHandlerAdapter() {
-                                                  private boolean sessionHeaderRead = false;
+                                                 new ChannelInboundHandlerAdapter() {
+                                                   private boolean sessionHeaderRead = false;
+                                                   private ByteBuf cumulation = null;
 
-                                                  @Override
-                                                  public void channelRead(
-                                                      ChannelHandlerContext ctx, Object msg) {
-                                                    if (msg instanceof ByteBuf) {
-                                                      ByteBuf data = (ByteBuf) msg;
-                                                      if (!sessionHeaderRead) {
-                                                        long sessionId =
-                                                            readVariableLengthInt(data);
-                                                        ctx.channel()
-                                                            .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
-                                                            .set(sessionId);
-                                                        sessionHeaderRead = true;
-                                                      }
-                                                      if (!data.isReadable()) {
-                                                        data.release();
-                                                        return;
-                                                      }
-                                                      String savedPath =
-                                                          ctx.channel()
-                                                              .parent()
-                                                              .attr(
-                                                                  WebTransportAttributeKeys.SESSION_PATH_KEY)
-                                                              .get();
-                                                      ctx.channel()
-                                                          .attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)
-                                                          .set(streamType);
-                                                      ctx.channel()
-                                                          .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
-                                                          .set(savedPath);
-                                                      ctx.fireChannelRead(msg);
-                                                    } else {
-                                                      ctx.fireChannelRead(msg);
-                                                    }
-                                                  }
-                                                });
+                                                   @Override
+                                                   public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+                                                     if (cumulation != null) {
+                                                       cumulation.release();
+                                                       cumulation = null;
+                                                     }
+                                                     super.handlerRemoved(ctx);
+                                                   }
+
+                                                   @Override
+                                                   public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                                                     if (cumulation != null) {
+                                                       cumulation.release();
+                                                       cumulation = null;
+                                                     }
+                                                     super.channelInactive(ctx);
+                                                   }
+
+                                                   @Override
+                                                   public void channelRead(
+                                                       ChannelHandlerContext ctx, Object msg) {
+                                                     if (msg instanceof ByteBuf) {
+                                                       ByteBuf data = (ByteBuf) msg;
+                                                       if (!sessionHeaderRead) {
+                                                         if (cumulation == null) {
+                                                           cumulation = (ctx.alloc() != null) ? ctx.alloc().buffer() : io.netty.buffer.Unpooled.buffer();
+                                                         }
+                                                         cumulation.writeBytes(data);
+                                                         data.release();
+
+                                                         cumulation.markReaderIndex();
+                                                         long sessionId =
+                                                             readVariableLengthInt(cumulation);
+                                                         if (sessionId == -1) {
+                                                           cumulation.resetReaderIndex();
+                                                           return;
+                                                         }
+                                                         ctx.channel()
+                                                             .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
+                                                             .set(sessionId);
+                                                         sessionHeaderRead = true;
+
+                                                         if (cumulation.isReadable()) {
+                                                           ByteBuf remaining = cumulation.readBytes(cumulation.readableBytes());
+                                                           cumulation.release();
+                                                           cumulation = null;
+                                                           data = remaining;
+                                                         } else {
+                                                           cumulation.release();
+                                                           cumulation = null;
+                                                           return;
+                                                         }
+                                                       }
+                                                       if (!data.isReadable()) {
+                                                         data.release();
+                                                         return;
+                                                       }
+                                                       String savedPath =
+                                                           ctx.channel()
+                                                               .parent()
+                                                               .attr(
+                                                                   WebTransportAttributeKeys.SESSION_PATH_KEY)
+                                                               .get();
+                                                       ctx.channel()
+                                                           .attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)
+                                                           .set(streamType);
+                                                       ctx.channel()
+                                                           .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
+                                                           .set(savedPath);
+                                                       ctx.fireChannelRead(data);
+                                                     } else {
+                                                       ctx.fireChannelRead(msg);
+                                                     }
+                                                   }
+                                                 });
                                         ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                         ch.pipeline().addLast(new WebTransportCapsuleHandler());
                                         ch.pipeline().addLast(new MessageDispatcher());
