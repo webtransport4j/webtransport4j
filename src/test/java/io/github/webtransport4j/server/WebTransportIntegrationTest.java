@@ -3095,4 +3095,204 @@ public class WebTransportIntegrationTest {
 
     quicClient.close().sync();
   }
+
+  @Test
+  public void testFragmentedHeaderParsingIntegration() throws Exception {
+    // Build client ssl context
+    QuicSslContext clientSslContext =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .build();
+
+    Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+    clientSettings.enableH3Datagram(true);
+    clientSettings.enableConnectProtocol(true);
+    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x2b64L, 10L);
+    clientSettings.put(0x2b65L, 10L);
+    clientSettings.put(0x2b61L, 10000L);
+
+    CountDownLatch handshakeLatch = new CountDownLatch(1);
+    CountDownLatch bidiEchoLatch = new CountDownLatch(1);
+
+    final QuicStreamChannel[] connectStream = new QuicStreamChannel[1];
+
+    ChannelHandler clientCodec =
+        Http3.newQuicClientCodecBuilder()
+            .sslContext(clientSslContext)
+            .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+            .initialMaxData(10000000)
+            .initialMaxStreamDataBidirectionalLocal(1000000)
+            .initialMaxStreamDataBidirectionalRemote(1000000)
+            .initialMaxStreamsBidirectional(100)
+            .initialMaxStreamsUnidirectional(100)
+            .datagram(10000, 10000)
+            .build();
+
+    Channel clientChannel =
+        new Bootstrap()
+            .group(clientGroup)
+            .channel(NioDatagramChannel.class)
+            .handler(clientCodec)
+            .bind(0)
+            .sync()
+            .channel();
+
+    QuicChannelBootstrap bootstrap =
+        QuicChannel.newBootstrap(clientChannel)
+            .handler(
+                new ChannelInitializer<QuicChannel>() {
+                  @Override
+                  protected void initChannel(QuicChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                  @Override
+                                  protected void initChannel(QuicStreamChannel stream) {
+                                    stream.pipeline().addFirst(new WebTransportDetectorHandler());
+                                    stream
+                                        .pipeline()
+                                        .addLast(
+                                            new SimpleChannelInboundHandler<ByteBuf>() {
+                                              @Override
+                                              protected void channelRead0(
+                                                  ChannelHandlerContext ctx, ByteBuf msg) {
+                                                // ignore
+                                              }
+                                            });
+                                  }
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true));
+                  }
+                })
+            .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+    QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+    // 1. Handshake Connect Stream Creation
+    Http3.newRequestStream(
+            quicClient,
+            new ChannelInitializer<QuicStreamChannel>() {
+              @Override
+              protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline()
+                    .addLast(
+                        new SimpleChannelInboundHandler<Object>() {
+                          @Override
+                          protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                            if (msg instanceof Http3HeadersFrame) {
+                              Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
+                              if ("200".equals(headersFrame.headers().status().toString())) {
+                                connectStream[0] = (QuicStreamChannel) ctx.channel();
+                                handshakeLatch.countDown();
+                              }
+                            }
+                          }
+                        });
+              }
+            })
+        .addListener(
+            (Future<QuicStreamChannel> f) -> {
+              if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                Http3Headers headers = new DefaultHttp3Headers();
+                headers.method("CONNECT");
+                headers.scheme("https");
+                headers.path("/test-integration");
+                headers.authority("localhost");
+                headers.set(":protocol", "webtransport");
+                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+              }
+            });
+
+    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertNotNull(connectStream[0]);
+    long sessionId = connectStream[0].streamId();
+
+    // 2. Bidirectional Stream with Fragmented Headers
+    quicClient
+        .createStream(
+            QuicStreamType.BIDIRECTIONAL,
+            new ChannelInitializer<QuicStreamChannel>() {
+              @Override
+              protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline()
+                    .addFirst(
+                        new ChannelInboundHandlerAdapter() {
+                          @Override
+                          public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                            ctx.channel()
+                                .eventLoop()
+                                .execute(
+                                    () -> {
+                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      for (String name : ctx.pipeline().names()) {
+                                        ChannelHandler h = ctx.pipeline().get(name);
+                                        if (h != null
+                                            && h != this
+                                            && (name.contains("Http3")
+                                                || h.getClass().getName().contains("Http3"))) {
+                                          toRemove.add(name);
+                                        }
+                                      }
+                                      for (String name : toRemove) {
+                                        try {
+                                          ctx.pipeline().remove(name);
+                                        } catch (Exception ignored) {
+                                        }
+                                      }
+                                    });
+                            super.handlerAdded(ctx);
+                          }
+                        });
+
+                ch.pipeline()
+                    .addLast(
+                        new SimpleChannelInboundHandler<ByteBuf>() {
+                          @Override
+                          protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                            String response = msg.toString(StandardCharsets.UTF_8);
+                            System.out.println("DEBUG: Fragmented test received: " + response);
+                            if (response.contains("ACK BI") && response.contains("Fragmented headers work!")) {
+                              bidiEchoLatch.countDown();
+                            }
+                          }
+                        });
+              }
+            })
+        .addListener(
+            (Future<QuicStreamChannel> f) -> {
+              if (f.isSuccess()) {
+                QuicStreamChannel ch = f.getNow();
+                // We send the stream type first as a single byte
+                ByteBuf piece1 = ch.alloc().directBuffer(1);
+                WebTransportUtils.writeVarInt(piece1, 0x41);
+                ch.writeAndFlush(piece1).addListener(f1 -> {
+                  // After piece 1 is sent, send piece 2 (Session ID)
+                  ch.eventLoop().schedule(() -> {
+                    ByteBuf piece2 = ch.alloc().directBuffer();
+                    WebTransportUtils.writeVarInt(piece2, sessionId);
+                    ch.writeAndFlush(piece2).addListener(f2 -> {
+                      // After piece 2 is sent, send piece 3 (Payload)
+                      ch.eventLoop().schedule(() -> {
+                        ByteBuf piece3 = ch.alloc().directBuffer();
+                        piece3.writeBytes("Fragmented headers work!".getBytes(StandardCharsets.UTF_8));
+                        ch.writeAndFlush(piece3);
+                      }, 50, TimeUnit.MILLISECONDS);
+                    });
+                  }, 50, TimeUnit.MILLISECONDS);
+                });
+              }
+            });
+
+    assertTrue("Bidirectional stream exchange with fragmented headers failed or timed out",
+        bidiEchoLatch.await(5, TimeUnit.SECONDS));
+
+    quicClient.close().sync();
+  }
 }

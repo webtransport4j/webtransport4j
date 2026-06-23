@@ -17,6 +17,25 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
   // Track state per handler instance (per stream)
   private boolean protocolHeaderConsumed = false;
   private boolean outboundHeaderSent = false;
+  private ByteBuf cumulation = null;
+
+  @Override
+  public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+    if (cumulation != null) {
+      cumulation.release();
+      cumulation = null;
+    }
+    super.handlerRemoved(ctx);
+  }
+
+  @Override
+  public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+    if (cumulation != null) {
+      cumulation.release();
+      cumulation = null;
+    }
+    super.channelInactive(ctx);
+  }
 
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -42,24 +61,32 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       }
 
       if (!protocolHeaderConsumed) {
-        data.markReaderIndex();
+        // Accumulate fragmented stream header bytes
+        if (cumulation == null) {
+          cumulation = (ctx.alloc() != null) ? ctx.alloc().buffer() : io.netty.buffer.Unpooled.buffer();
+        }
+        cumulation.writeBytes(data);
+        data.release();
 
-        long streamType = WebTransportUtils.readVariableLengthInt(data);
+        cumulation.markReaderIndex();
+
+        long streamType = WebTransportUtils.readVariableLengthInt(cumulation);
         if (streamType == -1) {
-          data.resetReaderIndex();
+          cumulation.resetReaderIndex();
           return;
         }
 
-        long sessionId = WebTransportUtils.readVariableLengthInt(data);
+        long sessionId = WebTransportUtils.readVariableLengthInt(cumulation);
         if (sessionId == -1) {
-          data.resetReaderIndex();
+          cumulation.resetReaderIndex();
           return;
         }
         QuicChannel quic = (QuicChannel) ctx.channel().parent();
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr == null || !mgr.hasSession(sessionId)) {
           logger.warn("❌ Unknown Session ID: " + sessionId);
-          data.release();
+          cumulation.release();
+          cumulation = null;
           if (ctx.channel() instanceof QuicStreamChannel) {
             ((QuicStreamChannel) ctx.channel())
                 .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
@@ -86,6 +113,8 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
         WebTransportSession session = mgr.get(sessionId);
         if (session == null) {
+          cumulation.release();
+          cumulation = null;
           return;
         }
         boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
@@ -105,6 +134,8 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                   + " > "
                   + maxAllowed);
           mgr.closeSessionWithFlowControlError(sessionId);
+          cumulation.release();
+          cumulation = null;
           if (ctx.channel() instanceof QuicStreamChannel) {
             ((QuicStreamChannel) ctx.channel())
                 .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
@@ -128,6 +159,18 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
           streamChannel
               .closeFuture()
               .addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
+        }
+
+        // Fire any remaining bytes in the cumulated buffer down the pipeline
+        if (cumulation.isReadable()) {
+          ByteBuf remaining = cumulation.readBytes(cumulation.readableBytes());
+          cumulation.release();
+          cumulation = null;
+          data = remaining;
+        } else {
+          cumulation.release();
+          cumulation = null;
+          return;
         }
       }
 

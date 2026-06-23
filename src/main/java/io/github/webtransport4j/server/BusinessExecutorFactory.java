@@ -130,6 +130,6 @@ public final class BusinessExecutorFactory {
                     return thread;
                 }
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            new ThreadPoolExecutor.AbortPolicy());
     }
 }

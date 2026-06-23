@@ -47,6 +47,17 @@ public class WebTransportStream {
     return streamChannel;
   }
 
+  /**
+   * Registers a callback to be invoked when stream payload data is received.
+   * <p>
+   * <strong>Memory Management Warning:</strong> The passed {@link ByteBuf} is owned and
+   * automatically released by the network handler after this callback returns. If you process
+   * this buffer asynchronously (e.g. offloading to another thread pool or a reactive pipeline),
+   * you <strong>must</strong> call {@link ByteBuf#retain()} to increase its reference count, and
+   * subsequently release it via {@link ByteBuf#release()} when done.
+   *
+   * @param consumer the data consumer callback
+   */
   public void onData(Consumer<ByteBuf> consumer) {
 
     if (this.dataConsumer != null) {
