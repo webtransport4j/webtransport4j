@@ -35,9 +35,6 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     } else {
       executor = channel.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
     }
-    if (executor == null) {
-      executor = WebTransportServer.getBusinessExecutor();
-    }
 
     if(executor == null){
         try {

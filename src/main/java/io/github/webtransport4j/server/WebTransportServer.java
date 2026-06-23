@@ -32,7 +32,11 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.log4j.Logger;
 
@@ -40,7 +44,7 @@ public class WebTransportServer {
   private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
   private int port;
   
-  private final java.util.Map<String, WebTransportHandler> handlers = new java.util.concurrent.ConcurrentHashMap<>();
+  private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private WebTransportHandler defaultHandler;
 
   public WebTransportServer(WebTransportHandler defaultHandler) {
@@ -48,10 +52,20 @@ public class WebTransportServer {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
     this.defaultHandler = defaultHandler;
+    this.businessExecutor = BusinessExecutorFactory.create();
   }
 
   public WebTransportServer(){
     this.defaultHandler = new WebTransportHandler(){};
+    this.businessExecutor = BusinessExecutorFactory.create();
+  }
+
+  public WebTransportServer(WebTransportHandler defaultHandler, ExecutorService businessExecutor) {
+    if (defaultHandler == null) {
+      throw new IllegalArgumentException("defaultHandler cannot be null");
+    }
+    this.defaultHandler = defaultHandler;
+    this.businessExecutor = businessExecutor;
   }
 
   private static String normalizePath(String path) {
@@ -94,14 +108,9 @@ public class WebTransportServer {
   public static GlobalTrafficShapingHandler globalTrafficShaper;
 
   
-  private static final java.util.concurrent.ExecutorService businessExecutor =
-      BusinessExecutorFactory.create();
+  private final ExecutorService businessExecutor;
 
-  private java.util.List<String> allowedOrigins;
-
-  public static java.util.concurrent.ExecutorService getBusinessExecutor() {
-    return businessExecutor;
-  }
+  private List<String> allowedOrigins;
 
   public static void main(String[] args) throws Exception {
     WebTransportServer server = new WebTransportServer(new DefaultPathHandler());
@@ -302,6 +311,9 @@ public class WebTransportServer {
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(defData);
                     ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
                     ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
+                    if (businessExecutor != null) {
+                      ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
+                    }
 
                     long connWriteLimit =
                         WebTransportConfig.getLong(
