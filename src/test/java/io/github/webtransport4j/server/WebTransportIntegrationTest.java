@@ -673,45 +673,7 @@ public class WebTransportIntegrationTest {
             .sync()
             .channel();
 
-    LongFunction<ChannelHandler> clientUniStreamFactory =
-        (streamType) -> {
-          if (streamType == 0x00) { // Control stream
-            return new ChannelInitializer<QuicStreamChannel>() {
-              @Override
-              protected void initChannel(QuicStreamChannel ch) {
-                ch.pipeline()
-                    .addLast(
-                        new ChannelInboundHandlerAdapter() {
-                          @Override
-                          public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                            System.out.println(
-                                "CLIENT CONTROL: received message " + msg.getClass().getName());
-                            if (msg instanceof Http3SettingsFrame) {
-                              Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
-                              io.netty.handler.codec.http3.Http3Settings settings =
-                                  settingsFrame.settings();
-                              if (settings != null) {
-                                System.out.println(
-                                    "CLIENT CONTROL: settings received: " + settings);
-                                QuicChannel quic = ((QuicStreamChannel) ctx.channel()).parent();
-                                if (quic != null) {
-                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
-                                      .set(settings.get(0x2b64L));
-                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
-                                      .set(settings.get(0x2b65L));
-                                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
-                                      .set(settings.get(0x2b61L));
-                                }
-                              }
-                            }
-                            io.netty.util.ReferenceCountUtil.release(msg);
-                          }
-                        });
-              }
-            };
-          }
-          return null;
-        };
+
 
     QuicChannelBootstrap bootstrap =
         QuicChannel.newBootstrap(clientChannel)

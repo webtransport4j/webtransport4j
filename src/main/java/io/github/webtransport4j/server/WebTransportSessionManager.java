@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.*;
-import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;

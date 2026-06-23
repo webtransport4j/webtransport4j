@@ -9,7 +9,6 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.io.IOException;
-import java.nio.channels.ClosedChannelException;
 import org.apache.log4j.Logger;
 
 class RawWebTransportHandler extends ChannelDuplexHandler {

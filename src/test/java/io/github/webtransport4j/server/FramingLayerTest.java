@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+@SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
 
   @Test
@@ -166,7 +167,6 @@ public class FramingLayerTest {
     list.get(1).release();
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testStreamFrameDecoderDirectly() throws Exception {
     WebTransportStreamFrameDecoder decoder = new WebTransportStreamFrameDecoder();
@@ -203,7 +203,6 @@ public class FramingLayerTest {
     frame.release();
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testMessageDispatcherStreamFrame() throws Exception {
     MessageDispatcher dispatcher = new MessageDispatcher();
@@ -300,7 +299,6 @@ public class FramingLayerTest {
     assertEquals(0, closeCapsule.refCnt());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testWebTransportHeadersHandlerHandshake() throws Exception {
     WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
@@ -483,7 +481,6 @@ public class FramingLayerTest {
     assertEquals(50000L, session.getSettingsMaxData());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testWebTransportHeadersHandlerInvalidSessionId() throws Exception {
     WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
@@ -514,7 +511,6 @@ public class FramingLayerTest {
     verify(mockParent).close(eq(true), eq(0x0108), any(ByteBuf.class));
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testServerInitiatedStreamLimits() throws Exception {
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -596,7 +592,6 @@ public class FramingLayerTest {
     verify(mockPromise, times(2)).setFailure(any(IllegalStateException.class));
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testAllowedOriginsAndAuthorityMatching() throws Exception {
     WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
@@ -734,7 +729,6 @@ public class FramingLayerTest {
     }
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testSimultaneousSessionLimitRejection() throws Exception {
     // Set maximum sessions limit to 1

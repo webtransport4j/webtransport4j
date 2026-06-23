@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.Optional;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.concurrent.Promise;
 import java.util.Set;
@@ -68,7 +67,6 @@ public class WebTransportSession {
   private final long initialMaxStreamsBidi;
   private final long initialMaxData;
 
-  @SuppressWarnings("unchecked")
   public WebTransportSession(
       long sessionStreamId,
       QuicStreamChannel connectStream,

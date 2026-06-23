@@ -23,7 +23,6 @@ public class SessionFlowControlTest {
     return attr;
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testReceiveMaxDataCapsuleUpdatesPeerLimit() throws Exception {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
@@ -81,7 +80,6 @@ public class SessionFlowControlTest {
     assertEquals(0, capsule.refCnt());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testReceiveSmallerMaxDataCapsuleClosesSession() throws Exception {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
@@ -136,7 +134,6 @@ public class SessionFlowControlTest {
     assertEquals(0, capsule.refCnt());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testIncomingDataExceedingLimitClosesSession() throws Exception {
     RawWebTransportHandler handler = new RawWebTransportHandler();
@@ -205,7 +202,6 @@ public class SessionFlowControlTest {
     assertEquals(0, data2.refCnt());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testOutgoingDataExceedingLimitFailsImmediately() throws Exception {
     RawWebTransportHandler handler = new RawWebTransportHandler();
@@ -253,7 +249,6 @@ public class SessionFlowControlTest {
     when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(100L);
 
     // Set up stream properties
     Attribute<Long> streamSessIdAttr = mockAttribute(100L);
@@ -281,7 +276,6 @@ public class SessionFlowControlTest {
     verify(mockConnectStream).writeAndFlush(any());
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testReceiveDataBlockedExtendsLimit() throws Exception {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();

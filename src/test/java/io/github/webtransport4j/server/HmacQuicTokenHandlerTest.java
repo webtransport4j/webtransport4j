@@ -4,9 +4,6 @@ import static org.junit.Assert.*;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.quic.QuicChannel;
-import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.github.webtransport4j.api.WebTransportSession;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import org.junit.Test;
