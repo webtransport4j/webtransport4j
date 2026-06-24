@@ -176,11 +176,23 @@ public class WebTransportIntegrationTest {
                               sessionHeaderRead = true;
                             }
                             if (in.isReadable()) {
+                              String savedPath =
+                                  ctx.channel()
+                                      .parent()
+                                      .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
+                                      .get();
+                              ctx.channel()
+                                  .attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)
+                                  .set(streamType);
+                              ctx.channel()
+                                  .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
+                                  .set(savedPath);
                               out.add(in.readRetainedSlice(in.readableBytes()));
                             }
                           }
                         });
-                ch.pipeline().addLast(new RawWebTransportHandler());
+                ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
+                ch.pipeline().addLast(new WebTransportCapsuleHandler());
                 ch.pipeline().addLast(new MessageDispatcher());
               }
             };
