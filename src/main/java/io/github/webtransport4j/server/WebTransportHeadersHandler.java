@@ -1,5 +1,9 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportStream;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
@@ -11,7 +15,10 @@ import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.Future;
+
 import java.util.Map;
 import org.apache.log4j.Logger;
 
@@ -154,8 +161,38 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                 });
         mgr.register(connectStream);
       }
+      mgr.getSessions().stream().forEach(session-> {
+        session.createBiStream()
+    .addListener((Future<WebTransportStream> f) -> {
+        if (!f.isSuccess()) {
+            f.cause().printStackTrace();
+            return;
+        }
+
+        WebTransportStream stream = f.getNow();
+
+       stream.writeText(System.currentTimeMillis()+"BIiiii");
+    });
+      });
+
+      mgr.getSessions().stream().forEach(session-> {
+        session.createUniStream()
+    .addListener((Future<WebTransportStream> f) -> {
+        if (!f.isSuccess()) {
+            f.cause().printStackTrace();
+            return;
+        }
+
+        WebTransportStream stream = f.getNow();
+
+  
+
+       stream.writeText(System.currentTimeMillis()+"Uniii");
+    });
+      });
     }
 
+    
     ReferenceCountUtil.release(frame);
   }
 

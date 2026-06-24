@@ -3,12 +3,13 @@ package io.github.webtransport4j.example;
 import java.util.function.Consumer;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 
-public interface StreamCodec<T> {
+public interface StreamCodec<T> extends AutoCloseable {
 
-    ByteBuf encode(ByteBufAllocator alloc, T message);
+    ByteBuf encode(T message);
 
     void decode(ByteBuf data, Consumer<T> consumer);
 
+    @Override
+    void close();
 }

@@ -5,19 +5,22 @@ import java.util.function.Consumer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 
-public class LengthPrefixedCodec
+public final class LengthPrefixedCodec
     implements StreamCodec<ByteBuf> {
 
+    private static final int MAX_FRAME_SIZE =
+        16 * 1024 * 1024;
+
+    private final ByteBufAllocator alloc;
     private final ByteBuf accumulator;
 
     public LengthPrefixedCodec(ByteBufAllocator alloc) {
+        this.alloc = alloc;
         this.accumulator = alloc.buffer();
     }
 
     @Override
-    public ByteBuf encode(
-            ByteBufAllocator alloc,
-            ByteBuf message) {
+    public ByteBuf encode(ByteBuf message) {
 
         ByteBuf out =
             alloc.buffer(4 + message.readableBytes());
@@ -41,22 +44,37 @@ public class LengthPrefixedCodec
         while (true) {
 
             if (accumulator.readableBytes() < 4) {
-                return;
+                break;
             }
 
             accumulator.markReaderIndex();
 
             int length = accumulator.readInt();
 
-            if (accumulator.readableBytes() < length) {
-                accumulator.resetReaderIndex();
-                return;
+            if (length < 0 ||
+                length > MAX_FRAME_SIZE) {
+                throw new IllegalArgumentException(
+                    "Invalid frame size: " + length);
             }
 
-            ByteBuf frame =
-                accumulator.readRetainedSlice(length);
+            if (accumulator.readableBytes() < length) {
+                accumulator.resetReaderIndex();
+                break;
+            }
 
-            consumer.accept(frame);
+            consumer.accept(
+                accumulator.readRetainedSlice(length));
         }
+
+        if (!accumulator.isReadable()) {
+            accumulator.clear();
+        } else if (accumulator.readerIndex() > 4096) {
+            accumulator.discardReadBytes();
+        }
+    }
+
+    @Override
+    public void close() {
+        accumulator.release();
     }
 }

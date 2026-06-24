@@ -263,7 +263,7 @@ public class WebTransportUtils {
     switch (len) {
       case 1:
         // Prefix 00: No masking needed (value is 0-63)
-        return in.readByte();
+        return in.readUnsignedByte();
 
       case 2:
         // Prefix 01: Mask with 0x3FFF (14 bits)

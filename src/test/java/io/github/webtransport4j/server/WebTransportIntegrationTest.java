@@ -6,6 +6,7 @@ import static org.junit.Assert.*;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.http3.*;
@@ -16,6 +17,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
@@ -155,23 +157,26 @@ public class WebTransportIntegrationTest {
                 WebTransportServer.addTrafficShapers(ch);
                 ch.pipeline()
                     .addLast(
-                        new ChannelInboundHandlerAdapter() {
+                        new ByteToMessageDecoder() {
                           private boolean sessionHeaderRead = false;
 
                           @Override
-                          public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                            if (msg instanceof ByteBuf) {
-                              ByteBuf data = (ByteBuf) msg;
-                              if (!sessionHeaderRead) {
-                                long sessionId = WebTransportUtils.readVariableLengthInt(data);
-                                ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
-                                sessionHeaderRead = true;
-                              }
-                              if (!data.isReadable()) {
-                                data.release();
+                          protected void decode(
+                              ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+                            if (!sessionHeaderRead) {
+                              in.markReaderIndex();
+                              long sessionId = WebTransportUtils.readVariableLengthInt(in);
+                              if (sessionId == -1) {
+                                in.resetReaderIndex();
                                 return;
                               }
-                              ctx.fireChannelRead(data);
+                              ctx.channel()
+                                  .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
+                                  .set(sessionId);
+                              sessionHeaderRead = true;
+                            }
+                            if (in.isReadable()) {
+                              out.add(in.readRetainedSlice(in.readableBytes()));
                             }
                           }
                         });
@@ -770,46 +775,89 @@ public class WebTransportIntegrationTest {
                                 ctx.pipeline()
                                     .addLast(
                                         new ChannelInboundHandlerAdapter() {
+                                          private ByteBuf cumulation;
+
+                                          @Override
+                                          public void handlerRemoved(ChannelHandlerContext c)
+                                              throws Exception {
+                                            if (cumulation != null) {
+                                              cumulation.release();
+                                              cumulation = null;
+                                            }
+                                            super.handlerRemoved(c);
+                                          }
+
+                                          @Override
+                                          public void channelInactive(ChannelHandlerContext c)
+                                              throws Exception {
+                                            if (cumulation != null) {
+                                              cumulation.release();
+                                              cumulation = null;
+                                            }
+                                            super.channelInactive(c);
+                                          }
+
                                           @Override
                                           public void channelRead(
-                                              ChannelHandlerContext c, Object msg) {
+                                              ChannelHandlerContext c, Object msg)
+                                              throws Exception {
                                             if (msg instanceof Http3DataFrame) {
                                               Http3DataFrame frame = (Http3DataFrame) msg;
                                               ByteBuf payload = frame.content();
-                                              if (payload.isReadable()) {
-                                                while (payload.isReadable()) {
-                                                  payload.markReaderIndex();
-                                                  long capType =
-                                                      WebTransportUtils.readVariableLengthInt(
-                                                          payload);
-                                                  if (capType == -1) {
-                                                    payload.resetReaderIndex();
-                                                    break;
+                                              try {
+                                                if (payload.isReadable()) {
+                                                  if (cumulation == null) {
+                                                    cumulation = c.alloc().buffer();
                                                   }
-                                                  long capLen =
-                                                      WebTransportUtils.readVariableLengthInt(
-                                                          payload);
-                                                  if (capLen == -1
-                                                      || payload.readableBytes() < capLen) {
-                                                    payload.resetReaderIndex();
-                                                    break;
+                                                  cumulation.writeBytes(payload);
+                                                  while (cumulation.isReadable()) {
+                                                    cumulation.markReaderIndex();
+                                                    long capType =
+                                                        WebTransportUtils.readVariableLengthInt(
+                                                            cumulation);
+                                                    if (capType == -1) {
+                                                      cumulation.resetReaderIndex();
+                                                      break;
+                                                    }
+                                                    long capLen =
+                                                        WebTransportUtils.readVariableLengthInt(
+                                                            cumulation);
+                                                    if (capLen == -1
+                                                        || cumulation.readableBytes() < capLen) {
+                                                      cumulation.resetReaderIndex();
+                                                      break;
+                                                    }
+                                                    ByteBuf capVal =
+                                                        cumulation.readRetainedSlice((int) capLen);
+                                                    Long sessId =
+                                                        ((QuicStreamChannel) c.channel())
+                                                            .attr(
+                                                                WebTransportAttributeKeys
+                                                                    .SESSION_ID_KEY)
+                                                            .get();
+                                                    long sessionId =
+                                                        (sessId != null)
+                                                            ? sessId
+                                                            : ((QuicStreamChannel) c.channel())
+                                                                .streamId();
+                                                    c.fireChannelRead(
+                                                        new WebTransportCapsule(
+                                                            sessionId, capType, capVal));
                                                   }
-                                                  ByteBuf capVal = payload.readSlice((int) capLen);
-                                                  Long sessId =
-                                                      ((QuicStreamChannel) c.channel())
-                                                          .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
-                                                          .get();
-                                                  long sessionId =
-                                                      (sessId != null)
-                                                          ? sessId
-                                                          : ((QuicStreamChannel) c.channel())
-                                                              .streamId();
-                                                  c.fireChannelRead(
-                                                      new WebTransportCapsule(
-                                                          sessionId, capType, capVal.retain()));
                                                 }
+                                                if (cumulation != null && !cumulation.isReadable()) {
+                                                  cumulation.release();
+                                                  cumulation = null;
+                                                }
+                                              } catch (Exception e) {
+                                                if (cumulation != null) {
+                                                  cumulation.release();
+                                                  cumulation = null;
+                                                }
+                                                throw e;
+                                              } finally {
+                                                io.netty.util.ReferenceCountUtil.release(frame);
                                               }
-                                              io.netty.util.ReferenceCountUtil.release(frame);
                                             } else {
                                               c.fireChannelRead(msg);
                                             }

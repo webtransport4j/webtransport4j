@@ -4,30 +4,47 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.log4j.Logger;
 
-class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
+/**
+ * Detects whether a newly created QUIC bidirectional stream is:
+ *
+ * 1. A normal HTTP/3 request stream
+ * 2. A WebTransport WT_STREAM (0x41)
+ *
+ * This implementation:
+ * - Uses Netty's built-in cumulation via ByteToMessageDecoder
+ * - Handles fragmented packets correctly
+ * - Uses QUIC varint decoding instead of raw byte matching
+ * - Does not consume bytes during detection
+ */
+final class WebTransportDetectorHandler extends ByteToMessageDecoder {
+
   private static final Logger logger =
-      Logger.getLogger(WebTransportDetectorHandler.class.getName());
-  private boolean checked = false;
+      Logger.getLogger(WebTransportDetectorHandler.class);
+
+  private boolean detected;
 
   @Override
-  public void channelRead(ChannelHandlerContext ctx, Object msg) {
-    if (checked || !(msg instanceof ByteBuf)) {
-      ctx.fireChannelRead(msg);
+  protected void decode(
+      ChannelHandlerContext ctx,
+      ByteBuf in,
+      List<Object> out) {
+
+    if (detected) {
+      if (in.isReadable()) {
+        out.add(in.readRetainedSlice(in.readableBytes()));
+      }
       return;
     }
 
-    ByteBuf in = (ByteBuf) msg;
-
-    // 1. Need at least 1 byte to make ANY decision
-    if (in.readableBytes() < 1) {
+    if (!in.isReadable()) {
       return;
     }
 
@@ -40,71 +57,85 @@ class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
               + "]");
     }
 
-    int firstByte = in.getUnsignedByte(in.readerIndex());
+    long marker = peekVarInt(in);
 
-    // 2. HTTP/3 Detection
-    boolean isStandardHttp3 =
-        (firstByte == 0x00
-            || // DATA
-            firstByte == 0x01
-            || // HEADERS
-            firstByte == 0x03
-            || // CANCEL_PUSH
-            firstByte == 0x04
-            || // SETTINGS
-            firstByte == 0x05
-            || // PUSH_PROMISE
-            firstByte == 0x07
-            || // GOAWAY
-            firstByte == 0x0d // MAX_PUSH_ID
-        );
-
-    if (isStandardHttp3) {
-      logger.debug("👉 Decision: Standard HTTP/3 (0x" + Integer.toHexString(firstByte) + ")");
-      checked = true;
-      ctx.pipeline().remove(this);
-      ctx.fireChannelRead(msg);
+    // Not enough bytes yet to decode a complete QUIC varint.
+    if (marker == -1) {
       return;
     }
 
-    // 3. WebTransport Detection (0x40 + 0x41)
-    if (in.readableBytes() < 2) {
-      return; // Wait for more bytes
-    }
+    if (marker == WebTransportUtils.BI_STREAM_TYPE) {
 
-    int secondByte = in.getUnsignedByte(in.readerIndex() + 1);
-    boolean isWebTransportBidi = (firstByte == 0x40 && secondByte == 0x41);
+      logger.info(
+          "🚀 Decision: WebTransport WT_STREAM detected (0x"
+              + Long.toHexString(marker)
+              + ")");
 
-    if (isWebTransportBidi) {
-      logger.info("🚀 Decision: Raw WebTransport Stream Detected! Hijacking pipeline.");
-      checked = true;
+      detected = true;
+
       hijackPipeline(ctx);
 
-      ctx.fireChannelRead(msg);
-    } else {
-      logger.debug(
-          "👉 Decision: Pass-through (0x"
-              + Integer.toHexString(firstByte)
-              + " "
-              + Integer.toHexString(secondByte)
-              + ")");
-      checked = true;
-      ctx.pipeline().remove(this);
-      ctx.fireChannelRead(msg);
+      if (in.isReadable()) {
+        out.add(in.readRetainedSlice(in.readableBytes()));
+      }
+
+      return;
+    }
+
+    logger.debug(
+        "👉 Decision: Standard HTTP/3 request stream (first varint = 0x"
+            + Long.toHexString(marker)
+            + ")");
+
+    detected = true;
+
+    ctx.pipeline().remove(this);
+
+    if (in.isReadable()) {
+      out.add(in.readRetainedSlice(in.readableBytes()));
     }
   }
 
+  /**
+   * Peeks a QUIC variable-length integer without consuming bytes.
+   *
+   * Returns:
+   *   - decoded value
+   *   - -1 if more bytes are needed
+   */
+  private static long peekVarInt(ByteBuf in) {
+
+    in.markReaderIndex();
+
+    try {
+      return WebTransportUtils.readVariableLengthInt(in);
+    } finally {
+      in.resetReaderIndex();
+    }
+  }
+
+  /**
+   * Removes HTTP/3 request-stream handlers and keeps only the handlers
+   * needed for raw WebTransport processing.
+   */
   private void hijackPipeline(ChannelHandlerContext ctx) {
+
     ChannelPipeline p = ctx.pipeline();
+
     List<String> toRemove = new ArrayList<>();
 
     for (String name : p.names()) {
+
       ChannelHandler h = p.get(name);
-      if (h == null) continue;
-      if (h == this) {
-        toRemove.add(name);
+
+      if (h == null) {
         continue;
       }
+
+      if (h == this) {
+        continue;
+      }
+
       if (h instanceof QuicGlobalSniffer
           || h instanceof RawWebTransportHandler
           || h instanceof WebTransportStreamFrameDecoder
@@ -113,12 +144,24 @@ class WebTransportDetectorHandler extends ChannelInboundHandlerAdapter {
           || h instanceof ChannelTrafficShapingHandler) {
         continue;
       }
+
       toRemove.add(name);
     }
 
     for (String name : toRemove) {
-      p.remove(name);
-      logger.debug("   🗑 Removed: " + name);
+
+      try {
+        p.remove(name);
+
+        if (logger.isDebugEnabled()) {
+          logger.debug("🗑 Removed: " + name);
+        }
+
+      } catch (Exception e) {
+        logger.warn("Failed removing handler: " + name, e);
+      }
     }
+
+    p.remove(this);
   }
 }

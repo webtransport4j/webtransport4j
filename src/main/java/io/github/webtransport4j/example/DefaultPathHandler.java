@@ -2,6 +2,10 @@ package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.api.*;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
+import java.nio.charset.StandardCharsets;
+
 import org.apache.log4j.Logger;
 
 public class DefaultPathHandler implements WebTransportHandler {
@@ -28,17 +32,21 @@ public class DefaultPathHandler implements WebTransportHandler {
     stream.onClose(() -> logger.info("🔒 [DEFAULT HANDLER] Stream " + stream.streamId() + " closed."));
     stream.onError(err -> logger.error("❌ [DEFAULT HANDLER] Stream " + stream.streamId() + " error: ", err));
 
-    
+    LengthPrefixedCodec codec =
+    new LengthPrefixedCodec(
+        stream.streamChannel().alloc());
     stream.onData(
-        new LengthPrefixedCodec(
-            stream.streamChannel().alloc()),
+        codec,
         message -> {
             System.out.println(
                 "      ["+ stream.streamId() + "] Received data: "+message.toString(java.nio.charset.StandardCharsets.UTF_8));
 
-            ByteBuf msgBuf = io.netty.buffer.Unpooled.copiedBuffer("dsdsds", java.nio.charset.StandardCharsets.UTF_8);
-            ByteBuf encodedBuf = new LengthPrefixedCodec(stream.streamChannel().alloc()).encode(stream.streamChannel().alloc(), msgBuf);
-            stream.write(encodedBuf);
+            ByteBuf payload =
+    Unpooled.copiedBuffer(
+        "hello",
+        StandardCharsets.UTF_8);
+
+stream.write(codec.encode(payload));
         }
     );
   }
