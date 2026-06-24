@@ -309,12 +309,12 @@ public class StreamsBlockedCapsuleTest {
     session.setPeerSettingsMaxStreamsBidi(0L);
 
     io.netty.util.concurrent.Future<QuicStreamChannel> f1 =
-        WebTransportUtils.createUniStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        WebTransportUtils.createUniStream(mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     assertTrue(f1.isDone());
     assertFalse(f1.isSuccess());
 
     io.netty.util.concurrent.Future<QuicStreamChannel> f2 =
-        WebTransportUtils.createBiStream(mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        WebTransportUtils.createBiStream(mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     assertTrue(f2.isDone());
     assertFalse(f2.isSuccess());
 

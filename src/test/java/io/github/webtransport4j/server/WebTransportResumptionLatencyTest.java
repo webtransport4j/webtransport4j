@@ -95,18 +95,7 @@ public class WebTransportResumptionLatencyTest {
                     ch.pipeline().addLast(new MessageDispatcher());
                     ch.pipeline().addLast(
                         new Http3ServerConnectionHandler(
-                            new ChannelInitializer<QuicStreamChannel>() {
-                              @Override
-                              protected void initChannel(QuicStreamChannel stream) {
-                                stream.pipeline().addFirst(new WebTransportDetectorHandler());
-                                stream.pipeline().addLast(new RawWebTransportHandler());
-                                stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
-                                stream.pipeline().addLast(new WebTransportHeadersHandler());
-                                stream.pipeline().addLast(new WebTransportDataHandler());
-                                stream.pipeline().addLast(new WebTransportCapsuleHandler());
-                                stream.pipeline().addLast(new MessageDispatcher());
-                              }
-                            },
+                            new WebTransportStreamChannelInitializer(),
                             new ChannelInboundHandlerAdapter() {
                               @Override
                               public void channelRead(ChannelHandlerContext ctx, Object msg) {

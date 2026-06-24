@@ -395,7 +395,7 @@ public class WebTransportSession {
     return wrapStreamFuture(
             WebTransportUtils.createUniStream(
                     connectStream,
-                    Optional.empty(),
+                    false,
                     streamHandler));
   }
 
@@ -409,7 +409,7 @@ public class WebTransportSession {
     return wrapStreamFuture(
             WebTransportUtils.createBiStream(
                     connectStream,
-                    Optional.empty(),
+                    false,
                     streamHandler));
   }
 

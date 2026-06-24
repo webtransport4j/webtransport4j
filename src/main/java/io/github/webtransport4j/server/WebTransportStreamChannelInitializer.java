@@ -1,10 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.netty.channel.*;
-import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.traffic.ChannelTrafficShapingHandler;
-import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import org.apache.log4j.Logger;
 
 public final class WebTransportStreamChannelInitializer

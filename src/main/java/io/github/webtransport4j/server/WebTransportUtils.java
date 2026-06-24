@@ -13,7 +13,7 @@ import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
-import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author https://github.com/sanjomo
@@ -43,78 +43,9 @@ public class WebTransportUtils {
    */
   public static Future<QuicStreamChannel> createUniStream(
       QuicStreamChannel connectStreamChannel,
-      Optional<Boolean> byPassLimit,
+      boolean byPassLimit,
       ChannelHandler streamHandler) {
-    Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
-    WebTransportSessionManager mgr =
-        connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
-    if (session == null) {
-      promise.setFailure(
-          new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
-      return promise;
-    }
-
-    if (!byPassLimit.orElse(false)) {
-      long current = session.getServerInitiatedStreamsUni();
-      long max = session.getPeerSettingsMaxStreamsUni();
-      if (current >= max) {
-        logger.warn(
-            "❌ WebTransport stream limit exceeded for session "
-                + connectStreamChannel.streamId()
-                + ": "
-                + current
-                + " >= "
-                + max
-                + ". Stream creation failed.");
-        sendStreamsBlockedCapsule(session.getConnectStream(), false, max);
-        promise.setFailure(
-            new IllegalStateException(
-                "Unidirectional stream limit exceeded"));
-        return promise;
-      }
-      session.incrementAndGetServerInitiatedStreamsUni();
-    }
-
-    // 1. Request Stream Creation
-    connectStreamChannel
-        .parent()
-        .createStream(QuicStreamType.UNIDIRECTIONAL, streamHandler)
-        .addListener(
-            (Future<QuicStreamChannel> future) -> {
-              if (!future.isSuccess()) {
-                promise.setFailure(future.cause());
-                return;
-              }
-
-              QuicStreamChannel stream = future.getNow();
-
-              // Set channel attributes so other handlers/logs can retrieve them
-              stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(connectStreamChannel.streamId());
-              stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set((long) UNI_STREAM_TYPE);
-              stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
-
-              // 2. Write the Mandatory Header: [0x54] [SessionID]
-              // We write this synchronously before giving the stream to the user.
-              ByteBuf header = Unpooled.buffer(16);
-              try {
-                writeVarInt(header, UNI_STREAM_TYPE);
-                writeVarInt(header, connectStreamChannel.streamId());
-                stream.writeAndFlush(header);
-                session.getActiveServerInitiatedUni().add(stream);
-                stream
-                    .closeFuture()
-                    .addListener(f -> session.getActiveServerInitiatedUni().remove(stream));
-
-                promise.setSuccess(stream);
-              } catch (Exception e) {
-                header.release();
-                stream.close();
-                promise.setFailure(e);
-              }
-            });
-
-    return promise;
+    return wrapFutureStreamChannel(QuicStreamType.UNIDIRECTIONAL, streamHandler, connectStreamChannel, byPassLimit);
   }
 
   /**
@@ -127,77 +58,84 @@ public class WebTransportUtils {
    */
   public static Future<QuicStreamChannel> createBiStream(
       QuicStreamChannel connectStreamChannel,
-      Optional<Boolean> byPassLimit,
+      boolean byPassLimit,
       ChannelHandler streamHandler) {
+
+    // 1. Request Stream Creation
+    return wrapFutureStreamChannel(QuicStreamType.BIDIRECTIONAL, streamHandler, connectStreamChannel, byPassLimit);
+
+  }
+
+  private static Future<QuicStreamChannel> wrapFutureStreamChannel(QuicStreamType quicStreamType, ChannelHandler streamHandler, QuicStreamChannel connectStreamChannel, boolean byPassLimit) {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
-        connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+            connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
-          new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
+              new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
       return promise;
     }
 
-    if (!byPassLimit.orElse(false)) {
-      long current = session.getServerInitiatedStreamsBidi();
-      long max = session.getPeerSettingsMaxStreamsBidi();
+    if (!byPassLimit) {
+      long current = QuicStreamType.BIDIRECTIONAL == quicStreamType ? session.getServerInitiatedStreamsBidi() : session.getServerInitiatedStreamsUni();
+      long max = QuicStreamType.BIDIRECTIONAL == quicStreamType ? session.getPeerSettingsMaxStreamsBidi() : session.getPeerSettingsMaxStreamsUni();
       if (current >= max) {
         logger.warn(
-            "❌ WebTransport stream limit exceeded for session "
-                + connectStreamChannel.streamId()
-                + ": "
-                + current
-                + " >= "
-                + max
-                + ". Stream creation failed.");
-        sendStreamsBlockedCapsule(session.getConnectStream(), true, max);
+                "❌ WebTransport stream limit exceeded for session "
+                        + connectStreamChannel.streamId()
+                        + ": "
+                        + current
+                        + " >= "
+                        + max
+                        + ". Stream creation failed.");
+        sendStreamsBlockedCapsule(session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
-            new IllegalStateException(
-                "Bidirectional stream limit exceeded"));
+                new IllegalStateException(
+                        QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional" +" stream limit exceeded"));
         return promise;
       }
-      session.incrementAndGetServerInitiatedStreamsBidi();
+      long l = QuicStreamType.BIDIRECTIONAL == quicStreamType ? session.incrementAndGetServerInitiatedStreamsBidi() : session.incrementAndGetServerInitiatedStreamsUni();
     }
+    return connectStreamChannel
+            .parent()
+            .createStream(quicStreamType, streamHandler).addListener((Future<QuicStreamChannel> future) -> {
+      if (!future.isSuccess()) {
+        promise.setFailure(future.cause());
+        return;
+      }
 
-    // 1. Request Stream Creation
-    connectStreamChannel
-        .parent()
-        .createStream(QuicStreamType.BIDIRECTIONAL, streamHandler)
-        .addListener(
-            (Future<QuicStreamChannel> future) -> {
-              if (!future.isSuccess()) {
-                promise.setFailure(future.cause());
-                return;
-              }
+      QuicStreamChannel stream = future.getNow();
 
-              QuicStreamChannel stream = future.getNow();
+      // Set channel attributes so other handlers/logs can retrieve them
+      stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(connectStreamChannel.streamId());
+      stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(stream.type() == QuicStreamType.BIDIRECTIONAL ? BI_STREAM_TYPE : UNI_STREAM_TYPE);
+      stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
 
-              // Set channel attributes so other handlers/logs can retrieve them
-              stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(connectStreamChannel.streamId());
-              stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set((long) BI_STREAM_TYPE);
-              stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
-
-              // 2. Write the Mandatory Header: [0x41] [SessionID]
-              ByteBuf header = Unpooled.buffer(16);
-              try {
-                writeVarInt(header, BI_STREAM_TYPE);
-                writeVarInt(header, connectStreamChannel.streamId());
-                stream.writeAndFlush(header);
-                session.getActiveServerInitiatedBi().add(stream);
-                stream
-                    .closeFuture()
-                    .addListener(f -> session.getActiveServerInitiatedBi().remove(stream));
-
-                promise.setSuccess(stream);
-              } catch (Exception e) {
-                header.release();
-                stream.close();
-                promise.setFailure(e);
-              }
-            });
-
-    return promise;
+      // 2. Write the Mandatory Header: [0x41] [SessionID]
+      ByteBuf header = Unpooled.buffer(16);
+      try {
+        writeVarInt(header, stream.type() == QuicStreamType.BIDIRECTIONAL ? BI_STREAM_TYPE : UNI_STREAM_TYPE);
+        writeVarInt(header, connectStreamChannel.streamId());
+        stream.writeAndFlush(header);
+        session.getActiveServerInitiatedBi().add(stream);
+        stream.closeFuture()
+                .addListener(f -> {
+                    if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
+                      session.getActiveServerInitiatedBi().remove(stream);
+                    }
+                    else {
+                      session.getActiveServerInitiatedUni().remove(stream);
+                    }
+                  }
+                );
+        promise.setSuccess(stream);
+      } catch (Exception e) {
+        header.release();
+        stream.close();
+        promise.setFailure(e);
+      }
+    });
   }
 
   public static void writeVarInt(ByteBuf out, long value) {

@@ -575,24 +575,24 @@ public class FramingLayerTest {
 
     // 1. Create Uni Stream - First creation should succeed
     WebTransportUtils.createUniStream(
-        mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
 
     // Create Uni Stream - Second creation should succeed
     WebTransportUtils.createUniStream(
-        mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
 
     // Create Uni Stream - Third creation should fail (exceeds limit 2)
     WebTransportUtils.createUniStream(
-        mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     verify(mockPromise).setFailure(any(IllegalStateException.class));
 
     // 2. Create Bi Stream - First creation should succeed
     WebTransportUtils.createBiStream(
-        mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
 
     // Create Bi Stream - Second creation should fail (exceeds limit 1)
     WebTransportUtils.createBiStream(
-        mockConnectStream, java.util.Optional.empty(), mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     verify(mockPromise, times(2)).setFailure(any(IllegalStateException.class));
   }
 

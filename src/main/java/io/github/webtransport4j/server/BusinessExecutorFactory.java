@@ -1,9 +1,11 @@
 package io.github.webtransport4j.server;
 
 import java.lang.reflect.Method;
+import java.util.Locale;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 public final class BusinessExecutorFactory {
 
@@ -95,14 +97,14 @@ public final class BusinessExecutorFactory {
                 logger.warn(
                     "⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity. "
                         + "Defaulting queue capacity to 10000.");
-                queue = new ArrayBlockingQueue<Runnable>(10000);
+                queue = new ArrayBlockingQueue<>(10000);
             } else {
-                queue = new ArrayBlockingQueue<Runnable>(queueCapacity);
+                queue = new ArrayBlockingQueue<>(queueCapacity);
             }
         } else {
             queue = queueCapacity == Integer.MAX_VALUE
-                ? new LinkedBlockingQueue<Runnable>()
-                : new LinkedBlockingQueue<Runnable>(queueCapacity);
+                ? new LinkedBlockingQueue<>()
+                : new LinkedBlockingQueue<>(queueCapacity);
         }
 
         return new ThreadPoolExecutor(
@@ -117,7 +119,7 @@ public final class BusinessExecutorFactory {
                     new AtomicInteger(1);
 
                 @Override
-                public Thread newThread(Runnable r) {
+                public Thread newThread(@NotNull Runnable r) {
 
                     Thread thread =
                         new Thread(
@@ -129,7 +131,46 @@ public final class BusinessExecutorFactory {
 
                     return thread;
                 }
-            },
-            new ThreadPoolExecutor.AbortPolicy());
+            }, createRejectedExecutionHandler(WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT")));
+    }
+
+
+    private static RejectedExecutionHandler createRejectedExecutionHandler(
+            String value) {
+
+        switch (value.toUpperCase(Locale.ROOT)) {
+            case "ABORT":
+                return new ThreadPoolExecutor.AbortPolicy();
+
+            case "CALLER_RUNS":
+                return new ThreadPoolExecutor.CallerRunsPolicy();
+
+            case "DISCARD":
+                return new ThreadPoolExecutor.DiscardPolicy();
+
+            case "DISCARD_OLDEST":
+                return new ThreadPoolExecutor.DiscardOldestPolicy();
+
+            default:
+                try {
+                    Class<?> clazz = Class.forName(value);
+
+                    if (!RejectedExecutionHandler.class.isAssignableFrom(clazz)) {
+                        throw new IllegalArgumentException(
+                                value
+                                        + " does not implement "
+                                        + RejectedExecutionHandler.class.getName());
+                    }
+
+                    return (RejectedExecutionHandler)
+                            clazz.getDeclaredConstructor().newInstance();
+
+                } catch (Exception e) {
+                    throw new IllegalArgumentException(
+                            "Unable to create RejectedExecutionHandler: "
+                                    + value,
+                            e);
+                }
+        }
     }
 }

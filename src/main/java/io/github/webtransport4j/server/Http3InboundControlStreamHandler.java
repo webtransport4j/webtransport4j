@@ -32,7 +32,7 @@ public class Http3InboundControlStreamHandler extends SimpleChannelInboundHandle
                 quic = (QuicChannel) ctx.channel();
             }
 
-            boolean valid = settings.h3DatagramEnabled();
+            boolean valid = Boolean.TRUE.equals(settings.h3DatagramEnabled());
             if (quic != null) {
                 quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
                 quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
