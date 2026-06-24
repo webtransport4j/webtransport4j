@@ -28,7 +28,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     msg.retain();
     final long finalSessionId = sessionId;
 
-    java.util.concurrent.ExecutorService executor = null;
+    java.util.concurrent.ExecutorService executor;
     if (channel instanceof QuicStreamChannel) {
       executor =
           ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
@@ -118,8 +118,8 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     ctx.close();
   }
 
-  private boolean tryDispatchToHandler(Channel channel, long sessionId, WebTransportFrame frame) {
-    WebTransportSessionManager mgr = null;
+  private void tryDispatchToHandler(Channel channel, long sessionId, WebTransportFrame frame) {
+    WebTransportSessionManager mgr;
     if (channel instanceof QuicStreamChannel) {
       mgr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     } else {
@@ -127,27 +127,27 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
     }
 
     if (mgr == null) {
-      return false;
+      return;
     }
 
     WebTransportSession session = mgr.get(sessionId);
     if (session == null || session.path() == null) {
-      return false;
+      return;
     }
 
-    WebTransportServer server = null;
-    if (channel instanceof QuicStreamChannel) {
-      io.netty.util.Attribute<WebTransportServer> attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+    WebTransportServer server;
+      io.netty.util.Attribute<WebTransportServer> attr;
+      if (channel instanceof QuicStreamChannel) {
+          attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+      } else {
+          attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+      }
       server = attr != null ? attr.get() : null;
-    } else {
-      io.netty.util.Attribute<WebTransportServer> attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
-      server = attr != null ? attr.get() : null;
-    }
 
-    WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : new WebTransportHandler() {};
+      WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : new WebTransportHandler() {};
     if (handler == null) {
       logger.error("No handler registered for path: " + session.path());
-      return false;
+      return;
     }
 
     try {
@@ -191,17 +191,16 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
             logger.error("Error in stream onData callback", e);
           }
         }
-      } else if (frame instanceof WebTransportDatagramFrame) {
+      }
+      else if (frame instanceof WebTransportDatagramFrame) {
         try {
           handler.onDatagramReceived(session, frame.content());
         } catch (Exception e) {
           logger.error("Error in onDatagramReceived callback", e);
         }
       }
-      return true;
     } catch (Exception e) {
       logger.error("Exception in tryDispatchToHandler", e);
-      return false;
     }
   }
 

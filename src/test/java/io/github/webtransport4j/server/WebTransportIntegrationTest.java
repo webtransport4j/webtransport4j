@@ -154,7 +154,7 @@ public class WebTransportIntegrationTest {
             return new ChannelInitializer<QuicStreamChannel>() {
               @Override
               protected void initChannel(QuicStreamChannel ch) {
-                WebTransportServer.addTrafficShapers(ch);
+                WebTransportStreamChannelInitializer.addTrafficShapers(ch);
                 ch.pipeline()
                     .addLast(
                         new ByteToMessageDecoder() {
@@ -237,7 +237,7 @@ public class WebTransportIntegrationTest {
                       ch.closeFuture().addListener(f -> connShaper.release());
                     }
 
-                    ch.pipeline().addLast(new WebTransportDatagramHandler());
+                    ch.pipeline().addLast(new WebTransportDatagramDecoder());
                     ch.pipeline().addLast(new WebTransportCapsuleHandler());
                     ch.pipeline().addLast(new MessageDispatcher());
                     ch.pipeline()
@@ -251,12 +251,14 @@ public class WebTransportIntegrationTest {
                                             + stream.streamId()
                                             + " | type "
                                             + stream.type());
-                                    WebTransportServer.addTrafficShapers(stream);
+                                    WebTransportStreamChannelInitializer.addTrafficShapers(stream);
                                     stream.pipeline().addFirst(new WebTransportDetectorHandler());
                                     stream.pipeline().addLast(new RawWebTransportHandler());
                                     stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                     stream.pipeline().addLast(new WebTransportHeadersHandler());
-                                    stream.pipeline().addLast(new WebTransportDataHandler());
+                                      stream.pipeline()
+                                              .addLast(new Http3DataToByteBufHandler());
+                                      stream.pipeline().addLast(new WebTransportCapsuleDecoder());
                                     stream.pipeline().addLast(new WebTransportCapsuleHandler());
                                     stream.pipeline().addLast(new MessageDispatcher());
                                   }
@@ -714,7 +716,8 @@ public class WebTransportIntegrationTest {
                                     stream.pipeline().addLast(new RawWebTransportHandler());
                                     stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                     stream.pipeline().addLast(new WebTransportHeadersHandler());
-                                    stream.pipeline().addLast(new WebTransportDataHandler());
+                                    stream.pipeline().addLast(new Http3DataToByteBufHandler());
+                                    stream.pipeline().addLast(new WebTransportCapsuleDecoder());
                                     stream.pipeline().addLast(new WebTransportCapsuleHandler());
                                     stream
                                         .pipeline()
@@ -1106,8 +1109,8 @@ public class WebTransportIntegrationTest {
     QuicChannel quicClient = bootstrap.connect().sync().getNow();
     System.out.println("DEBUG: Client connected. Active: " + quicClient.isActive());
 
-    // Register WebTransportDatagramHandler on Client QuicChannel pipeline
-    quicClient.pipeline().addLast(new WebTransportDatagramHandler());
+    // Register WebTransportDatagramDecoder on Client QuicChannel pipeline
+    quicClient.pipeline().addLast(new WebTransportDatagramDecoder());
     quicClient
         .pipeline()
         .addLast(

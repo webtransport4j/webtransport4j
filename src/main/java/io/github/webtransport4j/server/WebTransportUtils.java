@@ -3,9 +3,14 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import java.util.Optional;
@@ -20,8 +25,8 @@ public class WebTransportUtils {
 
 
 
-  public static final int UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
-  public static final int BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
+  public static final long UNI_STREAM_TYPE = 0x54; // WebTransport Unidirectional ID
+  public static final long BI_STREAM_TYPE = 0x41; // WebTransport Bidirectional
 
   // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-15 spec)
   public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
@@ -321,10 +326,10 @@ public class WebTransportUtils {
       logger.info("   ├── Capsule Bytes:      " + capsuleHex);
       logger.info("   └── HTTP/3 Frame Bytes: " + frameHex);
 
-      Object future =
+      ChannelFuture future =
           connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(buf));
-      if (future instanceof io.netty.channel.ChannelFuture) {
-        ((io.netty.channel.ChannelFuture) future)
+      if (future != null) {
+        future
             .addListener(
                 f -> {
                   if (f.isSuccess()) {
@@ -494,6 +499,41 @@ public class WebTransportUtils {
         + hexLine.toString()
         + "\n    └── Characters: "
         + charLine.toString();
+  }
+
+  public static QuicChannel getQuicChannel(ChannelHandlerContext ctx) {
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      return ((QuicStreamChannel) ctx.channel()).parent();
+    } else if (ctx.channel() instanceof QuicChannel) {
+      return (QuicChannel) ctx.channel();
+    }
+    return null;
+  }
+
+  public static void addTrafficShapers(QuicStreamChannel stream) {
+
+    QuicChannel quic = stream.parent();
+    GlobalTrafficShapingHandler globalTrafficShapingHandler = quic.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).get();
+
+    if (globalTrafficShapingHandler != null) {
+      stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShapingHandler);
+      logger.debug("🔧 Added global traffic shaper to stream " + stream.streamId());
+    }
+    GlobalTrafficShapingHandler connShaper = quic.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).get();
+    if (connShaper != null) {
+      stream.pipeline().addFirst("conn-traffic-shaper", connShaper);
+      logger.debug("🔧 Added connection traffic shaper to stream " + stream.streamId());
+    }
+    long streamWriteLimit =
+            WebTransportConfig.getLong("webtransport4j.server.traffic.stream.write.limit", 0L);
+    long streamReadLimit =
+            WebTransportConfig.getLong("webtransport4j.server.traffic.stream.read.limit", 0L);
+    if (streamWriteLimit > 0 || streamReadLimit > 0) {
+      ChannelTrafficShapingHandler streamShaper =
+              new ChannelTrafficShapingHandler(streamWriteLimit, streamReadLimit);
+      stream.pipeline().addFirst("stream-traffic-shaper", streamShaper);
+      logger.debug("🔧 Added stream traffic shaper to stream " + stream.streamId());
+    }
   }
 }
 

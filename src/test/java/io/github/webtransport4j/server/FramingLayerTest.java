@@ -21,7 +21,7 @@ public class FramingLayerTest {
 
   @Test
   public void testDatagramFraming() {
-    EmbeddedChannel channel = new EmbeddedChannel(new WebTransportDatagramHandler());
+    EmbeddedChannel channel = new EmbeddedChannel(new WebTransportDatagramDecoder());
 
     ByteBuf input = Unpooled.buffer();
     // Write Session ID (varint 40)
@@ -44,8 +44,9 @@ public class FramingLayerTest {
   public void testDataHandlerCapsuleParsing() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline().addLast(new WebTransportDataHandler());
-
+    channel.pipeline()
+            .addLast(new Http3DataToByteBufHandler())
+            .addLast(new WebTransportCapsuleDecoder());
     final WebTransportCapsule[] received = new WebTransportCapsule[1];
     channel
         .pipeline()
@@ -80,8 +81,9 @@ public class FramingLayerTest {
   public void testDataHandlerCapsuleFragmentation() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline().addLast(new WebTransportDataHandler());
-
+    channel.pipeline()
+            .addLast(new Http3DataToByteBufHandler())
+            .addLast(new WebTransportCapsuleDecoder());
     final WebTransportCapsule[] received = new WebTransportCapsule[1];
     channel
         .pipeline()
@@ -127,7 +129,9 @@ public class FramingLayerTest {
   public void testDataHandlerMultipleCapsules() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline().addLast(new WebTransportDataHandler());
+    channel.pipeline()
+            .addLast(new Http3DataToByteBufHandler())
+            .addLast(new WebTransportCapsuleDecoder());
 
     final java.util.List<WebTransportCapsule> list = new java.util.ArrayList<>();
     channel

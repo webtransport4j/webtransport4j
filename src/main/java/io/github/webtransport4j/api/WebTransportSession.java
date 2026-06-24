@@ -118,14 +118,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getClientInitiatedUniStreams() {
-    Set<WebTransportStream> streams = new HashSet<>();
-    for (QuicStreamChannel ch : activeClientInitiatedUni) {
-      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-      if (s != null) {
-        streams.add(s);
-      }
-    }
-    return streams;
+    return toWebTransportStreams(activeClientInitiatedUni);
   }
 
   public Set<QuicStreamChannel> getActiveServerInitiatedUni() {
@@ -133,14 +126,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getServerInitiatedUniStreams() {
-    Set<WebTransportStream> streams = new HashSet<>();
-    for (QuicStreamChannel ch : activeServerInitiatedUni) {
-      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-      if (s != null) {
-        streams.add(s);
-      }
-    }
-    return streams;
+    return toWebTransportStreams(activeServerInitiatedUni);
   }
 
   public Set<QuicStreamChannel> getActiveClientInitiatedBi() {
@@ -148,14 +134,7 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getClientInitiatedBiStreams() {
-    Set<WebTransportStream> streams = new HashSet<>();
-    for (QuicStreamChannel ch : activeClientInitiatedBi) {
-      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-      if (s != null) {
-        streams.add(s);
-      }
-    }
-    return streams;
+   return toWebTransportStreams(activeClientInitiatedBi);
   }
 
   public Set<QuicStreamChannel> getActiveServerInitiatedBi() {
@@ -163,8 +142,12 @@ public class WebTransportSession {
   }
 
   public Set<WebTransportStream> getServerInitiatedBiStreams() {
+    return toWebTransportStreams(activeServerInitiatedBi);
+  }
+
+  private Set<WebTransportStream> toWebTransportStreams(Set<QuicStreamChannel> quicStreamChannelSet) {
     Set<WebTransportStream> streams = new HashSet<>();
-    for (QuicStreamChannel ch : activeServerInitiatedBi) {
+    for (QuicStreamChannel ch : quicStreamChannelSet) {
       WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (s != null) {
         streams.add(s);
@@ -352,9 +335,8 @@ public class WebTransportSession {
    * Sends a datagram package over the WebTransport session.
    *
    * @param data The datagram payload.
-   * @return A future that is notified when the write completes.
    */
-  public Future<Void> sendDatagram(ByteBuf data) {
+  public void sendDatagram(ByteBuf data) {
     Channel parentChannel = connectStream.parent();
     ByteBuf header = parentChannel.alloc().directBuffer();
     WebTransportUtils.writeVarInt(header, sessionStreamId);
@@ -362,8 +344,8 @@ public class WebTransportSession {
     CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
     composite.addComponent(true, header);
     composite.addComponent(true, data);
-    
-    return parentChannel.writeAndFlush(composite);
+
+    parentChannel.writeAndFlush(composite);
   }
 
   /**
@@ -407,72 +389,54 @@ public class WebTransportSession {
     return createUniStream(DEFAULT_UNI_INITIALIZER);
   }
 
-  public Future<WebTransportStream> createUniStream(ChannelHandler streamHandler) {
-    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createUniStream(this.connectStream, Optional.empty(), streamHandler)
-        .addListener((Future<QuicStreamChannel> f) -> {
-          if (f.isSuccess()) {
-            QuicStreamChannel ch = f.getNow();
-            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            promise.setSuccess(stream);
-          } else {
-            promise.setFailure(f.cause());
-          }
-        });
-    return promise;
-  }
+  public Future<WebTransportStream> createUniStream(
+          ChannelHandler streamHandler) {
 
-  public Future<WebTransportStream> createUniStream(boolean bypassLimit, ChannelHandler streamHandler) {
-    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createUniStream(this.connectStream, Optional.of(bypassLimit), streamHandler)
-        .addListener((Future<QuicStreamChannel> f) -> {
-          if (f.isSuccess()) {
-            QuicStreamChannel ch = f.getNow();
-            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            promise.setSuccess(stream);
-          } else {
-            promise.setFailure(f.cause());
-          }
-        });
-    return promise;
+    return wrapStreamFuture(
+            WebTransportUtils.createUniStream(
+                    connectStream,
+                    Optional.empty(),
+                    streamHandler));
   }
 
   public Future<WebTransportStream> createBiStream() {
     return createBiStream(DEFAULT_BI_INITIALIZER);
   }
 
-  public Future<WebTransportStream> createBiStream(ChannelHandler streamHandler) {
-    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createBiStream(this.connectStream, Optional.empty(), streamHandler)
-        .addListener((Future<QuicStreamChannel> f) -> {
-          if (f.isSuccess()) {
-            QuicStreamChannel ch = f.getNow();
-            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            promise.setSuccess(stream);
-          } else {
-            promise.setFailure(f.cause());
-          }
-        });
+  public Future<WebTransportStream> createBiStream(
+          ChannelHandler streamHandler) {
+
+    return wrapStreamFuture(
+            WebTransportUtils.createBiStream(
+                    connectStream,
+                    Optional.empty(),
+                    streamHandler));
+  }
+
+  private Future<WebTransportStream> wrapStreamFuture(
+          Future<QuicStreamChannel> streamFuture) {
+
+    Promise<WebTransportStream> promise =
+            connectStream.parent().eventLoop().newPromise();
+
+    streamFuture.addListener((Future<QuicStreamChannel> f) -> {
+      if (f.isSuccess()) {
+        QuicStreamChannel ch = f.getNow();
+
+        WebTransportStream stream =
+                new WebTransportStream(ch, sessionStreamId);
+
+        ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY)
+                .set(stream);
+
+        promise.setSuccess(stream);
+      } else {
+        promise.setFailure(f.cause());
+      }
+    });
+
     return promise;
   }
 
-  public Future<WebTransportStream> createBiStream(boolean bypassLimit, ChannelHandler streamHandler) {
-    Promise<WebTransportStream> promise = this.connectStream.parent().eventLoop().newPromise();
-    WebTransportUtils.createBiStream(this.connectStream, Optional.of(bypassLimit), streamHandler)
-        .addListener((Future<QuicStreamChannel> f) -> {
-          if (f.isSuccess()) {
-            QuicStreamChannel ch = f.getNow();
-            WebTransportStream stream = new WebTransportStream(ch, this.sessionStreamId);
-            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            promise.setSuccess(stream);
-          } else {
-            promise.setFailure(f.cause());
-          }
-        });
-    return promise;
-  }
 
 }

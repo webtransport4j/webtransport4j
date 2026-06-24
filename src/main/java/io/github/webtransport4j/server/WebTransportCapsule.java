@@ -3,7 +3,7 @@ package io.github.webtransport4j.server;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.DefaultByteBufHolder;
 
-class WebTransportCapsule extends DefaultByteBufHolder implements WebTransportFrame {
+public class WebTransportCapsule extends DefaultByteBufHolder implements WebTransportFrame {
   private final long sessionId;
   private final long capsuleType;
 

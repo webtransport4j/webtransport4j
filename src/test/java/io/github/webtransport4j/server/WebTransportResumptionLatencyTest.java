@@ -90,7 +90,7 @@ public class WebTransportResumptionLatencyTest {
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(100000L);
 
-                    ch.pipeline().addLast(new WebTransportDatagramHandler());
+                    ch.pipeline().addLast(new WebTransportDatagramDecoder());
                     ch.pipeline().addLast(new WebTransportCapsuleHandler());
                     ch.pipeline().addLast(new MessageDispatcher());
                     ch.pipeline().addLast(

@@ -52,7 +52,7 @@ public class WebTransportServer {
   private int port;
   
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
-  private WebTransportHandler defaultHandler;
+  private final WebTransportHandler defaultHandler;
 
   public WebTransportServer(WebTransportHandler defaultHandler) {
     if (defaultHandler == null) {
@@ -111,7 +111,6 @@ public class WebTransportServer {
   }
 
 
-
   public static GlobalTrafficShapingHandler globalTrafficShaper;
 
   
@@ -149,6 +148,7 @@ public class WebTransportServer {
     if (globalWriteLimit > 0 || globalReadLimit > 0) {
       globalTrafficShaper =
           new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+      channel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(globalTrafficShaper);
     }
     String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
     String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
@@ -202,8 +202,8 @@ public class WebTransportServer {
           System.arraycopy(keyBytes, 32, aesKey, 0, 16);
           ticketKeys[i] = new SslSessionTicketKey(name, hmacKey, aesKey);
         }
-        if (sslContext.sessionContext() instanceof QuicSslSessionContext) {
-          ((QuicSslSessionContext) sslContext.sessionContext()).setTicketKeys(ticketKeys);
+        if (sslContext.sessionContext() != null) {
+          sslContext.sessionContext().setTicketKeys(ticketKeys);
           logger.info("🔑 Explicit TLS Session Ticket Keys loaded. 1-RTT Session Resumption across servers is fully supported.");
         }
       } catch (Exception e) {
@@ -281,265 +281,7 @@ public class WebTransportServer {
             .initialMaxStreamDataUnidirectional(
                 WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
             .tokenHandler(getTokenHandler())
-            .handler(
-                new ChannelInitializer<QuicChannel>() {
-                  @Override
-                  protected void initChannel(QuicChannel ch) {
-                    logger.debug("Opening quic connection " + ch.id());
-                    long defUni = settings.get(0x2b64L) == null ? 0L : settings.get(0x2b64L);
-                    long defBidi = settings.get(0x2b65L) == null ? 0L : settings.get(0x2b65L);
-                    long defData = settings.get(0x2b61L) == null ? 0L : settings.get(0x2b61L);
-                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(defUni);
-                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(defBidi);
-                    ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(defData);
-                    ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
-                    ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
-                    if (businessExecutor != null) {
-                      ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-                    }
-
-                    long connWriteLimit =
-                        WebTransportConfig.getLong(
-                            "webtransport4j.server.traffic.connection.write.limit", 0L);
-                    long connReadLimit =
-                        WebTransportConfig.getLong(
-                            "webtransport4j.server.traffic.connection.read.limit", 0L);
-                    if (connWriteLimit > 0 || connReadLimit > 0) {
-                      GlobalTrafficShapingHandler connShaper =
-                          new GlobalTrafficShapingHandler(
-                              ch.eventLoop(), connWriteLimit, connReadLimit);
-                      ch.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).set(connShaper);
-                      ch.closeFuture().addListener(f -> connShaper.release());
-                    }
-
-                    ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
-                    
-                    InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
-                    String ip = remote.getAddress().getHostAddress();
-                    int port = remote.getPort();
-                    String nettyId = ch.id().asShortText();
-                    // 2. PRINT NICE LOG
-                    logger.debug("\n🔌 NEW QUIC CONNECTION ESTABLISHED");
-                    logger.debug("    ├── 🌍 Remote IP:   " + ip);
-                    logger.debug("    ├── 🚪 Remote Port: " + port);
-                    logger.debug("    └── 🆔 Channel ID:  " + nettyId);
-                    ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(WebTransportServer.this);
-                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
-                        .set(new WebTransportSessionManager());
-                    ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-                    ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
-                    ch.pipeline().addLast(new WebTransportDatagramHandler());
-                    logger.debug(
-                        "🔧 Added WebTransportDatagramHandler. Pipeline now: "
-                            + ch.pipeline().names());
-                    ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                    logger.debug(
-                        "🔧 Added WebTransportCapsuleHandler. Pipeline now: "
-                            + ch.pipeline().names());
-                    ch.pipeline().addLast(new MessageDispatcher());
-                    logger.debug(
-                        "🔧 Added MessageDispatcher. Pipeline now: " + ch.pipeline().names());
-                    ch.pipeline()
-                        .addLast(
-                            new Http3ServerConnectionHandler(
-                                new ChannelInitializer<QuicStreamChannel>() {
-                                  @Override
-                                  protected void initChannel(QuicStreamChannel stream) {
-                                  
-                                    addTrafficShapers(stream);
-
-                                    stream.pipeline().addFirst(new WebTransportDetectorHandler());
-                                    logger.debug(
-                                        "🔧 Added WebTransportDetectorHandler. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream
-                                        .pipeline()
-                                        .addFirst(
-                                            new QuicGlobalSniffer("STREAM-" + stream.streamId()));
-                                    logger.debug(
-                                        "🔧 Added QuicGlobalSniffer (per‑stream). Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new RawWebTransportHandler());
-                                    logger.debug(
-                                        "🔧 Added RawWebTransportHandler. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
-                                    logger.debug(
-                                        "🔧 Added WebTransportStreamFrameDecoder. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new WebTransportHeadersHandler());
-                                    logger.debug(
-                                        "🔧 Added WebTransportHeadersHandler. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new WebTransportDataHandler());
-                                    logger.debug(
-                                        "🔧 Added WebTransportDataHandler. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new WebTransportCapsuleHandler());
-                                    logger.debug(
-                                        "🔧 Added WebTransportCapsuleHandler. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    stream.pipeline().addLast(new MessageDispatcher());
-                                    logger.debug(
-                                        "🔧 Added MessageDispatcher. Pipeline now: "
-                                            + stream.pipeline().names());
-                                    // DEBUG: Catch-all exception handler
-                                    stream
-                                        .pipeline()
-                                        .addLast(
-                                            new ChannelInboundHandlerAdapter() {
-                                              @Override
-                                              public void exceptionCaught(
-                                                  ChannelHandlerContext ctx, Throwable cause) {
-                                                System.err.println(
-                                                    "❌ PIPELINE ERROR: " + cause.getMessage());
-                                                cause.printStackTrace();
-                                              }
-                                            });
-                                  }
-                                },
-                                new ChannelInboundHandlerAdapter() {
-                                  @Override
-                                  public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                                    if (!(msg instanceof Http3SettingsFrame)) {
-                                      ctx.fireChannelRead(msg);
-                                      return;
-                                    }
-                                    if (msg instanceof Http3SettingsFrame) {
-                                      Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
-                                      logger.debug("PEER SETTINGS: " + settingsFrame);
-                                      io.netty.handler.codec.http3.Http3Settings settings =
-                                          settingsFrame.settings();
-                                      if (settings != null) {
-                                        QuicChannel quic = null;
-                                        if (ctx.channel() instanceof QuicStreamChannel) {
-                                          quic = ((QuicStreamChannel) ctx.channel()).parent();
-                                        } else if (ctx.channel() instanceof QuicChannel) {
-                                          quic = (QuicChannel) ctx.channel();
-                                        }
-
-                                        boolean valid = settings.h3DatagramEnabled();
-                                        if (quic != null) {
-                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
-                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
-                                        }
-
-                                        // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
-                                        // (0x33) is
-                                        // enabled (1)
-                                        // NOTE: Do NOT close the connection immediately here.
-                                        // Per RFC, CONNECT requests can arrive before or after
-                                        // SETTINGS
-                                        // (out of order on different streams). If we close
-                                        // immediately,
-                                        // a late-arriving CONNECT never gets a proper
-                                        // H3_MESSAGE_ERROR
-                                        // reset. Instead, we mark the connection invalid via
-                                        // attributes
-                                        // and let WebTransportHeadersHandler reject CONNECT
-                                        // requests.
-                                        if (!valid) {
-                                          logger.warn(
-                                              "❌ WebTransport requirements not met: Client does not"
-                                                  + " support H3 Datagrams. Treating all"
-                                                  + " established sessions as malformed.");
-                                          if (quic != null) {
-                                            WebTransportSessionManager mgr =
-                                                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
-                                                    .get();
-                                            if (mgr != null) {
-                                              for (WebTransportSession session :
-                                                  new ArrayList<>(mgr.getSessions())) {
-                                                logger.warn(
-                                                    "⚡️ Resetting established session ID "
-                                                        + session.getSessionStreamId()
-                                                        + " with H3_MESSAGE_ERROR");
-                                                session
-                                                    .getConnectStream()
-                                                    .shutdown(
-                                                        0x010e,
-                                                        session.getConnectStream().newPromise());
-                                              }
-                                            }
-                                          }
-                                          ReferenceCountUtil.release(msg);
-                                          return;
-                                        }
-
-                                        if (quic != null) {
-                                          quic.attr(
-                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
-                                              .set(settings.get(0x2b64L));
-                                          quic.attr(
-                                                  WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
-                                              .set(settings.get(0x2b65L));
-                                          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
-                                              .set(settings.get(0x2b61L));
-                                        }
-                                      }
-                                    }
-                                    ReferenceCountUtil.release(msg);
-                                  }
-                                },
-                                (streamType) -> {
-                                  if (streamType == 0x54) {
-                                    return new ChannelInitializer<QuicStreamChannel>() {
-                                      @Override
-                                      protected void initChannel(QuicStreamChannel ch) {
-                                        addTrafficShapers(ch);
-                                        ch.pipeline()
-                                            .addLast(
-                                                new ByteToMessageDecoder() {
-                                                  private boolean sessionHeaderRead = false;
-
-                                                  @Override
-                                                  protected void decode(
-                                                      ChannelHandlerContext ctx,
-                                                      ByteBuf in,
-                                                      List<Object> out) {
-                                                    if (!sessionHeaderRead) {
-                                                      in.markReaderIndex();
-                                                      long sessionId = readVariableLengthInt(in);
-                                                      if (sessionId == -1) {
-                                                        in.resetReaderIndex();
-                                                        return;
-                                                      }
-                                                      ctx.channel()
-                                                          .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
-                                                          .set(sessionId);
-                                                      sessionHeaderRead = true;
-                                                    }
-
-                                                    if (!in.isReadable()) {
-                                                      return;
-                                                    }
-
-                                                    String savedPath =
-                                                        ctx.channel()
-                                                            .parent()
-                                                            .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
-                                                            .get();
-                                                    ctx.channel()
-                                                        .attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)
-                                                        .set(streamType);
-                                                    ctx.channel()
-                                                        .attr(WebTransportAttributeKeys.SESSION_PATH_KEY)
-                                                        .set(savedPath);
-                                                    out.add(in.readRetainedSlice(in.readableBytes()));
-                                                  }
-                                                });
-                                        ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
-                                        ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                                        ch.pipeline().addLast(new MessageDispatcher());
-                                      }
-                                    };
-                                  }
-                                  return null;
-                                },
-                                new DefaultHttp3SettingsFrame(settings),
-                                true));
-                  }
-                })
+            .handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins))
             .build();
     this.channel =
         new Bootstrap()
@@ -681,26 +423,5 @@ public class WebTransportServer {
     }
   }
 
-  public static void addTrafficShapers(QuicStreamChannel stream) {
-    QuicChannel quic = stream.parent();
-    if (globalTrafficShaper != null) {
-      stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShaper);
-      logger.debug("🔧 Added global traffic shaper to stream " + stream.streamId());
-    }
-    GlobalTrafficShapingHandler connShaper = quic.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).get();
-    if (connShaper != null) {
-      stream.pipeline().addFirst("conn-traffic-shaper", connShaper);
-      logger.debug("🔧 Added connection traffic shaper to stream " + stream.streamId());
-    }
-    long streamWriteLimit =
-        WebTransportConfig.getLong("webtransport4j.server.traffic.stream.write.limit", 0L);
-    long streamReadLimit =
-        WebTransportConfig.getLong("webtransport4j.server.traffic.stream.read.limit", 0L);
-    if (streamWriteLimit > 0 || streamReadLimit > 0) {
-      ChannelTrafficShapingHandler streamShaper =
-          new ChannelTrafficShapingHandler(streamWriteLimit, streamReadLimit);
-      stream.pipeline().addFirst("stream-traffic-shaper", streamShaper);
-      logger.debug("🔧 Added stream traffic shaper to stream " + stream.streamId());
-    }
-  }
+
 }

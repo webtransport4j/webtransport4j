@@ -5,7 +5,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
-import io.netty.handler.codec.quic.QuicStreamChannel;
 import org.apache.log4j.Logger;
 
 public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebTransportCapsule> {
@@ -40,7 +39,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       // Cleanly close only this WebTransport session stream
       ctx.close();
     }
-    /**
+    /*
      * 5.6.2. WT_MAX_STREAMS Capsule
      *
      * <p>An HTTP capsule [HTTP-DATAGRAM] called WT_MAX_STREAMS is introduced to inform the peer of
@@ -93,7 +92,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           return;
         }
 
-        QuicChannel quic = getQuicChannel(ctx);
+        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
@@ -155,7 +154,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       }
     }
 
-    /**
+    /*
      * 5.6.4. WT_MAX_DATA Capsule
      *
      * <p>An HTTP capsule [HTTP-DATAGRAM] called WT_MAX_DATA (type=0x190B4D3D) is introduced to
@@ -193,7 +192,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       ByteBuf content = capsule.content();
       long maxData = WebTransportUtils.readVariableLengthInt(content);
       if (maxData != -1) {
-        QuicChannel quic = getQuicChannel(ctx);
+        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
@@ -222,7 +221,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         }
       }
     }
-    /**
+    /*
      * 5.6.5. WT_DATA_BLOCKED Capsule
      *
      * <p>A sender SHOULD send a WT_DATA_BLOCKED capsule (type=0x190B4D41) when it wishes to send
@@ -242,7 +241,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       ByteBuf content = capsule.content();
       long maxData = WebTransportUtils.readVariableLengthInt(content);
       if (maxData != -1) {
-        QuicChannel quic = getQuicChannel(ctx);
+        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
@@ -272,7 +271,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         }
       }
     }
-    /**
+    /*
      * 5.6.3. WT_STREAMS_BLOCKED Capsule
      *
      * <p>A sender SHOULD send a WT_STREAMS_BLOCKED capsule when it wishes to open a stream but is
@@ -286,7 +285,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       ByteBuf content = capsule.content();
       long blockedAtMax = WebTransportUtils.readVariableLengthInt(content);
       if (blockedAtMax != -1) {
-        QuicChannel quic = getQuicChannel(ctx);
+        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
         if (quic != null) {
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
@@ -334,14 +333,5 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       logger.warn(
           "⚠️ Received unhandled protocol capsule: 0x" + Long.toHexString(capsule.capsuleType()));
     }
-  }
-
-  private QuicChannel getQuicChannel(ChannelHandlerContext ctx) {
-    if (ctx.channel() instanceof QuicStreamChannel) {
-      return ((QuicStreamChannel) ctx.channel()).parent();
-    } else if (ctx.channel() instanceof QuicChannel) {
-      return (QuicChannel) ctx.channel();
-    }
-    return null;
   }
 }

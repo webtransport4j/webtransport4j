@@ -70,4 +70,7 @@ public final class WebTransportAttributeKeys {
   // Connection Traffic Shaping Attribute Key
   public static final AttributeKey<GlobalTrafficShapingHandler> CONN_TRAFFIC_SHAPER = 
       AttributeKey.valueOf("wt.conn.traffic.shaper");
+
+  public static final AttributeKey<GlobalTrafficShapingHandler> GLOBAL_TRAFFIC_SHAPER =
+          AttributeKey.valueOf("wt.global.traffic.shaper");
 }
