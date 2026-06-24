@@ -35,38 +35,48 @@ class WebTransportSessionManager {
         quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
             ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
             : null;
-    Long biMax =
-        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
-            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
-            : null;
-    Long dataMax =
-        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
-            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
-            : null;
-    boolean flowControlEnabled = false;
-    if ((uniMax != null && uniMax > 0L)
-        || (biMax != null && biMax > 0L)
-        || (dataMax != null && dataMax > 0L)) {
-      flowControlEnabled = true;
-    }
-    if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-      uniMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
-    }
-    if ((biMax == null || biMax == 0L) && flowControlEnabled) {
-      biMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
-    }
-    if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
-      dataMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
-      WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
-    }
+     Long biMax =
+         quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
+             ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
+             : null;
+     Long dataMax =
+         quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
+             ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
+             : null;
+
+     // Flow control is enabled if any of the settings are explicitly set to non-zero values.
+     // Zero values are treated as "use fallback default", not as "unlimited".
+     // This allows per-deployment configuration of flow control defaults.
+     boolean flowControlEnabled = false;
+     if ((uniMax != null && uniMax > 0L)
+         || (biMax != null && biMax > 0L)
+         || (dataMax != null && dataMax > 0L)) {
+       flowControlEnabled = true;
+     }
+
+     // Apply fallback defaults for any zero-valued settings when flow control is enabled.
+     // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
+     if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
+       uniMax =
+           WebTransportConfig.getLong(
+               "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+       logger.debug("Using fallback uni streams limit: " + uniMax);
+       WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
+     }
+     if ((biMax == null || biMax == 0L) && flowControlEnabled) {
+       biMax =
+           WebTransportConfig.getLong(
+               "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+       logger.debug("Using fallback bidi streams limit: " + biMax);
+       WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
+     }
+     if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
+       dataMax =
+           WebTransportConfig.getLong(
+               "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+       logger.debug("Using fallback data limit: " + dataMax);
+       WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
+     }
 
     // Create the session state
     long uniMaxVal = uniMax != null ? uniMax : 0L;

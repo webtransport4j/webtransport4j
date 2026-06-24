@@ -187,14 +187,14 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
             if (mgr != null) {
               WebTransportSession session = mgr.get(sessionId);
               if (session != null && session.isFlowControlEnabled()) {
-                long currentReceived = session.getCumulativeBytesReceived();
                 long localLimit = session.getSettingsMaxData();
-                if (currentReceived + payloadBytes > localLimit) {
+                long newCumulativeReceived = session.incrementCumulativeBytesReceived(payloadBytes);
+
+                // Validate that the increment didn't exceed the limit
+                if (newCumulativeReceived > localLimit) {
                   logger.warn(
                       "❌ Flow control: Read blocked. Cumulative received ("
-                          + currentReceived
-                          + ") + read ("
-                          + payloadBytes
+                          + newCumulativeReceived
                           + ") exceeds local limit ("
                           + localLimit
                           + "). Closing session.");
@@ -206,11 +206,10 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                 }
                 logger.debug(
                     String.format(
-                        ">>>>>>>>>>>> %d,%d,%d,%d",
-                        currentReceived,
-                        (long) payloadBytes,
-                        session.getCumulativeBytesReceived(),
-                        session.incrementCumulativeBytesReceived(payloadBytes)));
+                        "Flow control: Received %d bytes, cumulative = %d/%d",
+                        payloadBytes,
+                        newCumulativeReceived,
+                        localLimit));
               }
             }
           }
@@ -295,7 +294,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     // Enforce the session-level flow control limit.
     // If the current write would exceed the peer's total allowed sent bytes limit:
     if (currentSent + bytesToWrite > peerLimit) {
-      // Send WT_DATA_BLOCKED capsule if not already sent for this peerLimit
+      // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
+      // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
+      // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
       long lastLimit;
       while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
         if (session.getLastSentDataBlockedLimit().compareAndSet(lastLimit, peerLimit)) {

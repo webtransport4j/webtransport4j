@@ -46,9 +46,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
         ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
 
-        if (businessExecutor != null) {
-            ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-        }
+         if (businessExecutor != null) {
+             ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
+             logger.info("⚠️  BUSINESS EXECUTOR CONFIGURED: " +
+               businessExecutor.getClass().getSimpleName() +
+               " (Execution mode: NOT NETTY_EVENT_LOOP)");
+         } else {
+             logger.info("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
+         }
 
         long connWriteLimit =
                 WebTransportConfig.getLong(
@@ -76,10 +81,18 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         logger.debug("    ├── 🚪 Remote Port: " + port);
         logger.debug("    └── 🆔 Channel ID:  " + nettyId);
 
-        ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
-        ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
-        ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-        ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
+         ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
+         ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
+
+         if (businessExecutor != null) {
+             ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
+             logger.debug("📌 Set BUSINESS_EXECUTOR on channel: " +
+               businessExecutor.getClass().getSimpleName());
+         } else {
+             logger.debug("📌 BUSINESS_EXECUTOR is NULL on channel (direct event loop execution)");
+         }
+
+         ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
 
         ch.pipeline().addLast(new WebTransportDatagramDecoder());
         logger.debug(

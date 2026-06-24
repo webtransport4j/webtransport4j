@@ -16,6 +16,8 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.log4j.Logger;
 
 class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
@@ -96,7 +98,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         logger.warn("❌ Rejecting connection from invalid session id: " + sessionId);
         if (quic != null) {
           quic.close(
-              true, (int) Http3ErrorCode.H3_ID_ERROR.code(), io.netty.buffer.Unpooled.EMPTY_BUFFER);
+              true, Http3ErrorCode.H3_ID_ERROR.code(), io.netty.buffer.Unpooled.EMPTY_BUFFER);
         } else {
           ctx.close();
         }
@@ -157,35 +159,126 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                 });
         mgr.register(connectStream);
       }
-      mgr.getSessions().stream().forEach(session-> {
-        session.createBiStream()
-    .addListener((Future<WebTransportStream> f) -> {
-        if (!f.isSuccess()) {
-            f.cause().printStackTrace();
-            return;
-        }
 
-        WebTransportStream stream = f.getNow();
 
-       stream.writeText(System.currentTimeMillis()+"BIiiii");
-    });
-      });
+      // --- DEV ENGINE CONTINUOUS SERVER PUSH IMPLEMENTATION (JAVA 8) ---
+// REMOVE when production ready
+      boolean pushEnabled = WebTransportConfig.getBoolean("webtransport4j.dev.server.push.enabled", false);
 
-      mgr.getSessions().stream().forEach(session-> {
-        session.createUniStream()
-    .addListener((Future<WebTransportStream> f) -> {
-        if (!f.isSuccess()) {
-            f.cause().printStackTrace();
-            return;
-        }
+      if (pushEnabled && mgr != null) {
+        long intervalMs = WebTransportConfig.getLong("webtransport4j.dev.server.push.interval.ms", 1000L);
+        final boolean bidiEnabled = WebTransportConfig.getBoolean("webtransport4j.dev.server.push.bidi.enabled", true);
+        final boolean uniEnabled = WebTransportConfig.getBoolean("webtransport4j.dev.server.push.uni.enabled", true);
+        final boolean datagramEnabled = WebTransportConfig.getBoolean("webtransport4j.dev.server.push.datagram.enabled", true);
+        final int paddingBytes = WebTransportConfig.getInt("webtransport4j.dev.server.push.payload.padding.bytes", 0);
 
-        WebTransportStream stream = f.getNow();
+        logger.info("🧪 [DEV ENGINE] Spawning continuous telemetry scheduler loop every " + intervalMs + "ms");
 
-  
+        // Track active streams globally to reuse them across scheduler ticks
+        // Using Object as the key type to represent the Session, adjust to your specific WebTransportSession class
+        final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeBidiStreams = new java.util.concurrent.ConcurrentHashMap<>();
+        final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeUniStreams = new java.util.concurrent.ConcurrentHashMap<>();
 
-       stream.writeText(System.currentTimeMillis()+"Uniii");
-    });
-      });
+        io.netty.util.concurrent.ScheduledFuture<?> pushTask = ctx.executor().scheduleAtFixedRate(() -> {
+
+          long timestamp = System.currentTimeMillis();
+
+          StringBuilder padBuilder = new StringBuilder();
+          if (paddingBytes > 0) {
+            for (int i = 0; i < paddingBytes; i++) {
+              padBuilder.append("X");
+            }
+          }
+          final String padding = padBuilder.toString();
+          final String basePayload = timestamp + "_SERVER_PUSH_";
+          final String fullPayload = basePayload + padding;
+
+          mgr.getSessions().forEach(session -> {
+            if (session == null) return;
+            if (bidiEnabled) {
+              WebTransportStream existingBidi = activeBidiStreams.get(session);
+
+              if (existingBidi != null) {
+                // Reuse existing stream
+                existingBidi.writeText(fullPayload + "_Bi").addListener(writeResult -> {
+                  if (!writeResult.isSuccess()) {
+                    logger.warn("⚠️ [DEV BIDI] Write failed, dropping cached stream ID: " + existingBidi.streamId());
+                    activeBidiStreams.remove(session); // Purge dead stream so a new one is created next tick
+                  }
+                    logger.info("📤 [DEV BIDI OUT] Pushed to existing stream ID: " + existingBidi.streamId());
+
+                });
+              } else {
+                // Create and cache new stream
+                session.createBiStream().addListener((Future<WebTransportStream> f) -> {
+                  if (!f.isSuccess()) {
+                     logger.warn("⚠️ [DEV BIDI] Stream creation denied. Max allocations exhausted.");
+                    return;
+                  }
+                  WebTransportStream stream = f.getNow();
+                  activeBidiStreams.put(session, stream); // Cache for future ticks
+
+                  stream.writeText(fullPayload + "_Bi").addListener(writeResult -> {
+                    if (writeResult.isSuccess()) {
+                      logger.info("📤 [DEV BIDI OUT] Allocated NEW stream frame ID: " + stream.streamId());
+                    }
+                  });
+                });
+              }
+            }
+
+            if (uniEnabled) {
+              WebTransportStream existingUni = activeUniStreams.get(session);
+
+              if (existingUni != null) {
+                // Reuse existing stream
+                existingUni.writeText(fullPayload + "_Uni").addListener(writeResult -> {
+                  if (!writeResult.isSuccess()) {
+                    logger.warn("⚠️ [DEV UNI] Write failed, dropping cached stream ID: " + existingUni.streamId());
+                    activeUniStreams.remove(session);
+                  }
+                  logger.info("📤 [DEV UNI OUT] Pushed to existing stream ID: " + existingUni.streamId());
+                });
+              } else {
+                // Create and cache new stream
+                session.createUniStream().addListener((Future<WebTransportStream> f) -> {
+                  if (!f.isSuccess()) {
+                    logger.warn("⚠️ [DEV UNI] Stream creation denied. Flow control choked.");
+                    return;
+                  }
+                  WebTransportStream stream = f.getNow();
+                  activeUniStreams.put(session, stream); // Cache for future ticks
+
+                  stream.writeText(fullPayload + "_Uni").addListener(writeResult -> {
+                    if (writeResult.isSuccess()) {
+                      logger.info("📤 [DEV UNI OUT] Allocated NEW stream frame ID: " + stream.streamId());
+                    }
+                  });
+                });
+              }
+            }
+
+            // 3. Continuous Unreliable Datagram Frames (UNCHANGED)
+            if (datagramEnabled) {
+              byte[] rawDatagram = (fullPayload + "_Datagram").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+              session.sendDatagram(rawDatagram).addListener(writeResult -> {
+                if (writeResult.isSuccess()) {
+                  logger.info("⚡ [DEV DATAGRAM OUT] packet flushed directly to connection pipe.");
+                }
+              });
+            }
+          });
+
+        }, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+
+        // Terminate scheduling task immediately if the parent control stream dies
+        connectStream.closeFuture().addListener(f -> {
+          logger.info("🛑 [DEV ENGINE] Control stream terminated. Cleaning up loop engine context.");
+          pushTask.cancel(false);
+          activeBidiStreams.clear();
+          activeUniStreams.clear();
+        });
+      }
     }
 
     

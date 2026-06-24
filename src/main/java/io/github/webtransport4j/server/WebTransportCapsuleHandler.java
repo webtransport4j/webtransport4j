@@ -301,8 +301,18 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                   isBidi ? session.getInitialMaxStreamsBidi() : session.getInitialMaxStreamsUni();
               long remaining = initialLimit - activeCount;
 
-              if (remaining > 0) {
-                long newLimit = blockedAtMax + remaining;
+              // Cap the remaining slots by the configured max.active.streams setting.
+              // This prevents unbounded stream limit growth in response to WT_STREAMS_BLOCKED.
+              long maxActiveStreams =
+                  WebTransportConfig.getLong(
+                      isBidi
+                          ? "webtransport4j.webtransport.flowcontrol.max.active.streams.bidi"
+                          : "webtransport4j.webtransport.flowcontrol.max.active.streams.uni",
+                      100L);
+              long cappedRemaining = Math.min(remaining, maxActiveStreams);
+
+              if (cappedRemaining > 0) {
+                long newLimit = blockedAtMax + cappedRemaining;
                 if (isBidi) {
                   session.setSettingsMaxStreamsBidi(newLimit);
                 } else {
@@ -315,15 +325,25 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                         + newLimit
                         + " (blocked="
                         + blockedAtMax
-                        + " + remaining="
+                        + " + capped_remaining="
+                        + cappedRemaining
+                        + " / "
                         + remaining
+                        + " max_active="
+                        + maxActiveStreams
                         + ")");
                 WebTransportUtils.sendMaxStreamsCapsule(
                     session.getConnectStream(), isBidi, newLimit);
               } else {
                 logger.info(
-                    "ℹ️ WT_STREAMS_BLOCKED received but no remaining active slots. "
-                        + "Not extending limit.");
+                    "ℹ️ WT_STREAMS_BLOCKED received but no remaining active slots available "
+                        + "(active="
+                        + activeCount
+                        + " initial="
+                        + initialLimit
+                        + " max_extension="
+                        + maxActiveStreams
+                        + "). Not extending limit.");
               }
             }
           }

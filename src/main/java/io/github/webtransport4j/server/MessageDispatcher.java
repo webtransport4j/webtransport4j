@@ -44,42 +44,54 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         } finally {
           msg.release();
         }
-    } else {
-      boolean submitted = false;
-      try {
-        executor.execute(
-          () -> {
-            try {
-              tryDispatchToHandler(channel, finalSessionId, msg);
-            } catch (Throwable t) {
-              logger.error("Uncaught exception/error during business logic execution", t);
-            } finally {
-              msg.release();
-            }
-          }
-        );
-        submitted = true;
-      } catch (RejectedExecutionException e) {
-        logger.error("Task submission rejected by business executor.", e);
-        if (channel instanceof QuicStreamChannel) {
-          ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
-        } else {
-          channel.close();
-        }
-      } catch (Throwable t) {
-        logger.error("Failed to submit task to business executor.", t);
-        if (channel instanceof QuicStreamChannel) {
-          ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
-        } else {
-          channel.close();
-        }
-      } finally {
-        if (!submitted) {
-          msg.release();
-        }
-      }
-    }
-    
+     } else {
+       boolean submitted = false;
+       try {
+         if (logger.isDebugEnabled()) {
+           logger.debug("📤 Submitting task to executor: " +
+             (executor != null ? executor.getClass().getSimpleName() : "NULL"));
+         }
+         executor.execute(
+           () -> {
+             try {
+               tryDispatchToHandler(channel, finalSessionId, msg);
+             } catch (Throwable t) {
+               logger.error("Uncaught exception/error during business logic execution", t);
+             } finally {
+               msg.release();
+             }
+           }
+         );
+         submitted = true;
+       } catch (RejectedExecutionException e) {
+         logger.error(
+           "❌ REJECTED: Task submission rejected by business executor (queue full?). " +
+           "Executor: " + (executor != null ? executor.getClass().getSimpleName() : "NULL") +
+           " | SessionID: " + finalSessionId +
+           " | Shutting down stream with WT_SESSION_GONE", e);
+         if (channel instanceof QuicStreamChannel) {
+           ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
+         } else {
+           channel.close();
+         }
+       } catch (Throwable t) {
+         logger.error(
+           "❌ FAILED: Failed to submit task to business executor. " +
+           "Executor: " + (executor != null ? executor.getClass().getSimpleName() : "NULL") +
+           " | SessionID: " + finalSessionId +
+           " | Cause: " + t.getMessage(), t);
+         if (channel instanceof QuicStreamChannel) {
+           ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
+         } else {
+           channel.close();
+         }
+       } finally {
+         if (!submitted) {
+           msg.release();
+         }
+       }
+     }
+
   }
 
 
