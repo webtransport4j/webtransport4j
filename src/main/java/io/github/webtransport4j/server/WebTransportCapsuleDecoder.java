@@ -5,6 +5,9 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import org.apache.log4j.Logger;
+
+import java.util.List;
 
 import static io.github.webtransport4j.server.WebTransportUtils.readVariableLengthInt;
 

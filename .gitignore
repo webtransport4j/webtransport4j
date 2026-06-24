@@ -3,7 +3,7 @@
 # ------------------
 # Compiled class file
 *.class
-
+.junie
 # Log file
 *.log
 
