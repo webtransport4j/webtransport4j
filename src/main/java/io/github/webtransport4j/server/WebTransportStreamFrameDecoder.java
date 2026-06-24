@@ -4,15 +4,15 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
 public final class WebTransportStreamFrameDecoder
         extends MessageToMessageDecoder<ByteBuf> {
 
-  private static final Logger logger =
-          Logger.getLogger(WebTransportStreamFrameDecoder.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportStreamFrameDecoder.class);
 
   @Override
   protected void decode(

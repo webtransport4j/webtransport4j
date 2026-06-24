@@ -7,15 +7,15 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import org.apache.log4j.Logger;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * A cryptographically secure implementation of {@link QuicTokenHandler} using HMAC-SHA256.
  * It mitigates QUIC connection source address spoofing/amplification attacks by signing
  * and verifying the client's IP address, token timestamp, and destination connection ID (dcid).
  */
 public class HmacQuicTokenHandler implements QuicTokenHandler {
-  private static final Logger logger = Logger.getLogger(HmacQuicTokenHandler.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(HmacQuicTokenHandler.class);
   private static final String HMAC_ALGO = "HmacSHA256";
   private static final int SIGNATURE_LEN = 32; // HMAC-SHA256 signature length (256 bits)
   private static final int TIMESTAMP_LEN = 8;  // long timestamp length (64 bits)

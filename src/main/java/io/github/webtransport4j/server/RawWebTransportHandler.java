@@ -9,10 +9,11 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.io.IOException;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class RawWebTransportHandler extends ChannelDuplexHandler {
-  private static final Logger logger = Logger.getLogger(RawWebTransportHandler.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(RawWebTransportHandler.class);
 
   // Track state per handler instance (per stream)
   private boolean protocolHeaderConsumed = false;
@@ -84,7 +85,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
         QuicChannel quic = (QuicChannel) ctx.channel().parent();
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr == null || !mgr.hasSession(sessionId)) {
-          logger.warn("❌ Unknown Session ID: " + sessionId);
+          logger.warn("❌ Unknown Session ID: {}", sessionId);
           cumulation.release();
           cumulation = null;
           if (ctx.channel() instanceof QuicStreamChannel) {
@@ -97,15 +98,11 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
         }
 
         if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
-          logger.info(
-              "🆕 Client Initiated BIDIRECTIONAL Stream | Session: "
-                  + sessionId
-                  + " | StreamID: "
-                  + ctx.channel().id());
+          logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
         } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
-          logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: " + sessionId);
+          logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {}", sessionId);
         } else {
-          logger.warn("❓ Unknown Stream Type: " + streamType);
+          logger.warn("❓ Unknown Stream Type: {}", streamType);
         }
 
         ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
@@ -126,13 +123,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
             isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
 
         if (value > maxAllowed) {
-          logger.warn(
-              "❌ WebTransport stream limit exceeded for session "
-                  + sessionId
-                  + ": "
-                  + value
-                  + " > "
-                  + maxAllowed);
+          logger.warn("❌ WebTransport stream limit exceeded for session {}: {} > {}", sessionId, value, maxAllowed);
           mgr.closeSessionWithFlowControlError(sessionId);
           cumulation.release();
           cumulation = null;
@@ -145,7 +136,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
           return;
         }
 
-        logger.debug("✅ Protocol Header Consumed | Type: " + streamType + " Session: " + sessionId);
+        logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
         protocolHeaderConsumed = true;
 
         QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
@@ -192,24 +183,14 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
                 // Validate that the increment didn't exceed the limit
                 if (newCumulativeReceived > localLimit) {
-                  logger.warn(
-                      "❌ Flow control: Read blocked. Cumulative received ("
-                          + newCumulativeReceived
-                          + ") exceeds local limit ("
-                          + localLimit
-                          + "). Closing session.");
+                  logger.warn("❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit ({}). Closing session.", newCumulativeReceived, localLimit);
                   mgr.closeSessionWithFlowControlError(sessionId);
                   data.release();
                   ((QuicStreamChannel) ctx.channel())
                       .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
                   return;
                 }
-                logger.debug(
-                    String.format(
-                        "Flow control: Received %d bytes, cumulative = %d/%d",
-                        payloadBytes,
-                        newCumulativeReceived,
-                        localLimit));
+                 logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
               }
             }
           }
@@ -221,7 +202,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       return;
     }
 
-    logger.debug("   -> Firing Body (" + data.readableBytes() + " bytes) to App Layer...");
+    logger.debug("   -> Firing Body ({} bytes) to App Layer...", data.readableBytes());
 
     ctx.fireChannelRead(data); // message dispatcher
   }
@@ -298,16 +279,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
       // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
       long lastLimit;
-      while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
+          while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
         if (session.getLastSentDataBlockedLimit().compareAndSet(lastLimit, peerLimit)) {
-          logger.warn(
-              "❌ Flow control: Write blocked. Cumulative sent ("
-                  + currentSent
-                  + ") + write ("
-                  + bytesToWrite
-                  + ") exceeds peer limit ("
-                  + peerLimit
-                  + "). Sending WT_DATA_BLOCKED.");
+          logger.warn("❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit ({}). Sending WT_DATA_BLOCKED.", currentSent, bytesToWrite, peerLimit);
           WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
           break;
         }

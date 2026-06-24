@@ -8,10 +8,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * A real-life production-grade Chat Handler demonstrating WebTransport features.
+ * A real-life Chat Handler demonstrating WebTransport features.
  * 
  * Protocol Design:
  * <ul>
@@ -23,7 +24,7 @@ import org.apache.log4j.Logger;
  */
 public class WebTransportChatHandler implements WebTransportHandler {
 
-  private static final Logger logger = Logger.getLogger(WebTransportChatHandler.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportChatHandler.class);
 
   // In-memory registry of active users: Session -> ChatUser
   private final Map<WebTransportSession, ChatUser> users = new ConcurrentHashMap<>();
@@ -36,7 +37,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   @Override
   public void onSessionReady(WebTransportSession session) {
     long sessionId = session.getSessionStreamId();
-    logger.info("💬 [CHAT] User session established. Session ID: " + sessionId);
+    logger.info("💬 [CHAT] User session established. Session ID: {}", sessionId);
     
     // Register the user with a default username until they send a JOIN command
     users.put(session, new ChatUser(session));
@@ -46,7 +47,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   public void onSessionClosed(WebTransportSession session) {
     ChatUser user = users.remove(session);
     if (user != null && user.username != null) {
-      logger.info("💬 [CHAT] User '" + user.username + "' left the chat.");
+      logger.info("💬 [CHAT] User '{}' left the chat.", user.username);
       broadcastToRoom(user.room, "SYSTEM: " + user.username + " has left the room.", null);
       user.cleanup();
     }
@@ -56,14 +57,14 @@ public class WebTransportChatHandler implements WebTransportHandler {
   public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
     ChatUser user = users.get(session);
     if (user == null) {
-      logger.warn("⚠️ Received stream for unregistered session: " + session.getSessionStreamId());
+      logger.warn("⚠️ Received stream for unregistered session: {}", session.getSessionStreamId());
       stream.close();
       return;
     }
 
     // Set stream listeners
-    stream.onClose(() -> logger.debug("💬 [CHAT] Stream " + stream.streamId() + " closed."));
-    stream.onError(err -> logger.error("💬 [CHAT] Stream error on " + stream.streamId() + ": ", err));
+    stream.onClose(() -> logger.debug("💬 [CHAT] Stream {} closed.", stream.streamId()));
+    stream.onError(err -> logger.error("💬 [CHAT] Stream error on {}", stream.streamId(), err));
 
     // Register raw data consumer to demultiplex stream purpose using the first byte
     stream.onData(new Consumer<ByteBuf>() {
@@ -80,12 +81,12 @@ public class WebTransportChatHandler implements WebTransportHandler {
           // Map stream in our user state for targeting later
           if (streamPurpose == STREAM_TYPE_CONTROL) {
             user.controlStream = stream;
-            logger.info("💬 [CHAT] Control stream linked for User: " + user.username);
+            logger.info("💬 [CHAT] Control stream linked for User: {}", user.username);
           } else if (streamPurpose == STREAM_TYPE_CHAT) {
             user.chatStream = stream;
-            logger.info("💬 [CHAT] Text Chat stream linked for User: " + user.username);
+            logger.info("💬 [CHAT] Text Chat stream linked for User: {}", user.username);
           } else if (streamPurpose == STREAM_TYPE_VOICE) {
-            logger.info("💬 [CHAT] Incoming Client Voice stream opened by User: " + user.username);
+            logger.info("💬 [CHAT] Incoming Client Voice stream opened by User: {}", user.username);
           }
         }
 
@@ -129,7 +130,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
 
   private void handleControlMessage(ChatUser user, ByteBuf payload) {
     String command = payload.toString(StandardCharsets.UTF_8).trim();
-    logger.info("💬 [CHAT-CONTROL] Command from " + user.username + ": " + command);
+    logger.info("💬 [CHAT-CONTROL] Command from {}: {}", user.username, command);
 
     // JOIN <room> <username>
     if (command.startsWith("JOIN ")) {
@@ -156,11 +157,11 @@ public class WebTransportChatHandler implements WebTransportHandler {
           prefix.writeByte(STREAM_TYPE_VOICE);
           serverUni.write(prefix);
           user.serverVoiceStream = serverUni;
-          logger.info("💬 [CHAT] Outbound Server Voice stream initialized for " + user.username);
+           logger.info("💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
         }
       });
 
-      sendControlReply(user, "OK: Joined room " + user.room + " as " + user.username);
+       sendControlReply(user, "OK: Joined room " + user.room + " as " + user.username);
       broadcastToRoom(user.room, "SYSTEM: " + user.username + " joined the room.", user);
     } 
     // LEAVE
@@ -185,7 +186,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
       return;
     }
     String message = payload.toString(StandardCharsets.UTF_8);
-    logger.info("💬 [CHAT-MSG] [" + user.room + "] " + user.username + ": " + message);
+    logger.info("💬 [CHAT-MSG] [{}] {}: {}", user.room, user.username, message);
 
     String formattedMsg = user.username + ": " + message;
     broadcastToRoom(user.room, formattedMsg, null);
@@ -194,7 +195,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   private void handleVoiceChunk(ChatUser user, ByteBuf payload) {
     if (user.room == null) return;
 
-    logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from " + user.username + " (" + payload.readableBytes() + " bytes)");
+    logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.readableBytes());
 
     // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
     for (ChatUser roomMember : users.values()) {
@@ -213,7 +214,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
     if (user.controlStream != null && user.controlStream.streamChannel().isActive()) {
       user.controlStream.writeText(reply);
     } else {
-      logger.warn("⚠️ Control stream not active for user " + user.username + ", unable to send: " + reply);
+      logger.warn("⚠️ Control stream not active for user {} , unable to send: {}", user.username, reply);
     }
   }
 

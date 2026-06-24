@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss} %-5p %c - %m%n"/>
+    </Console>
+  </Appenders>
+
+  <Loggers>
+    <!-- Default root logger -->
+    <Root level="debug">
+      <AppenderRef ref="Console"/>
+    </Root>
+
+    <!-- Reduce noise from Netty HTTP/QUIC internals -->
+    <Logger name="io.netty.handler.codec.quic" level="info" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+    <Logger name="io.netty.handler.codec.http3" level="info" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+  </Loggers>
+</Configuration>
+

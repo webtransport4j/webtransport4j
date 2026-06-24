@@ -45,10 +45,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WebTransportServer {
-  private static final Logger logger = Logger.getLogger(WebTransportServer.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportServer.class);
   private int port;
   
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
@@ -261,7 +262,7 @@ public class WebTransportServer {
     settings.put(0x2b65L, wtMaxStreamsBidi);
     // SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
     settings.put(0x2b61L, wtInitialMaxData);
-    logger.info("Server side settings : " + settings);
+    logger.info("Server side settings : {}", settings);
     ChannelHandler serverCodec =
         Http3.newQuicServerCodecBuilder()
             .sslContext(sslContext)
@@ -291,7 +292,7 @@ public class WebTransportServer {
             .bind(new InetSocketAddress(port))
             .sync()
             .channel();
-    logger.debug("✅ WebTransport server listening on " + port);
+    logger.debug("✅ WebTransport server listening on {}", port);
     this.channel.closeFuture().sync();
   }
 
@@ -343,22 +344,22 @@ public class WebTransportServer {
       if (keyHex != null && !keyHex.trim().isEmpty()) {
         byte[] key = parseHex(keyHex);
         if (key != null && key.length >= 16) {
-          logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with custom configured key, expiration: " + expirationMs + "ms");
+          logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with custom configured key, expiration: {}ms", expirationMs);
           return new HmacQuicTokenHandler(key, expirationMs);
         } else {
           logger.warn("⚠️ Configured HMAC key is too short (must be at least 16 bytes / 32 hex characters). Falling back to random key.");
         }
       }
-      logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with randomly generated key, expiration: " + expirationMs + "ms");
+        logger.info("🔑 QUIC Token Handler configured: HMAC (HmacQuicTokenHandler) with randomly generated key, expiration: {}ms", expirationMs);
       return new HmacQuicTokenHandler(expirationMs);
     } else {
       try {
-        logger.info("🔑 QUIC Token Handler configured: Custom Class (" + tokenHandlerType + ")");
+        logger.info("🔑 QUIC Token Handler configured: Custom Class ({})", tokenHandlerType);
         return (QuicTokenHandler) Class.forName(tokenHandlerType)
             .getDeclaredConstructor()
             .newInstance();
       } catch (Exception e) {
-        logger.error("❌ Failed to load custom QuicTokenHandler: " + tokenHandlerType + ". Falling back to HmacQuicTokenHandler.", e);
+        logger.error("❌ Failed to load custom QuicTokenHandler: {}. Falling back to HmacQuicTokenHandler.", tokenHandlerType, e);
         return new HmacQuicTokenHandler();
       }
     }
@@ -370,7 +371,7 @@ public class WebTransportServer {
     }
     String normalized = hex.trim();
     if (normalized.length() % 2 != 0) {
-      logger.warn("⚠️ HMAC key hex string length is not even: " + normalized + ". Falling back to plain string bytes.");
+      logger.warn("⚠️ HMAC key hex string length is not even: {}. Falling back to plain string bytes.", normalized);
       return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
     try {
@@ -385,7 +386,7 @@ public class WebTransportServer {
       }
       return data;
     } catch (Exception e) {
-      logger.warn("⚠️ Failed to parse HMAC key as hex, falling back to plain string bytes: " + e.getMessage());
+      logger.warn("⚠️ Failed to parse HMAC key as hex, falling back to plain string bytes: {}", e.getMessage());
       return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
     }
   }

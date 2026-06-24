@@ -6,7 +6,8 @@ import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -18,7 +19,7 @@ import java.util.concurrent.ExecutorService;
  * @date 24/06/26 2:32 pm
  */
 public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
-    private static final Logger logger = Logger.getLogger(QuicChannelInitializer.class.getName());
+      private static final Logger logger = LoggerFactory.getLogger(QuicChannelInitializer.class);
 
     private final Http3Settings settings;
     private final ExecutorService businessExecutor;
@@ -34,7 +35,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     @Override
     protected void initChannel(QuicChannel ch) {
 
-        logger.debug("Opening Quic connection : " + ch.id());
+        logger.debug("Opening Quic connection : {}", ch.id());
 
         Long defUni = settings.get(0x2b64L) == null ? Long.valueOf(0L) : settings.get(0x2b64L);
         Long defBidi = settings.get(0x2b65L) == null ? Long.valueOf(0L) : settings.get(0x2b65L);
@@ -48,9 +49,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
 
          if (businessExecutor != null) {
              ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-             logger.info("⚠️  BUSINESS EXECUTOR CONFIGURED: " +
-               businessExecutor.getClass().getSimpleName() +
-               " (Execution mode: NOT NETTY_EVENT_LOOP)");
+              logger.info("⚠️  BUSINESS EXECUTOR CONFIGURED: {} (Execution mode: NOT NETTY_EVENT_LOOP)", businessExecutor.getClass().getSimpleName());
          } else {
              logger.info("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
          }
@@ -77,17 +76,16 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         String nettyId = ch.id().asShortText();
 
         logger.debug("\n🔌 NEW QUIC CONNECTION ESTABLISHED");
-        logger.debug("    ├── 🌍 Remote IP:   " + ip);
-        logger.debug("    ├── 🚪 Remote Port: " + port);
-        logger.debug("    └── 🆔 Channel ID:  " + nettyId);
+        logger.debug("    ├── 🌍 Remote IP:   {}", ip);
+        logger.debug("    ├── 🚪 Remote Port: {}", port);
+        logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
 
          ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
          ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
 
          if (businessExecutor != null) {
              ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-             logger.debug("📌 Set BUSINESS_EXECUTOR on channel: " +
-               businessExecutor.getClass().getSimpleName());
+              logger.debug("📌 Set BUSINESS_EXECUTOR on channel: {}", businessExecutor.getClass().getSimpleName());
          } else {
              logger.debug("📌 BUSINESS_EXECUTOR is NULL on channel (direct event loop execution)");
          }
@@ -95,13 +93,10 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
          ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
 
         ch.pipeline().addLast(new WebTransportDatagramDecoder());
-        logger.debug(
-                "🔧 Added WebTransportDatagramDecoder. Pipeline now: "
-                        + ch.pipeline().names());
+        logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
 
         ch.pipeline().addLast(new MessageDispatcher());
-        logger.debug(
-                "🔧 Added MessageDispatcher. Pipeline now: " + ch.pipeline().names());
+        logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());
 
         ch.pipeline().addLast(
             new Http3ServerConnectionHandler(

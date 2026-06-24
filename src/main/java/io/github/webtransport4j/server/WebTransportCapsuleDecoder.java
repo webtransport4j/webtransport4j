@@ -5,7 +5,8 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -18,7 +19,7 @@ import static io.github.webtransport4j.server.WebTransportUtils.readVariableLeng
 final class WebTransportCapsuleDecoder
         extends ByteToMessageDecoder {
 
-    private static final Logger logger = Logger.getLogger(WebTransportCapsuleDecoder.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleDecoder.class);
 
 
     @Override

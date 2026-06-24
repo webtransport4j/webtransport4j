@@ -6,11 +6,12 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.concurrent.RejectedExecutionException;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> {
 
-  private static final Logger logger = Logger.getLogger(MessageDispatcher.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(MessageDispatcher.class);
 
   @Override
   protected void channelRead0(ChannelHandlerContext ctx, WebTransportFrame msg) {
@@ -19,7 +20,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
 
     // 1. Debug: Log the raw hex to see invisible bytes (like 0x00)
     if (logger.isDebugEnabled()) {
-      logger.debug("📦 [RAW PAYLOAD] " + WebTransportUtils.formatHexBytes(msg.content()));
+      logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
     }
 
     long sessionId = msg.sessionId();
@@ -47,10 +48,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
      } else {
        boolean submitted = false;
        try {
-         if (logger.isDebugEnabled()) {
-           logger.debug("📤 Submitting task to executor: " +
-             (executor != null ? executor.getClass().getSimpleName() : "NULL"));
-         }
+          if (logger.isDebugEnabled()) {
+            logger.debug("📤 Submitting task to executor: {}", executor != null ? executor.getClass().getSimpleName() : "NULL");
+          }
          executor.execute(
            () -> {
              try {
@@ -63,23 +63,15 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
            }
          );
          submitted = true;
-       } catch (RejectedExecutionException e) {
-         logger.error(
-           "❌ REJECTED: Task submission rejected by business executor (queue full?). " +
-           "Executor: " + (executor != null ? executor.getClass().getSimpleName() : "NULL") +
-           " | SessionID: " + finalSessionId +
-           " | Shutting down stream with WT_SESSION_GONE", e);
+        } catch (RejectedExecutionException e) {
+          logger.error("❌ REJECTED: Task submission rejected by business executor (queue full?). Executor: {} | SessionID: {} | Shutting down stream with WT_SESSION_GONE", (executor != null ? executor.getClass().getSimpleName() : "NULL"), finalSessionId, e);
          if (channel instanceof QuicStreamChannel) {
            ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
          } else {
            channel.close();
          }
        } catch (Throwable t) {
-         logger.error(
-           "❌ FAILED: Failed to submit task to business executor. " +
-           "Executor: " + (executor != null ? executor.getClass().getSimpleName() : "NULL") +
-           " | SessionID: " + finalSessionId +
-           " | Cause: " + t.getMessage(), t);
+          logger.error("❌ FAILED: Failed to submit task to business executor. Executor: {} | SessionID: {} | Cause: {}", (executor != null ? executor.getClass().getSimpleName() : "NULL"), finalSessionId, t.getMessage(), t);
          if (channel instanceof QuicStreamChannel) {
            ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
          } else {
@@ -114,15 +106,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
       long httpErrorCode = reset.applicationProtocolCode();
       if (WebTransportUtils.isWebTransportApplicationError(httpErrorCode)) {
         long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(httpErrorCode);
-        logger.info(
-            "🌊 Stream reset by peer with WebTransport application error code: 0x"
-                + Long.toHexString(wtErrorCode)
-                + " ("
-                + wtErrorCode
-                + ")");
+        logger.info("🌊 Stream reset by peer with WebTransport application error code: 0x{} ({})", Long.toHexString(wtErrorCode), wtErrorCode);
       } else {
-        logger.debug(
-            "🌊 Stream reset by peer with HTTP/3 error code: 0x" + Long.toHexString(httpErrorCode));
+        logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x{}", Long.toHexString(httpErrorCode));
       }
     } else {
       logger.error("❌ Pipeline error: ", cause);
@@ -158,7 +144,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
 
       WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : new WebTransportHandler() {};
     if (handler == null) {
-      logger.error("No handler registered for path: " + session.path());
+      logger.error("No handler registered for path: {}", session.path());
       return;
     }
 

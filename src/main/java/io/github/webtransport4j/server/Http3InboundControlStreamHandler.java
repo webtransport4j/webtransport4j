@@ -6,7 +6,8 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http3.Http3SettingsFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 
@@ -16,12 +17,12 @@ import java.util.ArrayList;
  */
 public class Http3InboundControlStreamHandler extends SimpleChannelInboundHandler<Http3SettingsFrame> {
 
-    private static final Logger logger = Logger.getLogger(Http3InboundControlStreamHandler.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(Http3InboundControlStreamHandler.class);
 
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Http3SettingsFrame settingsFrame) {
-        logger.debug("PEER SETTINGS: " + settingsFrame);
+        logger.debug("PEER SETTINGS: {}", settingsFrame);
         io.netty.handler.codec.http3.Http3Settings settings =
                 settingsFrame.settings();
         if (settings != null) {
@@ -53,10 +54,7 @@ public class Http3InboundControlStreamHandler extends SimpleChannelInboundHandle
             // and let WebTransportHeadersHandler reject CONNECT
             // requests.
             if (!valid) {
-                logger.warn(
-                        "❌ WebTransport requirements not met: Client does not"
-                                + " support H3 Datagrams. Treating all"
-                                + " established sessions as malformed.");
+                logger.warn("❌ WebTransport requirements not met: Client does not support H3 Datagrams. Treating all established sessions as malformed.");
                 if (quic != null) {
                     WebTransportSessionManager mgr =
                             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
@@ -64,10 +62,7 @@ public class Http3InboundControlStreamHandler extends SimpleChannelInboundHandle
                     if (mgr != null) {
                         for (WebTransportSession session :
                                 new ArrayList<>(mgr.getSessions())) {
-                            logger.warn(
-                                    "⚡️ Resetting established session ID "
-                                            + session.getSessionStreamId()
-                                            + " with H3_MESSAGE_ERROR");
+                            logger.warn("⚡️ Resetting established session ID {} with H3_MESSAGE_ERROR", session.getSessionStreamId());
                             session
                                     .getConnectStream()
                                     .shutdown(

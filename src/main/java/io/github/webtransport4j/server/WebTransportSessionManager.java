@@ -7,14 +7,15 @@ import io.netty.util.Attribute;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author https://github.com/sanjomo
  * @date 24/12/25 1:20 am
  */
 class WebTransportSessionManager {
-  private static final Logger logger = Logger.getLogger(WebTransportSessionManager.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
 
 
 
@@ -60,21 +61,21 @@ class WebTransportSessionManager {
        uniMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
-       logger.debug("Using fallback uni streams limit: " + uniMax);
+        logger.debug("Using fallback uni streams limit: {}", uniMax);
        WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
      }
      if ((biMax == null || biMax == 0L) && flowControlEnabled) {
        biMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-       logger.debug("Using fallback bidi streams limit: " + biMax);
+        logger.debug("Using fallback bidi streams limit: {}", biMax);
        WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
      }
      if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
        dataMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
-       logger.debug("Using fallback data limit: " + dataMax);
+        logger.debug("Using fallback data limit: {}", dataMax);
        WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
      }
 
@@ -119,7 +120,7 @@ class WebTransportSessionManager {
             flowControlEnabled);
 
     sessions.put(sessionStreamId, session);
-    logger.debug("📝 SessionManager: Registered Session ID " + sessionStreamId);
+    logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
 
     Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
@@ -179,7 +180,7 @@ class WebTransportSessionManager {
           logger.error("Error in onSessionClosed callback", e);
         }
       }
-      logger.debug("🗑️ SessionManager: Removed Session ID " + sessionStreamId);
+       logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
     }
   }
 
@@ -187,10 +188,7 @@ class WebTransportSessionManager {
   public void closeSessionWithFlowControlError(long sessionId) {
     WebTransportSession session = sessions.remove(sessionId);
     if (session != null) {
-      logger.info(
-          "❌ Closing CONNECT stream for session "
-              + sessionId
-              + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
+      logger.info("❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)", sessionId);
       session
           .getConnectStream()
           .shutdown(
@@ -204,10 +202,7 @@ class WebTransportSessionManager {
    */
   public void closeAllWithFlowControlError() {
     for (WebTransportSession session : sessions.values()) {
-      logger.info(
-          "❌ Closing CONNECT stream for session "
-              + session.getSessionStreamId()
-              + " with WT_FLOW_CONTROL_ERROR (0x045d4487)");
+      logger.info("❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)", session.getSessionStreamId());
       session
           .getConnectStream()
           .shutdown(
@@ -221,10 +216,7 @@ class WebTransportSessionManager {
 
   public void closeAll() {
     if (!sessions.isEmpty()) {
-      logger.debug(
-          "💥 SessionManager: Closing all "
-              + sessions.size()
-              + " active sessions due to connection close.");
+      logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", sessions.size());
       sessions.clear();
     }
   }

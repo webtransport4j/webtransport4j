@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
 import io.netty.channel.ChannelHandler;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.function.LongFunction;
 
@@ -11,7 +12,7 @@ import java.util.function.LongFunction;
  */
 public final class UnknownStreamHandlerFactory
         implements LongFunction<ChannelHandler> {
-    private static final Logger logger = Logger.getLogger(UnknownStreamHandlerFactory.class.getName());
+    private static final Logger logger = LoggerFactory.getLogger(UnknownStreamHandlerFactory.class);
 
     @Override
     public ChannelHandler apply(long streamType) {
@@ -19,7 +20,7 @@ public final class UnknownStreamHandlerFactory
             return new WebTransportUniStreamInitializer(streamType);
         }
         if(logger.isDebugEnabled()) {
-            logger.debug("Unknown stream type: " + streamType);
+            logger.debug("Unknown stream type: {}", streamType);
         }
         return null;
     }

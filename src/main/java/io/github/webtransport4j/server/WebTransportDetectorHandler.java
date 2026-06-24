@@ -10,7 +10,8 @@ import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Detects whether a newly created QUIC bidirectional stream is:
@@ -26,8 +27,7 @@ import org.apache.log4j.Logger;
  */
 final class WebTransportDetectorHandler extends ByteToMessageDecoder {
 
-  private static final Logger logger =
-      Logger.getLogger(WebTransportDetectorHandler.class);
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportDetectorHandler.class);
 
   private boolean detected;
 
@@ -49,12 +49,7 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
     }
 
     if (logger.isDebugEnabled()) {
-      logger.debug(
-          "📦 [SNIFFER] Bytes: "
-              + in.readableBytes()
-              + " | HEX: ["
-              + ByteBufUtil.hexDump(in)
-              + "]");
+      logger.debug("📦 [SNIFFER] Bytes: {} | HEX: [{}]", in.readableBytes(), ByteBufUtil.hexDump(in));
     }
 
     long marker = peekVarInt(in);
@@ -66,10 +61,7 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
 
     if (marker == WebTransportUtils.BI_STREAM_TYPE) {
 
-      logger.info(
-          "🚀 Decision: WebTransport WT_STREAM detected (0x"
-              + Long.toHexString(marker)
-              + ")");
+      logger.info("🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));
 
       detected = true;
 
@@ -82,10 +74,7 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
       return;
     }
 
-    logger.debug(
-        "👉 Decision: Standard HTTP/3 request stream (first varint = 0x"
-            + Long.toHexString(marker)
-            + ")");
+    logger.debug("👉 Decision: Standard HTTP/3 request stream (first varint = 0x{})", Long.toHexString(marker));
 
     detected = true;
 
@@ -154,11 +143,11 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
         p.remove(name);
 
         if (logger.isDebugEnabled()) {
-          logger.debug("🗑 Removed: " + name);
+          logger.debug("🗑 Removed: {}", name);
         }
 
-      } catch (Exception e) {
-        logger.warn("Failed removing handler: " + name, e);
+        } catch (Exception e) {
+         logger.warn("Failed removing handler: {}", name, e);
       }
     }
 

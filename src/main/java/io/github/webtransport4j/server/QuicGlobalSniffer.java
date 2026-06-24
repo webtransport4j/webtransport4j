@@ -4,10 +4,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
-  private static final Logger logger = Logger.getLogger(QuicGlobalSniffer.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(QuicGlobalSniffer.class);
   private final String prefix;
 
   public QuicGlobalSniffer(String prefix) {
@@ -22,11 +23,11 @@ class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
       String hex = ByteBufUtil.hexDump(data);
       // Formatting for readability
       if (len > 0) {
-        logger.debug("👀 [" + prefix + "] ID:" + ctx.channel().id().asShortText() + " LEN:" + len);
-        logger.debug("    HEX: " + hex);
+        logger.debug("👀 [{}] ID:{} LEN:{}", prefix, ctx.channel().id().asShortText(), len);
+        logger.debug("    HEX: {}", hex);
       }
     } else {
-      logger.debug("👀 [" + prefix + "] MsgType: " + msg.getClass().getSimpleName());
+      logger.debug("👀 [{}] MsgType: {}", prefix, msg.getClass().getSimpleName());
     }
     // Pass it on!
     ctx.fireChannelRead(msg);
@@ -34,7 +35,7 @@ class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
 
   @Override
   public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-    logger.debug("👀 [" + prefix + "] UserEvent: " + evt.getClass().getName() + " -> " + evt);
+    logger.debug("👀 [{}] UserEvent: {} -> {}", prefix, evt.getClass().getName(), evt);
     ctx.fireUserEventTriggered(evt);
   }
 }

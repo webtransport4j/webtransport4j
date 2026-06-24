@@ -18,10 +18,11 @@ import io.netty.util.concurrent.Future;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
-  private static final Logger logger = Logger.getLogger(WebTransportHeadersHandler.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
   @Override
   protected void channelRead(ChannelHandlerContext ctx, Http3HeadersFrame frame) {
@@ -29,11 +30,11 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
     // Loop through all headers and print them
     for (Map.Entry<CharSequence, CharSequence> header : frame.headers()) {
-      logger.debug(header.getKey() + ": " + header.getValue());
+      logger.debug("{}: {}", header.getKey(), header.getValue());
     }
 
     logger.debug("=======================================");
-    logger.debug("📜 HTTP/3 Headers Received: " + frame.headers().path());
+    logger.debug("📜 HTTP/3 Headers Received: {}", frame.headers().path());
     CharSequence scheme = frame.headers().scheme();
     CharSequence authority = frame.headers().authority();
     CharSequence path = frame.headers().path();
@@ -50,8 +51,8 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
     if ("CONNECT".contentEquals(method)
         && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
-      if (scheme == null || !"https".contentEquals(scheme)) {
-        logger.warn("❌ Rejecting connection from invalid scheme: " + scheme);
+        if (scheme == null || !"https".contentEquals(scheme)) {
+          logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
@@ -80,10 +81,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
         Boolean settingsValid = validAttr != null ? validAttr.get() : null;
         if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
-          logger.warn(
-              "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
-                  + " Treating incoming session CONNECT stream as malformed and resetting with"
-                  + " H3_MESSAGE_ERROR (0x010e).");
+          logger.warn("❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams. Treating incoming session CONNECT stream as malformed and resetting with H3_MESSAGE_ERROR (0x010e).");
           connectStream.shutdown(0x010e, connectStream.newPromise());
           ReferenceCountUtil.release(frame);
           return;
@@ -94,8 +92,8 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       // verify it is client-iniated bi directional stream as per below RFC
       // https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
       // Client-Initiated Bi-Directional: 0x0, 0x4, 0x8, ... → type=0 mod 4
-      if (sessionId % 4L != 0L) {
-        logger.warn("❌ Rejecting connection from invalid session id: " + sessionId);
+        if (sessionId % 4L != 0L) {
+        logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
         if (quic != null) {
           quic.close(
               true, Http3ErrorCode.H3_ID_ERROR.code(), io.netty.buffer.Unpooled.EMPTY_BUFFER);
@@ -109,13 +107,8 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       // Validate CORS allowed origins and authority host
       CharSequence origin = frame.headers().get("origin");
       java.util.List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
-      if (!isAllowed(allowed, origin, authority)) {
-        logger.warn(
-            "❌ Rejecting connection from unauthorized origin: "
-                + origin
-                + " (authority: "
-                + authority
-                + ")");
+        if (!isAllowed(allowed, origin, authority)) {
+         logger.warn("❌ Rejecting connection from unauthorized origin: {} (authority: {})", origin, authority);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
@@ -126,11 +119,8 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
       WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
       int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
-      if (mgr != null && mgr.sessionsSize() >= maxSessions) {
-        logger.warn(
-            "❌ Rejecting connection: Max simultaneous sessions per connection reached ("
-                + maxSessions
-                + ")");
+        if (mgr != null && mgr.sessionsSize() >= maxSessions) {
+        logger.warn("❌ Rejecting connection: Max simultaneous sessions per connection reached ({})", maxSessions);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
@@ -142,13 +132,13 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       String pathStr = path.toString();
       quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
 
-      logger.info("✅ Handshake Success for Path: " + pathStr);
+      logger.info("✅ Handshake Success for Path: {}", pathStr);
       Http3Headers responseHeaders = new DefaultHttp3Headers();
       responseHeaders.status(HttpResponseStatus.OK.codeAsText());
 
       ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-      logger.debug("🌊 Stream 0 AutoRead: " + ctx.channel().config().isAutoRead());
-      logger.debug("🌊 Stream 0 Pipeline post-handshake: " + ctx.pipeline().names());
+      logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
+      logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
 
       if (mgr != null) {
         connectStream
@@ -172,7 +162,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         final boolean datagramEnabled = WebTransportConfig.getBoolean("webtransport4j.dev.server.push.datagram.enabled", true);
         final int paddingBytes = WebTransportConfig.getInt("webtransport4j.dev.server.push.payload.padding.bytes", 0);
 
-        logger.info("🧪 [DEV ENGINE] Spawning continuous telemetry scheduler loop every " + intervalMs + "ms");
+        logger.info("🧪 [DEV ENGINE] Spawning continuous telemetry scheduler loop every {}ms", intervalMs);
 
         // Track active streams globally to reuse them across scheduler ticks
         // Using Object as the key type to represent the Session, adjust to your specific WebTransportSession class
@@ -201,28 +191,28 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
               if (existingBidi != null) {
                 // Reuse existing stream
                 existingBidi.writeText(fullPayload + "_Bi").addListener(writeResult -> {
-                  if (!writeResult.isSuccess()) {
-                    logger.warn("⚠️ [DEV BIDI] Write failed, dropping cached stream ID: " + existingBidi.streamId());
+                    if (!writeResult.isSuccess()) {
+                     logger.warn("⚠️ [DEV BIDI] Write failed, dropping cached stream ID: {}", existingBidi.streamId());
                     activeBidiStreams.remove(session); // Purge dead stream so a new one is created next tick
                   }
-                    logger.info("📤 [DEV BIDI OUT] Pushed to existing stream ID: " + existingBidi.streamId());
+                    logger.info("📤 [DEV BIDI OUT] Pushed to existing stream ID: {}", existingBidi.streamId());
 
                 });
               } else {
                 // Create and cache new stream
                 session.createBiStream().addListener((Future<WebTransportStream> f) -> {
-                  if (!f.isSuccess()) {
-                     logger.warn("⚠️ [DEV BIDI] Stream creation denied. Max allocations exhausted.");
+                      if (!f.isSuccess()) {
+                         logger.warn("⚠️ [DEV BIDI] Stream creation denied. Max allocations exhausted.");
                     return;
                   }
                   WebTransportStream stream = f.getNow();
                   activeBidiStreams.put(session, stream); // Cache for future ticks
 
-                  stream.writeText(fullPayload + "_Bi").addListener(writeResult -> {
-                    if (writeResult.isSuccess()) {
-                      logger.info("📤 [DEV BIDI OUT] Allocated NEW stream frame ID: " + stream.streamId());
-                    }
-                  });
+                       stream.writeText(fullPayload + "_Bi").addListener(writeResult -> {
+                     if (writeResult.isSuccess()) {
+                       logger.info("📤 [DEV BIDI OUT] Allocated NEW stream frame ID: {}", stream.streamId());
+                     }
+                   });
                 });
               }
             }
@@ -233,11 +223,11 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
               if (existingUni != null) {
                 // Reuse existing stream
                 existingUni.writeText(fullPayload + "_Uni").addListener(writeResult -> {
-                  if (!writeResult.isSuccess()) {
-                    logger.warn("⚠️ [DEV UNI] Write failed, dropping cached stream ID: " + existingUni.streamId());
+                   if (!writeResult.isSuccess()) {
+                     logger.warn("⚠️ [DEV UNI] Write failed, dropping cached stream ID: {}", existingUni.streamId());
                     activeUniStreams.remove(session);
                   }
-                  logger.info("📤 [DEV UNI OUT] Pushed to existing stream ID: " + existingUni.streamId());
+                   logger.info("📤 [DEV UNI OUT] Pushed to existing stream ID: {}", existingUni.streamId());
                 });
               } else {
                 // Create and cache new stream
@@ -250,9 +240,9 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                   activeUniStreams.put(session, stream); // Cache for future ticks
 
                   stream.writeText(fullPayload + "_Uni").addListener(writeResult -> {
-                    if (writeResult.isSuccess()) {
-                      logger.info("📤 [DEV UNI OUT] Allocated NEW stream frame ID: " + stream.streamId());
-                    }
+                     if (writeResult.isSuccess()) {
+                         logger.info("📤 [DEV UNI OUT] Allocated NEW stream frame ID: {}", stream.streamId());
+                       }
                   });
                 });
               }
@@ -262,9 +252,9 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
             if (datagramEnabled) {
               byte[] rawDatagram = (fullPayload + "_Datagram").getBytes(java.nio.charset.StandardCharsets.UTF_8);
               session.sendDatagram(rawDatagram).addListener(writeResult -> {
-                if (writeResult.isSuccess()) {
-                  logger.info("⚡ [DEV DATAGRAM OUT] packet flushed directly to connection pipe.");
-                }
+                     if (writeResult.isSuccess()) {
+                   logger.info("📤 [DEV DATAGRAM OUT] packet flushed directly to connection pipe.");
+                 }
               });
             }
           });
@@ -337,7 +327,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
   @Override
   protected void channelInputClosed(ChannelHandlerContext ctx) {
-    logger.debug("🔒 Stream Closed: " + ctx.channel().id());
+    logger.debug("🔒 Stream Closed: {}", ctx.channel().id());
     ctx.close();
   }
 }

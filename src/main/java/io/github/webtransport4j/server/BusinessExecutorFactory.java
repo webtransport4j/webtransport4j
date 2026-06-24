@@ -4,13 +4,13 @@ import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.jetbrains.annotations.NotNull;
 
 public final class BusinessExecutorFactory {
 
-    private static final Logger logger =
-        Logger.getLogger(BusinessExecutorFactory.class);
+    private static final Logger logger = LoggerFactory.getLogger(BusinessExecutorFactory.class);
 
     private BusinessExecutorFactory() {}
 
@@ -56,9 +56,7 @@ public final class BusinessExecutorFactory {
 
         } catch (Throwable t) {
 
-            logger.warn(
-                "Virtual threads unavailable. "
-                    + "Falling back to fixed thread pool.");
+            logger.warn("Virtual threads unavailable. Falling back to fixed thread pool.");
 
             return createFixedThreadPool();
         }
@@ -83,20 +81,12 @@ public final class BusinessExecutorFactory {
                 "webtransport4j.business.queue.type",
                 "RING_BUFFER");
 
-        logger.info(
-            "Using fixed thread pool. poolSize="
-                + poolSize
-                + ", queueCapacity="
-                + queueCapacity
-                + ", queueType="
-                + queueType);
+        logger.info("Using fixed thread pool. poolSize={} , queueCapacity={}, queueType={}", poolSize, queueCapacity, queueType);
 
         BlockingQueue<Runnable> queue;
         if ("ARRAY".equalsIgnoreCase(queueType) || "RING_BUFFER".equalsIgnoreCase(queueType)) {
             if (queueCapacity == Integer.MAX_VALUE) {
-                logger.warn(
-                    "⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity. "
-                        + "Defaulting queue capacity to 10000.");
+                logger.warn("⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity. Defaulting queue capacity to 10000.");
                 queue = new ArrayBlockingQueue<>(10000);
             } else {
                 queue = new ArrayBlockingQueue<>(queueCapacity);

@@ -5,10 +5,11 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebTransportCapsule> {
-  private static final Logger logger = Logger.getLogger(WebTransportCapsuleHandler.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleHandler.class);
 
   @Override
   protected void channelRead0(ChannelHandlerContext ctx, WebTransportCapsule capsule)

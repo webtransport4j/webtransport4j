@@ -2,10 +2,11 @@ package io.github.webtransport4j.server;
 
 import java.io.InputStream;
 import java.util.Properties;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class WebTransportConfig {
-  private static final Logger logger = Logger.getLogger(WebTransportConfig.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
   private static final Properties properties = new Properties();
 
   private WebTransportConfig() {
@@ -67,14 +68,7 @@ public class WebTransportConfig {
     try {
       return (int) evaluateExpression(val);
     } catch (Exception e) {
-      logger.warn(
-          "⚠️ Failed to parse int value for key '"
-              + key
-              + "': "
-              + val
-              + ". Using default: "
-              + defaultValue,
-          e);
+      logger.warn("⚠️ Failed to parse int value for key '{}': {}. Using default: {}", key, val, defaultValue, e);
       return defaultValue;
     }
   }
@@ -87,14 +81,7 @@ public class WebTransportConfig {
     try {
       return evaluateExpression(val);
     } catch (Exception e) {
-      logger.warn(
-          "⚠️ Failed to parse long value for key '"
-              + key
-              + "': "
-              + val
-              + ". Using default: "
-              + defaultValue,
-          e);
+      logger.warn("⚠️ Failed to parse long value for key '{}': {}. Using default: {}", key, val, defaultValue, e);
       return defaultValue;
     }
   }
