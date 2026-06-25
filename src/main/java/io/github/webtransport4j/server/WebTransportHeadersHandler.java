@@ -169,7 +169,14 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeBidiStreams = new java.util.concurrent.ConcurrentHashMap<>();
         final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeUniStreams = new java.util.concurrent.ConcurrentHashMap<>();
 
-        io.netty.util.concurrent.ScheduledFuture<?> pushTask = ctx.executor().scheduleAtFixedRate(() -> {
+        // Some test harnesses create a ChannelHandlerContext with a null executor or channel without an event loop.
+        // Fall back to the channel's event loop when available; otherwise create a simple ScheduledExecutorService
+        // so unit tests (which may use mocked contexts) don't NPE when scheduling periodic tasks.
+        io.netty.util.concurrent.EventExecutor _exec = ctx.executor() != null ? ctx.executor() : (ctx.channel() != null ? ctx.channel().eventLoop() : null);
+        final java.util.concurrent.ScheduledExecutorService[] fallbackRef = new java.util.concurrent.ScheduledExecutorService[1];
+        java.util.concurrent.ScheduledFuture<?> pushTask;
+        if (_exec != null) {
+          pushTask = _exec.scheduleAtFixedRate(() -> {
 
           long timestamp = System.currentTimeMillis();
 
@@ -260,11 +267,114 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           });
 
         }, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        } else {
+          // Use a lightweight single-thread scheduler for tests / mocked contexts
+          fallbackRef[0] = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r); t.setDaemon(true); return t; });
+          pushTask = fallbackRef[0].scheduleAtFixedRate(() -> {
+
+            long timestamp = System.currentTimeMillis();
+
+            StringBuilder padBuilder = new StringBuilder();
+            if (paddingBytes > 0) {
+              for (int i = 0; i < paddingBytes; i++) {
+                padBuilder.append("X");
+              }
+            }
+            final String padding = padBuilder.toString();
+            final String basePayload = timestamp + "_SERVER_PUSH_";
+            final String fullPayload = basePayload + padding;
+
+            mgr.getSessions().forEach(session -> {
+              if (session == null) return;
+              if (bidiEnabled) {
+                WebTransportStream existingBidi = activeBidiStreams.get(session);
+
+                if (existingBidi != null) {
+                  // Reuse existing stream
+                  existingBidi.writeText(fullPayload + "_Bi").addListener(writeResult -> {
+                      if (!writeResult.isSuccess()) {
+                       logger.warn("⚠️ [DEV BIDI] Write failed, dropping cached stream ID: {}", existingBidi.streamId());
+                      activeBidiStreams.remove(session); // Purge dead stream so a new one is created next tick
+                    }
+                      logger.info("📤 [DEV BIDI OUT] Pushed to existing stream ID: {}", existingBidi.streamId());
+
+                  });
+                } else {
+                  // Create and cache new stream
+                  session.createBiStream().addListener((Future<WebTransportStream> f) -> {
+                        if (!f.isSuccess()) {
+                           logger.warn("⚠️ [DEV BIDI] Stream creation denied. Max allocations exhausted.");
+                      return;
+                    }
+                    WebTransportStream stream = f.getNow();
+                    activeBidiStreams.put(session, stream); // Cache for future ticks
+
+                         stream.writeText(fullPayload + "_Bi").addListener(writeResult -> {
+                       if (writeResult.isSuccess()) {
+                         logger.info("📤 [DEV BIDI OUT] Allocated NEW stream frame ID: {}", stream.streamId());
+                       }
+                     });
+                  });
+                }
+              }
+
+              if (uniEnabled) {
+                WebTransportStream existingUni = activeUniStreams.get(session);
+
+                if (existingUni != null) {
+                  // Reuse existing stream
+                  existingUni.writeText(fullPayload + "_Uni").addListener(writeResult -> {
+                     if (!writeResult.isSuccess()) {
+                       logger.warn("⚠️ [DEV UNI] Write failed, dropping cached stream ID: {}", existingUni.streamId());
+                      activeUniStreams.remove(session);
+                    }
+                     logger.info("📤 [DEV UNI OUT] Pushed to existing stream ID: {}", existingUni.streamId());
+                  });
+                } else {
+                  // Create and cache new stream
+                  session.createUniStream().addListener((Future<WebTransportStream> f) -> {
+                    if (!f.isSuccess()) {
+                      logger.warn("⚠️ [DEV UNI] Stream creation denied. Flow control choked.");
+                      return;
+                    }
+                    WebTransportStream stream = f.getNow();
+                    activeUniStreams.put(session, stream); // Cache for future ticks
+
+                    stream.writeText(fullPayload + "_Uni").addListener(writeResult -> {
+                       if (writeResult.isSuccess()) {
+                           logger.info("📤 [DEV UNI OUT] Allocated NEW stream frame ID: {}", stream.streamId());
+                         }
+                    });
+                  });
+                }
+              }
+
+              // 3. Continuous Unreliable Datagram Frames (UNCHANGED)
+              if (datagramEnabled) {
+                byte[] rawDatagram = (fullPayload + "_Datagram").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                session.sendDatagram(rawDatagram).addListener(writeResult -> {
+                       if (writeResult.isSuccess()) {
+                     logger.info("📤 [DEV DATAGRAM OUT] packet flushed directly to connection pipe.");
+                   }
+                });
+              }
+            });
+
+          }, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+        }
 
         // Terminate scheduling task immediately if the parent control stream dies
         connectStream.closeFuture().addListener(f -> {
           logger.info("🛑 [DEV ENGINE] Control stream terminated. Cleaning up loop engine context.");
-          pushTask.cancel(false);
+          try {
+            if (pushTask != null) pushTask.cancel(false);
+          } catch (Exception ignore) {
+          }
+          // If we created a fallback scheduler for tests, shut it down
+          try {
+            if (fallbackRef[0] != null) fallbackRef[0].shutdownNow();
+          } catch (Exception ignore) {
+          }
           activeBidiStreams.clear();
           activeUniStreams.clear();
         });
