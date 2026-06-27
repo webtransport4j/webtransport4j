@@ -273,7 +273,9 @@ public class SessionFlowControlTest {
     assertEquals(0, data2.refCnt());
 
     // Verify: WT_DATA_BLOCKED capsule was sent back to connectStream
-    verify(mockConnectStream).writeAndFlush(any());
+    org.mockito.ArgumentCaptor<Object> captor = org.mockito.ArgumentCaptor.forClass(Object.class);
+    verify(mockConnectStream).writeAndFlush(captor.capture());
+    io.netty.util.ReferenceCountUtil.release(captor.getValue());
   }
 
   @Test
@@ -334,7 +336,9 @@ public class SessionFlowControlTest {
     assertEquals(1000L + extendAmount, session.getSettingsMaxData());
 
     // Verify: WT_MAX_DATA capsule sent to connectStream
-    verify(mockConnectStream).writeAndFlush(any());
+    org.mockito.ArgumentCaptor<Object> captor = org.mockito.ArgumentCaptor.forClass(Object.class);
+    verify(mockConnectStream).writeAndFlush(captor.capture());
+    io.netty.util.ReferenceCountUtil.release(captor.getValue());
     assertEquals(0, capsule.refCnt());
   }
 }

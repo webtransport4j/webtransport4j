@@ -35,6 +35,12 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 100L) with initial limits (maxStreamsUni = 10, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
@@ -97,6 +103,12 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 200L) with initial limits (maxStreamsUni = 8, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
     when(mockConnectStream.streamId()).thenReturn(200L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
@@ -163,6 +175,12 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 300L) with initial limits (maxStreamsBidi = 2)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
     when(mockConnectStream.streamId()).thenReturn(300L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
@@ -223,6 +241,12 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 400L) with initial limits (maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
     when(mockConnectStream.streamId()).thenReturn(400L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
@@ -281,6 +305,12 @@ public class StreamsBlockedCapsuleTest {
   @Test
   public void testStreamLimitExceededSendsStreamsBlockedCapsule() throws Exception {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
     QuicChannel mockParent = mock(QuicChannel.class);
     io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
 
