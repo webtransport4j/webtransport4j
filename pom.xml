@@ -16,6 +16,7 @@
         <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <netty.version>4.2.15.Final</netty.version>
+        <bench.src.dir>${project.basedir}/src/main/resources</bench.src.dir>
     </properties>
 
     <dependencyManagement>
@@ -94,6 +95,19 @@
             <version>1.0.0</version>
             <scope>compile</scope>
         </dependency>
+        <!-- JMH Benchmarking Framework -->
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>1.37</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+            <version>1.37</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <profiles>
@@ -162,6 +176,13 @@
                                 <goals><goal>testCompile</goal></goals>
                                 <configuration>
                                     <release>25</release>
+                                    <annotationProcessorPaths>
+                                        <path>
+                                            <groupId>org.openjdk.jmh</groupId>
+                                            <artifactId>jmh-generator-annprocess</artifactId>
+                                            <version>1.37</version>
+                                        </path>
+                                    </annotationProcessorPaths>
                                     <compileSourceRoots>
                                         <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
                                         <compileSourceRoot>${project.basedir}/src/test/java-25</compileSourceRoot>
@@ -181,6 +202,96 @@
                                 <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
                             </additionalClasspathElements>
                         </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>bench</id>
+            <properties>
+                <benchmark.quick>false</benchmark.quick>
+                <bench.src.dir>${project.basedir}/bench/java</bench.src.dir>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-clean-plugin</artifactId>
+                        <version>3.2.0</version>
+                        <executions>
+                            <execution>
+                                <id>clean-ide-benchmarks</id>
+                                <phase>process-test-classes</phase>
+                                <goals>
+                                    <goal>clean</goal>
+                                </goals>
+                                <configuration>
+                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                                    <filesets>
+                                        <fileset>
+                                            <directory>${project.build.directory}/test-classes/io/github/webtransport4j/jmh</directory>
+                                        </fileset>
+                                    </filesets>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>compile-benchmarks</id>
+                                <phase>test-compile</phase>
+                                <goals>
+                                    <goal>testCompile</goal>
+                                </goals>
+                                <configuration>
+                                    <release>25</release>
+                                    <annotationProcessorPaths>
+                                        <path>
+                                            <groupId>org.openjdk.jmh</groupId>
+                                            <artifactId>jmh-generator-annprocess</artifactId>
+                                            <version>1.37</version>
+                                        </path>
+                                    </annotationProcessorPaths>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
+                                        <compileSourceRoot>${bench.src.dir}</compileSourceRoot>
+                                    </compileSourceRoots>
+                                    <outputDirectory>${project.build.directory}/bench-test-classes</outputDirectory>
+                                    <generatedTestSourcesDirectory>${project.build.directory}/generated-bench-sources/test-annotations</generatedTestSourcesDirectory>
+                                    <forceJavacCompilerUse>true</forceJavacCompilerUse>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.6.3</version>
+                        <executions>
+                            <execution>
+                                <id>run-benchmarks</id>
+                                <phase>test</phase>
+                                <goals>
+                                    <goal>java</goal>
+                                </goals>
+                                <configuration>
+                                    <classpathScope>test</classpathScope>
+                                    <additionalClasspathElements>
+                                        <additionalClasspathElement>${project.build.directory}/bench-test-classes</additionalClasspathElement>
+                                    </additionalClasspathElements>
+                                    <mainClass>io.github.webtransport4j.jmh.BenchmarkRunner</mainClass>
+                                    <systemProperties>
+                                        <systemProperty>
+                                            <key>benchmark.quick</key>
+                                            <value>${benchmark.quick}</value>
+                                        </systemProperty>
+                                    </systemProperties>
+                                </configuration>
+                            </execution>
+                        </executions>
                     </plugin>
                 </plugins>
             </build>

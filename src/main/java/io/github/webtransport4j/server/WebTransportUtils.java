@@ -141,16 +141,27 @@ public class WebTransportUtils {
         }
     }
 
-    public static void writeCapsule(@NonNull ByteBuf out, long type, long value) {
-        ByteBuf temp = out.alloc().buffer();
-        try {
-            writeVarInt(temp, value);
-            writeVarInt(out, type);
-            writeVarInt(out, temp.readableBytes());
-            out.writeBytes(temp);
-        } finally {
-            temp.release();
+    public static int varIntLength(long value) {
+        if (value < 0 || value > 0x3FFFFFFFFFFFFFFFL) {
+            throw new IllegalArgumentException("Invalid QUIC VarInt: " + value);
         }
+        int requiredBits = 64 - Long.numberOfLeadingZeros(value);
+        if (requiredBits <= 6) {
+            return 1;
+        } else if (requiredBits <= 14) {
+            return 2;
+        } else if (requiredBits <= 30) {
+            return 4;
+        } else {
+            return 8;
+        }
+    }
+
+    public static void writeCapsule(@NonNull ByteBuf out, long type, long value) {
+        int valueLen = varIntLength(value);
+        writeVarInt(out, type);
+        writeVarInt(out, valueLen);
+        writeVarInt(out, value);
     }
 
     public static long readVariableLengthInt(@NonNull ByteBuf in) {
