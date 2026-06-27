@@ -22,7 +22,9 @@ public class Http3InboundControlStreamHandler extends SimpleChannelInboundHandle
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Http3SettingsFrame settingsFrame) {
-        logger.debug("PEER SETTINGS: {}", settingsFrame);
+        if (logger.isDebugEnabled()) {
+            logger.debug("PEER SETTINGS: {}", settingsFrame);
+        }
         io.netty.handler.codec.http3.Http3Settings settings =
                 settingsFrame.settings();
         if (settings != null) {

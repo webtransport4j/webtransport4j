@@ -16,35 +16,55 @@ public final class WebTransportStreamChannelInitializer
         WebTransportUtils.addTrafficShapers(stream);
 
         stream.pipeline().addFirst(new WebTransportDetectorHandler());
-        logger.debug("🔧 Added WebTransportDetectorHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportDetectorHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addFirst(
                 new QuicGlobalSniffer("STREAM-" + stream.streamId()));
-        logger.debug("🔧 Added QuicGlobalSniffer (per-stream). Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added QuicGlobalSniffer (per-stream). Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new RawWebTransportHandler());
-        logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new WebTransportChunkedWriteHandler());
-        logger.debug("🔧 Added WebTransportChunkedWriteHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportChunkedWriteHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
-        logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new WebTransportHeadersHandler());
-        logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportHeadersHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new Http3DataToByteBufHandler());
-        logger.debug("🔧 Added Http3DataToByteBufHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added Http3DataToByteBufHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new WebTransportCapsuleDecoder());
-        logger.debug("🔧 Added WebTransportCapsuleDecoder. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportCapsuleDecoder. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new WebTransportCapsuleHandler());
-        logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new MessageDispatcher());
-        logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", stream.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", stream.pipeline().names());
+        }
 
         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
             @Override

@@ -125,7 +125,9 @@ public class WebTransportServer {
                   stop();
                 }));
 
-    logger.debug("🚀 STARTING DEBUG SERVER...");
+    if (logger.isDebugEnabled()) {
+        logger.debug("🚀 STARTING DEBUG SERVER...");
+    }
     this.group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
     long globalWriteLimit =
         WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
@@ -277,7 +279,9 @@ public class WebTransportServer {
             .bind(new InetSocketAddress(port))
             .sync()
             .channel();
-    logger.debug("✅ WebTransport server listening on {}", port);
+    if (logger.isDebugEnabled()) {
+        logger.debug("✅ WebTransport server listening on {}", port);
+    }
     this.channel.closeFuture().sync();
   }
 

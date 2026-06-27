@@ -108,7 +108,9 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(httpErrorCode);
         logger.info("🌊 Stream reset by peer with WebTransport application error code: 0x{} ({})", Long.toHexString(wtErrorCode), wtErrorCode);
       } else {
-        logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x{}", Long.toHexString(httpErrorCode));
+        if (logger.isDebugEnabled()) {
+            logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x{}", Long.toHexString(httpErrorCode));
+        }
       }
     } else {
       logger.error("❌ Pipeline error: ", cause);

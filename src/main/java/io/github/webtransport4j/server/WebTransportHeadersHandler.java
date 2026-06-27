@@ -28,15 +28,23 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
   @Override
   protected void channelRead(ChannelHandlerContext ctx, Http3HeadersFrame frame) {
-    logger.debug("=== [DEBUG] Received HTTP/3 Headers ===");
+    if (logger.isDebugEnabled()) {
+        logger.debug("=== [DEBUG] Received HTTP/3 Headers ===");
+    }
 
     // Loop through all headers and print them
     for (Map.Entry<CharSequence, CharSequence> header : frame.headers()) {
-      logger.debug("{}: {}", header.getKey(), header.getValue());
+      if (logger.isDebugEnabled()) {
+          logger.debug("{}: {}", header.getKey(), header.getValue());
+      }
     }
 
-    logger.debug("=======================================");
-    logger.debug("📜 HTTP/3 Headers Received: {}", frame.headers().path());
+    if (logger.isDebugEnabled()) {
+        logger.debug("=======================================");
+    }
+    if (logger.isDebugEnabled()) {
+        logger.debug("📜 HTTP/3 Headers Received: {}", frame.headers().path());
+    }
     CharSequence scheme = frame.headers().scheme();
     CharSequence authority = frame.headers().authority();
     CharSequence path = frame.headers().path();
@@ -145,8 +153,12 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       responseHeaders.status(HttpResponseStatus.OK.codeAsText());
 
       ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-      logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
-      logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
+      if (logger.isDebugEnabled()) {
+          logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
+      }
+      if (logger.isDebugEnabled()) {
+          logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
+      }
 
       if (mgr != null) {
         connectStream
@@ -445,7 +457,9 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
   @Override
   protected void channelInputClosed(ChannelHandlerContext ctx) {
-    logger.debug("🔒 Stream Closed: {}", ctx.channel().id());
+    if (logger.isDebugEnabled()) {
+        logger.debug("🔒 Stream Closed: {}", ctx.channel().id());
+    }
     ctx.close();
   }
 }

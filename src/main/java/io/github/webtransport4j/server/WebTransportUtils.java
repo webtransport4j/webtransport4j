@@ -245,9 +245,15 @@ public class WebTransportUtils {
         frameBuf.release();
       }
 
-      logger.info("📤 Writing DefaultHttp3DataFrame with {} Capsule (Type: 0x{}, Value/Limit: {}, Total Bytes: {})", capsuleName, Long.toHexString(capsuleType), value, totalBytes);
-      logger.info("   ├── Capsule Bytes:      {}", capsuleHex);
-      logger.info("   └── HTTP/3 Frame Bytes: {}", frameHex);
+      if (logger.isTraceEnabled()) {
+          logger.trace("📤 Writing DefaultHttp3DataFrame with {} Capsule (Type: 0x{}, Value/Limit: {}, Total Bytes: {})", capsuleName, Long.toHexString(capsuleType), value, totalBytes);
+      }
+      if (logger.isTraceEnabled()) {
+          logger.trace("   ├── Capsule Bytes:      {}", capsuleHex);
+      }
+      if (logger.isTraceEnabled()) {
+          logger.trace("   └── HTTP/3 Frame Bytes: {}", frameHex);
+      }
 
       ChannelFuture future =
           connectStream.writeAndFlush(new DefaultHttp3DataFrame(buf));
@@ -413,13 +419,17 @@ public class WebTransportUtils {
 
     if (globalTrafficShapingHandler != null) {
       stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShapingHandler);
-      logger.debug("🔧 Added global traffic shaper to stream {}", stream.streamId());
+      if (logger.isDebugEnabled()) {
+          logger.debug("🔧 Added global traffic shaper to stream {}", stream.streamId());
+      }
     }
 
     GlobalTrafficShapingHandler connShaper = quic.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).get();
     if (connShaper != null) {
       stream.pipeline().addFirst("conn-traffic-shaper", connShaper);
-      logger.debug("🔧 Added connection traffic shaper to stream {}", stream.streamId());
+      if (logger.isDebugEnabled()) {
+          logger.debug("🔧 Added connection traffic shaper to stream {}", stream.streamId());
+      }
     }
 
     long streamWriteLimit =
@@ -430,7 +440,9 @@ public class WebTransportUtils {
       ChannelTrafficShapingHandler streamShaper =
               new ChannelTrafficShapingHandler(streamWriteLimit, streamReadLimit);
       stream.pipeline().addFirst("stream-traffic-shaper", streamShaper);
-      logger.debug("🔧 Added stream traffic shaper to stream {}", stream.streamId());
+      if (logger.isDebugEnabled()) {
+          logger.debug("🔧 Added stream traffic shaper to stream {}", stream.streamId());
+      }
     }
   }
 }

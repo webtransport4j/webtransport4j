@@ -15,14 +15,18 @@ public final class WebTransportChunkedWriteHandler extends ChunkedWriteHandler {
                       Object msg,
                       ChannelPromise promise) throws Exception {
 
-        logger.debug("ChunkedWriteHandler.write(): {}", msg.getClass());
+        if (logger.isDebugEnabled()) {
+            logger.debug("ChunkedWriteHandler.write(): {}", msg.getClass());
+        }
 
         super.write(ctx, msg, promise);
     }
 
     @Override
     public void flush(ChannelHandlerContext ctx) throws Exception {
-        logger.debug("ChunkedWriteHandler.flush()");
+        if (logger.isDebugEnabled()) {
+            logger.debug("ChunkedWriteHandler.flush()");
+        }
         super.flush(ctx);
     }
 }

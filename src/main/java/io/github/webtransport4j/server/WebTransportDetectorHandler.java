@@ -49,7 +49,9 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
     }
 
     if (logger.isDebugEnabled()) {
-      logger.debug("📦 [SNIFFER] Bytes: {} | HEX: [{}]", in.readableBytes(), ByteBufUtil.hexDump(in));
+      if (logger.isTraceEnabled()) {
+          logger.trace("📦 [SNIFFER] Bytes: {} | HEX: [{}]", in.readableBytes(), ByteBufUtil.hexDump(in));
+      }
     }
 
     long marker = peekVarInt(in);
@@ -74,7 +76,9 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
       return;
     }
 
-    logger.debug("👉 Decision: Standard HTTP/3 request stream (first varint = 0x{})", Long.toHexString(marker));
+    if (logger.isDebugEnabled()) {
+        logger.debug("👉 Decision: Standard HTTP/3 request stream (first varint = 0x{})", Long.toHexString(marker));
+    }
 
     detected = true;
 

@@ -35,7 +35,9 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     @Override
     protected void initChannel(QuicChannel ch) {
 
-        logger.debug("Opening Quic connection : {}", ch.id());
+        if (logger.isDebugEnabled()) {
+            logger.debug("Opening Quic connection : {}", ch.id());
+        }
 
         Long defUni = settings.get(0x2b64L) == null ? Long.valueOf(0L) : settings.get(0x2b64L);
         Long defBidi = settings.get(0x2b65L) == null ? Long.valueOf(0L) : settings.get(0x2b65L);
@@ -75,28 +77,44 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         int port = remote.getPort();
         String nettyId = ch.id().asShortText();
 
-        logger.debug("\n🔌 NEW QUIC CONNECTION ESTABLISHED");
-        logger.debug("    ├── 🌍 Remote IP:   {}", ip);
-        logger.debug("    ├── 🚪 Remote Port: {}", port);
-        logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
+        if (logger.isDebugEnabled()) {
+            logger.debug("\n🔌 NEW QUIC CONNECTION ESTABLISHED");
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("    ├── 🌍 Remote IP:   {}", ip);
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("    ├── 🚪 Remote Port: {}", port);
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
+        }
 
          ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
          ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
 
          if (businessExecutor != null) {
              ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-              logger.debug("📌 Set BUSINESS_EXECUTOR on channel: {}", businessExecutor.getClass().getSimpleName());
+              if (logger.isDebugEnabled()) {
+                  logger.debug("📌 Set BUSINESS_EXECUTOR on channel: {}", businessExecutor.getClass().getSimpleName());
+              }
          } else {
-             logger.debug("📌 BUSINESS_EXECUTOR is NULL on channel (direct event loop execution)");
+             if (logger.isDebugEnabled()) {
+                 logger.debug("📌 BUSINESS_EXECUTOR is NULL on channel (direct event loop execution)");
+             }
          }
 
          ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
 
         ch.pipeline().addLast(new WebTransportDatagramDecoder());
-        logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
+        }
 
         ch.pipeline().addLast(new MessageDispatcher());
-        logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());
+        if (logger.isDebugEnabled()) {
+            logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());
+        }
 
         ch.pipeline().addLast(
             new Http3ServerConnectionHandler(

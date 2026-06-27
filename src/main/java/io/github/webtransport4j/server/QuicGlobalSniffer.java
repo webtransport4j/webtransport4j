@@ -20,14 +20,21 @@ class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
     if (msg instanceof ByteBuf) {
       ByteBuf data = (ByteBuf) msg;
       int len = data.readableBytes();
-      String hex = ByteBufUtil.hexDump(data);
+     
       // Formatting for readability
       if (len > 0) {
-        logger.debug("👀 [{}] ID:{} LEN:{}", prefix, ctx.channel().id().asShortText(), len);
-        logger.debug("    HEX: {}", hex);
+        String hex = ByteBufUtil.hexDump(data);
+        if (logger.isTraceEnabled()) {
+            logger.trace("👀 [{}] ID:{} LEN:{}", prefix, ctx.channel().id().asShortText(), len);
+        }
+        if (logger.isTraceEnabled()) {
+            logger.trace("    HEX: {}", hex);
+        }
       }
     } else {
-      logger.debug("👀 [{}] MsgType: {}", prefix, msg.getClass().getSimpleName());
+      if (logger.isDebugEnabled()) {
+          logger.debug("👀 [{}] MsgType: {}", prefix, msg.getClass().getSimpleName());
+      }
     }
     // Pass it on!
     ctx.fireChannelRead(msg);
@@ -35,7 +42,9 @@ class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
 
   @Override
   public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-    logger.debug("👀 [{}] UserEvent: {} -> {}", prefix, evt.getClass().getName(), evt);
+    if (logger.isDebugEnabled()) {
+        logger.debug("👀 [{}] UserEvent: {} -> {}", prefix, evt.getClass().getName(), evt);
+    }
     ctx.fireUserEventTriggered(evt);
   }
 }

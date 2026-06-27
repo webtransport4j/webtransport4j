@@ -57,8 +57,8 @@ final class WebTransportCapsuleDecoder
                             ? sessId
                             : ((QuicStreamChannel) ctx.channel()).streamId();
 
-            if (logger.isDebugEnabled()) {
-                logger.debug(
+            if (logger.isTraceEnabled()) {
+                logger.trace(
                         String.format(
                                 "💊 Received Capsule | Type: 0x%X | Length: %d | Hex: %s",
                                 capType,

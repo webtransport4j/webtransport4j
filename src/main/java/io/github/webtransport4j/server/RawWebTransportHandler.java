@@ -136,7 +136,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
           return;
         }
 
-        logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
+        if (logger.isDebugEnabled()) {
+            logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
+        }
         protocolHeaderConsumed = true;
 
         QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
@@ -190,7 +192,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                       .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
                   return;
                 }
-                 logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
+                 if (logger.isDebugEnabled()) {
+                     logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
+                 }
               }
             }
           }
@@ -202,7 +206,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       return;
     }
 
-    logger.debug("   -> Firing Body ({} bytes) to App Layer...", data.readableBytes());
+    if (logger.isDebugEnabled()) {
+        logger.debug("   -> Firing Body ({} bytes) to App Layer...", data.readableBytes());
+    }
 
     ctx.fireChannelRead(data); // message dispatcher
   }

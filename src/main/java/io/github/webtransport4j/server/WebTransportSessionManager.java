@@ -58,21 +58,27 @@ class WebTransportSessionManager {
        uniMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
-        logger.debug("Using fallback uni streams limit: {}", uniMax);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Using fallback uni streams limit: {}", uniMax);
+        }
        WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
      }
      if ((biMax == null || biMax == 0L) && flowControlEnabled) {
        biMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-        logger.debug("Using fallback bidi streams limit: {}", biMax);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Using fallback bidi streams limit: {}", biMax);
+        }
        WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
      }
      if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
        dataMax =
            WebTransportConfig.getLong(
                "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
-        logger.debug("Using fallback data limit: {}", dataMax);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Using fallback data limit: {}", dataMax);
+        }
        WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
      }
 
@@ -117,7 +123,9 @@ class WebTransportSessionManager {
             flowControlEnabled);
 
     sessions.put(sessionStreamId, session);
-    logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
+    if (logger.isDebugEnabled()) {
+        logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
+    }
 
     Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
@@ -177,7 +185,9 @@ class WebTransportSessionManager {
           logger.error("Error in onSessionClosed callback", e);
         }
       }
-       logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
+       if (logger.isDebugEnabled()) {
+           logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
+       }
     }
   }
 
@@ -213,7 +223,9 @@ class WebTransportSessionManager {
 
   public void closeAll() {
     if (!sessions.isEmpty()) {
-      logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", sessions.size());
+      if (logger.isDebugEnabled()) {
+          logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", sessions.size());
+      }
       sessions.clear();
     }
   }

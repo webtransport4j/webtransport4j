@@ -65,7 +65,11 @@ public class WebTransportChatHandler implements WebTransportHandler {
     }
 
     // Set stream listeners
-    stream.onClose(() -> logger.debug("💬 [CHAT] Stream {} closed.", stream.streamId()));
+    stream.onClose(() -> {
+        if (logger.isDebugEnabled()) {
+            logger.debug("💬 [CHAT] Stream {} closed.", stream.streamId());
+        }
+    });
     stream.onError(err -> logger.error("💬 [CHAT] Stream error on {}", stream.streamId(), err));
 
     // Register raw data consumer to demultiplex stream purpose using the first byte
@@ -197,7 +201,9 @@ public class WebTransportChatHandler implements WebTransportHandler {
   private void handleVoiceChunk(ChatUser user, ByteBuf payload) {
     if (user.room == null) return;
 
-    logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.readableBytes());
+    if (logger.isDebugEnabled()) {
+        logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.readableBytes());
+    }
 
     // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
     for (ChatUser roomMember : users.values()) {
