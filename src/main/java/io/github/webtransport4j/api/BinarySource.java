@@ -2,6 +2,7 @@ package io.github.webtransport4j.api;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import org.jspecify.annotations.NonNull;
 
 /**
  * @author <a href="https://github.com/sanjomo">Santhosh Mohan</a>
@@ -20,7 +21,7 @@ public interface BinarySource extends AutoCloseable {
      *         has been reached.
      * @throws IOException if an I/O error occurs
      */
-    int read(ByteBuffer dst) throws IOException;
+    int read(@NonNull ByteBuffer dst) throws IOException;
 
     /**
      * Returns the total size of the source if known.

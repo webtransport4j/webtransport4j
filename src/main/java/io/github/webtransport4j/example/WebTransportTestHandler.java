@@ -7,7 +7,7 @@ import io.netty.util.concurrent.Future;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +26,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportTestHandler.class);
 
   @Override
-  public void onSessionReady(@NotNull WebTransportSession session) {
+  public void onSessionReady(@NonNull WebTransportSession session) {
     logger.info("🟢 [TEST HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
 
       // 1. Initiate a Server-to-Client Unidirectional Stream
@@ -43,7 +43,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
                   logger.error("   ❌ Failed to write to server uni stream", wf.cause());
                 }
               });
-          stream.write(BinarySources.from(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
+          stream.write(BinarySources.fromFile(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
             if (wf.isSuccess()) {
               logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
             }else {
@@ -80,7 +80,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
                           logger.error("   ❌ Failed to send greeting on server bidi stream", wf.cause());
                         }
               });
-          stream.write(BinarySources.from(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
+          stream.write(BinarySources.fromFile(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
             if (wf.isSuccess()) {
               logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
             }else {
@@ -95,12 +95,12 @@ public class WebTransportTestHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onSessionClosed(@NotNull WebTransportSession session) {
+  public void onSessionClosed(@NonNull WebTransportSession session) {
     logger.info("🔴 [TEST HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
+  public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
     boolean isBidi = stream.isBidirectional();
     logger.info("📥 [TEST HANDLER] New client-initiated stream received. ID: {} | Type: {}", stream.streamId(), (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
 
@@ -131,7 +131,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
+  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
     String content = data.toString(StandardCharsets.UTF_8);
     logger.info("☄️ [TEST HANDLER] Received Datagram: {}", content);
 

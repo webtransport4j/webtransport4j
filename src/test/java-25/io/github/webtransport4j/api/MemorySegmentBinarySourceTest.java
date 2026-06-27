@@ -37,7 +37,7 @@ public class MemorySegmentBinarySourceTest {
             MemorySegment byteSegment = arena.allocate(testData.length);
             MemorySegment.copy(testData, 0, byteSegment, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, testData.length);
 
-            BinarySource source = BinarySources.from(byteSegment);
+            BinarySource source = BinarySources.fromMemorySegment(byteSegment);
             
             assertEquals("Size should match", testData.length, source.size());
 

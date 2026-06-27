@@ -2,15 +2,17 @@ package io.github.webtransport4j.api;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.function.Consumer;
 
 public interface NettyWebTransportStream extends WebTransportStream{
-    Consumer<ByteBuf> getDataConsumer();
+    @Nullable Consumer<ByteBuf> getDataConsumer();
 
-    Runnable getCloseHandler();
+    @Nullable Runnable getCloseHandler();
 
-    Consumer<Throwable> getErrorHandler();
+    @Nullable Consumer<Throwable> getErrorHandler();
 
-    QuicStreamChannel streamChannel();
+    @NonNull QuicStreamChannel streamChannel();
 }

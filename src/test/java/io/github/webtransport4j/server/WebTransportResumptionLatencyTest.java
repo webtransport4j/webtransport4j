@@ -15,7 +15,7 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,7 +36,7 @@ public class WebTransportResumptionLatencyTest {
         "/test-resumption",
         new WebTransportHandler() {
           @Override
-          public void onSessionReady(@NotNull WebTransportSession session) {
+          public void onSessionReady(@NonNull WebTransportSession session) {
             System.out.println("SERVER: Session ready: " + session.getSessionStreamId());
           }
         });

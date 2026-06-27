@@ -6,14 +6,16 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.stream.ChunkedInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 public final class BinarySourceChunkedInput
         implements ChunkedInput<ByteBuf> {
     private static final Logger logger = LoggerFactory.getLogger(BinarySourceChunkedInput.class);
-    private static final int DEFAULT_CHUNK_SIZE = 16 * 1024;
+    private static final int DEFAULT_CHUNK_SIZE = Integer.getInteger("webtransport4j.chunked.input.size", 16 * 1024);
 
     private final BinarySource source;
     private final int chunkSize;
@@ -21,12 +23,15 @@ public final class BinarySourceChunkedInput
     private boolean eof;
     private long progress;
 
-    public BinarySourceChunkedInput(BinarySource source) {
-        this(source, DEFAULT_CHUNK_SIZE);
+    public BinarySourceChunkedInput(@NonNull BinarySource source) {
+        this(Objects.requireNonNull(source,"source must not be null"), DEFAULT_CHUNK_SIZE);
     }
 
     public BinarySourceChunkedInput(BinarySource source, int chunkSize) {
-        this.source = source;
+        this.source = Objects.requireNonNull(source, "source must not be null");
+        if(chunkSize <= 0) {
+            throw new IllegalArgumentException("chunk size must be greater than 0");
+        }
         this.chunkSize = chunkSize;
     }
 
@@ -41,12 +46,12 @@ public final class BinarySourceChunkedInput
     }
 
     @Override
-    public ByteBuf readChunk(ChannelHandlerContext ctx) throws Exception {
+    public @Nullable ByteBuf readChunk(@NonNull ChannelHandlerContext ctx) throws Exception {
         return readChunk(ctx.alloc());
     }
 
     @Override
-    public ByteBuf readChunk(ByteBufAllocator alloc) throws Exception {
+    public @Nullable ByteBuf readChunk(@NonNull ByteBufAllocator alloc) throws Exception {
         if (eof) {
             return null;
         }

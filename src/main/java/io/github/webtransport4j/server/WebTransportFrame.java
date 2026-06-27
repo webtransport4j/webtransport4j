@@ -2,32 +2,36 @@ package io.github.webtransport4j.server;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufHolder;
+import org.jspecify.annotations.NonNull;
 
 public interface WebTransportFrame extends ByteBufHolder {
-  /** The session ID that this frame belongs to. */
-  long sessionId();
 
-  @Override
-  WebTransportFrame copy();
+    /**
+     * The session ID that this frame belongs to.
+     */
+    long sessionId();
 
-  @Override
-  WebTransportFrame duplicate();
+    @Override
+    @NonNull WebTransportFrame copy();
 
-  @Override
-  WebTransportFrame retainedDuplicate();
+    @Override
+    @NonNull WebTransportFrame duplicate();
 
-  @Override
-  WebTransportFrame replace(ByteBuf content);
+    @Override
+    @NonNull WebTransportFrame retainedDuplicate();
 
-  @Override
-  WebTransportFrame retain();
+    @Override
+    @NonNull WebTransportFrame replace(@NonNull ByteBuf content);
 
-  @Override
-  WebTransportFrame retain(int increment);
+    @Override
+    @NonNull WebTransportFrame retain();
 
-  @Override
-  WebTransportFrame touch();
+    @Override
+    @NonNull WebTransportFrame retain(int increment);
 
-  @Override
-  WebTransportFrame touch(Object hint);
+    @Override
+    @NonNull WebTransportFrame touch();
+
+    @Override
+    @NonNull WebTransportFrame touch(@NonNull Object hint);
 }

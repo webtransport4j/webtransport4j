@@ -3,6 +3,7 @@ package io.github.webtransport4j.example;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import org.jspecify.annotations.NonNull;
 
 import java.util.function.Consumer;
 
@@ -77,7 +78,7 @@ public final class LengthPrefixedCodec
     }
 
     @Override
-    public ByteBuf encode(ByteBuf message) {
+    public @NonNull ByteBuf encode(@NonNull ByteBuf message) {
 
         int length = message.readableBytes();
 
@@ -102,8 +103,8 @@ public final class LengthPrefixedCodec
 
     @Override
     public void decode(
-            ByteBuf incoming,
-            Consumer<ByteBuf> consumer) {
+            @NonNull ByteBuf incoming,
+            @NonNull Consumer<ByteBuf> consumer) {
 
         accumulator.writeBytes(incoming);
 

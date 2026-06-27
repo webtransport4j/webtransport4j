@@ -6,6 +6,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import org.jspecify.annotations.NonNull;
 
 /**
  * A {@link BinarySource} backed by a file {@link Path}.
@@ -16,6 +17,7 @@ import java.nio.file.StandardOpenOption;
 final class PathBinarySource implements BinarySource {
 
     private final SeekableByteChannel channel;
+
     private final long size;
 
     PathBinarySource(Path path) throws IOException {
@@ -24,7 +26,7 @@ final class PathBinarySource implements BinarySource {
     }
 
     @Override
-    public int read(ByteBuffer dst) throws IOException {
+    public int read(@NonNull ByteBuffer dst) throws IOException {
         return channel.read(dst);
     }
 

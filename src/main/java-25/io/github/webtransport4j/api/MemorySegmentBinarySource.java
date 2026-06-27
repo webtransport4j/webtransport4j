@@ -7,7 +7,7 @@ import java.nio.ByteBuffer;
  * @author https://github.com/sanjomo
  * @date 26/06/26 7:20 pm
  */
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 import java.util.Objects;
 
@@ -24,14 +24,14 @@ final class MemorySegmentBinarySource implements BinarySource {
     private final long size;
     private long offset;
 
-    MemorySegmentBinarySource(@NotNull MemorySegment segment) {
+    MemorySegmentBinarySource(@NonNull MemorySegment segment) {
         this.segment = Objects.requireNonNull(segment, "segment");
         this.size = segment.byteSize();
         this.offset = 0;
     }
 
     @Override
-    public int read(@NotNull ByteBuffer dst) {
+    public int read(@NonNull ByteBuffer dst) {
         if (offset >= size) {
             return -1;
         }

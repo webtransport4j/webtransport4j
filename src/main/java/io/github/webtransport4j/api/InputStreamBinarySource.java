@@ -3,7 +3,7 @@ package io.github.webtransport4j.api;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 import java.util.Objects;
 
@@ -18,12 +18,12 @@ final class InputStreamBinarySource implements BinarySource {
 
     private final InputStream in;
 
-    InputStreamBinarySource(@NotNull InputStream in) {
-        this.in = Objects.requireNonNull(in, "in");
+    InputStreamBinarySource(@NonNull InputStream in) {
+        this.in = Objects.requireNonNull(in, "in must not be null");
     }
 
     @Override
-    public int read(@NotNull ByteBuffer dst) throws IOException {
+    public int read(@NonNull ByteBuffer dst) throws IOException {
         if (!dst.hasRemaining()) {
             return 0;
         }

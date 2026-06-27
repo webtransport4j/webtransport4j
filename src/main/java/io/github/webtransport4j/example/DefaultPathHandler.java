@@ -6,7 +6,7 @@ import io.netty.buffer.Unpooled;
 
 import java.nio.charset.StandardCharsets;
 
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,17 +14,17 @@ public class DefaultPathHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(DefaultPathHandler.class);
 
   @Override
-  public void onSessionReady(@NotNull WebTransportSession session) {
+  public void onSessionReady(@NonNull WebTransportSession session) {
     logger.info("🟢 [DEFAULT HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onSessionClosed(@NotNull WebTransportSession session) {
+  public void onSessionClosed(@NonNull WebTransportSession session) {
     logger.info("🔴 [DEFAULT HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
+  public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
     boolean isBidi = stream.isBidirectional();
     logger.info("📥 [DEFAULT HANDLER] New client-initiated stream received. ID: {} | Type: {}", stream.streamId(), (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
 
@@ -50,7 +50,7 @@ stream.write(codec.encode(payload));
   }
 
   @Override
-  public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
+  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
     String content = data.toString(java.nio.charset.StandardCharsets.UTF_8);
     logger.info("☄️ [DEFAULT HANDLER] Received Datagram: {}", content);
     String replyText = "DEFAULT ACK DG: " + content;

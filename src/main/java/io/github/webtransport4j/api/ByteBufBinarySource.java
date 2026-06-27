@@ -1,10 +1,11 @@
 package io.github.webtransport4j.api;
 
 import io.netty.buffer.ByteBuf;
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 /**
  * A {@link BinarySource} backed by a Netty {@link ByteBuf}.
@@ -18,13 +19,13 @@ final class ByteBufBinarySource implements BinarySource {
     private final ByteBuf buffer;
     private final int size;
 
-    ByteBufBinarySource(@NotNull ByteBuf buffer) {
-        this.buffer = buffer;
+    ByteBufBinarySource(@NonNull ByteBuf buffer) {
+        this.buffer = Objects.requireNonNull(buffer, "buffer must not be null");
         this.size = buffer.readableBytes();
     }
 
     @Override
-    public int read(@NotNull ByteBuffer dst) throws IOException {
+    public int read(@NonNull ByteBuffer dst) throws IOException {
         if (!buffer.isReadable()) {
             return -1;
         }

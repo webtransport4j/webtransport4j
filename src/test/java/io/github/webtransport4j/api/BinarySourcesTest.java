@@ -59,7 +59,7 @@ public class BinarySourcesTest {
 
     @Test
     public void testByteArrayBinarySource() throws IOException {
-        BinarySource source = BinarySources.from(testData);
+        BinarySource source = BinarySources.fromByteArray(testData);
         assertEquals(testData.length, source.size());
         assertTrue(source.hasKnownSize());
         verifySource(source);
@@ -67,7 +67,7 @@ public class BinarySourcesTest {
 
     @Test
     public void testByteArrayBinarySourceWithOffset() throws IOException {
-        BinarySource source = BinarySources.from(testData, 6, 12);
+        BinarySource source = BinarySources.fromByteArray(testData, 6, 12);
         assertEquals(12, source.size());
         
         ByteBuffer dst = ByteBuffer.allocate(20);
@@ -84,7 +84,7 @@ public class BinarySourcesTest {
     @Test
     public void testByteBufferBinarySource() throws IOException {
         ByteBuffer buf = ByteBuffer.wrap(testData);
-        BinarySource source = BinarySources.from(buf);
+        BinarySource source = BinarySources.fromByteBuffer(buf);
         assertEquals(testData.length, source.size());
         verifySource(source);
         assertEquals("Underlying buffer position should be advanced", testData.length, buf.position());
@@ -93,7 +93,7 @@ public class BinarySourcesTest {
     @Test
     public void testByteBufBinarySource() throws IOException {
         ByteBuf buf = Unpooled.wrappedBuffer(testData);
-        BinarySource source = BinarySources.from(buf);
+        BinarySource source = BinarySources.fromByteBuf(buf);
         assertEquals(testData.length, source.size());
         verifySource(source);
         assertEquals("Underlying Netty ByteBuf readerIndex should be exhausted", 0, buf.readableBytes());
@@ -101,7 +101,7 @@ public class BinarySourcesTest {
 
     @Test
     public void testPathBinarySource() throws IOException {
-        BinarySource source = BinarySources.from(tempFile);
+        BinarySource source = BinarySources.fromPath(tempFile);
         assertEquals(testData.length, source.size());
         verifySource(source);
     }
@@ -109,7 +109,7 @@ public class BinarySourcesTest {
     @Test
     public void testFileBinarySource() throws IOException {
         File file = tempFile.toFile();
-        BinarySource source = BinarySources.from(file);
+        BinarySource source = BinarySources.fromFile(file);
         assertEquals(testData.length, source.size());
         verifySource(source);
     }
@@ -117,7 +117,7 @@ public class BinarySourcesTest {
     @Test
     public void testInputStreamBinarySource() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(testData);
-        BinarySource source = BinarySources.from(in);
+        BinarySource source = BinarySources.fromInputStream(in);
         assertEquals("InputStream size is generally unknown", -1, source.size());
         assertFalse(source.hasKnownSize());
         verifySource(source);
@@ -127,7 +127,7 @@ public class BinarySourcesTest {
     public void testChannelBinarySource() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(testData);
         ReadableByteChannel channel = Channels.newChannel(in);
-        BinarySource source = BinarySources.from(channel);
+        BinarySource source = BinarySources.fromReadableByteChannel(channel);
         assertEquals(-1, source.size());
         verifySource(source);
     }

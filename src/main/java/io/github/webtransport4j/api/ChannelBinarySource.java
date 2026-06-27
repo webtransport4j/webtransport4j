@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ReadableByteChannel;
 
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 
 import java.util.Objects;
 
@@ -17,12 +17,12 @@ final class ChannelBinarySource implements BinarySource {
 
     private final ReadableByteChannel channel;
 
-    ChannelBinarySource(@NotNull ReadableByteChannel channel) {
-        this.channel = Objects.requireNonNull(channel, "channel");
+    ChannelBinarySource(@NonNull ReadableByteChannel channel) {
+        this.channel = Objects.requireNonNull(channel, "channel must not be null");
     }
 
     @Override
-    public int read(@NotNull ByteBuffer dst) throws IOException {
+    public int read(@NonNull ByteBuffer dst) throws IOException {
         return channel.read(dst);
     }
 

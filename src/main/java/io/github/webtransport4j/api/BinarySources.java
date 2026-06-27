@@ -1,8 +1,7 @@
 package io.github.webtransport4j.api;
 
 import io.netty.buffer.ByteBuf;
-import org.jetbrains.annotations.NotNull;
-
+import org.jspecify.annotations.NonNull;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,7 +26,7 @@ public final class BinarySources {
      * @param data the byte array to read from
      * @return a new binary source wrapping the entire array
      */
-    public static @NotNull BinarySource from(@NotNull byte[] data) {
+    public static @NonNull BinarySource fromByteArray(byte @NonNull [] data) {
         return new ByteArrayBinarySource(data);
     }
 
@@ -40,7 +39,7 @@ public final class BinarySources {
      * @return a new binary source wrapping the array region
      * @throws IndexOutOfBoundsException if offset or length are out of bounds
      */
-    public static @NotNull BinarySource from(@NotNull byte[] data, int offset, int length) {
+    public static @NonNull BinarySource fromByteArray(byte @NonNull [] data, int offset, int length) {
         return new ByteArrayBinarySource(data, offset, length);
     }
 
@@ -53,7 +52,7 @@ public final class BinarySources {
      * @param buffer the buffer to read from
      * @return a new binary source wrapping the buffer
      */
-    public static @NotNull BinarySource from(@NotNull ByteBuffer buffer) {
+    public static @NonNull BinarySource fromByteBuffer(@NonNull ByteBuffer buffer) {
         return new ByteBufferBinarySource(buffer);
     }
 
@@ -66,10 +65,9 @@ public final class BinarySources {
      * @param buffer the buffer to read from
      * @return a new binary source wrapping the buffer
      */
-    public static @NotNull BinarySource from(@NotNull ByteBuf buffer) {
+    public static @NonNull BinarySource fromByteBuf(@NonNull ByteBuf buffer) {
         return new ByteBufBinarySource(buffer);
     }
-
 
     /**
      * Creates a {@link BinarySource} backed by a file at the specified {@link Path}.
@@ -78,7 +76,7 @@ public final class BinarySources {
      * @return a new binary source wrapping the file
      * @throws IOException if an I/O error occurs opening the file
      */
-    public static @NotNull BinarySource from(@NotNull Path path) throws IOException {
+    public static @NonNull BinarySource fromPath(@NonNull Path path) throws IOException {
         return new PathBinarySource(path);
     }
 
@@ -89,7 +87,7 @@ public final class BinarySources {
      * @return a new binary source wrapping the file
      * @throws IOException if an I/O error occurs opening the file
      */
-    public static @NotNull BinarySource from(@NotNull File file) throws IOException {
+    public static @NonNull BinarySource fromFile(@NonNull File file) throws IOException {
         return new PathBinarySource(file.toPath());
     }
 
@@ -102,7 +100,7 @@ public final class BinarySources {
      * @return a new binary source wrapping the stream
      * @throws IOException if an I/O error occurs
      */
-    public static @NotNull BinarySource from(@NotNull InputStream in) throws IOException {
+    public static @NonNull BinarySource fromInputStream(@NonNull InputStream in) throws IOException {
         return new InputStreamBinarySource(in);
     }
 
@@ -115,7 +113,7 @@ public final class BinarySources {
      * @return a new binary source wrapping the channel
      * @throws IOException if an I/O error occurs
      */
-    public static @NotNull BinarySource from(@NotNull ReadableByteChannel channel) throws IOException {
+    public static @NonNull BinarySource fromReadableByteChannel(@NonNull ReadableByteChannel channel) throws IOException {
         return new ChannelBinarySource(channel);
     }
 }

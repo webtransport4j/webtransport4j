@@ -12,6 +12,7 @@ public class WebTransportConfigTest {
   @After
   public void cleanup() {
     System.clearProperty("test.math.key");
+    System.clearProperty("test.string.key");
     System.clearProperty("webtransport4j.dispatch.execution.mode");
     System.clearProperty("webtransport4j.business.queue.type");
     System.clearProperty("webtransport4j.business.queue.capacity");
@@ -104,5 +105,21 @@ public class WebTransportConfigTest {
     assertEquals(30000L, WebTransportConfig.getLong("webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L));
     assertEquals(86400L, WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L));
     assertEquals(20480L, WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L));
+  }
+
+  @Test
+  public void testGetStringSystemProperty() {
+    System.setProperty("test.string.key", "hello_world");
+    assertEquals("hello_world", WebTransportConfig.get("test.string.key", "default_val"));
+  }
+
+  @Test
+  public void testGetStringFallbackToDefault() {
+    assertEquals("fallback", WebTransportConfig.get("nonexistent.string.key", "fallback"));
+  }
+
+  @Test
+  public void testGetStringNullableDefault() {
+    assertNull(WebTransportConfig.get("another.nonexistent.key", null));
   }
 }

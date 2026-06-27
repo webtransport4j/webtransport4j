@@ -11,308 +11,262 @@ import io.netty.util.Attribute;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.NonNull;
 
 class RawWebTransportHandler extends ChannelDuplexHandler {
-  private static final Logger logger = LoggerFactory.getLogger(RawWebTransportHandler.class);
 
-  // Track state per handler instance (per stream)
-  private boolean protocolHeaderConsumed = false;
-  private boolean outboundHeaderSent = false;
-  private ByteBuf cumulation = null;
+    private static final Logger logger = LoggerFactory.getLogger(RawWebTransportHandler.class);
 
-  @Override
-  public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
-    if (cumulation != null) {
-      cumulation.release();
-      cumulation = null;
+    // Track state per handler instance (per stream)
+    private boolean protocolHeaderConsumed = false;
+
+    private boolean outboundHeaderSent = false;
+
+    private ByteBuf cumulation = null;
+
+    @Override
+    public void handlerRemoved(@NonNull ChannelHandlerContext ctx) throws Exception {
+        if (cumulation != null) {
+            cumulation.release();
+            cumulation = null;
+        }
+        super.handlerRemoved(ctx);
     }
-    super.handlerRemoved(ctx);
-  }
 
-  @Override
-  public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-    if (cumulation != null) {
-      cumulation.release();
-      cumulation = null;
+    @Override
+    public void channelInactive(@NonNull ChannelHandlerContext ctx) throws Exception {
+        if (cumulation != null) {
+            cumulation.release();
+            cumulation = null;
+        }
+        super.channelInactive(ctx);
     }
-    super.channelInactive(ctx);
-  }
 
-  @Override
-  public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-    if (!(msg instanceof ByteBuf)) {
-      ctx.fireChannelRead(msg);
-      return;
+    @Override
+    public void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Object msg) throws Exception {
+        if (!(msg instanceof ByteBuf)) {
+            ctx.fireChannelRead(msg);
+            return;
+        }
+        ByteBuf data = (ByteBuf) msg;
+        if (ctx.channel() instanceof QuicStreamChannel) {
+            long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
+            if (streamId == 0) {
+                ctx.fireChannelRead(msg);
+                return;
+            }
+            if (!protocolHeaderConsumed) {
+                Attribute<Boolean> serverInitiatedAttr = ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
+                Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
+                if (Boolean.TRUE.equals(serverInitiated)) {
+                    protocolHeaderConsumed = true;
+                }
+            }
+            if (!protocolHeaderConsumed) {
+                // Accumulate fragmented stream header bytes
+                if (cumulation == null) {
+                    cumulation = (ctx.alloc() != null) ? ctx.alloc().buffer() : io.netty.buffer.Unpooled.buffer();
+                }
+                cumulation.writeBytes(data);
+                data.release();
+                cumulation.markReaderIndex();
+                long streamType = WebTransportUtils.readVariableLengthInt(cumulation);
+                if (streamType == -1) {
+                    cumulation.resetReaderIndex();
+                    return;
+                }
+                long sessionId = WebTransportUtils.readVariableLengthInt(cumulation);
+                if (sessionId == -1) {
+                    cumulation.resetReaderIndex();
+                    return;
+                }
+                QuicChannel quic = (QuicChannel) ctx.channel().parent();
+                WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+                if (mgr == null || !mgr.hasSession(sessionId)) {
+                    logger.warn("❌ Unknown Session ID: {}", sessionId);
+                    cumulation.release();
+                    cumulation = null;
+                    if (ctx.channel() instanceof QuicStreamChannel) {
+                        ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+                    } else {
+                        ctx.close();
+                    }
+                    return;
+                }
+                if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
+                    logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
+                } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
+                    logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {}", sessionId);
+                } else {
+                    logger.warn("❓ Unknown Stream Type: {}", streamType);
+                }
+                ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
+                ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
+                WebTransportSession session = mgr.get(sessionId);
+                if (session == null) {
+                    cumulation.release();
+                    cumulation = null;
+                    return;
+                }
+                boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
+                long value = isBidi ? session.incrementAndGetClientInitiatedStreamsBidi() : session.incrementAndGetClientInitiatedStreamsUni();
+                long maxAllowed = isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+                if (value > maxAllowed) {
+                    logger.warn("❌ WebTransport stream limit exceeded for session {}: {} > {}", sessionId, value, maxAllowed);
+                    mgr.closeSessionWithFlowControlError(sessionId);
+                    cumulation.release();
+                    cumulation = null;
+                    if (ctx.channel() instanceof QuicStreamChannel) {
+                        ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+                    } else {
+                        ctx.close();
+                    }
+                    return;
+                }
+                if (logger.isDebugEnabled()) {
+                    logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
+                }
+                protocolHeaderConsumed = true;
+                QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+                if (isBidi) {
+                    session.getActiveClientInitiatedBi().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
+                } else {
+                    session.getActiveClientInitiatedUni().add(streamChannel);
+                    streamChannel.closeFuture().addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
+                }
+                // Fire any remaining bytes in the cumulated buffer down the pipeline
+                if (cumulation.isReadable()) {
+                    ByteBuf remaining = cumulation.readBytes(cumulation.readableBytes());
+                    cumulation.release();
+                    cumulation = null;
+                    data = remaining;
+                } else {
+                    cumulation.release();
+                    cumulation = null;
+                    return;
+                }
+            }
+            if (protocolHeaderConsumed) {
+                int payloadBytes = data.readableBytes();
+                if (payloadBytes > 0) {
+                    Attribute<Long> sessionIdAttr = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
+                    Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
+                    if (sessionId != null) {
+                        QuicChannel quic = (QuicChannel) ctx.channel().parent();
+                        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+                        if (mgr != null) {
+                            WebTransportSession session = mgr.get(sessionId);
+                            if (session != null && session.isFlowControlEnabled()) {
+                                long localLimit = session.getSettingsMaxData();
+                                long newCumulativeReceived = session.incrementCumulativeBytesReceived(payloadBytes);
+                                // Validate that the increment didn't exceed the limit
+                                if (newCumulativeReceived > localLimit) {
+                                    logger.warn("❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit ({}). Closing session.", newCumulativeReceived, localLimit);
+                                    mgr.closeSessionWithFlowControlError(sessionId);
+                                    data.release();
+                                    ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+                                    return;
+                                }
+                                if (logger.isDebugEnabled()) {
+                                    logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (!data.isReadable()) {
+            data.release();
+            return;
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("   -> Firing Body ({} bytes) to App Layer...", data.readableBytes());
+        }
+        // message dispatcher
+        ctx.fireChannelRead(data);
     }
-    ByteBuf data = (ByteBuf) msg;
-    if (ctx.channel() instanceof QuicStreamChannel) {
-      long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
-      if (streamId == 0) {
-        ctx.fireChannelRead(msg);
-        return;
-      }
 
-      if (!protocolHeaderConsumed) {
-        Attribute<Boolean> serverInitiatedAttr =
-            ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
+    /**
+     * Intercepts outbound write operations on the WebTransport stream. This is invoked whenever the
+     * application (e.g. MessageDispatcher or custom controllers) writes data to a WebTransport stream
+     * channel. It tracks and enforces WebTransport session-level flow control rules (Section 5.6 of
+     * the WebTransport draft-15 spec).
+     *
+     * @param ctx the handler context
+     * @param msg the outgoing message (normally a ByteBuf containing stream payload)
+     * @param promise the channel promise for completion tracking
+     */
+    @Override
+    public void write(@NonNull ChannelHandlerContext ctx, @NonNull Object msg, @NonNull ChannelPromise promise) throws Exception {
+        // Only intercept ByteBuf payloads being written outbound on a QUIC stream channel.
+        if (!(msg instanceof ByteBuf) || !(ctx.channel() instanceof QuicStreamChannel)) {
+            super.write(ctx, msg, promise);
+            return;
+        }
+        ByteBuf data = (ByteBuf) msg;
+        Attribute<Boolean> serverInitiatedAttr = ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
         Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
-        if (Boolean.TRUE.equals(serverInitiated)) {
-          protocolHeaderConsumed = true;
+        // For server-initiated streams, the very first write is the stream header
+        // (Stream Type and Session ID). Under WebTransport specs, flow control limits
+        // only apply to stream payload data and EXCLUDE the stream header bytes.
+        // Therefore, we bypass flow control checks for this first write.
+        if (Boolean.TRUE.equals(serverInitiated) && !outboundHeaderSent) {
+            outboundHeaderSent = true;
+            super.write(ctx, msg, promise);
+            return;
         }
-      }
-
-      if (!protocolHeaderConsumed) {
-        // Accumulate fragmented stream header bytes
-        if (cumulation == null) {
-          cumulation = (ctx.alloc() != null) ? ctx.alloc().buffer() : io.netty.buffer.Unpooled.buffer();
+        // Retrieve the WebTransport Session ID mapped to this stream channel.
+        Attribute<Long> sessionIdAttr = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
+        Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
+        if (sessionId == null) {
+            super.write(ctx, msg, promise);
+            return;
         }
-        cumulation.writeBytes(data);
-        data.release();
-
-        cumulation.markReaderIndex();
-
-        long streamType = WebTransportUtils.readVariableLengthInt(cumulation);
-        if (streamType == -1) {
-          cumulation.resetReaderIndex();
-          return;
-        }
-
-        long sessionId = WebTransportUtils.readVariableLengthInt(cumulation);
-        if (sessionId == -1) {
-          cumulation.resetReaderIndex();
-          return;
-        }
+        // Retrieve the WebTransportSessionManager attached to the parent QUIC Connection Channel.
         QuicChannel quic = (QuicChannel) ctx.channel().parent();
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-        if (mgr == null || !mgr.hasSession(sessionId)) {
-          logger.warn("❌ Unknown Session ID: {}", sessionId);
-          cumulation.release();
-          cumulation = null;
-          if (ctx.channel() instanceof QuicStreamChannel) {
-            ((QuicStreamChannel) ctx.channel())
-                .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
-          } else {
-            ctx.close();
-          }
-          return;
+        if (mgr == null) {
+            super.write(ctx, msg, promise);
+            return;
         }
-
-        if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
-          logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
-        } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
-          logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {}", sessionId);
-        } else {
-          logger.warn("❓ Unknown Stream Type: {}", streamType);
-        }
-
-        ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
-        ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
-
+        // Retrieve the active WebTransportSession.
         WebTransportSession session = mgr.get(sessionId);
-        if (session == null) {
-          cumulation.release();
-          cumulation = null;
-          return;
+        int bytesToWrite = data.readableBytes();
+        // If the session does not exist, or session-level flow control is not enabled/negotiated,
+        // let the write request bypass checks and pass to the network.
+        if (session == null || !session.isFlowControlEnabled()) {
+            super.write(ctx, msg, promise);
+            return;
         }
-        boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
-        long value =
-            isBidi
-                ? session.incrementAndGetClientInitiatedStreamsBidi()
-                : session.incrementAndGetClientInitiatedStreamsUni();
-        long maxAllowed =
-            isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
-
-        if (value > maxAllowed) {
-          logger.warn("❌ WebTransport stream limit exceeded for session {}: {} > {}", sessionId, value, maxAllowed);
-          mgr.closeSessionWithFlowControlError(sessionId);
-          cumulation.release();
-          cumulation = null;
-          if (ctx.channel() instanceof QuicStreamChannel) {
-            ((QuicStreamChannel) ctx.channel())
-                .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-          } else {
-            ctx.close();
-          }
-          return;
-        }
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
-        }
-        protocolHeaderConsumed = true;
-
-        QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
-        if (isBidi) {
-          session.getActiveClientInitiatedBi().add(streamChannel);
-          streamChannel
-              .closeFuture()
-              .addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
-        } else {
-          session.getActiveClientInitiatedUni().add(streamChannel);
-          streamChannel
-              .closeFuture()
-              .addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
-        }
-
-        // Fire any remaining bytes in the cumulated buffer down the pipeline
-        if (cumulation.isReadable()) {
-          ByteBuf remaining = cumulation.readBytes(cumulation.readableBytes());
-          cumulation.release();
-          cumulation = null;
-          data = remaining;
-        } else {
-          cumulation.release();
-          cumulation = null;
-          return;
-        }
-      }
-
-      if (protocolHeaderConsumed) {
-        int payloadBytes = data.readableBytes();
-        if (payloadBytes > 0) {
-          Attribute<Long> sessionIdAttr =
-              ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
-          Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
-          if (sessionId != null) {
-            QuicChannel quic = (QuicChannel) ctx.channel().parent();
-            WebTransportSessionManager mgr =
-                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-            if (mgr != null) {
-              WebTransportSession session = mgr.get(sessionId);
-              if (session != null && session.isFlowControlEnabled()) {
-                long localLimit = session.getSettingsMaxData();
-                long newCumulativeReceived = session.incrementCumulativeBytesReceived(payloadBytes);
-
-                // Validate that the increment didn't exceed the limit
-                if (newCumulativeReceived > localLimit) {
-                  logger.warn("❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit ({}). Closing session.", newCumulativeReceived, localLimit);
-                  mgr.closeSessionWithFlowControlError(sessionId);
-                  data.release();
-                  ((QuicStreamChannel) ctx.channel())
-                      .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-                  return;
+        long currentSent = session.getCumulativeBytesSent();
+        long peerLimit = session.getPeerSettingsMaxData();
+        // Enforce the session-level flow control limit.
+        // If the current write would exceed the peer's total allowed sent bytes limit:
+        if (currentSent + bytesToWrite > peerLimit) {
+            // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
+            // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
+            // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
+            long lastLimit;
+            while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
+                if (session.getLastSentDataBlockedLimit().compareAndSet(lastLimit, peerLimit)) {
+                    logger.warn("❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit ({}). Sending WT_DATA_BLOCKED.", currentSent, bytesToWrite, peerLimit);
+                    WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
+                    break;
                 }
-                 if (logger.isDebugEnabled()) {
-                     logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
-                 }
-              }
             }
-          }
+            // Fail the write request immediately and release buffer to avoid leaks
+            try {
+                data.release();
+            } catch (Exception ignored) {
+            }
+            promise.setFailure(new IOException("Flow control limit exceeded: cumulative sent (" + currentSent + ") + write (" + bytesToWrite + ") exceeds peer limit (" + peerLimit + ")"));
+            return;
         }
-      }
+        // If the write fits within limits, update the session's cumulative sent bytes count
+        // and forward the write downstream toward the QUIC network.
+        session.incrementCumulativeBytesSent(bytesToWrite);
+        super.write(ctx, msg, promise);
     }
-    if (!data.isReadable()) {
-      data.release();
-      return;
-    }
-
-    if (logger.isDebugEnabled()) {
-        logger.debug("   -> Firing Body ({} bytes) to App Layer...", data.readableBytes());
-    }
-
-    ctx.fireChannelRead(data); // message dispatcher
-  }
-
-  /**
-   * Intercepts outbound write operations on the WebTransport stream. This is invoked whenever the
-   * application (e.g. MessageDispatcher or custom controllers) writes data to a WebTransport stream
-   * channel. It tracks and enforces WebTransport session-level flow control rules (Section 5.6 of
-   * the WebTransport draft-15 spec).
-   *
-   * @param ctx the handler context
-   * @param msg the outgoing message (normally a ByteBuf containing stream payload)
-   * @param promise the channel promise for completion tracking
-   */
-  @Override
-  public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise)
-      throws Exception {
-    // Only intercept ByteBuf payloads being written outbound on a QUIC stream channel.
-    if (!(msg instanceof ByteBuf) || !(ctx.channel() instanceof QuicStreamChannel)) {
-      super.write(ctx, msg, promise);
-      return;
-    }
-
-    ByteBuf data = (ByteBuf) msg;
-    Attribute<Boolean> serverInitiatedAttr =
-        ctx.channel().attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY);
-    Boolean serverInitiated = serverInitiatedAttr != null ? serverInitiatedAttr.get() : null;
-
-    // For server-initiated streams, the very first write is the stream header
-    // (Stream Type and Session ID). Under WebTransport specs, flow control limits
-    // only apply to stream payload data and EXCLUDE the stream header bytes.
-    // Therefore, we bypass flow control checks for this first write.
-    if (Boolean.TRUE.equals(serverInitiated) && !outboundHeaderSent) {
-      outboundHeaderSent = true;
-      super.write(ctx, msg, promise);
-      return;
-    }
-
-    // Retrieve the WebTransport Session ID mapped to this stream channel.
-    Attribute<Long> sessionIdAttr =
-        ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
-    Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
-    if (sessionId == null) {
-      super.write(ctx, msg, promise);
-      return;
-    }
-
-    // Retrieve the WebTransportSessionManager attached to the parent QUIC Connection Channel.
-    QuicChannel quic = (QuicChannel) ctx.channel().parent();
-    WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    if (mgr == null) {
-      super.write(ctx, msg, promise);
-      return;
-    }
-
-    // Retrieve the active WebTransportSession.
-    WebTransportSession session = mgr.get(sessionId);
-    int bytesToWrite = data.readableBytes();
-
-    // If the session does not exist, or session-level flow control is not enabled/negotiated,
-    // let the write request bypass checks and pass to the network.
-    if (session == null || !session.isFlowControlEnabled()) {
-      super.write(ctx, msg, promise);
-      return;
-    }
-
-    long currentSent = session.getCumulativeBytesSent();
-    long peerLimit = session.getPeerSettingsMaxData();
-
-    // Enforce the session-level flow control limit.
-    // If the current write would exceed the peer's total allowed sent bytes limit:
-    if (currentSent + bytesToWrite > peerLimit) {
-      // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
-      // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
-      // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
-      long lastLimit;
-          while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
-        if (session.getLastSentDataBlockedLimit().compareAndSet(lastLimit, peerLimit)) {
-          logger.warn("❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit ({}). Sending WT_DATA_BLOCKED.", currentSent, bytesToWrite, peerLimit);
-          WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
-          break;
-        }
-      }
-
-      // Fail the write request immediately and release buffer to avoid leaks
-      try {
-        data.release();
-      } catch (Exception ignored) {
-      }
-      promise.setFailure(
-          new IOException(
-              "Flow control limit exceeded: cumulative sent ("
-                  + currentSent
-                  + ") + write ("
-                  + bytesToWrite
-                  + ") exceeds peer limit ("
-                  + peerLimit
-                  + ")"));
-      return;
-    }
-
-    // If the write fits within limits, update the session's cumulative sent bytes count
-    // and forward the write downstream toward the QUIC network.
-    session.incrementCumulativeBytesSent(bytesToWrite);
-    super.write(ctx, msg, promise);
-  }
 }

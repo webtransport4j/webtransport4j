@@ -89,9 +89,9 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.jetbrains</groupId>
-            <artifactId>annotations</artifactId>
-            <version>26.0.2</version>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>1.0.0</version>
             <scope>compile</scope>
         </dependency>
     </dependencies>
@@ -131,6 +131,60 @@
                 </dependency>
             </dependencies>
         </profile>
+        <profile>
+            <id>mrjar-java25</id>
+            <activation>
+                <!-- Active everywhere EXCEPT inside IntelliJ IDEA -->
+                <property>
+                    <name>!idea.version</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>compile-java-25</id>
+                                <goals><goal>compile</goal></goals>
+                                <configuration>
+                                    <release>25</release>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
+                                    </compileSourceRoots>
+                                    <outputDirectory>${project.build.outputDirectory}/META-INF/versions/25</outputDirectory>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>test-compile-java-25</id>
+                                <phase>test-compile</phase>
+                                <goals><goal>testCompile</goal></goals>
+                                <configuration>
+                                    <release>25</release>
+                                    <compileSourceRoots>
+                                        <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
+                                        <compileSourceRoot>${project.basedir}/src/test/java-25</compileSourceRoot>
+                                    </compileSourceRoots>
+                                    <!-- Use standard testOutputDirectory so Surefire finds it -->
+                                    <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <!-- Make sure Java 25 classes take precedence over Java 8 classes in testing -->
+                            <additionalClasspathElements>
+                                <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
+                            </additionalClasspathElements>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>
@@ -155,31 +209,7 @@
                             <release>${maven.compiler.release}</release>
                         </configuration>
                     </execution>
-                    <execution>
-                        <id>compile-java-25</id>
-                        <goals><goal>compile</goal></goals>
-                        <configuration>
-                            <release>25</release>
-                            <compileSourceRoots>
-                                <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
-                            </compileSourceRoots>
-                            <outputDirectory>${project.build.outputDirectory}/META-INF/versions/25</outputDirectory>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>test-compile-java-25</id>
-                        <phase>test-compile</phase>
-                        <goals><goal>testCompile</goal></goals>
-                        <configuration>
-                            <release>25</release>
-                            <compileSourceRoots>
-                                <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
-                                <compileSourceRoot>${project.basedir}/src/test/java-25</compileSourceRoot>
-                            </compileSourceRoots>
-                            <!-- Use standard testOutputDirectory so Surefire finds it -->
-                            <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
-                        </configuration>
-                    </execution>
+
                 </executions>
             </plugin>
 
@@ -187,12 +217,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.4</version>
-                <configuration>
-                    <!-- Make sure Java 25 classes take precedence over Java 8 classes in testing -->
-                    <additionalClasspathElements>
-                        <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
-                    </additionalClasspathElements>
-                </configuration>
+
             </plugin>
 
             <plugin>
@@ -209,4 +234,6 @@
             </plugin>
         </plugins>
     </build>
+
+
 </project>

@@ -22,7 +22,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
 
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,17 +48,17 @@ public class WebTransportIntegrationTest {
                 "/test-integration",
                 new WebTransportHandler() {
                     @Override
-                    public void onSessionReady(@NotNull WebTransportSession session) {
+                    public void onSessionReady(@NonNull WebTransportSession session) {
                         System.out.println("TEST SERVER: Session ready: " + session.getSessionStreamId());
                     }
 
                     @Override
-                    public void onSessionClosed(@NotNull WebTransportSession session) {
+                    public void onSessionClosed(@NonNull WebTransportSession session) {
                         System.out.println("TEST SERVER: Session closed: " + session.getSessionStreamId());
                     }
 
                     @Override
-                    public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
+                    public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
                         System.out.println(
                                 "TEST SERVER: Incoming stream: "
                                         + stream.streamId()
@@ -84,7 +84,7 @@ public class WebTransportIntegrationTest {
                     }
 
                     @Override
-                    public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
+                    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
                         String content = data.toString(StandardCharsets.UTF_8);
                         System.out.println("TEST SERVER: Received datagram: " + content);
                         ByteBuf resp = session.getConnectStream().alloc().directBuffer();
@@ -3413,7 +3413,7 @@ public class WebTransportIntegrationTest {
                                     byte[] data = expectedPayload.getBytes(StandardCharsets.UTF_8);
                                     int progress = 0;
                                     @Override
-                                    public int read(java.nio.ByteBuffer buffer) {
+                                    public int read(java.nio.@NonNull ByteBuffer buffer) {
                                         if (progress >= data.length) return -1;
                                         int toRead = Math.min(data.length - progress, buffer.remaining());
                                         toRead = Math.min(toRead, 5); 

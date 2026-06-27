@@ -4,15 +4,16 @@ import java.util.function.Consumer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
+import org.jspecify.annotations.NonNull;
 
 public interface StreamCodec<T> {
 
-    ByteBuf encode(T message);
+    @NonNull ByteBuf encode(@NonNull T message);
 
-    void decode(ByteBuf incoming,
-                Consumer<T> consumer);
+    void decode(@NonNull ByteBuf incoming,
+                @NonNull Consumer<T> consumer);
 
-    default void release(T message) {
+    default void release(@NonNull T message) {
         ReferenceCountUtil.safeRelease(message);
     }
 
