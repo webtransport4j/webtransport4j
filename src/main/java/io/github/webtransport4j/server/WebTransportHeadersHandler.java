@@ -133,6 +133,19 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                 ReferenceCountUtil.release(frame);
                 return;
             }
+            
+            io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalCountAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+            java.util.concurrent.atomic.AtomicInteger globalCount = globalCountAttr != null ? globalCountAttr.get() : null;
+            int globalMaxSessions = WebTransportConfig.getInt("webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
+            if (globalCount != null && globalCount.get() >= globalMaxSessions) {
+                logger.warn("❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})", globalMaxSessions);
+                Http3Headers responseHeaders = new DefaultHttp3Headers();
+                responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
+                ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+                ctx.close();
+                ReferenceCountUtil.release(frame);
+                return;
+            }
             String pathStr = path.toString();
             quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
             logger.info("✅ Handshake Success for Path: {}", pathStr);

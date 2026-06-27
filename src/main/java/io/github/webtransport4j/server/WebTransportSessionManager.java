@@ -80,6 +80,14 @@ class WebTransportSessionManager {
         }
         WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, pathStr, uniMaxVal, biMaxVal, dataMaxVal, peerUniVal, peerBidiVal, peerDataVal, flowControlEnabled);
         sessions.put(sessionStreamId, session);
+        
+        if (quic != null) {
+            io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+            if (globalAttr != null && globalAttr.get() != null) {
+                globalAttr.get().incrementAndGet();
+            }
+        }
+        
         if (logger.isDebugEnabled()) {
             logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
         }
@@ -146,6 +154,14 @@ class WebTransportSessionManager {
                     logger.error("Error in onSessionClosed callback", e);
                 }
             }
+            
+            if (quic != null) {
+                io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+                if (globalAttr != null && globalAttr.get() != null) {
+                    globalAttr.get().decrementAndGet();
+                }
+            }
+            
             if (logger.isDebugEnabled()) {
                 logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
             }
@@ -180,8 +196,22 @@ class WebTransportSessionManager {
 
     public void closeAll() {
         if (!sessions.isEmpty()) {
+            int count = sessions.size();
+            
+            // Get the first session's connection to decrement global count
+            if (count > 0) {
+                WebTransportSession first = sessions.values().iterator().next();
+                QuicChannel quic = first.getConnectStream().parent();
+                if (quic != null) {
+                    io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+                    if (globalAttr != null && globalAttr.get() != null) {
+                        globalAttr.get().addAndGet(-count);
+                    }
+                }
+            }
+            
             if (logger.isDebugEnabled()) {
-                logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", sessions.size());
+                logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", count);
             }
             sessions.clear();
         }

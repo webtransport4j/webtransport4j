@@ -30,11 +30,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
 
     private final List<String> allowedOrigins;
 
-    public QuicChannelInitializer(WebTransportServer server, Http3Settings settings, ExecutorService businessExecutor, List<String> allowedOrigins) {
+    private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions;
+
+    public QuicChannelInitializer(WebTransportServer server, Http3Settings settings, ExecutorService businessExecutor, List<String> allowedOrigins, java.util.concurrent.atomic.AtomicInteger globalActiveSessions) {
         this.server = server;
         this.settings = settings;
         this.businessExecutor = businessExecutor;
         this.allowedOrigins = allowedOrigins;
+        this.globalActiveSessions = globalActiveSessions;
     }
 
     @Override
@@ -63,7 +66,10 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
             ch.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).set(connShaper);
             ch.closeFuture().addListener(f -> connShaper.release());
         }
+        
+        ch.pipeline().addFirst(new IpRateLimitingHandler());
         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
+        
         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
         String ip = Objects.requireNonNull(remote).getAddress().getHostAddress();
         int port = remote.getPort();
@@ -81,6 +87,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
             logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
         }
         ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
+        ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
         ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
         if (businessExecutor != null) {
             ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);

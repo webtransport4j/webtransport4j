@@ -34,6 +34,9 @@ public final class WebTransportAttributeKeys {
   
   public static final AttributeKey<List<String>> ALLOWED_ORIGINS = 
       AttributeKey.valueOf("wt.allowed.origins");
+      
+  public static final AttributeKey<java.util.concurrent.atomic.AtomicInteger> GLOBAL_SESSION_COUNT = 
+      AttributeKey.valueOf("wt.global.session.count");
 
   // Stream-related Attribute Keys
   public static final AttributeKey<Long> STREAM_TYPE_KEY = 

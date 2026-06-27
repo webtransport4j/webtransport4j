@@ -42,6 +42,8 @@ public class WebTransportServer {
 
     private final WebTransportHandler defaultHandler;
 
+    private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions = new java.util.concurrent.atomic.AtomicInteger(0);
+
     public WebTransportServer(WebTransportHandler defaultHandler) {
         if (defaultHandler == null) {
             throw new IllegalArgumentException("defaultHandler cannot be null");
@@ -210,7 +212,20 @@ public class WebTransportServer {
         // SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, wtInitialMaxData);
         logger.info("Server side settings : {}", settings);
-        ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder().sslContext(sslContext).maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS).initialMaxData(quicInitialMaxData).initialMaxStreamDataBidirectionalLocal(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L)).initialMaxStreamDataBidirectionalRemote(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L)).initialMaxStreamsBidirectional(quicMaxStreamsBidi).datagram(WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0), WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0)).initialMaxStreamsUnidirectional(quicMaxStreamsUni).initialMaxStreamDataUnidirectional(WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L)).tokenHandler(getTokenHandler()).handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins)).build();
+        ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
+                .sslContext(sslContext)
+                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS)
+                .initialMaxData(quicInitialMaxData)
+                .initialMaxStreamDataBidirectionalLocal(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
+                .initialMaxStreamDataBidirectionalRemote(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
+                .initialMaxStreamsBidirectional(quicMaxStreamsBidi)
+                .datagram(WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
+                        WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
+                .initialMaxStreamsUnidirectional(quicMaxStreamsUni)
+                .initialMaxStreamDataUnidirectional(WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
+                .tokenHandler(getTokenHandler())
+                .handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
+                .build();
         this.channel = new Bootstrap().group(group).channel(NioDatagramChannel.class).handler(serverCodec).bind(new InetSocketAddress(port)).sync().channel();
         if (logger.isDebugEnabled()) {
             logger.debug("✅ WebTransport server listening on {}", port);
