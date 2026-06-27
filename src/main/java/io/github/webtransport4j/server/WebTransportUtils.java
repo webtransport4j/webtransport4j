@@ -207,29 +207,22 @@ public class WebTransportUtils {
         try {
             writeCapsule(buf, capsuleType, value);
             int totalBytes = buf.readableBytes();
-            // Hex dump of raw capsule bytes (Type, Length, Value)
-            String capsuleHex = io.netty.buffer.ByteBufUtil.hexDump(buf);
-            // Hex dump of the actual HTTP/3 DATA frame bytes (Type=0x00, Length=totalBytes,
-            // Payload=capsuleBytes)
-            String frameHex = "";
-            ByteBuf frameBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
-            try {
-                // HTTP/3 DATA Frame Type
-                writeVarInt(frameBuf, 0x00);
-                // Payload Length
-                writeVarInt(frameBuf, totalBytes);
-                frameBuf.writeBytes(buf.duplicate());
-                frameHex = io.netty.buffer.ByteBufUtil.hexDump(frameBuf);
-            } finally {
-                frameBuf.release();
-            }
             if (logger.isTraceEnabled()) {
+                String capsuleHex = io.netty.buffer.ByteBufUtil.hexDump(buf);
+                String frameHex = "";
+                ByteBuf frameBuf = (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
+                try {
+                    // HTTP/3 DATA Frame Type
+                    writeVarInt(frameBuf, 0x00);
+                    // Payload Length
+                    writeVarInt(frameBuf, totalBytes);
+                    frameBuf.writeBytes(buf.duplicate());
+                    frameHex = io.netty.buffer.ByteBufUtil.hexDump(frameBuf);
+                } finally {
+                    frameBuf.release();
+                }
                 logger.trace("📤 Writing DefaultHttp3DataFrame with {} Capsule (Type: 0x{}, Value/Limit: {}, Total Bytes: {})", capsuleName, Long.toHexString(capsuleType), value, totalBytes);
-            }
-            if (logger.isTraceEnabled()) {
                 logger.trace("   ├── Capsule Bytes:      {}", capsuleHex);
-            }
-            if (logger.isTraceEnabled()) {
                 logger.trace("   └── HTTP/3 Frame Bytes: {}", frameHex);
             }
             ChannelFuture future = connectStream.writeAndFlush(new DefaultHttp3DataFrame(buf));
