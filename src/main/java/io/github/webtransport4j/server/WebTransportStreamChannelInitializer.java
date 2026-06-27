@@ -2,7 +2,6 @@ package io.github.webtransport4j.server;
 
 import io.netty.channel.*;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.stream.ChunkedWriteHandler;
 import io.github.webtransport4j.api.WebTransportChunkedWriteHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

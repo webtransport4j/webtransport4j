@@ -1,19 +1,30 @@
 package io.github.webtransport4j.example;
 
+import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
 import java.util.function.Consumer;
 
 /**
- * A simple length-prefixed framing codec.
+ * A simple length-prefixed framing codec using QUIC variable-length integer encoding.
+ * <p>
+ * This encoding saves bandwidth by compressing the frame length prefix into 1, 2, 4, 
+ * or 8 bytes depending on the payload size. The first two bits of the encoded integer 
+ * determine its total byte length:
+ * <ul>
+ *   <li><b>00</b>: 1 byte  (Payloads up to 63 bytes)</li>
+ *   <li><b>01</b>: 2 bytes (Payloads up to 16,383 bytes)</li>
+ *   <li><b>10</b>: 4 bytes (Payloads up to 1,073,741,823 bytes)</li>
+ *   <li><b>11</b>: 8 bytes (Payloads up to 4,611,686,018,427,387,903 bytes)</li>
+ * </ul>
  *
  * Frame format:
- * +------------+-------------------+
- * | 4-byte int |     Payload       |
- * +------------+-------------------+
- * | Length (N) | N bytes           |
- * +------------+-------------------+
+ * +--------------+-------------------+
+ * | QUIC Var Int |     Payload       |
+ * +--------------+-------------------+
+ * | Length (N)   | N bytes           |
+ * +--------------+-------------------+
  */
 public final class LengthPrefixedCodec
         implements StreamCodec<ByteBuf> {
@@ -77,11 +88,9 @@ public final class LengthPrefixedCodec
                             + maxFrameSize + " bytes");
         }
 
-        ByteBuf out = Unpooled.buffer(
-                Integer.BYTES + length,
-                Integer.BYTES + length);
+        ByteBuf out = Unpooled.buffer(8 + length, 8 + length);
 
-        out.writeInt(length);
+        WebTransportUtils.writeVarInt(out, length);
 
         out.writeBytes(
                 message,
@@ -100,22 +109,29 @@ public final class LengthPrefixedCodec
 
         while (true) {
 
-            if (accumulator.readableBytes() < Integer.BYTES) {
+            if (!accumulator.isReadable()) {
                 return;
             }
 
             accumulator.markReaderIndex();
 
-            int length = accumulator.readInt();
+            long lengthLong = WebTransportUtils.readVariableLengthInt(accumulator);
+            
+            if (lengthLong == -1) {
+                accumulator.resetReaderIndex();
+                return;
+            }
 
-            if (length < 0 || length > maxFrameSize) {
+            if (lengthLong < 0 || lengthLong > maxFrameSize) {
                 throw new IllegalArgumentException(
                         "Invalid frame size: "
-                                + length
+                                + lengthLong
                                 + " (maximum "
                                 + maxFrameSize
                                 + " bytes)");
             }
+            
+            int length = (int) lengthLong;
 
             if (accumulator.readableBytes() < length) {
                 accumulator.resetReaderIndex();
