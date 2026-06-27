@@ -1,5 +1,8 @@
 package io.github.webtransport4j.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.github.webtransport4j.api.*;
 import static org.junit.Assert.*;
 
@@ -22,6 +25,8 @@ import org.junit.Test;
 
 @SuppressWarnings("deprecation")
 public class WebTransportResumptionLatencyTest {
+    private static final Logger log = LoggerFactory.getLogger(WebTransportResumptionLatencyTest.class);
+
 
   private NioEventLoopGroup serverGroup;
   private NioEventLoopGroup clientGroup;
@@ -37,7 +42,7 @@ public class WebTransportResumptionLatencyTest {
         new WebTransportHandler() {
           @Override
           public void onSessionReady(@NonNull WebTransportSession session) {
-            System.out.println("SERVER: Session ready: " + session.getSessionStreamId());
+            log.info("SERVER: Session ready: " + session.getSessionStreamId());
           }
         });
 
@@ -198,7 +203,7 @@ public class WebTransportResumptionLatencyTest {
     long durationFullNs = System.nanoTime() - startFull;
     double durationFullMs = durationFullNs / 1_000_000.0;
 
-    System.out.println("⏱️ FULL HANDSHAKE LATENCY: " + durationFullMs + " ms");
+    log.info("⏱️ FULL HANDSHAKE LATENCY: " + durationFullMs + " ms");
 
     // Establish a WebTransport session to verify connection is operational
     final CountDownLatch latch1 = new CountDownLatch(1);
@@ -289,7 +294,7 @@ public class WebTransportResumptionLatencyTest {
     long durationResumedNs = System.nanoTime() - startResumed;
     double durationResumedMs = durationResumedNs / 1_000_000.0;
 
-    System.out.println("⏱️ RESUMED HANDSHAKE LATENCY: " + durationResumedMs + " ms");
+    log.info("⏱️ RESUMED HANDSHAKE LATENCY: " + durationResumedMs + " ms");
 
     // Establish session 2
     final CountDownLatch latch2 = new CountDownLatch(1);
@@ -329,9 +334,9 @@ public class WebTransportResumptionLatencyTest {
     boolean clientResumed = (Boolean) m.invoke(clientEngine);
     assertTrue("Client Connection 2 SHOULD be resumed (QUIC Level Session Resumption)", clientResumed);
 
-    System.out.println("🚀 RESUMPTION VERIFIED SUCCESSFULLY!");
+    log.info("🚀 RESUMPTION VERIFIED SUCCESSFULLY!");
     double speedup = durationFullMs / durationResumedMs;
-    System.out.println("📊 Speedup: " + speedup + "x faster");
+    log.info("📊 Speedup: " + speedup + "x faster");
     assertTrue("Resumed connection should be faster than a full handshake (Full: " + durationFullMs + "ms, Resumed: " + durationResumedMs + "ms)", durationFullMs > durationResumedMs);
 
     quicClient2.close().sync();

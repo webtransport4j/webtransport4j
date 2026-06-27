@@ -1,5 +1,8 @@
 package io.github.webtransport4j.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.github.webtransport4j.api.*;
 import static org.junit.Assert.*;
 
@@ -28,6 +31,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class WebTransportIntegrationTest {
+    private static final Logger log = LoggerFactory.getLogger(WebTransportIntegrationTest.class);
+
 
     private NioEventLoopGroup serverGroup;
     private NioEventLoopGroup clientGroup;
@@ -49,17 +54,17 @@ public class WebTransportIntegrationTest {
                 new WebTransportHandler() {
                     @Override
                     public void onSessionReady(@NonNull WebTransportSession session) {
-                        System.out.println("TEST SERVER: Session ready: " + session.getSessionStreamId());
+                        log.info("TEST SERVER: Session ready: " + session.getSessionStreamId());
                     }
 
                     @Override
                     public void onSessionClosed(@NonNull WebTransportSession session) {
-                        System.out.println("TEST SERVER: Session closed: " + session.getSessionStreamId());
+                        log.info("TEST SERVER: Session closed: " + session.getSessionStreamId());
                     }
 
                     @Override
                     public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
-                        System.out.println(
+                        log.info(
                                 "TEST SERVER: Incoming stream: "
                                         + stream.streamId()
                                         + " (bidi="
@@ -68,13 +73,13 @@ public class WebTransportIntegrationTest {
                         stream.onData(
                                 data -> {
                                     String content = data.toString(StandardCharsets.UTF_8);
-                                    System.out.println(
+                                    log.info(
                                             "TEST SERVER: Received on stream " + stream.streamId() + ": " + content);
                                     if (stream.isBidirectional()) {
                                         stream.writeText(
                                                 "ACK BI: I received the message from " + session.path() + ": " + content);
                                     } else {
-                                        System.out.println(
+                                        log.info(
                                                 "Unidirectional message received from client :"
                                                         + session.path()
                                                         + ": "
@@ -86,7 +91,7 @@ public class WebTransportIntegrationTest {
                     @Override
                     public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
                         String content = data.toString(StandardCharsets.UTF_8);
-                        System.out.println("TEST SERVER: Received datagram: " + content);
+                        log.info("TEST SERVER: Received datagram: " + content);
                         ByteBuf resp = session.getConnectStream().alloc().directBuffer();
                         resp.writeBytes(
                                 ("ACK DG: I received the message from " + session.path() + ": " + content)
@@ -249,7 +254,7 @@ public class WebTransportIntegrationTest {
                                                                 new ChannelInitializer<QuicStreamChannel>() {
                                                                     @Override
                                                                     protected void initChannel(QuicStreamChannel stream) {
-                                                                        System.out.println(
+                                                                        log.info(
                                                                                 "SERVER: initChannel for stream ID "
                                                                                         + stream.streamId()
                                                                                         + " | type "
@@ -268,16 +273,16 @@ public class WebTransportIntegrationTest {
                                                                 new ChannelInboundHandlerAdapter() {
                                                                     @Override
                                                                     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                                                                        System.out.println(
+                                                                        log.info(
                                                                                 "SERVER: Received message on control stream of class: "
                                                                                         + msg.getClass().getName());
                                                                         if (msg instanceof Http3SettingsFrame) {
                                                                             Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
                                                                             io.netty.handler.codec.http3.Http3Settings settings =
                                                                                     settingsFrame.settings();
-                                                                            System.out.println("SERVER: Received settings: " + settings);
+                                                                            log.info("SERVER: Received settings: " + settings);
                                                                             if (settings != null) {
-                                                                                System.out.println(
+                                                                                log.info(
                                                                                         "SERVER: settings wt_enabled="
                                                                                                 + settings.get(0x2c7cf000L)
                                                                                                 + " | wt_max_data="
@@ -302,7 +307,7 @@ public class WebTransportIntegrationTest {
                                                                                 // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
                                                                                 // (0x33) is enabled (1)
                                                                                 if (!valid) {
-                                                                                    System.out.println(
+                                                                                    log.info(
                                                                                             "SERVER: WebTransport requirements not met: Client"
                                                                                                     + " does not support H3 Datagrams. Marking"
                                                                                                     + " invalid and resetting sessions.");
@@ -315,7 +320,7 @@ public class WebTransportIntegrationTest {
                                                                                         if (mgr != null) {
                                                                                             for (WebTransportSession session :
                                                                                                     new java.util.ArrayList<>(mgr.getSessions())) {
-                                                                                                System.out.println(
+                                                                                                log.info(
                                                                                                         "SERVER: Resetting established session ID "
                                                                                                                 + session.getSessionStreamId()
                                                                                                                 + " with H3_MESSAGE_ERROR");
@@ -335,7 +340,7 @@ public class WebTransportIntegrationTest {
                                                                                     return;
                                                                                 }
 
-                                                                                System.out.println(
+                                                                                log.info(
                                                                                         "SERVER: Settings parent quic channel: " + quic);
                                                                                 if (quic != null) {
                                                                                     quic.attr(
@@ -502,7 +507,7 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                                        System.out.println(
+                                                        log.info(
                                                                 "CLIENT CONNECT stream exceptionCaught: " + cause.getMessage());
                                                         closeLatch.countDown();
                                                         ctx.close();
@@ -510,7 +515,7 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-                                                        System.out.println("CLIENT CONNECT stream channelInactive");
+                                                        log.info("CLIENT CONNECT stream channelInactive");
                                                         closeLatch.countDown();
                                                         super.channelInactive(ctx);
                                                     }
@@ -753,7 +758,7 @@ public class WebTransportIntegrationTest {
                                                                                                                             WebTransportAttributeKeys
                                                                                                                                     .PEER_SETTINGS_MAX_DATA)
                                                                                                                     .set(settings.get(0x2b61L));
-                                                                                                            System.out.println(
+                                                                                                            log.info(
                                                                                                                     "CLIENT: Intercepted Settings"
                                                                                                                             + " wt_max_data="
                                                                                                                             + settings.get(0x2b61L));
@@ -943,14 +948,14 @@ public class WebTransportIntegrationTest {
                     return new ChannelInitializer<QuicStreamChannel>() {
                         @Override
                         protected void initChannel(QuicStreamChannel ch) {
-                            System.out.println("CLIENT: initChannel for uni stream ID " + ch.streamId());
+                            log.info("CLIENT: initChannel for uni stream ID " + ch.streamId());
                             ch.pipeline().addFirst(new WebTransportDetectorHandler());
                             ch.pipeline()
                                     .addLast(
                                             new SimpleChannelInboundHandler<ByteBuf>() {
                                                 @Override
                                                 protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
-                                                    System.out.println(
+                                                    log.info(
                                                             "CLIENT: received server-initiated uni stream data: "
                                                                     + msg.toString(StandardCharsets.UTF_8));
                                                 }
@@ -992,7 +997,7 @@ public class WebTransportIntegrationTest {
                                                                 new ChannelInitializer<QuicStreamChannel>() {
                                                                     @Override
                                                                     protected void initChannel(QuicStreamChannel stream) {
-                                                                        System.out.println(
+                                                                        log.info(
                                                                                 "CLIENT: initChannel for bidi stream ID "
                                                                                         + stream.streamId());
                                                                         stream.pipeline().addFirst(new WebTransportDetectorHandler());
@@ -1003,7 +1008,7 @@ public class WebTransportIntegrationTest {
                                                                                             @Override
                                                                                             protected void channelRead0(
                                                                                                     ChannelHandlerContext ctx, ByteBuf msg) {
-                                                                                                System.out.println(
+                                                                                                log.info(
                                                                                                         "CLIENT: received server-initiated bidi stream"
                                                                                                                 + " data: "
                                                                                                                 + msg.toString(StandardCharsets.UTF_8));
@@ -1020,7 +1025,7 @@ public class WebTransportIntegrationTest {
                                 })
                         .remoteAddress(new InetSocketAddress("127.0.0.1", port));
         QuicChannel quicClient = bootstrap.connect().sync().getNow();
-        System.out.println("DEBUG: Client connected. Active: " + quicClient.isActive());
+        log.info("DEBUG: Client connected. Active: " + quicClient.isActive());
 
         // Register WebTransportDatagramDecoder on Client QuicChannel pipeline
         quicClient.pipeline().addLast(new WebTransportDatagramDecoder());
@@ -1032,7 +1037,7 @@ public class WebTransportIntegrationTest {
                             protected void channelRead0(
                                     ChannelHandlerContext ctx, WebTransportDatagramFrame msg) {
                                 String content = msg.content().toString(StandardCharsets.UTF_8);
-                                System.out.println("DEBUG: Client received Datagram: " + content);
+                                log.info("DEBUG: Client received Datagram: " + content);
                                 if (content.contains("ACK DG")) {
                                     datagramLatch.countDown();
                                 }
@@ -1045,20 +1050,20 @@ public class WebTransportIntegrationTest {
                         new ChannelInitializer<QuicStreamChannel>() {
                             @Override
                             protected void initChannel(QuicStreamChannel ch) {
-                                System.out.println("DEBUG: CONNECT Stream pipeline init: " + ch.pipeline().names());
+                                log.info("DEBUG: CONNECT Stream pipeline init: " + ch.pipeline().names());
                                 ch.pipeline()
                                         .addLast(
                                                 new SimpleChannelInboundHandler<Object>() {
                                                     @Override
                                                     protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                                                        System.out.println(
+                                                        log.info(
                                                                 "DEBUG: Client CONNECT stream received message of class: "
                                                                         + msg.getClass().getName()
                                                                         + " | Msg: "
                                                                         + msg);
                                                         if (msg instanceof Http3HeadersFrame) {
                                                             Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
-                                                            System.out.println(
+                                                            log.info(
                                                                     "DEBUG: Inbound headers status: "
                                                                             + headersFrame.headers().status());
                                                             if ("200".equals(headersFrame.headers().status().toString())) {
@@ -1070,9 +1075,9 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                                        System.err.println(
+                                                        log.error(
                                                                 "DEBUG: CONNECT stream inbound error: " + cause.getMessage());
-                                                        cause.printStackTrace();
+                                                        log.error("Exception caught", cause);
                                                         ctx.close();
                                                     }
                                                 });
@@ -1082,7 +1087,7 @@ public class WebTransportIntegrationTest {
                         (Future<QuicStreamChannel> f) -> {
                             if (f.isSuccess()) {
                                 QuicStreamChannel ch = f.getNow();
-                                System.out.println(
+                                log.info(
                                         "DEBUG: CONNECT Stream created successfully. Stream ID: " + ch.streamId());
                                 Http3Headers headers = new DefaultHttp3Headers();
                                 headers.method("CONNECT");
@@ -1093,14 +1098,14 @@ public class WebTransportIntegrationTest {
                                 ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers))
                                         .addListener(
                                                 writeFuture -> {
-                                                    System.out.println(
+                                                    log.info(
                                                             "DEBUG: Write CONNECT headers success: "
                                                                     + writeFuture.isSuccess()
                                                                     + " | Cause: "
                                                                     + writeFuture.cause());
                                                 });
                             } else {
-                                System.err.println("DEBUG: CONNECT Stream creation failed! Cause: " + f.cause());
+                                log.error("DEBUG: CONNECT Stream creation failed! Cause: " + f.cause());
                             }
                         });
 
@@ -1129,7 +1134,7 @@ public class WebTransportIntegrationTest {
                                                 new ChannelInboundHandlerAdapter() {
                                                     @Override
                                                     public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
-                                                        System.out.println(
+                                                        log.info(
                                                                 "DEBUG: Client bidi stream raw pipeline: "
                                                                         + ctx.pipeline().names());
                                                         ctx.channel()
@@ -1149,12 +1154,12 @@ public class WebTransportIntegrationTest {
                                                                             for (String name : toRemove) {
                                                                                 try {
                                                                                     ctx.pipeline().remove(name);
-                                                                                    System.out.println(
+                                                                                    log.info(
                                                                                             "DEBUG: Removed from bidi pipeline: " + name);
                                                                                 } catch (Exception ignored) {
                                                                                 }
                                                                             }
-                                                                            System.out.println(
+                                                                            log.info(
                                                                                     "DEBUG: Client bidi stream hijacked pipeline: "
                                                                                             + ctx.pipeline().names());
                                                                         });
@@ -1168,7 +1173,7 @@ public class WebTransportIntegrationTest {
                                                     @Override
                                                     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
                                                         String response = msg.toString(StandardCharsets.UTF_8);
-                                                        System.out.println("DEBUG: Client bidi stream received: " + response);
+                                                        log.info("DEBUG: Client bidi stream received: " + response);
                                                         if (response.contains("ACK BI")) {
                                                             bidiEchoLatch.countDown();
                                                         }
@@ -1176,9 +1181,9 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                                        System.err.println(
+                                                        log.error(
                                                                 "DEBUG: Client bidi stream error: " + cause.getMessage());
-                                                        cause.printStackTrace();
+                                                        log.error("Exception caught", cause);
                                                         ctx.close();
                                                     }
                                                 });
@@ -1188,7 +1193,7 @@ public class WebTransportIntegrationTest {
                         (Future<QuicStreamChannel> f) -> {
                             if (f.isSuccess()) {
                                 QuicStreamChannel ch = f.getNow();
-                                System.out.println(
+                                log.info(
                                         "DEBUG: Client bidi stream created successfully. Stream ID: " + ch.streamId());
                                 // Write Header [0x41] [SessionID]
                                 ByteBuf data = ch.alloc().directBuffer();
@@ -1199,14 +1204,14 @@ public class WebTransportIntegrationTest {
                                 ch.writeAndFlush(data)
                                         .addListener(
                                                 writeFuture -> {
-                                                    System.out.println(
+                                                    log.info(
                                                             "DEBUG: Write bidi data success: "
                                                                     + writeFuture.isSuccess()
                                                                     + " | Cause: "
                                                                     + writeFuture.cause());
                                                 });
                             } else {
-                                System.err.println(
+                                log.error(
                                         "DEBUG: Client bidi stream creation failed! Cause: " + f.cause());
                             }
                         });
@@ -1482,7 +1487,7 @@ public class WebTransportIntegrationTest {
                                                     @Override
                                                     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
                                                         String response = msg.toString(StandardCharsets.UTF_8);
-                                                        System.out.println("DEBUG: Client bidi stream received: " + response);
+                                                        log.info("DEBUG: Client bidi stream received: " + response);
                                                         if (response.contains("ACK BI")) {
                                                             bidiEchoLatch.countDown();
                                                         }
@@ -1490,7 +1495,7 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                                        System.out.println("DEBUG: Client bidi stream exception: " + cause);
+                                                        log.info("DEBUG: Client bidi stream exception: " + cause);
                                                         caughtBidiException[0] = cause;
                                                         bidiResetLatch.countDown();
                                                         ctx.close();
@@ -1635,7 +1640,7 @@ public class WebTransportIntegrationTest {
                                                                                     @Override
                                                                                     public void exceptionCaught(
                                                                                             ChannelHandlerContext c, Throwable cause) {
-                                                                                        System.out.println(
+                                                                                        log.info(
                                                                                                 "DEBUG: Client CONNECT stream exception: " + cause);
                                                                                         caughtConnectException[0] = cause;
                                                                                         connectResetLatch.countDown();
@@ -1715,7 +1720,7 @@ public class WebTransportIntegrationTest {
                                                     @Override
                                                     protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
                                                         String response = msg.toString(StandardCharsets.UTF_8);
-                                                        System.out.println("DEBUG: Client bidi stream received: " + response);
+                                                        log.info("DEBUG: Client bidi stream received: " + response);
                                                         if (response.contains("ACK BI")) {
                                                             bidiEchoLatch.countDown();
                                                         }
@@ -1723,7 +1728,7 @@ public class WebTransportIntegrationTest {
 
                                                     @Override
                                                     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                                                        System.out.println("DEBUG: Client bidi stream exception: " + cause);
+                                                        log.info("DEBUG: Client bidi stream exception: " + cause);
                                                         caughtBidiException[0] = cause;
                                                         bidiResetLatch.countDown();
                                                         ctx.close();
@@ -2003,7 +2008,7 @@ public class WebTransportIntegrationTest {
 
         assertTrue("Transfer timed out", echoLatch.await(10, TimeUnit.SECONDS));
         long duration = endTime[0] - startTime;
-        System.out.println("Connection Throttling Test Duration: " + duration + " ms");
+        log.info("Connection Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 2000);
 
         quicClient.close().sync();
@@ -2199,7 +2204,7 @@ public class WebTransportIntegrationTest {
 
         assertTrue("Transfer timed out", echoLatch.await(10, TimeUnit.SECONDS));
         long duration = endTime[0] - startTime;
-        System.out.println("Stream Throttling Test Duration: " + duration + " ms");
+        log.info("Stream Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 2000);
 
         quicClient.close().sync();
@@ -2557,7 +2562,7 @@ public class WebTransportIntegrationTest {
 
         assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
         long duration = System.currentTimeMillis() - startTime;
-        System.out.println("Global Throttling Test Duration: " + duration + " ms");
+        log.info("Global Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
 
         quicClient1.close().sync();
@@ -2754,7 +2759,7 @@ public class WebTransportIntegrationTest {
 
         assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
         long duration = endTime[0] - startTime;
-        System.out.println("Stream Read Throttling Test Duration: " + duration + " ms");
+        log.info("Stream Read Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
 
         quicClient.close().sync();
@@ -2950,7 +2955,7 @@ public class WebTransportIntegrationTest {
 
         assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
         long duration = endTime[0] - startTime;
-        System.out.println("Coexistence Throttling Test Duration: " + duration + " ms");
+        log.info("Coexistence Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
 
         quicClient.close().sync();
@@ -3242,7 +3247,7 @@ public class WebTransportIntegrationTest {
                                                         }
                                                         if (buf == null) return;
                                                         String response = buf.toString(StandardCharsets.UTF_8);
-                                                        System.out.println("DEBUG: Fragmented test received: " + response);
+                                                        log.info("DEBUG: Fragmented test received: " + response);
                                                         if (response.contains("ACK BI") && response.contains("Fragmented headers work!")) {
                                                             bidiEchoLatch.countDown();
                                                         }

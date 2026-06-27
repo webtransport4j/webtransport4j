@@ -1,5 +1,8 @@
 package io.github.webtransport4j.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.github.webtransport4j.api.*;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -18,6 +21,8 @@ import org.mockito.ArgumentCaptor;
 
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
+    private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
+
 
   @Test
   public void testDatagramFraming() {
@@ -887,11 +892,11 @@ public class FramingLayerTest {
 
   @Test
   public void testReflectionQuicStreamChannel() {
-    System.out.println("=== REFLECTION: io.netty.handler.codec.quic.QuicStreamChannel ===");
+    log.info("=== REFLECTION: io.netty.handler.codec.quic.QuicStreamChannel ===");
     try {
       Class<?> clazz = Class.forName("io.netty.handler.codec.quic.QuicStreamChannel");
       for (java.lang.reflect.Method method : clazz.getMethods()) {
-        System.out.println(
+        log.info(
             "Method: "
                 + method.getReturnType().getSimpleName()
                 + " "
@@ -901,8 +906,8 @@ public class FramingLayerTest {
                 + ")");
       }
     } catch (Exception e) {
-      e.printStackTrace();
+      log.error("Exception caught", e);
     }
-    System.out.println("==============================================================");
+    log.info("==============================================================");
   }
 }
