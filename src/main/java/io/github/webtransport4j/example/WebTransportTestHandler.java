@@ -3,7 +3,11 @@ package io.github.webtransport4j.example;
 import io.github.webtransport4j.api.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.concurrent.Future;
+
+import java.io.File;
 import java.nio.charset.StandardCharsets;
+
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +26,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportTestHandler.class);
 
   @Override
-  public void onSessionReady(WebTransportSession session) {
+  public void onSessionReady(@NotNull WebTransportSession session) {
     logger.info("🟢 [TEST HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
 
       // 1. Initiate a Server-to-Client Unidirectional Stream
@@ -39,6 +43,13 @@ public class WebTransportTestHandler implements WebTransportHandler {
                   logger.error("   ❌ Failed to write to server uni stream", wf.cause());
                 }
               });
+          stream.write(BinarySources.from(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
+            if (wf.isSuccess()) {
+              logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
+            }else {
+              logger.error("   ❌ Failed to send file data on server bidi stream", wf.cause());
+            }
+          });
         } else {
           logger.error("   ❌ Failed to create server-initiated unidirectional stream", f.cause());
         }
@@ -69,6 +80,13 @@ public class WebTransportTestHandler implements WebTransportHandler {
                           logger.error("   ❌ Failed to send greeting on server bidi stream", wf.cause());
                         }
               });
+          stream.write(BinarySources.from(new File("/Users/sam/Downloads/images.zip"))).addListener(wf -> {
+            if (wf.isSuccess()) {
+              logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
+            }else {
+              logger.error("   ❌ Failed to send file data on server bidi stream", wf.cause());
+            }
+          });
         } else {
           logger.error("   ❌ Failed to create server-initiated bidirectional stream", f.cause());
         }
@@ -77,12 +95,12 @@ public class WebTransportTestHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onSessionClosed(WebTransportSession session) {
+  public void onSessionClosed(@NotNull WebTransportSession session) {
     logger.info("🔴 [TEST HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+  public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
     boolean isBidi = stream.isBidirectional();
     logger.info("📥 [TEST HANDLER] New client-initiated stream received. ID: {} | Type: {}", stream.streamId(), (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
 
@@ -113,7 +131,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onDatagramReceived(WebTransportSession session, ByteBuf data) {
+  public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
     String content = data.toString(StandardCharsets.UTF_8);
     logger.info("☄️ [TEST HANDLER] Received Datagram: {}", content);
 

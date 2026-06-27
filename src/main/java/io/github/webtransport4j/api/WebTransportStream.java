@@ -1,244 +1,124 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.example.StreamCodec;
-import io.github.webtransport4j.server.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.CharsetUtil;
-import io.netty.util.concurrent.Future;
 
 import java.nio.ByteBuffer;
-import java.util.Collections;
+import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.Set;
+import io.netty.util.concurrent.Future;
 import java.util.function.Consumer;
 
-public class WebTransportStream {
-  private final QuicStreamChannel streamChannel;
-  private final long sessionId;
-  private final long streamId;
-  private final boolean bidirectional;
-  private Consumer<ByteBuf> dataConsumer;
-  private Runnable closeHandler;
-  private Consumer<Throwable> errorHandler;
-  private final java.util.Map<String, Object> attributes = new java.util.concurrent.ConcurrentHashMap<>();
+public interface WebTransportStream {
 
-  public WebTransportStream(QuicStreamChannel channel, long sessionId) {
-    this.streamChannel = channel;
-    this.sessionId = sessionId;
-    this.streamId = channel.streamId();
-    this.bidirectional = (channel.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
-  }
+    /* ---------- Metadata ---------- */
 
-  public long sessionId() {
-    return sessionId;
-  }
+    long sessionId();
 
-  public long streamId() {
-    return streamId;
-  }
+    long streamId();
 
-  public boolean isBidirectional() {
-    return bidirectional;
-  }
+    boolean isBidirectional();
 
-  public QuicStreamChannel streamChannel() {
-    return streamChannel;
-  }
 
-  /**
-   * Registers a callback to be invoked when stream payload data is received.
-   * <p>
-   * <strong>Memory Management Warning:</strong> The passed {@link ByteBuf} is owned and
-   * automatically released by the network handler after this callback returns. If you process
-   * this buffer asynchronously (e.g. offloading to another thread pool or a reactive pipeline),
-   * you <strong>must</strong> call {@link ByteBuf#retain()} to increase its reference count, and
-   * subsequently release it via {@link ByteBuf#release()} when done.
-   *
-   * @param consumer the data consumer callback
-   */
-  public void onData(Consumer<ByteBuf> consumer) {
+    /* ---------- Lifecycle ---------- */
 
-    if (this.dataConsumer != null) {
-        throw new IllegalStateException(
-            "onData handler already registered");
+    void close();
+
+    void reset(long appErrorCode);
+
+
+    /* ---------- Callbacks ---------- */
+
+    void onData(Consumer<ByteBuf> consumer);
+
+    void onClose(Runnable handler);
+
+    void onError(Consumer<Throwable> handler);
+    Consumer<Throwable> getErrorHandler();
+    Consumer<ByteBuf> getDataConsumer();
+
+    Runnable getCloseHandler();
+
+    default <T> void onData(
+            StreamCodec<T> codec,
+            Consumer<T> consumer) {
+
+        onData(buf ->
+                codec.decode(buf, msg -> {
+                    try {
+                        consumer.accept(msg);
+                    } finally {
+                        codec.release(msg);
+                    }
+                }));
     }
 
-    this.dataConsumer = consumer;
-  }
 
-  public <T> void onData(
-        StreamCodec<T> codec,
-        Consumer<T> consumer) {
+    /* ---------- Primitive Write ---------- */
 
-    // Create the auto-releasing wrapper once per stream instead of once per chunk
-    // to prevent unnecessary garbage collection overhead in high-throughput streams.
-    Consumer<T> autoReleasingConsumer = msg -> {
-        try {
-            consumer.accept(msg);
-        } finally {
-            // safeRelease prevents IllegalReferenceCountExceptions from masking
-            // primary exceptions if the user manually released it already.
-            io.netty.util.ReferenceCountUtil.safeRelease(msg);
-        }
-    };
+    Future<Void> write(ByteBuf data);
 
-    this.onData(data -> {
-        codec.decode(data, autoReleasingConsumer);
-    });
-  }
+    Future<Void> write(BinarySource binarySource);
 
-  public void onClose(Runnable handler) {
-    this.closeHandler = handler;
-  }
+    Future<Void> write(BinarySource binarySource, int chunkSize);
 
-  public void onError(Consumer<Throwable> handler) {
-    this.errorHandler = handler;
-  }
+    /* ---------- Convenience Writes ---------- */
 
-  public Consumer<ByteBuf> getDataConsumer() {
-    return dataConsumer;
-  }
+    default Future<Void> write(byte[] data) {
+        return write(Unpooled.wrappedBuffer(data));
+    }
 
-  public Runnable getCloseHandler() {
-    return closeHandler;
-  }
+    default Future<Void> write(byte[] data,
+                               int offset,
+                               int length) {
+        return write(Unpooled.wrappedBuffer(data, offset, length));
+    }
 
-  public Consumer<Throwable> getErrorHandler() {
-    return errorHandler;
-  }
+    default Future<Void> write(ByteBuffer buffer) {
+        return write(Unpooled.wrappedBuffer(buffer));
+    }
 
-  /**
-   * Writes and flushes a Netty {@link ByteBuf} to the stream.
-   * Netty will automatically manage the reference count and release the buffer once sent.
-   *
-   * @param data the buffer to write
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> write(ByteBuf data) {
-    return streamChannel.writeAndFlush(data);
-  }
+    default Future<Void> writeText(String text) {
+        return writeText(text, CharsetUtil.UTF_8);
+    }
 
-  /**
-   * Writes and flushes a byte array to the stream.
-   * This is a zero-copy operation that wraps the byte array in a buffer.
-   * <p>
-   * <strong>Caveat:</strong> The underlying array must not be modified until the returned
-   * future completes, as it is read directly by the network transport thread.
-   *
-   * @param data the byte array to write
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> write(byte[] data) {
-    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data));
-  }
+    default Future<Void> writeText(
+            String text,
+            Charset charset) {
 
-  /**
-   * Writes and flushes a slice of a byte array to the stream.
-   * This is a zero-copy operation that wraps the array slice in a buffer.
-   * <p>
-   * <strong>Caveat:</strong> The underlying array must not be modified until the returned
-   * future completes, as it is read directly by the network transport thread.
-   *
-   * @param data the byte array containing the slice
-   * @param offset the starting index in the array
-   * @param length the number of bytes to write
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> write(byte[] data, int offset, int length) {
-    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data, offset, length));
-  }
-
-  /**
-   * Writes and flushes a NIO {@link ByteBuffer} to the stream.
-   * This is a zero-copy operation that wraps the buffer.
-   * <p>
-   * <strong>Caveat:</strong> The underlying buffer must not be modified or written to until
-   * the returned future completes.
-   *
-   * @param data the buffer to write
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> write(ByteBuffer data) {
-    return streamChannel.writeAndFlush(Unpooled.wrappedBuffer(data));
-  }
-
-  /**
-   * Writes and flushes a text string to the stream encoded as UTF-8.
-   *
-   * @param text the text to write
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> writeText(String text) {
-    return writeText(text, CharsetUtil.UTF_8);
-  }
-
-  /**
-   * Writes and flushes a text string to the stream encoded using the specified charset.
-   *
-   * @param text the text to write
-   * @param charset the character encoding to use
-   * @return a future that completes when the write operation is done
-   */
-  public Future<Void> writeText(String text, java.nio.charset.Charset charset) {
-    return streamChannel.writeAndFlush(Unpooled.copiedBuffer(text, charset));
-  }
+        return write(
+                Unpooled.copiedBuffer(text, charset));
+    }
 
 
-  public void close() {
-    streamChannel.close();
-  }
+    /* ---------- Attributes ---------- */
 
-  public void reset(long appErrorCode) {
-    WebTransportUtils.resetStream(streamChannel, appErrorCode);
-  }
+    boolean hasAttribute(String key);
 
-  public boolean hasAttribute(String key) {
-      return attributes.containsKey(key);
-  }
+    Object setAttribute(String key, Object value);
 
-  public Object setAttribute(String key, Object value) {
-      if (value == null) {
-          return attributes.remove(key);
-      }
-      return attributes.put(key, value);
-  }
+    <T> T getAttribute(String key,
+                       Class<T> type);
 
-  public <T> T getAttribute(String key, Class<T> type) {
-      Object value = attributes.get(key);
-      return value == null ? null : type.cast(value);
-  }
+    <T> T getAttributeOrDefault(
+            String key,
+            Class<T> type,
+            T defaultValue);
 
-  public <T> T getAttributeOrDefault(
-          String key,
-          Class<T> type,
-          T defaultValue) {
-      Object value = attributes.get(key);
-      return value == null ? defaultValue : type.cast(value);
-  }
+    Object removeAttribute(String key);
 
-  public Object removeAttribute(String key) {
-      return attributes.remove(key);
-  }
+    void clearAttributes();
 
-  public void clearAttributes() {
-      attributes.clear();
-  }
+    int attributeCount();
 
-  public int attributeCount() {
-      return attributes.size();
-  }
+    boolean hasAttributes();
 
-  public boolean hasAttributes() {
-      return !attributes.isEmpty();
-  }
+    Set<String> attributeNames();
 
-  public Set<String> attributeNames() {
-      return Collections.unmodifiableSet(attributes.keySet());
-  }
+    Map<String, Object> getAttributes();
 
-  public Map<String, Object> getAttributes() {
-      return Collections.unmodifiableMap(attributes);
-  }
+    boolean isActive();
 }

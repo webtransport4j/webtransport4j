@@ -30,7 +30,7 @@ class WebTransportSessionManager {
       connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
     }
 
-    QuicChannel quic = (QuicChannel) connectStream.parent();
+    QuicChannel quic = connectStream.parent();
 
     Long uniMax =
         quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
@@ -48,14 +48,11 @@ class WebTransportSessionManager {
      // Flow control is enabled if any of the settings are explicitly set to non-zero values.
      // Zero values are treated as "use fallback default", not as "unlimited".
      // This allows per-deployment configuration of flow control defaults.
-     boolean flowControlEnabled = false;
-     if ((uniMax != null && uniMax > 0L)
-         || (biMax != null && biMax > 0L)
-         || (dataMax != null && dataMax > 0L)) {
-       flowControlEnabled = true;
-     }
+     boolean flowControlEnabled = (uniMax != null && uniMax > 0L)
+             || (biMax != null && biMax > 0L)
+             || (dataMax != null && dataMax > 0L);
 
-     // Apply fallback defaults for any zero-valued settings when flow control is enabled.
+      // Apply fallback defaults for any zero-valued settings when flow control is enabled.
      // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
      if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
        uniMax =

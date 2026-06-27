@@ -8,6 +8,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +37,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   private static final byte STREAM_TYPE_VOICE = 0x03;
 
   @Override
-  public void onSessionReady(WebTransportSession session) {
+  public void onSessionReady(@NotNull WebTransportSession session) {
     long sessionId = session.getSessionStreamId();
     logger.info("💬 [CHAT] User session established. Session ID: {}", sessionId);
     
@@ -44,7 +46,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onSessionClosed(WebTransportSession session) {
+  public void onSessionClosed(@NotNull WebTransportSession session) {
     ChatUser user = users.remove(session);
     if (user != null && user.username != null) {
       logger.info("💬 [CHAT] User '{}' left the chat.", user.username);
@@ -54,7 +56,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+  public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
     ChatUser user = users.get(session);
     if (user == null) {
       logger.warn("⚠️ Received stream for unregistered session: {}", session.getSessionStreamId());
@@ -106,7 +108,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   }
 
   @Override
-  public void onDatagramReceived(WebTransportSession session, ByteBuf data) {
+  public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
     ChatUser user = users.get(session);
     if (user == null || user.room == null) return;
 
@@ -200,7 +202,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
     // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
     for (ChatUser roomMember : users.values()) {
       if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
-        if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.streamChannel().isActive()) {
+        if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.isActive()) {
           // Send raw voice data to peer (retaining duplicate to safely share bytes across channels)
           roomMember.serverVoiceStream.write(payload.retainedDuplicate());
         }
@@ -211,7 +213,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   // --- Helper Methods ---
 
   private void sendControlReply(ChatUser user, String reply) {
-    if (user.controlStream != null && user.controlStream.streamChannel().isActive()) {
+    if (user.controlStream != null && user.controlStream.isActive()) {
       user.controlStream.writeText(reply);
     } else {
       logger.warn("⚠️ Control stream not active for user {} , unable to send: {}", user.username, reply);
@@ -226,7 +228,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
         if (excludeUser != null && roomMember.session == excludeUser.session) {
           continue; // Skip the sender
         }
-        if (roomMember.chatStream != null && roomMember.chatStream.streamChannel().isActive()) {
+        if (roomMember.chatStream != null && roomMember.chatStream.isActive()) {
           roomMember.chatStream.writeText(message);
         }
       }

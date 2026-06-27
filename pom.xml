@@ -13,8 +13,7 @@
     <description>WebTransport4Jproject</description>
 
     <properties>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <netty.version>4.2.15.Final</netty.version>
     </properties>
@@ -147,10 +146,65 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>3.15.0</version>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <goals><goal>compile</goal></goals>
+                        <configuration>
+                            <release>${maven.compiler.release}</release>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>compile-java-25</id>
+                        <goals><goal>compile</goal></goals>
+                        <configuration>
+                            <release>25</release>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
+                            </compileSourceRoots>
+                            <outputDirectory>${project.build.outputDirectory}/META-INF/versions/25</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>test-compile-java-25</id>
+                        <phase>test-compile</phase>
+                        <goals><goal>testCompile</goal></goals>
+                        <configuration>
+                            <release>25</release>
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
+                                <compileSourceRoot>${project.basedir}/src/test/java-25</compileSourceRoot>
+                            </compileSourceRoots>
+                            <!-- Use standard testOutputDirectory so Surefire finds it -->
+                            <outputDirectory>${project.build.testOutputDirectory}</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
                 <configuration>
-                    <source>${maven.compiler.source}</source>
-                    <target>${maven.compiler.target}</target>
+                    <!-- Make sure Java 25 classes take precedence over Java 8 classes in testing -->
+                    <additionalClasspathElements>
+                        <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Multi-Release>true</Multi-Release>
+                        </manifestEntries>
+                    </archive>
                 </configuration>
             </plugin>
         </plugins>

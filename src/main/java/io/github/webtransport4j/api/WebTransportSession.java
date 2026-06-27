@@ -6,11 +6,13 @@ import io.netty.channel.Channel;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.util.concurrent.Future;
 import java.util.HashSet;
-import java.util.Optional;
+
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.concurrent.Promise;
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -69,8 +71,8 @@ public class WebTransportSession {
 
   public WebTransportSession(
       long sessionStreamId,
-      QuicStreamChannel connectStream,
-      String path,
+      @NotNull QuicStreamChannel connectStream,
+      @NotNull String path,
       long maxStreamsUni,
       long maxStreamsBidi,
       long maxData,
@@ -373,12 +375,14 @@ public class WebTransportSession {
     @Override
     protected void initChannel(QuicStreamChannel ch) {
       // Unidirectional write-only stream, no read pipeline handlers needed
+      ch.pipeline().addLast(new WebTransportChunkedWriteHandler());//write pipeline
     }
   };
 
   public static final ChannelHandler DEFAULT_BI_INITIALIZER = new ChannelInitializer<QuicStreamChannel>() {
     @Override
     protected void initChannel(QuicStreamChannel ch) {
+      ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
       ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
       ch.pipeline().addLast(new WebTransportCapsuleHandler());
       ch.pipeline().addLast(new MessageDispatcher());
@@ -424,7 +428,7 @@ public class WebTransportSession {
         QuicStreamChannel ch = f.getNow();
 
         WebTransportStream stream =
-                new WebTransportStream(ch, sessionStreamId);
+                new DefaultNettyWebTransportStream(ch, sessionStreamId);
 
         ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY)
                 .set(stream);

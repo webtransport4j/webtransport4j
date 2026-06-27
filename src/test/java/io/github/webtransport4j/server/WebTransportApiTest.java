@@ -13,6 +13,8 @@ import io.netty.util.Attribute;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+
+import org.jetbrains.annotations.NotNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,21 +42,21 @@ public class WebTransportApiTest {
 
     WebTransportHandler handler = new WebTransportHandler() {
       @Override
-      public void onSessionReady(WebTransportSession session) {
+      public void onSessionReady(@NotNull WebTransportSession session) {
         sessionReadyCalled.set(true);
         registeredSession.set(session);
       }
 
       @Override
-      public void onSessionClosed(WebTransportSession session) {
+      public void onSessionClosed(@NotNull WebTransportSession session) {
         sessionClosedCalled.set(true);
       }
 
       @Override
-      public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {}
+      public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {}
 
       @Override
-      public void onDatagramReceived(WebTransportSession session, ByteBuf data) {}
+      public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {}
     };
 
     server.registerHandler("/test-api", handler);
@@ -113,13 +115,13 @@ public class WebTransportApiTest {
 
     WebTransportHandler handler = new WebTransportHandler() {
       @Override
-      public void onSessionReady(WebTransportSession session) {}
+      public void onSessionReady(@NotNull WebTransportSession session) {}
 
       @Override
-      public void onSessionClosed(WebTransportSession session) {}
+      public void onSessionClosed(@NotNull WebTransportSession session) {}
 
       @Override
-      public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+      public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
         incomingStreamRef.set(stream);
         stream.onData(buf -> {
           dataReceivedRef.set(buf.toString(StandardCharsets.UTF_8));
@@ -127,7 +129,7 @@ public class WebTransportApiTest {
       }
 
       @Override
-      public void onDatagramReceived(WebTransportSession session, ByteBuf data) {}
+      public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {}
     };
 
     server.registerHandler("/test-api", handler);

@@ -6,6 +6,7 @@ import io.netty.buffer.Unpooled;
 
 import java.nio.charset.StandardCharsets;
 
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,17 +14,17 @@ public class DefaultPathHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(DefaultPathHandler.class);
 
   @Override
-  public void onSessionReady(WebTransportSession session) {
+  public void onSessionReady(@NotNull WebTransportSession session) {
     logger.info("🟢 [DEFAULT HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onSessionClosed(WebTransportSession session) {
+  public void onSessionClosed(@NotNull WebTransportSession session) {
     logger.info("🔴 [DEFAULT HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
   }
 
   @Override
-  public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+  public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
     boolean isBidi = stream.isBidirectional();
     logger.info("📥 [DEFAULT HANDLER] New client-initiated stream received. ID: {} | Type: {}", stream.streamId(), (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
 
@@ -31,8 +32,7 @@ public class DefaultPathHandler implements WebTransportHandler {
     stream.onError(err -> logger.error("❌ [DEFAULT HANDLER] Stream {} error", stream.streamId(), err));
 
     LengthPrefixedCodec codec =
-    new LengthPrefixedCodec(
-        stream.streamChannel().alloc());
+    new LengthPrefixedCodec();
     stream.onData(
         codec,
         message -> {
@@ -50,7 +50,7 @@ stream.write(codec.encode(payload));
   }
 
   @Override
-  public void onDatagramReceived(WebTransportSession session, ByteBuf data) {
+  public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
     String content = data.toString(java.nio.charset.StandardCharsets.UTF_8);
     logger.info("☄️ [DEFAULT HANDLER] Received Datagram: {}", content);
     String replyText = "DEFAULT ACK DG: " + content;

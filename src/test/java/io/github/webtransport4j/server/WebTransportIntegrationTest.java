@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
+
+import org.jetbrains.annotations.NotNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,17 +48,17 @@ public class WebTransportIntegrationTest {
                 "/test-integration",
                 new WebTransportHandler() {
                     @Override
-                    public void onSessionReady(WebTransportSession session) {
+                    public void onSessionReady(@NotNull WebTransportSession session) {
                         System.out.println("TEST SERVER: Session ready: " + session.getSessionStreamId());
                     }
 
                     @Override
-                    public void onSessionClosed(WebTransportSession session) {
+                    public void onSessionClosed(@NotNull WebTransportSession session) {
                         System.out.println("TEST SERVER: Session closed: " + session.getSessionStreamId());
                     }
 
                     @Override
-                    public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
+                    public void onIncomingStream(@NotNull WebTransportSession session, @NotNull WebTransportStream stream) {
                         System.out.println(
                                 "TEST SERVER: Incoming stream: "
                                         + stream.streamId()
@@ -82,7 +84,7 @@ public class WebTransportIntegrationTest {
                     }
 
                     @Override
-                    public void onDatagramReceived(WebTransportSession session, ByteBuf data) {
+                    public void onDatagramReceived(@NotNull WebTransportSession session, @NotNull ByteBuf data) {
                         String content = data.toString(StandardCharsets.UTF_8);
                         System.out.println("TEST SERVER: Received datagram: " + content);
                         ByteBuf resp = session.getConnectStream().alloc().directBuffer();
@@ -366,6 +368,10 @@ public class WebTransportIntegrationTest {
                         .bind(new InetSocketAddress("127.0.0.1", 0))
                         .sync()
                         .channel();
+                        
+        if (WebTransportServer.globalTrafficShaper != null) {
+            serverChannel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(WebTransportServer.globalTrafficShaper);
+        }
 
         port = ((InetSocketAddress) serverChannel.localAddress()).getPort();
     }
@@ -2550,7 +2556,7 @@ public class WebTransportIntegrationTest {
                         });
 
         assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
-        long duration = endTime[0] - startTime;
+        long duration = System.currentTimeMillis() - startTime;
         System.out.println("Global Throttling Test Duration: " + duration + " ms");
         assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
 
@@ -3272,6 +3278,163 @@ public class WebTransportIntegrationTest {
         assertTrue("Bidirectional stream exchange with fragmented headers failed or timed out",
                 bidiEchoLatch.await(5, TimeUnit.SECONDS));
 
+        quicClient.close().sync();
+    }
+
+    @Test
+    public void testChunkedInputSupport() throws Exception {
+        Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+        clientSettings.enableH3Datagram(true);
+        clientSettings.enableConnectProtocol(true);
+        clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+        clientSettings.put(0x2b64L, 10L);
+        clientSettings.put(0x2b65L, 10L);
+        clientSettings.put(0x2b61L, 10000L);
+
+        QuicSslContext clientSslContext =
+                QuicSslContextBuilder.forClient()
+                        .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                        .applicationProtocols(Http3.supportedApplicationProtocols())
+                        .build();
+
+        CountDownLatch handshakeLatch = new CountDownLatch(1);
+        CountDownLatch chunkedEchoLatch = new CountDownLatch(1);
+
+        final QuicStreamChannel[] connectStream = new QuicStreamChannel[1];
+
+        ChannelHandler clientCodec =
+                Http3.newQuicClientCodecBuilder()
+                        .sslContext(clientSslContext)
+                        .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+                        .initialMaxData(10000000)
+                        .initialMaxStreamDataBidirectionalLocal(1000000)
+                        .initialMaxStreamDataBidirectionalRemote(1000000)
+                        .initialMaxStreamsBidirectional(100)
+                        .initialMaxStreamsUnidirectional(100)
+                        .datagram(10000, 10000)
+                        .build();
+
+        Channel clientChannel =
+                new Bootstrap()
+                        .group(clientGroup)
+                        .channel(NioDatagramChannel.class)
+                        .handler(clientCodec)
+                        .bind(0)
+                        .sync()
+                        .channel();
+        QuicChannel quicClient = QuicChannel.newBootstrap(clientChannel)
+                        .handler(new ChannelInitializer<QuicChannel>() {
+                            @Override
+                            protected void initChannel(QuicChannel ch) {
+                                ch.pipeline().addLast(new Http3ClientConnectionHandler(
+                                        new ChannelInitializer<QuicStreamChannel>() {
+                                            @Override
+                                            protected void initChannel(QuicStreamChannel stream) {}
+                                        },
+                                        (streamType) -> null,
+                                        (streamType) -> null,
+                                        new DefaultHttp3SettingsFrame(clientSettings),
+                                        false,
+                                        (id, value) -> true));
+                            }
+                        })
+                        .remoteAddress(new InetSocketAddress(io.netty.util.NetUtil.LOCALHOST4, port))
+                        .connect().sync().getNow();
+
+        Http3.newRequestStream(
+                        quicClient,
+                        new ChannelInitializer<QuicStreamChannel>() {
+                            @Override
+                            protected void initChannel(QuicStreamChannel ch) {
+                                ch.pipeline()
+                                        .addLast(
+                                                new SimpleChannelInboundHandler<Object>() {
+                                                    @Override
+                                                    protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                                                        if (msg instanceof Http3HeadersFrame) {
+                                                            Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
+                                                            if ("200".equals(headersFrame.headers().status().toString())) {
+                                                                connectStream[0] = (QuicStreamChannel) ctx.channel();
+                                                                handshakeLatch.countDown();
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                            }
+                        })
+                .addListener(
+                        (Future<QuicStreamChannel> f) -> {
+                            if (f.isSuccess()) {
+                                QuicStreamChannel ch = f.getNow();
+                                Http3Headers headers = new DefaultHttp3Headers();
+                                headers.method("CONNECT").scheme("https").path("/test-integration")
+                                        .authority("localhost").set(":protocol", "webtransport");
+                                ch.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+                            }
+                        });
+
+        assertTrue("CONNECT handshake failed", handshakeLatch.await(5, TimeUnit.SECONDS));
+        long sessionId = connectStream[0].streamId();
+
+        StringBuilder accumulatedEcho = new StringBuilder();
+        String expectedPayload = "CHUNK_1_DATA|CHUNK_2_DATA|CHUNK_3_DATA";
+
+        quicClient.createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInitializer<QuicStreamChannel>() {
+            @Override
+            protected void initChannel(QuicStreamChannel ch) {
+                ch.pipeline().addFirst(new ChannelInboundHandlerAdapter() {
+                    @Override
+                    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+                        ctx.channel().eventLoop().execute(() -> {
+                            java.util.List<String> toRemove = new java.util.ArrayList<>();
+                            for (String name : ctx.pipeline().names()) {
+                                if (name.startsWith("Http3RequestStream")) {
+                                    toRemove.add(name);
+                                }
+                            }
+                            toRemove.forEach(name -> ctx.pipeline().remove(name));
+
+                            ctx.pipeline().addLast(new WebTransportChunkedWriteHandler());
+                            ctx.pipeline().addLast(new SimpleChannelInboundHandler<ByteBuf>() {
+                                @Override
+                                protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
+                                    accumulatedEcho.append(msg.toString(StandardCharsets.UTF_8));
+                                    if (accumulatedEcho.toString().contains(expectedPayload)) {
+                                        chunkedEchoLatch.countDown();
+                                    }
+                                }
+                            });
+
+                            ByteBuf header = ctx.alloc().directBuffer();
+                            WebTransportUtils.writeVarInt(header, WebTransportUtils.BI_STREAM_TYPE);
+                            WebTransportUtils.writeVarInt(header, sessionId);
+                            ctx.channel().writeAndFlush(header).addListener(f -> {
+                                BinarySource source = new BinarySource() {
+                                    byte[] data = expectedPayload.getBytes(StandardCharsets.UTF_8);
+                                    int progress = 0;
+                                    @Override
+                                    public int read(java.nio.ByteBuffer buffer) {
+                                        if (progress >= data.length) return -1;
+                                        int toRead = Math.min(data.length - progress, buffer.remaining());
+                                        toRead = Math.min(toRead, 5); 
+                                        buffer.put(data, progress, toRead);
+                                        progress += toRead;
+                                        return toRead;
+                                    }
+                                    @Override
+                                    public long size() { return data.length; }
+                                    @Override
+                                    public boolean hasKnownSize() { return true; }
+                                };
+                                ctx.channel().writeAndFlush(new BinarySourceChunkedInput(source));
+                            });
+                        });
+                    }
+                });
+            }
+        });
+
+        assertTrue("Chunked echo timed out", chunkedEchoLatch.await(5, TimeUnit.SECONDS));
         quicClient.close().sync();
     }
 }

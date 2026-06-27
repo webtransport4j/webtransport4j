@@ -75,7 +75,7 @@ public class WebTransportServer {
   public void registerHandler(String path, WebTransportHandler handler) {
     if (path == null) throw new IllegalArgumentException("path cannot be null");
     String normalized = normalizePath(path);
-    if (normalized.isEmpty() || !normalized.startsWith("/")) {
+    if (!normalized.startsWith("/")) {
       throw new IllegalArgumentException("path must not be empty and must start with '/'");
     }
     if (handler == null) {

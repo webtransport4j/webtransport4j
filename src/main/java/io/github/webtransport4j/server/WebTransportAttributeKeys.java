@@ -42,7 +42,7 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<Boolean> SERVER_INITIATED_KEY = 
       AttributeKey.valueOf("wt.stream.server_initiated");
   
-  public static final AttributeKey<WebTransportStream> WT_STREAM_KEY = 
+  public static final AttributeKey<WebTransportStream> WT_STREAM_KEY =
       AttributeKey.valueOf("wt.stream.instance");
   
   public static final AttributeKey<Boolean> STREAM_NOTIFIED = 

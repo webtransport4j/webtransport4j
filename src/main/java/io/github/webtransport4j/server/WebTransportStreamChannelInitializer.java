@@ -2,6 +2,8 @@ package io.github.webtransport4j.server;
 
 import io.netty.channel.*;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.stream.ChunkedWriteHandler;
+import io.github.webtransport4j.api.WebTransportChunkedWriteHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +25,9 @@ public final class WebTransportStreamChannelInitializer
 
         stream.pipeline().addLast(new RawWebTransportHandler());
         logger.debug("🔧 Added RawWebTransportHandler. Pipeline now: {}", stream.pipeline().names());
+
+        stream.pipeline().addLast(new WebTransportChunkedWriteHandler());
+        logger.debug("🔧 Added WebTransportChunkedWriteHandler. Pipeline now: {}", stream.pipeline().names());
 
         stream.pipeline().addLast(new WebTransportStreamFrameDecoder());
         logger.debug("🔧 Added WebTransportStreamFrameDecoder. Pipeline now: {}", stream.pipeline().names());

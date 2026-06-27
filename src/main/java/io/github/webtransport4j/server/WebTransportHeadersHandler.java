@@ -13,9 +13,11 @@ import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
@@ -40,18 +42,24 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
     CharSequence path = frame.headers().path();
     CharSequence method = frame.headers().method();
     CharSequence protocol = frame.headers().get(":protocol");
+    CharSequence origin = frame.headers().get("origin");
+    if (method == null || scheme == null || authority == null || path == null) {
+      Http3Headers headers = new DefaultHttp3Headers();
+      headers.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
 
+      ctx.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+      return;
+    }
     // TEST the server GET request
     if ("GET".contentEquals(method)) {
       Http3Headers responseHeaders = new DefaultHttp3Headers();
-      responseHeaders.status("200");
-
+      responseHeaders.status(HttpResponseStatus.OK.codeAsText());
       ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
     }
     if ("CONNECT".contentEquals(method)
         && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
-        if (scheme == null || !"https".contentEquals(scheme)) {
+        if (!"https".contentEquals(scheme)) {
           logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
@@ -62,7 +70,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       }
 
       // Validate authority: MUST be present as per draft-15 section 4.4
-      if (authority == null || authority.length() == 0) {
+      if (authority.length() == 0) {
         logger.warn("❌ Rejecting connection due to missing :authority");
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
@@ -105,7 +113,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       }
 
       // Validate CORS allowed origins and authority host
-      CharSequence origin = frame.headers().get("origin");
+
       java.util.List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
         if (!isAllowed(allowed, origin, authority)) {
          logger.warn("❌ Rejecting connection from unauthorized origin: {} (authority: {})", origin, authority);
@@ -166,13 +174,13 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
         // Track active streams globally to reuse them across scheduler ticks
         // Using Object as the key type to represent the Session, adjust to your specific WebTransportSession class
-        final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeBidiStreams = new java.util.concurrent.ConcurrentHashMap<>();
-        final java.util.concurrent.ConcurrentHashMap<Object, WebTransportStream> activeUniStreams = new java.util.concurrent.ConcurrentHashMap<>();
+        final ConcurrentHashMap<Object, WebTransportStream> activeBidiStreams = new ConcurrentHashMap<>();
+        final ConcurrentHashMap<Object, WebTransportStream> activeUniStreams = new ConcurrentHashMap<>();
 
         // Some test harnesses create a ChannelHandlerContext with a null executor or channel without an event loop.
         // Fall back to the channel's event loop when available; otherwise create a simple ScheduledExecutorService
         // so unit tests (which may use mocked contexts) don't NPE when scheduling periodic tasks.
-        io.netty.util.concurrent.EventExecutor _exec = ctx.executor() != null ? ctx.executor() : (ctx.channel() != null ? ctx.channel().eventLoop() : null);
+        EventExecutor _exec = ctx.executor() != null ? ctx.executor() : (ctx.channel() != null ? ctx.channel().eventLoop() : null);
         final java.util.concurrent.ScheduledExecutorService[] fallbackRef = new java.util.concurrent.ScheduledExecutorService[1];
         java.util.concurrent.ScheduledFuture<?> pushTask;
         if (_exec != null) {

@@ -153,7 +153,7 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
         WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
         if (stream == null) {
-          stream = new WebTransportStream(streamChannel, sessionId);
+          stream = new DefaultNettyWebTransportStream(streamChannel, sessionId);
           streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
           
           final WebTransportStream finalStream = stream;

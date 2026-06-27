@@ -3,13 +3,18 @@ package io.github.webtransport4j.example;
 import java.util.function.Consumer;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.util.ReferenceCountUtil;
 
-public interface StreamCodec<T> extends AutoCloseable {
+public interface StreamCodec<T> {
 
     ByteBuf encode(T message);
 
-    void decode(ByteBuf data, Consumer<T> consumer);
+    void decode(ByteBuf incoming,
+                Consumer<T> consumer);
 
-    @Override
-    void close();
+    default void release(T message) {
+        ReferenceCountUtil.safeRelease(message);
+    }
+
+    default void close() {}
 }

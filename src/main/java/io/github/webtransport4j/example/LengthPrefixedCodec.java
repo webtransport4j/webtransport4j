@@ -1,35 +1,92 @@
 package io.github.webtransport4j.example;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+
 import java.util.function.Consumer;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-
+/**
+ * A simple length-prefixed framing codec.
+ *
+ * Frame format:
+ * +------------+-------------------+
+ * | 4-byte int |     Payload       |
+ * +------------+-------------------+
+ * | Length (N) | N bytes           |
+ * +------------+-------------------+
+ */
 public final class LengthPrefixedCodec
-    implements StreamCodec<ByteBuf> {
+        implements StreamCodec<ByteBuf> {
 
-    private static final int MAX_FRAME_SIZE =
-        16 * 1024 * 1024;
+    /**
+     * Default maximum frame size (16 MiB).
+     */
+    public static final int DEFAULT_MAX_FRAME_SIZE =
+            16 * 1024 * 1024;
 
-    private final ByteBufAllocator alloc;
+    /**
+     * Maximum allowed payload size.
+     */
+    private final int maxFrameSize;
+
+    /**
+     * Accumulates fragmented incoming bytes until complete
+     * frames are available.
+     */
     private final ByteBuf accumulator;
 
-    public LengthPrefixedCodec(ByteBufAllocator alloc) {
-        this.alloc = alloc;
-        this.accumulator = alloc.buffer();
+    /**
+     * Creates a codec using the default maximum frame size.
+     */
+    public LengthPrefixedCodec() {
+        this(DEFAULT_MAX_FRAME_SIZE);
+    }
+
+    /**
+     * Creates a codec with a custom maximum frame size.
+     *
+     * @param maxFrameSize maximum payload size in bytes
+     */
+    public LengthPrefixedCodec(int maxFrameSize) {
+
+        if (maxFrameSize <= 0) {
+            throw new IllegalArgumentException(
+                    "maxFrameSize must be greater than zero");
+        }
+
+        this.maxFrameSize = maxFrameSize;
+        this.accumulator = Unpooled.buffer();
+    }
+
+    /**
+     * Returns the configured maximum frame size.
+     */
+    public int maxFrameSize() {
+        return maxFrameSize;
     }
 
     @Override
     public ByteBuf encode(ByteBuf message) {
 
-        ByteBuf out =
-            alloc.buffer(4 + message.readableBytes());
+        int length = message.readableBytes();
 
-        out.writeInt(message.readableBytes());
+        if (length > maxFrameSize) {
+            throw new IllegalArgumentException(
+                    "Frame size " + length
+                            + " exceeds configured maximum of "
+                            + maxFrameSize + " bytes");
+        }
+
+        ByteBuf out = Unpooled.buffer(
+                Integer.BYTES + length,
+                Integer.BYTES + length);
+
+        out.writeInt(length);
+
         out.writeBytes(
-            message,
-            message.readerIndex(),
-            message.readableBytes());
+                message,
+                message.readerIndex(),
+                length);
 
         return out;
     }
@@ -43,38 +100,38 @@ public final class LengthPrefixedCodec
 
         while (true) {
 
-            if (accumulator.readableBytes() < 4) {
-                break;
+            if (accumulator.readableBytes() < Integer.BYTES) {
+                return;
             }
 
             accumulator.markReaderIndex();
 
             int length = accumulator.readInt();
 
-            if (length < 0 ||
-                length > MAX_FRAME_SIZE) {
+            if (length < 0 || length > maxFrameSize) {
                 throw new IllegalArgumentException(
-                    "Invalid frame size: " + length);
+                        "Invalid frame size: "
+                                + length
+                                + " (maximum "
+                                + maxFrameSize
+                                + " bytes)");
             }
 
             if (accumulator.readableBytes() < length) {
                 accumulator.resetReaderIndex();
-                break;
+                return;
             }
 
             consumer.accept(
-                accumulator.readRetainedSlice(length));
-        }
-
-        if (!accumulator.isReadable()) {
-            accumulator.clear();
-        } else if (accumulator.readerIndex() > 4096) {
-            accumulator.discardReadBytes();
+                    accumulator.readRetainedSlice(length));
         }
     }
 
     @Override
     public void close() {
-        accumulator.release();
+
+        if (accumulator.refCnt() > 0) {
+            accumulator.release();
+        }
     }
 }
