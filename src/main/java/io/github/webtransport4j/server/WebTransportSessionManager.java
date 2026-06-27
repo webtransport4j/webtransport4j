@@ -21,6 +21,9 @@ class WebTransportSessionManager {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
 
+    private boolean keepAliveStarted = false;
+    private java.util.concurrent.ScheduledFuture<?> keepAliveFuture = null;
+
     // Key: The Session ID (which is the Stream ID of the CONNECT stream)
     // Value: The Session object containing state
     private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
@@ -91,6 +94,23 @@ class WebTransportSessionManager {
         if (logger.isDebugEnabled()) {
             logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
         }
+        
+        if (!keepAliveStarted) {
+            boolean keepAliveEnabled = WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
+            if (keepAliveEnabled && quic != null && quic.eventLoop() != null) {
+                long timeoutSecs = WebTransportConfig.getLong("webtransport4j.server.keepalive.timeout.secs", 30L);
+                long checkIntervalSecs = WebTransportConfig.getLong("webtransport4j.server.keepalive.interval.secs", 5L);
+                long checkIntervalMs = checkIntervalSecs * 1000L;
+                keepAliveFuture = quic.eventLoop().scheduleWithFixedDelay(
+                    () -> checkKeepAlive(timeoutSecs * 1000L),
+                    checkIntervalMs,
+                    checkIntervalMs,
+                    java.util.concurrent.TimeUnit.MILLISECONDS
+                );
+                keepAliveStarted = true;
+            }
+        }
+
         Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
         WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
         WebTransportHandler handler = server != null ? server.getHandler(pathStr) : new WebTransportHandler() {
@@ -180,6 +200,21 @@ class WebTransportSessionManager {
     }
 
     /**
+     * Periodic check to reap sessions that have timed out.
+     */
+    private void checkKeepAlive(long timeoutMs) {
+        long now = System.currentTimeMillis();
+        for (WebTransportSession session : sessions.values()) {
+            long lastRead = session.getLastReadTime();
+            if (now - lastRead > timeoutMs) {
+                logger.warn("❌ Keep-Alive Timeout: Session {} has been idle for {}ms (limit: {}ms). Reaping.",
+                        session.getSessionStreamId(), (now - lastRead), timeoutMs);
+                session.getConnectStream().close();
+            }
+        }
+    }
+
+    /**
      * Cleanup: Called when the main QUIC Connection is lost/closed. Prevents memory leaks by clearing
      * the map.
      */
@@ -210,6 +245,10 @@ class WebTransportSessionManager {
                 }
             }
             
+            if (keepAliveFuture != null) {
+                keepAliveFuture.cancel(false);
+                keepAliveFuture = null;
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("💥 SessionManager: Closing all {} active sessions due to connection close.", count);
             }

@@ -80,6 +80,8 @@ public class WebTransportSession {
 
     private final long initialMaxData;
 
+    private final AtomicLong lastReadTime = new AtomicLong(System.currentTimeMillis());
+
     public WebTransportSession(long sessionStreamId, @NonNull QuicStreamChannel connectStream, @NonNull String path, long maxStreamsUni, long maxStreamsBidi, long maxData, long peerMaxStreamsUni, long peerMaxStreamsBidi, long peerMaxData, boolean flowControlEnabled) {
         this.sessionStreamId = sessionStreamId;
         this.path = path;
@@ -110,6 +112,14 @@ public class WebTransportSession {
             this.cumulativeBytesReceived = null;
             this.lastSentDataBlockedLimit = null;
         }
+    }
+
+    public long getLastReadTime() {
+        return lastReadTime.get();
+    }
+
+    public void updateLastReadTime() {
+        lastReadTime.set(System.currentTimeMillis());
     }
 
     public @NonNull Set<QuicStreamChannel> getActiveClientInitiatedUni() {

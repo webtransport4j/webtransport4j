@@ -17,12 +17,29 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(RawWebTransportHandler.class);
 
+    private static final byte HEARTBEAT_MAGIC_BYTE = (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.stream.magic.byte", 0x3F);
+
+    private final boolean keepAliveEnabled;
+
+    private final String keepAliveMode;
+
+    private final byte keepAlivePingByte;
+
+    private final byte keepAlivePongByte;
+
     // Track state per handler instance (per stream)
     private boolean protocolHeaderConsumed = false;
 
     private boolean outboundHeaderSent = false;
 
     private ByteBuf cumulation = null;
+
+    public RawWebTransportHandler() {
+        this.keepAliveEnabled = WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
+        this.keepAliveMode = WebTransportConfig.get("webtransport4j.server.keepalive.mode", "STRICT").toUpperCase();
+        this.keepAlivePingByte = (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.ping.byte", 1);
+        this.keepAlivePongByte = (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.pong.byte", 1);
+    }
 
     @Override
     public void handlerRemoved(@NonNull ChannelHandlerContext ctx) throws Exception {
@@ -157,19 +174,77 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
                         if (mgr != null) {
                             WebTransportSession session = mgr.get(sessionId);
-                            if (session != null && session.isFlowControlEnabled()) {
-                                long localLimit = session.getSettingsMaxData();
-                                long newCumulativeReceived = session.incrementCumulativeBytesReceived(payloadBytes);
-                                // Validate that the increment didn't exceed the limit
-                                if (newCumulativeReceived > localLimit) {
-                                    logger.warn("❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit ({}). Closing session.", newCumulativeReceived, localLimit);
-                                    mgr.closeSessionWithFlowControlError(sessionId);
-                                    data.release();
-                                    ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-                                    return;
+                            if (session != null) {
+                                session.updateLastReadTime();
+                                
+                                 Attribute<Boolean> isHeartbeatAttr = ctx.channel().attr(WebTransportAttributeKeys.IS_HEARTBEAT_STREAM);
+                                Boolean isHeartbeat = isHeartbeatAttr != null ? isHeartbeatAttr.get() : null;
+                                if (isHeartbeat == null) {
+                                    if (keepAliveEnabled) {
+                                        data.markReaderIndex();
+                                        byte firstByte = data.readByte();
+                                        if (firstByte == HEARTBEAT_MAGIC_BYTE) {
+                                            if (isHeartbeatAttr != null) {
+                                                isHeartbeatAttr.set(true);
+                                            }
+                                            isHeartbeat = true;
+                                            if (logger.isDebugEnabled()) {
+                                                logger.debug("💓 Intercepted Client Keep-Alive Heartbeat Stream (Session ID: {})", sessionId);
+                                            }
+                                        } else {
+                                            if (isHeartbeatAttr != null) {
+                                                isHeartbeatAttr.set(false);
+                                            }
+                                            isHeartbeat = false;
+                                            data.resetReaderIndex();
+                                        }
+                                    } else {
+                                        if (isHeartbeatAttr != null) {
+                                            isHeartbeatAttr.set(false);
+                                        }
+                                        isHeartbeat = false;
+                                    }
                                 }
-                                if (logger.isDebugEnabled()) {
-                                    logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
+
+                                 if (Boolean.TRUE.equals(isHeartbeat)) {
+                                     if ("ECHO".equals(keepAliveMode)) {
+                                         if (data.isReadable()) {
+                                             if (logger.isDebugEnabled()) {
+                                                 logger.debug("📥 Received Keep-Alive PING of size {} on Session ID: {}. Echoing PONG (ECHO mode).", data.readableBytes(), sessionId);
+                                             }
+                                             ctx.writeAndFlush(data.retain());
+                                         }
+                                     } else {
+                                         while (data.isReadable()) {
+                                             byte b = data.readByte();
+                                             if (b == keepAlivePingByte) {
+                                                 if (logger.isDebugEnabled()) {
+                                                     logger.debug("📥 Received Keep-Alive PING (0x{}) on Session ID: {}. Sending PONG (0x{}).", Integer.toHexString(keepAlivePingByte & 0xFF), sessionId, Integer.toHexString(keepAlivePongByte & 0xFF));
+                                                 }
+                                                 ByteBuf pong = ctx.alloc().buffer(1);
+                                                 pong.writeByte(keepAlivePongByte);
+                                                 ctx.writeAndFlush(pong);
+                                             }
+                                         }
+                                     }
+                                     data.release();
+                                     return;
+                                 }
+
+                                if (session.isFlowControlEnabled()) {
+                                    long localLimit = session.getSettingsMaxData();
+                                    long newCumulativeReceived = session.incrementCumulativeBytesReceived(payloadBytes);
+                                    // Validate that the increment didn't exceed the limit
+                                    if (newCumulativeReceived > localLimit) {
+                                        logger.warn("❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit ({}). Closing session.", newCumulativeReceived, localLimit);
+                                        mgr.closeSessionWithFlowControlError(sessionId);
+                                        data.release();
+                                        ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+                                        return;
+                                    }
+                                    if (logger.isDebugEnabled()) {
+                                        logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
+                                    }
                                 }
                             }
                         }

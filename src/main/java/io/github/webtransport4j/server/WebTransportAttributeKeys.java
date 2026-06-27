@@ -51,6 +51,9 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<Boolean> STREAM_NOTIFIED = 
       AttributeKey.valueOf("wt.stream.notified");
 
+  public static final AttributeKey<Boolean> IS_HEARTBEAT_STREAM = 
+      AttributeKey.valueOf("wt.stream.is_heartbeat");
+
   // Flow Control Settings Attribute Keys
   public static final AttributeKey<Long> LOCAL_SETTINGS_MAX_STREAMS_UNI = 
       AttributeKey.valueOf("wt.local.max_streams_uni");
