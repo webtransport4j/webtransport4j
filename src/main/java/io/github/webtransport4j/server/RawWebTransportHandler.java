@@ -101,6 +101,11 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                 WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
                 if (mgr == null || !mgr.hasSession(sessionId)) {
                     logger.warn("❌ Unknown Session ID: {}", sessionId);
+                    // Fire metrics: datagram/stream discarded due to unknown session
+                    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+                    if (metrics != null) {
+                        metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
+                    }
                     cumulation.release();
                     cumulation = null;
                     if (ctx.channel() instanceof QuicStreamChannel) {
@@ -151,6 +156,15 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                 } else {
                     session.getActiveClientInitiatedUni().add(streamChannel);
                     streamChannel.closeFuture().addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
+                }
+                // Fire metrics: stream opened
+                WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+                if (metrics != null) {
+                    final long metricSessionId = sessionId;
+                    final long metricStreamId = streamChannel.streamId();
+                    final boolean metricBidi = isBidi;
+                    metrics.onStreamOpened(metricSessionId, metricStreamId, metricBidi);
+                    streamChannel.closeFuture().addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
                 }
                 // Fire any remaining bytes in the cumulated buffer down the pipeline
                 if (cumulation.isReadable()) {

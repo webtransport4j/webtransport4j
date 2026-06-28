@@ -118,6 +118,11 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
         }
         WebTransportSession session = mgr.get(sessionId);
         if (session == null) {
+            // Fire metrics: discard — session not found at dispatch time
+            WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+            if (metrics != null) {
+                metrics.onDatagramDiscarded(sessionId, "session_not_found_at_dispatch");
+            }
             return;
         }
         WebTransportServer server;
@@ -169,6 +174,11 @@ public class MessageDispatcher extends SimpleChannelInboundHandler<WebTransportF
                     }
                 }
             } else if (frame instanceof WebTransportDatagramFrame) {
+                // Fire metrics: datagram received
+                WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+                if (metrics != null) {
+                    metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
+                }
                 try {
                     handler.onDatagramReceived(session, frame.content());
                 } catch (Exception e) {

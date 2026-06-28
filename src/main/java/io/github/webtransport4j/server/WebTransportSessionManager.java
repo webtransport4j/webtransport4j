@@ -95,6 +95,12 @@ class WebTransportSessionManager {
             logger.debug("📝 SessionManager: Registered Session ID {}", sessionStreamId);
         }
         
+        // Fire metrics: session opened
+        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+        if (metrics != null) {
+            metrics.onSessionOpened(sessionStreamId, pathStr != null ? pathStr : "/");
+        }
+        
         if (!keepAliveStarted) {
             boolean keepAliveEnabled = WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
             if (keepAliveEnabled && quic != null && quic.eventLoop() != null) {
@@ -180,6 +186,11 @@ class WebTransportSessionManager {
                 if (globalAttr != null && globalAttr.get() != null) {
                     globalAttr.get().decrementAndGet();
                 }
+                // Fire metrics: session closed using the code set on the session
+                WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+                if (metrics != null) {
+                    metrics.onSessionClosed(sessionStreamId, removed.getCloseCode());
+                }
             }
             
             if (logger.isDebugEnabled()) {
@@ -192,8 +203,9 @@ class WebTransportSessionManager {
      * Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487).
      */
     public void closeSessionWithFlowControlError(long sessionId) {
-        WebTransportSession session = sessions.remove(sessionId);
+        WebTransportSession session = sessions.get(sessionId);
         if (session != null) {
+            session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
             logger.info("❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)", sessionId);
             session.getConnectStream().shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
         }
@@ -209,6 +221,7 @@ class WebTransportSessionManager {
             if (now - lastRead > timeoutMs) {
                 logger.warn("❌ Keep-Alive Timeout: Session {} has been idle for {}ms (limit: {}ms). Reaping.",
                         session.getSessionStreamId(), (now - lastRead), timeoutMs);
+                session.setCloseCode(WebTransportUtils.WT_SESSION_GONE);
                 session.getConnectStream().close();
             }
         }
@@ -220,13 +233,13 @@ class WebTransportSessionManager {
      */
     public void closeAllWithFlowControlError() {
         for (WebTransportSession session : sessions.values()) {
+            session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
             logger.info("❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)", session.getSessionStreamId());
             session.getConnectStream().shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
             if (session.getConnectStream().parent() != null) {
                 session.getConnectStream().parent().close();
             }
         }
-        closeAll();
     }
 
     public void closeAll() {

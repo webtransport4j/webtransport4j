@@ -44,6 +44,12 @@ public class WebTransportServer {
 
     private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions = new java.util.concurrent.atomic.AtomicInteger(0);
 
+    /**
+     * The observability metrics listener. Defaults to a no-op implementation.
+     * Override before calling {@link #start()} via {@link #setMetricsListener}.
+     */
+    private volatile WebTransportMetricsListener metricsListener = NoOpWebTransportMetricsListener.INSTANCE;
+
     public WebTransportServer(WebTransportHandler defaultHandler) {
         if (defaultHandler == null) {
             throw new IllegalArgumentException("defaultHandler cannot be null");
@@ -89,6 +95,21 @@ public class WebTransportServer {
         } else {
             handlers.put(normalized, handler);
         }
+    }
+
+    /**
+     * Sets a custom metrics listener for observability export (e.g., OTLP, Micrometer, Datadog).
+     * Must be called before {@link #start()}.
+     *
+     * @param listener The listener implementation. Pass {@link NoOpWebTransportMetricsListener#INSTANCE}
+     *                 to disable metrics (the default).
+     */
+    public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
+        this.metricsListener = (listener != null) ? listener : NoOpWebTransportMetricsListener.INSTANCE;
+    }
+
+    public @NonNull WebTransportMetricsListener getMetricsListener() {
+        return metricsListener;
     }
 
     public @NonNull WebTransportHandler getHandler(@NonNull String path) {
@@ -227,6 +248,8 @@ public class WebTransportServer {
                 .handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
                 .build();
         this.channel = new Bootstrap().group(group).channel(NioDatagramChannel.class).handler(serverCodec).bind(new InetSocketAddress(port)).sync().channel();
+        // Attach the metrics listener to the server channel attribute so it can be accessed by handlers
+        this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
         if (logger.isDebugEnabled()) {
             logger.debug("✅ WebTransport server listening on {}", port);
         }

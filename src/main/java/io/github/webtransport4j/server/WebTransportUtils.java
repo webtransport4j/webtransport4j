@@ -7,6 +7,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.Channel;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -39,6 +40,28 @@ public class WebTransportUtils {
     public static final int WT_SESSION_GONE = 0x170d7b68;
 
     public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
+
+    /**
+     * Safely retrieves the {@link WebTransportMetricsListener} from a QUIC channel attribute.
+     * Returns {@code null} if the attribute or its value is null (e.g., in unit test mocks).
+     */
+    public static @Nullable WebTransportMetricsListener getMetrics(@Nullable QuicChannel quic) {
+        if (quic == null) return null;
+        io.netty.util.Attribute<WebTransportMetricsListener> attr = quic.attr(WebTransportAttributeKeys.METRICS_LISTENER);
+        return attr != null ? attr.get() : null;
+    }
+
+    /**
+     * Safely retrieves the {@link WebTransportMetricsListener} from any Channel:
+     * resolves the parent QuicChannel automatically if the channel is a QuicStreamChannel.
+     */
+    public static @Nullable WebTransportMetricsListener getMetrics(@Nullable Channel channel) {
+        if (channel == null) return null;
+        QuicChannel quic = (channel instanceof QuicStreamChannel)
+                ? (QuicChannel) ((QuicStreamChannel) channel).parent()
+                : (channel instanceof QuicChannel ? (QuicChannel) channel : null);
+        return getMetrics(quic);
+    }
 
     /**
      * Creates a new Server-Initiated Unidirectional Stream.

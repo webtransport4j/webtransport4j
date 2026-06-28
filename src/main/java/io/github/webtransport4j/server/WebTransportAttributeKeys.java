@@ -79,4 +79,8 @@ public final class WebTransportAttributeKeys {
 
   public static final AttributeKey<GlobalTrafficShapingHandler> GLOBAL_TRAFFIC_SHAPER =
           AttributeKey.valueOf("wt.global.traffic.shaper");
+
+  // Observability metrics listener — attached at server start and propagated to all QuicChannels
+  public static final AttributeKey<WebTransportMetricsListener> METRICS_LISTENER =
+          AttributeKey.valueOf("wt.metrics.listener");
 }

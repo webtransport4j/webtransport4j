@@ -60,6 +60,7 @@ public class WebTransportSession {
     private final AtomicLong clientInitiatedStreamsBidi = new AtomicLong(0L);
 
     // Cumulative stream counters for streams initiated by the Server
+    private volatile int closeCode = 0; // 0 = graceful by default
     private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
 
     private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
@@ -349,12 +350,18 @@ public class WebTransportSession {
      */
     public void sendDatagram(@NonNull ByteBuf data) {
         Channel parentChannel = connectStream.parent();
+        int dataBytes = data.readableBytes();
         ByteBuf header = parentChannel.alloc().directBuffer();
         WebTransportUtils.writeVarInt(header, sessionStreamId);
         CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
         composite.addComponent(true, header);
         composite.addComponent(true, data);
         parentChannel.writeAndFlush(composite);
+        // Fire metrics: datagram sent
+        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
+        if (metrics != null) {
+            metrics.onDatagramSent(sessionStreamId, dataBytes);
+        }
     }
 
     /**
@@ -368,7 +375,13 @@ public class WebTransportSession {
         ByteBuf buffer = parentChannel.alloc().directBuffer();
         WebTransportUtils.writeVarInt(buffer, sessionStreamId);
         buffer.writeBytes(data);
-        return parentChannel.writeAndFlush(buffer);
+        Future<Void> future = parentChannel.writeAndFlush(buffer);
+        // Fire metrics: datagram sent
+        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
+        if (metrics != null) {
+            metrics.onDatagramSent(sessionStreamId, data.length);
+        }
+        return future;
     }
 
     public @NonNull String path() {
@@ -419,11 +432,26 @@ public class WebTransportSession {
                 QuicStreamChannel ch = f.getNow();
                 WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId);
                 ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
+                // Fire metrics: server-initiated stream opened
+                WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(connectStream.parent());
+                if (metrics != null) {
+                    boolean isBidi = ch.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
+                    metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
+                    ch.closeFuture().addListener(cf -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
+                }
                 promise.setSuccess(stream);
             } else {
                 promise.setFailure(f.cause());
             }
         });
         return promise;
+    }
+
+    public void setCloseCode(int closeCode) {
+        this.closeCode = closeCode;
+    }
+
+    public int getCloseCode() {
+        return closeCode;
     }
 }

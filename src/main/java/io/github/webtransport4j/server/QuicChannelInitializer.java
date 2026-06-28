@@ -70,6 +70,31 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         ch.pipeline().addFirst(new IpRateLimitingHandler());
         ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
         
+        // Intercept connection migration events to fire metrics
+        ch.pipeline().addLast(new io.netty.channel.ChannelInboundHandlerAdapter() {
+            private String currentRemoteAddress = ch.remoteSocketAddress() != null ? ch.remoteSocketAddress().toString() : "unknown";
+
+            @Override
+            public void userEventTriggered(io.netty.channel.ChannelHandlerContext ctx, Object evt) throws Exception {
+                if (evt instanceof io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated) {
+                    io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated event = (io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated) evt;
+                    String newRemoteAddress = event.remote().toString();
+                    
+                    io.github.webtransport4j.api.WebTransportMetricsListener metrics = ctx.channel().attr(WebTransportAttributeKeys.METRICS_LISTENER).get();
+                    if (metrics != null) {
+                        WebTransportSessionManager mgr = ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+                        if (mgr != null) {
+                            for (io.github.webtransport4j.api.WebTransportSession session : mgr.getSessions()) {
+                                metrics.onConnectionMigration(session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
+                            }
+                        }
+                    }
+                    currentRemoteAddress = newRemoteAddress;
+                }
+                super.userEventTriggered(ctx, evt);
+            }
+        });
+        
         InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
         String ip = Objects.requireNonNull(remote).getAddress().getHostAddress();
         int port = remote.getPort();
@@ -89,6 +114,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
         ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
         ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
+        ch.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(this.server.getMetricsListener());
         if (businessExecutor != null) {
             ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
             if (logger.isDebugEnabled()) {
