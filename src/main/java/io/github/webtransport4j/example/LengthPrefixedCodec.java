@@ -1,6 +1,8 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.server.WebTransportUtils;
+import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.api.WebTransportBuffer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import org.jspecify.annotations.NonNull;
@@ -28,7 +30,7 @@ import java.util.function.Consumer;
  * +--------------+-------------------+
  */
 public final class LengthPrefixedCodec
-        implements StreamCodec<ByteBuf> {
+        implements StreamCodec<byte[]> {
 
     /**
      * Default maximum frame size (16 MiB).
@@ -78,9 +80,9 @@ public final class LengthPrefixedCodec
     }
 
     @Override
-    public @NonNull ByteBuf encode(@NonNull ByteBuf message) {
+    public @NonNull WebTransportBuffer encode(byte @NonNull [] message) {
 
-        int length = message.readableBytes();
+        int length = message.length;
 
         if (length > maxFrameSize) {
             throw new IllegalArgumentException(
@@ -93,20 +95,17 @@ public final class LengthPrefixedCodec
 
         WebTransportUtils.writeVarInt(out, length);
 
-        out.writeBytes(
-                message,
-                message.readerIndex(),
-                length);
+        out.writeBytes(message);
 
-        return out;
+        return new DefaultNettyWebTransportBuffer(out);
     }
 
     @Override
     public void decode(
-            @NonNull ByteBuf incoming,
-            @NonNull Consumer<ByteBuf> consumer) {
+            @NonNull WebTransportBuffer incoming,
+            @NonNull Consumer<byte[]> consumer) {
 
-        accumulator.writeBytes(incoming);
+        accumulator.writeBytes(incoming.nioBuffer());
 
         while (true) {
 
@@ -139,8 +138,9 @@ public final class LengthPrefixedCodec
                 return;
             }
 
-            consumer.accept(
-                    accumulator.readRetainedSlice(length));
+            byte[] payload = new byte[length];
+            accumulator.readBytes(payload);
+            consumer.accept(payload);
         }
     }
 

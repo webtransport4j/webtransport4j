@@ -5,6 +5,9 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.github.webtransport4j.api.WebTransportChunkedWriteHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.function.Supplier;
+
 import org.jspecify.annotations.NonNull;
 
 public final class WebTransportStreamChannelInitializer extends ChannelInitializer<QuicStreamChannel> {
@@ -50,16 +53,19 @@ public final class WebTransportStreamChannelInitializer extends ChannelInitializ
         if (logger.isDebugEnabled()) {
             logger.debug("🔧 Added WebTransportCapsuleHandler. Pipeline now: {}", stream.pipeline().names());
         }
-        stream.pipeline().addLast(new MessageDispatcher());
+        Supplier<MessageDispatcher> supplier = stream.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
+        if (supplier != null) {
+            stream.pipeline().addLast(supplier.get());
+        } else {
+            stream.pipeline().addLast(new DefaultMessageDispatcher());
+        }
         if (logger.isDebugEnabled()) {
             logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", stream.pipeline().names());
         }
         stream.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-
             @Override
             public void exceptionCaught(@NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
-                logger.error("❌ PIPELINE ERROR: {}", cause.getMessage(), cause);
-                cause.printStackTrace();
+                logger.error("❌ PIPELINE ERROR: {} ", cause.getMessage(), cause);
             }
         });
     }

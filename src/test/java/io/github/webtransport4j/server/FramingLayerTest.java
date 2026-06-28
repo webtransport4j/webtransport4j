@@ -214,7 +214,7 @@ public class FramingLayerTest {
 
   @Test
   public void testMessageDispatcherStreamFrame() throws Exception {
-    MessageDispatcher dispatcher = new MessageDispatcher();
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);

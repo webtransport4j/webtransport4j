@@ -7,6 +7,8 @@ import io.netty.util.Attribute;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -17,12 +19,12 @@ import org.jspecify.annotations.NonNull;
  * @author https://github.com/sanjomo
  * @date 24/12/25 1:20 am
  */
-class WebTransportSessionManager {
+public class WebTransportSessionManager {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
 
-    private boolean keepAliveStarted = false;
-    private java.util.concurrent.ScheduledFuture<?> keepAliveFuture = null;
+    private AtomicBoolean keepAliveStarted = new AtomicBoolean(false);
+    private ScheduledFuture<?> keepAliveFuture = null;
 
     // Key: The Session ID (which is the Stream ID of the CONNECT stream)
     // Value: The Session object containing state
@@ -32,6 +34,7 @@ class WebTransportSessionManager {
      * Called when a CONNECT webtransport request is accepted (200 OK).
      */
     public void register(@NonNull QuicStreamChannel connectStream) {
+        logger.debug("Registering started,connectstreamid : {}", connectStream.streamId());
         long sessionStreamId = connectStream.streamId();
         if (connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
             connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
@@ -74,14 +77,15 @@ class WebTransportSessionManager {
         Long peerUni = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get() : null;
         Long peerBidi = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get() : null;
         Long peerData = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get() : null;
-        long peerUniVal = peerUni != null ? peerUni : Long.MAX_VALUE;
-        long peerBidiVal = peerBidi != null ? peerBidi : Long.MAX_VALUE;
-        long peerDataVal = peerData != null ? peerData : Long.MAX_VALUE;
+        long peerUniVal = peerUni != null ? peerUni : Integer.MAX_VALUE; //fix client and make it to 0L
+        long peerBidiVal = peerBidi != null ? peerBidi : Integer.MAX_VALUE; //fix client and make it to 0L
+        long peerDataVal = peerData != null ? peerData : Integer.MAX_VALUE; //fix client and make it to 0L
         String pathStr = null;
         if (quic != null && quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
             pathStr = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
         }
         WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, pathStr, uniMaxVal, biMaxVal, dataMaxVal, peerUniVal, peerBidiVal, peerDataVal, flowControlEnabled);
+        session.setOnClosedCallback(() -> unregister(connectStream));
         sessions.put(sessionStreamId, session);
         
         if (quic != null) {
@@ -101,7 +105,7 @@ class WebTransportSessionManager {
             metrics.onSessionOpened(sessionStreamId, pathStr != null ? pathStr : "/");
         }
         
-        if (!keepAliveStarted) {
+        if (keepAliveStarted.compareAndSet(false, true)) {
             boolean keepAliveEnabled = WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
             if (keepAliveEnabled && quic != null && quic.eventLoop() != null) {
                 long timeoutSecs = WebTransportConfig.getLong("webtransport4j.server.keepalive.timeout.secs", 30L);
@@ -113,7 +117,6 @@ class WebTransportSessionManager {
                     checkIntervalMs,
                     java.util.concurrent.TimeUnit.MILLISECONDS
                 );
-                keepAliveStarted = true;
             }
         }
 
@@ -156,17 +159,22 @@ class WebTransportSessionManager {
         long sessionStreamId = connecStreamChannel.streamId();
         WebTransportSession removed = sessions.remove(sessionStreamId);
         if (removed != null) {
+            int closeCode = (int) removed.getCloseCode();
             for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedBi()) {
-                activeStream.close();
+                if (closeCode != 0) activeStream.shutdown(closeCode, activeStream.newPromise()).addListener(f -> activeStream.close());
+                else activeStream.close();
             }
             for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedBi()) {
-                activeStream.close();
+                if (closeCode != 0) activeStream.shutdown(closeCode, activeStream.newPromise()).addListener(f -> activeStream.close());
+                else activeStream.close();
             }
             for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedUni()) {
-                activeStream.close();
+                if (closeCode != 0) activeStream.shutdown(closeCode, activeStream.newPromise()).addListener(f -> activeStream.close());
+                else activeStream.close();
             }
             for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedUni()) {
-                activeStream.close();
+                if (closeCode != 0) activeStream.shutdown(closeCode, activeStream.newPromise()).addListener(f -> activeStream.close());
+                else activeStream.close();
             }
             QuicChannel quic = (QuicChannel) connecStreamChannel.parent();
             Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
@@ -208,6 +216,7 @@ class WebTransportSessionManager {
             session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
             logger.info("❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)", sessionId);
             session.getConnectStream().shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
+            session.close();
         }
     }
 
@@ -222,7 +231,8 @@ class WebTransportSessionManager {
                 logger.warn("❌ Keep-Alive Timeout: Session {} has been idle for {}ms (limit: {}ms). Reaping.",
                         session.getSessionStreamId(), (now - lastRead), timeoutMs);
                 session.setCloseCode(WebTransportUtils.WT_SESSION_GONE);
-                session.getConnectStream().close();
+                session.close();
+                session.getConnectStream().shutdown(WebTransportUtils.WT_SESSION_GONE, session.getConnectStream().newPromise());
             }
         }
     }

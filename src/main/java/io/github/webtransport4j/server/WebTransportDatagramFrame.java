@@ -4,7 +4,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.DefaultByteBufHolder;
 import org.jspecify.annotations.NonNull;
 
-class WebTransportDatagramFrame extends DefaultByteBufHolder implements WebTransportFrame {
+public class WebTransportDatagramFrame extends DefaultByteBufHolder implements WebTransportFrame {
 
     private final long sessionId;
 

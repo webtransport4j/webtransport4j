@@ -260,6 +260,11 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                                         logger.debug("Flow control: Received {} bytes, cumulative = {}/{}", payloadBytes, newCumulativeReceived, localLimit);
                                     }
                                 }
+                            } else {
+                                logger.warn("❌ Received data for unknown or closed WebTransport Session {}. Rejecting QUIC stream.", sessionId);
+                                data.release();
+                                ((QuicStreamChannel) ctx.channel()).shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+                                return;
                             }
                         }
                     }

@@ -8,9 +8,12 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+
 import io.netty.handler.codec.http3.Http3;
+import java.lang.reflect.Method;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicSslContext;
@@ -28,6 +31,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jspecify.annotations.NonNull;
@@ -49,6 +53,8 @@ public class WebTransportServer {
      * Override before calling {@link #start()} via {@link #setMetricsListener}.
      */
     private volatile WebTransportMetricsListener metricsListener = NoOpWebTransportMetricsListener.INSTANCE;
+
+    private Supplier<MessageDispatcher> messageDispatcherSupplier = DefaultMessageDispatcher::new;
 
     public WebTransportServer(WebTransportHandler defaultHandler) {
         if (defaultHandler == null) {
@@ -84,17 +90,11 @@ public class WebTransportServer {
     }
 
     public void registerHandler(@NonNull String path, @NonNull WebTransportHandler handler) {
-        if (path == null)
-            throw new IllegalArgumentException("path cannot be null");
         String normalized = normalizePath(path);
-        if (!normalized.startsWith("/")) {
-            throw new IllegalArgumentException("path must not be empty and must start with '/'");
+        if (normalized == null || !normalized.startsWith("/")) {
+            throw new IllegalArgumentException("path must not be null and empty and must start with '/'");
         }
-        if (handler == null) {
-            handlers.remove(normalized);
-        } else {
-            handlers.put(normalized, handler);
-        }
+        handlers.put(normalized, handler);
     }
 
     /**
@@ -105,23 +105,36 @@ public class WebTransportServer {
      *                 to disable metrics (the default).
      */
     public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
-        this.metricsListener = (listener != null) ? listener : NoOpWebTransportMetricsListener.INSTANCE;
+        this.metricsListener = listener;
     }
 
     public @NonNull WebTransportMetricsListener getMetricsListener() {
         return metricsListener;
     }
 
+    public void setMessageDispatcherSupplier(@NonNull Supplier<MessageDispatcher> supplier) {
+        this.messageDispatcherSupplier = supplier;
+    }
+
+    public @NonNull Supplier<MessageDispatcher> getMessageDispatcherSupplier() {
+        return messageDispatcherSupplier;
+    }
+
     public @NonNull WebTransportHandler getHandler(@NonNull String path) {
-        if (path == null)
-            return defaultHandler;
         String normalized = normalizePath(path);
         WebTransportHandler handler = handlers.get(normalized);
         return (handler != null) ? handler : this.defaultHandler;
     }
 
     public int getPort() {
+        if (channel != null && channel.localAddress() instanceof InetSocketAddress) {
+            return ((InetSocketAddress) channel.localAddress()).getPort();
+        }
         return port;
+    }
+
+    public ExecutorService getBusinessExecutor() {
+        return businessExecutor;
     }
 
     public static GlobalTrafficShapingHandler globalTrafficShaper;
@@ -148,12 +161,96 @@ public class WebTransportServer {
         if (logger.isDebugEnabled()) {
             logger.debug("🚀 STARTING DEBUG SERVER...");
         }
-        this.group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
+        String transportType = WebTransportConfig.get("webtransport4j.server.transport", "auto");
+        IoHandlerFactory ioHandlerFactory = null;
+        Class<? extends Channel> channelClass = null;
+
+        if ("auto".equalsIgnoreCase(transportType) || "iouring".equalsIgnoreCase(transportType)) {
+            try {
+                Class<?> ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+                Method isAvailableMethod = ioUringClass.getMethod("isAvailable");
+                boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
+                if (isAvailable) {
+                    Class<?> ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+                    Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
+                    ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
+                    
+                    @SuppressWarnings("unchecked")
+                    Class<? extends Channel> clazz = (Class<? extends Channel>) Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+                    channelClass = clazz;
+                    
+                    logger.info("Using IOUring native transport");
+                }
+            } catch (Throwable t) {
+                if ("iouring".equalsIgnoreCase(transportType)) {
+                    logger.warn("IOUring transport was requested but is not available on the classpath or OS.", t);
+                } else if (logger.isDebugEnabled()) {
+                    logger.debug("IOUring is not available (not on classpath or not supported by OS).");
+                }
+            }
+        }
+
+        if (ioHandlerFactory == null && ("auto".equalsIgnoreCase(transportType) || "epoll".equalsIgnoreCase(transportType))) {
+            try {
+                Class<?> epollClass = Class.forName("io.netty.channel.epoll.Epoll");
+                Method isAvailableMethod = epollClass.getMethod("isAvailable");
+                boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
+                if (isAvailable) {
+                    Class<?> ioHandlerClass = Class.forName("io.netty.channel.epoll.EpollIoHandler");
+                    Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
+                    ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
+
+                    @SuppressWarnings("unchecked")
+                    Class<? extends Channel> clazz = (Class<? extends Channel>) Class.forName("io.netty.channel.epoll.EpollDatagramChannel");
+                    channelClass = clazz;
+
+                    logger.info("Using Epoll native transport");
+                }
+            } catch (Throwable t) {
+                if ("epoll".equalsIgnoreCase(transportType)) {
+                    logger.warn("Epoll transport was requested but is not available.", t);
+                } else if (logger.isDebugEnabled()) {
+                    logger.debug("Epoll is not available.");
+                }
+            }
+        }
+
+        if (ioHandlerFactory == null && ("auto".equalsIgnoreCase(transportType) || "kqueue".equalsIgnoreCase(transportType))) {
+            try {
+                Class<?> kqueueClass = Class.forName("io.netty.channel.kqueue.KQueue");
+                Method isAvailableMethod = kqueueClass.getMethod("isAvailable");
+                boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
+                if (isAvailable) {
+                    Class<?> ioHandlerClass = Class.forName("io.netty.channel.kqueue.KQueueIoHandler");
+                    Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
+                    ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
+
+                    @SuppressWarnings("unchecked")
+                    Class<? extends Channel> clazz = (Class<? extends Channel>) Class.forName("io.netty.channel.kqueue.KQueueDatagramChannel");
+                    channelClass = clazz;
+
+                    logger.info("Using KQueue native transport");
+                }
+            } catch (Throwable t) {
+                if ("kqueue".equalsIgnoreCase(transportType)) {
+                    logger.warn("KQueue transport was requested but is not available.", t);
+                } else if (logger.isDebugEnabled()) {
+                    logger.debug("KQueue is not available.");
+                }
+            }
+        }
+
+        if (ioHandlerFactory == null) {
+            logger.info("Using NIO transport");
+            ioHandlerFactory = NioIoHandler.newFactory();
+            channelClass = NioDatagramChannel.class;
+        }
+
+        this.group = new MultiThreadIoEventLoopGroup(Runtime.getRuntime().availableProcessors(), ioHandlerFactory);
         long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
         long globalReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
         if (globalWriteLimit > 0 || globalReadLimit > 0) {
             globalTrafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
-            channel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(globalTrafficShaper);
         }
         String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
         String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
@@ -235,7 +332,7 @@ public class WebTransportServer {
         logger.info("Server side settings : {}", settings);
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
-                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 0), TimeUnit.SECONDS)
+                .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60), TimeUnit.SECONDS)
                 .initialMaxData(quicInitialMaxData)
                 .initialMaxStreamDataBidirectionalLocal(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
                 .initialMaxStreamDataBidirectionalRemote(WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
@@ -247,12 +344,18 @@ public class WebTransportServer {
                 .tokenHandler(getTokenHandler())
                 .handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
                 .build();
-        this.channel = new Bootstrap().group(group).channel(NioDatagramChannel.class).handler(serverCodec).bind(new InetSocketAddress(port)).sync().channel();
+        this.channel = new Bootstrap().group(group).channel(channelClass).handler(serverCodec).bind(new InetSocketAddress(port))
+                .addListener(future -> {
+                    if (future.isSuccess()) {
+                        logger.info("✅ WebTransport server started on port {}", port);
+                    } else {
+                        logger.error("❌ Failed to start WebTransport server on port {}", port, future.cause());
+                    }
+                }).channel();
         // Attach the metrics listener to the server channel attribute so it can be accessed by handlers
         this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
-        if (logger.isDebugEnabled()) {
-            logger.debug("✅ WebTransport server listening on {}", port);
-        }
+
+
         this.channel.closeFuture().sync();
     }
 
@@ -323,7 +426,9 @@ public class WebTransportServer {
         }
     }
 
-    private static @Nullable byte[] parseHex(@Nullable String hex) {
+
+
+    private static byte @Nullable [] parseHex(@Nullable String hex) {
         if (hex == null || hex.trim().isEmpty()) {
             return null;
         }

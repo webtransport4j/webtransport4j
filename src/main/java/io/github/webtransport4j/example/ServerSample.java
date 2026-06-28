@@ -11,7 +11,7 @@ public class ServerSample {
 
     public static void main(@NonNull String[] args) throws Exception {
         WebTransportServer server = new WebTransportServer(new DefaultPathHandler());
-        server.setMetricsListener(new LoggingWebTransportMetricsListener(1, TimeUnit.SECONDS));
+        server.setMetricsListener(new LoggingWebTransportMetricsListener(60, TimeUnit.SECONDS));
         server.registerHandler("/test", new WebTransportTestHandler());
         server.registerHandler("/chat", new WebTransportChatHandler());
         server.start();

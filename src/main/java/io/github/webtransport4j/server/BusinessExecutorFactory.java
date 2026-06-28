@@ -5,7 +5,6 @@ import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jspecify.annotations.NonNull;
@@ -25,10 +24,27 @@ public final class BusinessExecutorFactory {
                 return null;
             case VIRTUAL_THREADS:
                 return createVirtualThreadExecutor();
+            case NETTY_EVENT_EXECUTOR_GROUP:
+                return createDefaultEventExecutorGroup();
             case FIXED_THREAD_POOL:
             default:
                 return createFixedThreadPool();
         }
+    }
+
+    private static @NonNull ExecutorService createDefaultEventExecutorGroup() {
+        final int poolSize = WebTransportConfig.getInt("webtransport4j.netty.executor.group.size", Runtime.getRuntime().availableProcessors() * 2);
+        logger.info("Using Netty DefaultEventExecutorGroup. poolSize={}", poolSize);
+        return new io.netty.util.concurrent.DefaultEventExecutorGroup(poolSize, new ThreadFactory() {
+            private final AtomicInteger count = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r, "wt-netty-executor-" + count.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+            }
+        });
     }
 
     private static @NonNull ExecutorService createVirtualThreadExecutor() {

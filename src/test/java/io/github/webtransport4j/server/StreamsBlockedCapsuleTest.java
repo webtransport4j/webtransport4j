@@ -350,4 +350,50 @@ public class StreamsBlockedCapsuleTest {
 
     verify(mockConnectStream, times(2)).writeAndFlush(any());
   }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSessionFallbackLimits() throws Exception {
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
+        Object msg = invocation.getArgument(0);
+        io.netty.util.ReferenceCountUtil.release(msg);
+        return null;
+    });
+
+    QuicChannel mockParent = mock(QuicChannel.class);
+    when(mockConnectStream.streamId()).thenReturn(500L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
+        .thenReturn(mock(Attribute.class));
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+    when(mgrAttr.get()).thenReturn(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    // Mock initial max streams as 0 (triggering fallback), but max data as 10000 (flow control enabled)
+    Attribute<Long> zeroAttr = mock(Attribute.class);
+    when(zeroAttr.get()).thenReturn(0L);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(zeroAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(zeroAttr);
+
+    Attribute<Long> dataAttr = mock(Attribute.class);
+    when(dataAttr.get()).thenReturn(10000L);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(dataAttr);
+
+    mgr.register(mockConnectStream);
+    WebTransportSession session = mgr.get(500L);
+    assertNotNull(session);
+
+    // Verify bidi and uni limits are set to their fallback default values
+    long fallbackBidi = io.github.webtransport4j.server.WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+    long fallbackUni = io.github.webtransport4j.server.WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+    assertEquals(fallbackBidi, session.getInitialMaxStreamsBidi());
+    assertEquals(fallbackUni, session.getInitialMaxStreamsUni());
+
+    // Verify WT_MAX_STREAMS capsules were sent during fallback setup
+    verify(mockConnectStream, atLeastOnce()).writeAndFlush(any());
+  }
 }

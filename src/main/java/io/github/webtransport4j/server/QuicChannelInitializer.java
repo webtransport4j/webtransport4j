@@ -53,9 +53,15 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(defData);
         ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
         ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
-        if (businessExecutor != null) {
-            ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
-            logger.info("⚠️  BUSINESS EXECUTOR CONFIGURED: {} (Execution mode: NOT NETTY_EVENT_LOOP)", businessExecutor.getClass().getSimpleName());
+
+        ExecutorService resolvedExecutor = this.businessExecutor;
+        if (resolvedExecutor instanceof io.netty.util.concurrent.EventExecutorGroup) {
+            resolvedExecutor = ((io.netty.util.concurrent.EventExecutorGroup) resolvedExecutor).next();
+        }
+
+        if (resolvedExecutor != null) {
+            ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(resolvedExecutor);
+            logger.info("⚠️  BUSINESS EXECUTOR CONFIGURED: {} (Execution mode: NOT NETTY_EVENT_LOOP)", resolvedExecutor.getClass().getSimpleName());
         } else {
             logger.info("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
         }
@@ -114,11 +120,12 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
         ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
         ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
+        ch.attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).set(this.server.getMessageDispatcherSupplier());
         ch.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(this.server.getMetricsListener());
-        if (businessExecutor != null) {
-            ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(businessExecutor);
+        if (resolvedExecutor != null) {
+            ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(resolvedExecutor);
             if (logger.isDebugEnabled()) {
-                logger.debug("📌 Set BUSINESS_EXECUTOR on channel: {}", businessExecutor.getClass().getSimpleName());
+                logger.debug("📌 Set BUSINESS_EXECUTOR on channel: {}", resolvedExecutor.getClass().getSimpleName());
             }
         } else {
             if (logger.isDebugEnabled()) {
@@ -130,7 +137,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         if (logger.isDebugEnabled()) {
             logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
         }
-        ch.pipeline().addLast(new MessageDispatcher());
+        ch.pipeline().addLast(this.server.getMessageDispatcherSupplier().get());
         if (logger.isDebugEnabled()) {
             logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());
         }

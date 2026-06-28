@@ -72,7 +72,7 @@ public class WebTransportIntegrationTest {
                                         + ")");
                         stream.onData(
                                 data -> {
-                                    String content = data.toString(StandardCharsets.UTF_8);
+                                    String content = new String(data.readBytes(), StandardCharsets.UTF_8);
                                     log.info(
                                             "TEST SERVER: Received on stream " + stream.streamId() + ": " + content);
                                     if (stream.isBidirectional()) {
@@ -89,14 +89,13 @@ public class WebTransportIntegrationTest {
                     }
 
                     @Override
-                    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
-                        String content = data.toString(StandardCharsets.UTF_8);
+                    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
+                        String content = new String(data.readBytes(), StandardCharsets.UTF_8);
                         log.info("TEST SERVER: Received datagram: " + content);
-                        ByteBuf resp = session.getConnectStream().alloc().directBuffer();
-                        resp.writeBytes(
+                        byte[] respBytes =
                                 ("ACK DG: I received the message from " + session.path() + ": " + content)
-                                        .getBytes(StandardCharsets.UTF_8));
-                        session.sendDatagram(resp);
+                                        .getBytes(StandardCharsets.UTF_8);
+                        session.sendDatagram(respBytes);
                     }
                 });
         serverGroup = new NioEventLoopGroup(1);
@@ -201,7 +200,7 @@ public class WebTransportIntegrationTest {
                                 ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
                                 ch.pipeline().addLast(new WebTransportCapsuleDecoder());
                                 ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                                ch.pipeline().addLast(new MessageDispatcher());
+                                ch.pipeline().addLast(new DefaultMessageDispatcher());
                             }
                         };
                     }
@@ -247,7 +246,7 @@ public class WebTransportIntegrationTest {
 
                                         ch.pipeline().addLast(new WebTransportDatagramDecoder());
                                         ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                                        ch.pipeline().addLast(new MessageDispatcher());
+                                        ch.pipeline().addLast(new DefaultMessageDispatcher());
                                         ch.pipeline()
                                                 .addLast(
                                                         new Http3ServerConnectionHandler(
@@ -267,7 +266,7 @@ public class WebTransportIntegrationTest {
                                                                         stream.pipeline().addLast(new Http3DataToByteBufHandler());
                                                                         stream.pipeline().addLast(new WebTransportCapsuleDecoder());
                                                                         stream.pipeline().addLast(new WebTransportCapsuleHandler());
-                                                                        stream.pipeline().addLast(new MessageDispatcher());
+                                                                        stream.pipeline().addLast(new DefaultMessageDispatcher());
                                                                     }
                                                                 },
                                                                 new ChannelInboundHandlerAdapter() {

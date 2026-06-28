@@ -1,6 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,7 @@ public interface WebTransportHandler {
           }
         } );
   }
-  default void onDatagramReceived(@NonNull WebTransportSession session,@NonNull ByteBuf data){
+  default void onDatagramReceived(@NonNull WebTransportSession session,@NonNull WebTransportBuffer data){
     if (logger.isDebugEnabled()) {
         logger.debug("☄️ [DEFAULT HANDLER] Received Datagram of size :{}", data.readableBytes());
     }

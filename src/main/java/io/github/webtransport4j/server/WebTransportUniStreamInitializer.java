@@ -6,6 +6,7 @@ package io.github.webtransport4j.server;
  */
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
 
 public final class WebTransportUniStreamInitializer extends ChannelInitializer<QuicStreamChannel> {
@@ -22,6 +23,11 @@ public final class WebTransportUniStreamInitializer extends ChannelInitializer<Q
         ch.pipeline().addLast(new WebTransportUniStreamHeaderDecoder(this.streamType));
         ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
         ch.pipeline().addLast(new WebTransportCapsuleHandler());
-        ch.pipeline().addLast(new MessageDispatcher());
+        Supplier<MessageDispatcher> supplier = ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
+        if (supplier != null) {
+            ch.pipeline().addLast(supplier.get());
+        } else {
+            ch.pipeline().addLast(new DefaultMessageDispatcher());
+        }
     }
 }

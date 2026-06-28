@@ -108,6 +108,7 @@
             <version>1.37</version>
             <scope>test</scope>
         </dependency>
+
     </dependencies>
 
     <profiles>
@@ -140,6 +141,12 @@
                 <dependency>
                     <groupId>io.netty</groupId>
                     <artifactId>netty-transport-native-epoll</artifactId>
+                    <classifier>${os.detected.classifier}</classifier>
+                    <version>${netty.version}</version>
+                </dependency>
+                <dependency>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-transport-native-io_uring</artifactId>
                     <classifier>${os.detected.classifier}</classifier>
                     <version>${netty.version}</version>
                 </dependency>
@@ -210,62 +217,10 @@
             <id>bench</id>
             <properties>
                 <benchmark.quick>false</benchmark.quick>
-                <bench.src.dir>${project.basedir}/bench/java</bench.src.dir>
             </properties>
             <build>
+                <directory>${project.basedir}/target-maven</directory>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-clean-plugin</artifactId>
-                        <version>3.2.0</version>
-                        <executions>
-                            <execution>
-                                <id>clean-ide-benchmarks</id>
-                                <phase>process-test-classes</phase>
-                                <goals>
-                                    <goal>clean</goal>
-                                </goals>
-                                <configuration>
-                                    <excludeDefaultDirectories>true</excludeDefaultDirectories>
-                                    <filesets>
-                                        <fileset>
-                                            <directory>${project.build.directory}/test-classes/io/github/webtransport4j/jmh</directory>
-                                        </fileset>
-                                    </filesets>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-compiler-plugin</artifactId>
-                        <executions>
-                            <execution>
-                                <id>compile-benchmarks</id>
-                                <phase>test-compile</phase>
-                                <goals>
-                                    <goal>testCompile</goal>
-                                </goals>
-                                <configuration>
-                                    <release>25</release>
-                                    <annotationProcessorPaths>
-                                        <path>
-                                            <groupId>org.openjdk.jmh</groupId>
-                                            <artifactId>jmh-generator-annprocess</artifactId>
-                                            <version>1.37</version>
-                                        </path>
-                                    </annotationProcessorPaths>
-                                    <compileSourceRoots>
-                                        <compileSourceRoot>${project.basedir}/src/main/java-25</compileSourceRoot>
-                                        <compileSourceRoot>${bench.src.dir}</compileSourceRoot>
-                                    </compileSourceRoots>
-                                    <outputDirectory>${project.build.directory}/bench-test-classes</outputDirectory>
-                                    <generatedTestSourcesDirectory>${project.build.directory}/generated-bench-sources/test-annotations</generatedTestSourcesDirectory>
-                                    <forceJavacCompilerUse>true</forceJavacCompilerUse>
-                                </configuration>
-                            </execution>
-                        </executions>
-                    </plugin>
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
@@ -279,9 +234,6 @@
                                 </goals>
                                 <configuration>
                                     <classpathScope>test</classpathScope>
-                                    <additionalClasspathElements>
-                                        <additionalClasspathElement>${project.build.directory}/bench-test-classes</additionalClasspathElement>
-                                    </additionalClasspathElements>
                                     <mainClass>io.github.webtransport4j.jmh.BenchmarkRunner</mainClass>
                                     <systemProperties>
                                         <systemProperty>
@@ -312,6 +264,15 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.15.0</version>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.openjdk.jmh</groupId>
+                            <artifactId>jmh-generator-annprocess</artifactId>
+                            <version>1.37</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
                 <executions>
                     <execution>
                         <id>default-compile</id>
@@ -321,6 +282,27 @@
                         </configuration>
                     </execution>
 
+                </executions>
+            </plugin>
+
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>add-jmh-source</id>
+                        <phase>generate-test-sources</phase>
+                        <goals>
+                            <goal>add-test-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/src/jmh/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 

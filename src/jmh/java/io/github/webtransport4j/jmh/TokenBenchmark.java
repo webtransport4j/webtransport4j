@@ -1,5 +1,5 @@
-package io.github.webtransport4j.jmh;
 
+package io.github.webtransport4j.jmh;
 import io.github.webtransport4j.server.HmacQuicTokenHandler;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;

@@ -1,8 +1,7 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.api.*;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
+import io.github.webtransport4j.api.WebTransportBuffer;
 
 import java.nio.charset.StandardCharsets;
 
@@ -37,12 +36,9 @@ public class DefaultPathHandler implements WebTransportHandler {
         codec,
         message -> {
             System.out.println(
-                "      ["+ stream.streamId() + "] Received data: "+message.toString(java.nio.charset.StandardCharsets.UTF_8));
+                "      ["+ stream.streamId() + "] Received data: "+ new String(message, java.nio.charset.StandardCharsets.UTF_8));
 
-            ByteBuf payload =
-    Unpooled.copiedBuffer(
-        "hello",
-        StandardCharsets.UTF_8);
+            byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
 
 stream.write(codec.encode(payload));
         }
@@ -50,8 +46,8 @@ stream.write(codec.encode(payload));
   }
 
   @Override
-  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
-    String content = data.toString(java.nio.charset.StandardCharsets.UTF_8);
+  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
+    String content = new String(data.readBytes(), java.nio.charset.StandardCharsets.UTF_8);
     logger.info("☄️ [DEFAULT HANDLER] Received Datagram: {}", content);
     String replyText = "DEFAULT ACK DG: " + content;
     session.sendDatagram(replyText.getBytes(java.nio.charset.StandardCharsets.UTF_8));

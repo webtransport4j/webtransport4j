@@ -2,19 +2,18 @@ package io.github.webtransport4j.example;
 
 import java.util.function.Consumer;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.util.ReferenceCountUtil;
+import io.github.webtransport4j.api.WebTransportBuffer;
 import org.jspecify.annotations.NonNull;
 
 public interface StreamCodec<T> {
 
-    @NonNull ByteBuf encode(@NonNull T message);
+    @NonNull WebTransportBuffer encode(@NonNull T message);
 
-    void decode(@NonNull ByteBuf incoming,
+    void decode(@NonNull WebTransportBuffer incoming,
                 @NonNull Consumer<T> consumer);
 
     default void release(@NonNull T message) {
-        ReferenceCountUtil.safeRelease(message);
+        // Implementation can release the message if necessary
     }
 
     default void close() {}

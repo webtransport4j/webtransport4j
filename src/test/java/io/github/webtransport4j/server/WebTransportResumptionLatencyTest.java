@@ -99,7 +99,7 @@ public class WebTransportResumptionLatencyTest {
 
                     ch.pipeline().addLast(new WebTransportDatagramDecoder());
                     ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                    ch.pipeline().addLast(new MessageDispatcher());
+                    ch.pipeline().addLast(new DefaultMessageDispatcher());
                     ch.pipeline().addLast(
                         new Http3ServerConnectionHandler(
                             new WebTransportStreamChannelInitializer(),

@@ -153,7 +153,7 @@ public class ConnectionMigrationIntegrationTest {
                                         ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(1000000L);
                                         ch.pipeline().addLast(new WebTransportDatagramDecoder());
                                         ch.pipeline().addLast(new WebTransportCapsuleHandler());
-                                        ch.pipeline().addLast(new MessageDispatcher());
+                                        ch.pipeline().addLast(new DefaultMessageDispatcher());
                                         ch.pipeline().addLast(
                                                         new Http3ServerConnectionHandler(
                                                                 new ChannelInitializer<QuicStreamChannel>() {
@@ -166,7 +166,7 @@ public class ConnectionMigrationIntegrationTest {
                                                                         stream.pipeline().addLast(new Http3DataToByteBufHandler());
                                                                         stream.pipeline().addLast(new WebTransportCapsuleDecoder());
                                                                         stream.pipeline().addLast(new WebTransportCapsuleHandler());
-                                                                        stream.pipeline().addLast(new MessageDispatcher());
+                                                                        stream.pipeline().addLast(new DefaultMessageDispatcher());
                                                                     }
                                                                 },
                                                                 new ChannelInboundHandlerAdapter() {},
@@ -213,7 +213,7 @@ public class ConnectionMigrationIntegrationTest {
             @Override
             public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
                 stream.onData(data -> {
-                    String msg = data.toString(StandardCharsets.UTF_8);
+                    String msg = new String(data.readBytes(), StandardCharsets.UTF_8);
                     log.info("SERVER: Received '" + msg + "'");
                     
                     QuicChannel quicChannel = (QuicChannel) ((NettyWebTransportStream) stream).streamChannel().parent();

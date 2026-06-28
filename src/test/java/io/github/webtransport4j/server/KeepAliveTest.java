@@ -163,7 +163,7 @@ public class KeepAliveTest {
         // By default, session is active (lastReadTime is current time)
         // Run keepalive task, connection stream should NOT be closed
         keepAliveTask.run();
-        verify(mockConnectStream, never()).close();
+        verify(mockConnectStream, never()).shutdown(anyInt(), any());
 
         // Retrieve registered session
         WebTransportSession session = mgr.get(100L);
@@ -179,7 +179,7 @@ public class KeepAliveTest {
 
         // Run keepalive task, connection stream should be closed
         keepAliveTask.run();
-        verify(mockConnectStream, times(1)).close();
+        verify(mockConnectStream, times(1)).shutdown(eq(WebTransportUtils.WT_SESSION_GONE), any());
     }
 
     @SuppressWarnings("unchecked")

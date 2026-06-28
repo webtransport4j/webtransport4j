@@ -1,8 +1,8 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.api.*;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
+import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.api.WebTransportBuffer;
 import io.netty.util.concurrent.Future;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -71,18 +71,24 @@ public class WebTransportChatHandler implements WebTransportHandler {
         });
         stream.onError(err -> logger.error("💬 [CHAT] Stream error on {}", stream.streamId(), err));
         // Register raw data consumer to demultiplex stream purpose using the first byte
-        stream.onData(new Consumer<ByteBuf>() {
+        stream.onData(new Consumer<WebTransportBuffer>() {
 
             private byte streamPurpose = 0x00;
 
             private boolean purposeIdentified = false;
 
             @Override
-            public void accept(@NonNull ByteBuf data) {
+            public void accept(@NonNull WebTransportBuffer data) {
                 if (!purposeIdentified) {
-                    if (!data.isReadable())
+                    if (data.readableBytes() == 0)
                         return;
-                    streamPurpose = data.readByte();
+                    java.nio.ByteBuffer nioBuffer = data.nioBuffer();
+                    streamPurpose = nioBuffer.get();
+                    // Advance position manually since nioBuffer is just a view
+                    // Actually, wait, WebTransportBuffer doesn't have readByte()
+                    // Let's just read into byte array to keep it simple
+                    byte[] raw = data.readBytes();
+                    streamPurpose = raw[0];
                     purposeIdentified = true;
                     // Map stream in our user state for targeting later
                     if (streamPurpose == STREAM_TYPE_CONTROL) {
@@ -96,14 +102,15 @@ public class WebTransportChatHandler implements WebTransportHandler {
                     }
                 }
                 // Process stream payload according to its tagged purpose
-                if (data.isReadable()) {
-                    ByteBuf payload = data.readSlice(data.readableBytes());
+                if (data.readableBytes() > 0) {
+                    // Extract remaining payload
+                    byte[] payloadBytes = data.readBytes();
                     if (streamPurpose == STREAM_TYPE_CONTROL) {
-                        handleControlMessage(user, payload);
+                        handleControlMessage(user, payloadBytes);
                     } else if (streamPurpose == STREAM_TYPE_CHAT) {
-                        handleTextMessage(user, payload);
+                        handleTextMessage(user, payloadBytes);
                     } else if (streamPurpose == STREAM_TYPE_VOICE) {
-                        handleVoiceChunk(user, payload);
+                        handleVoiceChunk(user, payloadBytes);
                     }
                 }
             }
@@ -111,11 +118,11 @@ public class WebTransportChatHandler implements WebTransportHandler {
     }
 
     @Override
-    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
+    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
         ChatUser user = users.get(session);
         if (user == null || user.room == null)
             return;
-        String content = data.toString(StandardCharsets.UTF_8);
+        String content = new String(data.readBytes(), StandardCharsets.UTF_8);
         // Typing Indicator Protocol: "TYPING <isTyping>"
         if (content.startsWith("TYPING ")) {
             boolean isTyping = Boolean.parseBoolean(content.substring(7).trim());
@@ -131,8 +138,8 @@ public class WebTransportChatHandler implements WebTransportHandler {
     }
 
     // --- Core Protocol Message Handlers ---
-    private void handleControlMessage(@NonNull ChatUser user, @NonNull ByteBuf payload) {
-        String command = payload.toString(StandardCharsets.UTF_8).trim();
+    private void handleControlMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
+        String command = new String(payload, StandardCharsets.UTF_8).trim();
         logger.info("💬 [CHAT-CONTROL] Command from {}: {}", user.username, command);
         // JOIN <room> <username>
         if (command.startsWith("JOIN ")) {
@@ -153,8 +160,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
                 if (f.isSuccess()) {
                     WebTransportStream serverUni = f.getNow();
                     // Write demux prefix identifying it as a voice stream (0x03)
-                    ByteBuf prefix = Unpooled.buffer(1);
-                    prefix.writeByte(STREAM_TYPE_VOICE);
+                    byte[] prefix = new byte[] { STREAM_TYPE_VOICE };
                     serverUni.write(prefix);
                     user.serverVoiceStream = serverUni;
                     logger.info("💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
@@ -178,29 +184,29 @@ public class WebTransportChatHandler implements WebTransportHandler {
         }
     }
 
-    private void handleTextMessage(@NonNull ChatUser user, @NonNull ByteBuf payload) {
+    private void handleTextMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
         if (user.room == null) {
             sendControlReply(user, "ERROR: Join a room before chatting.");
             return;
         }
-        String message = payload.toString(StandardCharsets.UTF_8);
+        String message = new String(payload, StandardCharsets.UTF_8);
         logger.info("💬 [CHAT-MSG] [{}] {}: {}", user.room, user.username, message);
         String formattedMsg = user.username + ": " + message;
         broadcastToRoom(user.room, formattedMsg, null);
     }
 
-    private void handleVoiceChunk(@NonNull ChatUser user, @NonNull ByteBuf payload) {
+    private void handleVoiceChunk(@NonNull ChatUser user, @NonNull byte[] payload) {
         if (user.room == null)
             return;
         if (logger.isDebugEnabled()) {
-            logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.readableBytes());
+            logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.length);
         }
         // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
         for (ChatUser roomMember : users.values()) {
             if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
                 if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.isActive()) {
-                    // Send raw voice data to peer (retaining duplicate to safely share bytes across channels)
-                    roomMember.serverVoiceStream.write(payload.retainedDuplicate());
+                    // Send raw voice data to peer
+                    roomMember.serverVoiceStream.write(payload);
                 }
             }
         }

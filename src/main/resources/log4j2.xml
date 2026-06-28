@@ -8,7 +8,7 @@
 
   <Loggers>
     <!-- Default root logger -->
-    <Root level="debug">
+    <Root level="info">
       <AppenderRef ref="Console"/>
     </Root>
 

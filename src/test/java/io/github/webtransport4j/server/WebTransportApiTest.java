@@ -56,7 +56,7 @@ public class WebTransportApiTest {
       public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {}
 
       @Override
-      public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {}
+      public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {}
     };
 
     server.registerHandler("/test-api", handler);
@@ -124,12 +124,12 @@ public class WebTransportApiTest {
       public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
         incomingStreamRef.set(stream);
         stream.onData(buf -> {
-          dataReceivedRef.set(buf.toString(StandardCharsets.UTF_8));
+          dataReceivedRef.set(new String(buf.readBytes(), StandardCharsets.UTF_8));
         });
       }
 
       @Override
-      public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {}
+      public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {}
     };
 
     server.registerHandler("/test-api", handler);
@@ -162,7 +162,7 @@ public class WebTransportApiTest {
 
     mgr.register(mockConnectStream);
 
-    MessageDispatcher dispatcher = new MessageDispatcher();
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
     when(mockCtx.channel()).thenReturn(mockStreamChannel);

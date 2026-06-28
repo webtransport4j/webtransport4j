@@ -29,7 +29,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
     private final boolean bidirectional;
 
-    private @Nullable Consumer<ByteBuf> dataConsumer;
+    private @Nullable Consumer<WebTransportBuffer> dataConsumer;
 
     private @Nullable Runnable closeHandler;
 
@@ -62,16 +62,10 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
     /**
      * Registers a callback to be invoked when stream payload data is received.
-     * <p>
-     * <strong>Memory Management Warning:</strong> The passed {@link ByteBuf} is owned and
-     * automatically released by the network handler after this callback returns. If you process
-     * this buffer asynchronously (e.g. offloading to another thread pool or a reactive pipeline),
-     * you <strong>must</strong> call {@link ByteBuf#retain()} to increase its reference count, and
-     * subsequently release it via {@link ByteBuf#release()} when done.
      *
      * @param consumer the data consumer callback
      */
-    public void onData(@NonNull Consumer<ByteBuf> consumer) {
+    public void onData(@NonNull Consumer<WebTransportBuffer> consumer) {
         if (this.dataConsumer != null) {
             throw new IllegalStateException("onData handler already registered");
         }
@@ -79,15 +73,11 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     }
 
     public <T> void onData(@NonNull StreamCodec<T> codec, @NonNull Consumer<T> consumer) {
-        // Create the auto-releasing wrapper once per stream instead of once per chunk
-        // to prevent unnecessary garbage collection overhead in high-throughput streams.
         Consumer<T> autoReleasingConsumer = msg -> {
             try {
                 consumer.accept(msg);
             } finally {
-                // safeRelease prevents IllegalReferenceCountExceptions from masking
-                // primary exceptions if the user manually released it already.
-                ReferenceCountUtil.safeRelease(msg);
+                codec.release(msg);
             }
         };
         this.onData(data -> {
@@ -103,7 +93,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         this.errorHandler = handler;
     }
 
-    public @Nullable Consumer<ByteBuf> getDataConsumer() {
+    public @Nullable Consumer<WebTransportBuffer> getDataConsumer() {
         return dataConsumer;
     }
 
@@ -116,14 +106,13 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     }
 
     /**
-     * Writes and flushes a Netty {@link ByteBuf} to the stream.
-     * Netty will automatically manage the reference count and release the buffer once sent.
+     * Writes and flushes a {@link WebTransportBuffer} to the stream.
      *
      * @param data the buffer to write
      * @return a future that completes when the write operation is done
      */
-    public @NonNull Future<Void> write(@NonNull ByteBuf data) {
-        return streamChannel().writeAndFlush(data);
+    public @NonNull Future<Void> write(@NonNull WebTransportBuffer data) {
+        return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data.nioBuffer()));
     }
 
     /**

@@ -12,7 +12,7 @@ public class BenchmarkRunner {
         int measurement = quick ? 1 : 5;
 
         Options opt = new OptionsBuilder()
-                .include(".*Benchmark")
+                .include(".*Benchmark.*")
                 .forks(forks)
                 .warmupIterations(warmup)
                 .measurementIterations(measurement)

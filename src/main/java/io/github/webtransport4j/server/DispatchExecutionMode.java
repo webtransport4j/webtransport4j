@@ -29,5 +29,14 @@ public enum DispatchExecutionMode {
      * ❌ Requires Java 21+
      * ❌ Might have slightly higher overhead than event loop for very short tasks
      */
-    VIRTUAL_THREADS
+    VIRTUAL_THREADS,
+
+    /**
+     * Use Netty's DefaultEventExecutorGroup for handlers.
+     * ✅ Strict sequential ordering of events per connection
+     * ✅ Uses FastThreadLocalThread for optimized memory allocation
+     * ✅ Shields native QUIC event loop from blocking logic
+     * ❌ Fixed thread pool size can lead to starvation if tasks block
+     */
+    NETTY_EVENT_EXECUTOR_GROUP
 }

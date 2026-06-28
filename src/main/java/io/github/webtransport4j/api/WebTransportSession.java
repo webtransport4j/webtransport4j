@@ -1,7 +1,7 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.server.*;
-import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.util.concurrent.Future;
@@ -22,7 +22,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class WebTransportSession {
 
     // Default initial capacity for stream tracking sets.
-    // Most sessions have few concurrent streams; avoids 16-bucket default of ConcurrentHashMap.
+    // Most sessions have few concurrent streams; avoids 16-bucket default of
+    // ConcurrentHashMap.
     private static final int STREAM_SET_INITIAL_CAPACITY = 4;
 
     private final long sessionStreamId;
@@ -83,7 +84,15 @@ public class WebTransportSession {
 
     private final AtomicLong lastReadTime = new AtomicLong(System.currentTimeMillis());
 
-    public WebTransportSession(long sessionStreamId, @NonNull QuicStreamChannel connectStream, @NonNull String path, long maxStreamsUni, long maxStreamsBidi, long maxData, long peerMaxStreamsUni, long peerMaxStreamsBidi, long peerMaxData, boolean flowControlEnabled) {
+    private SessionClosedListener onClosedCallback;
+
+    public void setOnClosedCallback(SessionClosedListener onClosedCallback) {
+        this.onClosedCallback = onClosedCallback;
+    }
+
+    public WebTransportSession(long sessionStreamId, @NonNull QuicStreamChannel connectStream, @NonNull String path,
+            long maxStreamsUni, long maxStreamsBidi, long maxData, long peerMaxStreamsUni, long peerMaxStreamsBidi,
+            long peerMaxData, boolean flowControlEnabled) {
         this.sessionStreamId = sessionStreamId;
         this.path = path;
         this.connectStream = connectStream;
@@ -155,7 +164,8 @@ public class WebTransportSession {
         return toWebTransportStreams(activeServerInitiatedBi);
     }
 
-    private @NonNull Set<WebTransportStream> toWebTransportStreams(@NonNull Set<QuicStreamChannel> quicStreamChannelSet) {
+    private @NonNull Set<WebTransportStream> toWebTransportStreams(
+            @NonNull Set<QuicStreamChannel> quicStreamChannelSet) {
         Set<WebTransportStream> streams = new HashSet<>();
         for (QuicStreamChannel ch : quicStreamChannelSet) {
             WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
@@ -295,7 +305,8 @@ public class WebTransportSession {
     }
 
     /**
-     * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
+     * Returns the AtomicLong tracking the last peer limit for which a
+     * WT_DATA_BLOCKED capsule was
      * sent. Callers use CAS operations on this.
      */
     public @NonNull AtomicLong getLastSentDataBlockedLimit() {
@@ -306,11 +317,27 @@ public class WebTransportSession {
      * Gracefully closes the WebTransport session by closing the CONNECT stream.
      */
     public void close() {
+        for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
+            activeStream.close();
+        }
+        for (QuicStreamChannel activeStream : activeServerInitiatedBi) {
+            activeStream.close();
+        }
+        for (QuicStreamChannel activeStream : activeClientInitiatedUni) {
+            activeStream.close();
+        }
+        for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
+            activeStream.close();
+        }
+        if (onClosedCallback != null) {
+            onClosedCallback.onSessionClosed();
+        }
         connectStream.close();
     }
 
     /**
-     * Abruptly closes the WebTransport session by resetting the CONNECT stream with the specified
+     * Abruptly closes the WebTransport session by resetting the CONNECT stream with
+     * the specified
      * HTTP/3 error code and resetting all active data streams.
      */
     public void abort(long httpErrorCode) {
@@ -319,7 +346,7 @@ public class WebTransportSession {
             // fallback to safe code to prevent native JVM crash
             code = 0;
         }
-        connectStream.shutdown(code, connectStream.newPromise());
+
         // Reset all associated data streams
         for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
             activeStream.shutdown(code, activeStream.newPromise());
@@ -333,10 +360,15 @@ public class WebTransportSession {
         for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
             activeStream.shutdown(code, activeStream.newPromise());
         }
+        if (onClosedCallback != null) {
+            onClosedCallback.onSessionClosed();
+        }
+        connectStream.shutdown(code, connectStream.newPromise());
     }
 
     /**
-     * Resets a WebTransport data stream with a WebTransport application error code (automatically
+     * Resets a WebTransport data stream with a WebTransport application error code
+     * (automatically
      * mapped to the HTTP/3 error range as per Section 4.4).
      */
     public void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode) {
@@ -348,14 +380,14 @@ public class WebTransportSession {
      *
      * @param data The datagram payload.
      */
-    public void sendDatagram(@NonNull ByteBuf data) {
+    public void sendDatagram(@NonNull WebTransportBuffer data) {
         Channel parentChannel = connectStream.parent();
         int dataBytes = data.readableBytes();
-        ByteBuf header = parentChannel.alloc().directBuffer();
+        io.netty.buffer.ByteBuf header = parentChannel.alloc().directBuffer();
         WebTransportUtils.writeVarInt(header, sessionStreamId);
         CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
         composite.addComponent(true, header);
-        composite.addComponent(true, data);
+        composite.addComponent(true, Unpooled.wrappedBuffer(data.nioBuffer()));
         parentChannel.writeAndFlush(composite);
         // Fire metrics: datagram sent
         WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
@@ -372,7 +404,7 @@ public class WebTransportSession {
      */
     public @NonNull Future<Void> sendDatagram(byte @NonNull [] data) {
         Channel parentChannel = connectStream.parent();
-        ByteBuf buffer = parentChannel.alloc().directBuffer();
+        io.netty.buffer.ByteBuf buffer = parentChannel.alloc().directBuffer();
         WebTransportUtils.writeVarInt(buffer, sessionStreamId);
         buffer.writeBytes(data);
         Future<Void> future = parentChannel.writeAndFlush(buffer);
@@ -393,7 +425,7 @@ public class WebTransportSession {
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
             // Unidirectional write-only stream, no read pipeline handlers needed
-            //write pipeline
+            // write pipeline
             ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
         }
     };
@@ -404,8 +436,14 @@ public class WebTransportSession {
         protected void initChannel(@NonNull QuicStreamChannel ch) {
             ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
             ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
-            ch.pipeline().addLast(new WebTransportCapsuleHandler());
-            ch.pipeline().addLast(new MessageDispatcher());
+            ch.pipeline().addLast(new io.github.webtransport4j.server.WebTransportCapsuleHandler());
+            java.util.function.Supplier<io.github.webtransport4j.server.MessageDispatcher> supplier = ch.parent()
+                    .attr(io.github.webtransport4j.server.WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
+            if (supplier != null) {
+                ch.pipeline().addLast(supplier.get());
+            } else {
+                ch.pipeline().addLast(new io.github.webtransport4j.server.DefaultMessageDispatcher());
+            }
         }
     };
 

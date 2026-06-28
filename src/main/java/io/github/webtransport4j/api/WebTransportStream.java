@@ -1,9 +1,6 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.example.StreamCodec;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.util.CharsetUtil;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Map;
@@ -28,7 +25,7 @@ public interface WebTransportStream {
     void reset(long appErrorCode);
 
     /* ---------- Callbacks ---------- */
-    void onData(@NonNull Consumer<ByteBuf> consumer);
+    void onData(@NonNull Consumer<WebTransportBuffer> consumer);
 
     void onClose(@NonNull Runnable handler);
 
@@ -36,7 +33,7 @@ public interface WebTransportStream {
 
     @Nullable Consumer<Throwable> getErrorHandler();
 
-    @Nullable Consumer<ByteBuf> getDataConsumer();
+    @Nullable Consumer<WebTransportBuffer> getDataConsumer();
 
     @Nullable Runnable getCloseHandler();
 
@@ -51,32 +48,22 @@ public interface WebTransportStream {
     }
 
     /* ---------- Primitive Write ---------- */
-    @NonNull Future<Void> write(@NonNull ByteBuf data);
+    @NonNull Future<Void> write(@NonNull WebTransportBuffer data);
 
     @NonNull Future<Void> write(@NonNull BinarySource binarySource);
 
     @NonNull Future<Void> write(@NonNull BinarySource binarySource, int chunkSize);
 
     /* ---------- Convenience Writes ---------- */
-    default @NonNull Future<Void> write(@NonNull byte @NonNull [] data) {
-        return write(Unpooled.wrappedBuffer(data));
-    }
+    @NonNull Future<Void> write(byte @NonNull [] data);
 
-    default @NonNull Future<Void> write(@NonNull byte @NonNull [] data, int offset, int length) {
-        return write(Unpooled.wrappedBuffer(data, offset, length));
-    }
+    @NonNull Future<Void> write(byte @NonNull [] data, int offset, int length);
 
-    default @NonNull Future<Void> write(@NonNull ByteBuffer buffer) {
-        return write(Unpooled.wrappedBuffer(buffer));
-    }
+    @NonNull Future<Void> write(@NonNull ByteBuffer buffer);
 
-    default @NonNull Future<Void> writeText(@NonNull String text) {
-        return writeText(text, CharsetUtil.UTF_8);
-    }
+    @NonNull Future<Void> writeText(@NonNull String text);
 
-    default @NonNull Future<Void> writeText(@NonNull String text, @NonNull Charset charset) {
-        return write(Unpooled.copiedBuffer(text, charset));
-    }
+    @NonNull Future<Void> writeText(@NonNull String text, @NonNull Charset charset);
 
     /* ---------- Attributes ---------- */
     boolean hasAttribute(@NonNull String key);

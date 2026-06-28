@@ -83,4 +83,8 @@ public final class WebTransportAttributeKeys {
   // Observability metrics listener — attached at server start and propagated to all QuicChannels
   public static final AttributeKey<WebTransportMetricsListener> METRICS_LISTENER =
           AttributeKey.valueOf("wt.metrics.listener");
+
+  // Message dispatcher factory
+  public static final AttributeKey<java.util.function.Supplier<MessageDispatcher>> MESSAGE_DISPATCHER_SUPPLIER =
+          AttributeKey.valueOf("wt.message.dispatcher.supplier");
 }

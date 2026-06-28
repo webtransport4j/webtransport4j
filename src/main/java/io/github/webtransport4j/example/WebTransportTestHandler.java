@@ -1,7 +1,7 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.api.*;
-import io.netty.buffer.ByteBuf;
+import io.github.webtransport4j.api.WebTransportBuffer;
 import io.netty.util.concurrent.Future;
 
 import java.io.File;
@@ -64,7 +64,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
 
           // Listen to client responses on this stream
             stream.onData(data -> {
-              String content = data.toString(StandardCharsets.UTF_8);
+              String content = new String(data.readBytes(), StandardCharsets.UTF_8);
               logger.info("   📩 Received response on server-initiated bidi stream {}: {}", stream.streamId(), content);
             });
 
@@ -109,42 +109,71 @@ public class WebTransportTestHandler implements WebTransportHandler {
     stream.onError(err -> logger.error("❌ Client-initiated stream {} error", stream.streamId(), err));
 
     stream.onData(data -> {
-      String content = data.toString(StandardCharsets.UTF_8);
-      logger.info("📩 Received data on stream {}: {}", stream.streamId(), content);
-
+      byte[] bytes = data.readBytes();
+      
+      String prefixCheck = new String(bytes, 0, Math.min(bytes.length, 20), StandardCharsets.UTF_8);
+      if (prefixCheck.startsWith("SleepServer_")) {
+          logger.info("😴 Server received Sleep command on stream {}. Simulating heavy blocking task...", stream.streamId());
+          try {
+              Thread.sleep(3000);
+          } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+          }
+          logger.info("⏰ Server woke up on stream {} after sleeping.", stream.streamId());
+      }
+      
       if (isBidi) {
-        // Echo back data with prefix for bidirectional streams
-        String replyText = "ACK BI: Server received from " + session.path() + ": " + content;
-        stream.writeText(replyText).addListener(f -> {
-            if (f.isSuccess()) {
-             logger.info("✅ Echoed response to client on bidi stream {}", stream.streamId());
-           } else {
-             logger.error("❌ Failed to echo to client on bidi stream {}", stream.streamId(), f.cause());
-           }
-        });
+        if (!stream.hasAttribute("prefixed")) {
+            stream.setAttribute("prefixed", true);
+            byte[] prefixBytes = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
+            byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+            System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+            System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+            stream.write(outBytes).addListener(f -> {
+                if (f.isSuccess()) {
+                    logger.info("✅ Echoed response to client on bidi stream {}", stream.streamId());
+                } else {
+                    logger.error("❌ Failed to echo to client on bidi stream {}", stream.streamId(), f.cause());
+                }
+            });
+        } else {
+            // Already prefixed this stream, just echo the raw chunk
+            stream.write(bytes);
+        }
       } else {
-        // Unidirectional streams from client are write-only from client's perspective,
-        // so the server cannot write back. We just print/log it.
-        logger.info("ℹ️ Unidirectional stream data processed (no echo possible on write-only stream).");
+        // Echo an ACK back via a NEW Server-to-Client Unidirectional stream so Python can assert it
+        session.createUniStream().addListener((Future<WebTransportStream> f) -> {
+            if (f.isSuccess()) {
+                WebTransportStream ackStream = f.getNow();
+                byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+                ackStream.write(outBytes).addListener(wf -> {
+                    ackStream.close();
+                });
+            }
+        });
       }
     });
   }
 
   @Override
-  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull ByteBuf data) {
-    String content = data.toString(StandardCharsets.UTF_8);
+  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
+    String content = new String(data.readBytes(), StandardCharsets.UTF_8);
     logger.info("☄️ [TEST HANDLER] Received Datagram: {}", content);
 
-    // Echo back the datagram package to the client
-    String replyText = "ACK DG: Server received datagram: " + content;
-    byte[] bytes = replyText.getBytes(StandardCharsets.UTF_8);
-    
-    session.sendDatagram(bytes).addListener(f -> {
-      if (f.isSuccess()) {
-        logger.info("✅ Echoed datagram response back to client.");
-      } else {
-        logger.error("❌ Failed to send datagram response", f.cause());
-      }
+    // Echo back the datagram package to the client via a Uni Stream
+    String replyText = "ACK DG: " + content;
+    session.createUniStream().addListener(f -> {
+        if (f.isSuccess()) {
+            WebTransportStream ackStream = (WebTransportStream) f.getNow();
+            ackStream.writeText(replyText).addListener(wf -> {
+                ackStream.close();
+            });
+        } else {
+            logger.error("❌ Failed to send datagram response via uni stream", f.cause());
+        }
     });
   }
 }
