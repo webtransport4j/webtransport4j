@@ -9,7 +9,7 @@ import java.util.function.Consumer;
 public interface NettyWebTransportStream extends WebTransportStream{
     @Nullable Consumer<WebTransportBuffer> getDataConsumer();
 
-    @Nullable Runnable getCloseHandler();
+    @Nullable OnCloseListener getCloseHandler();
 
     @Nullable Consumer<Throwable> getErrorHandler();
 

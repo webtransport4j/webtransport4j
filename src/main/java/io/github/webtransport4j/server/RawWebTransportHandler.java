@@ -116,9 +116,14 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                     return;
                 }
                 if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
-                    logger.info("🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
+                    if(logger.isDebugEnabled()) {
+                        logger.debug("🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
+                    }
                 } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
-                    logger.info("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {}", sessionId);
+                    if(logger.isDebugEnabled()) {
+                        logger.debug("➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {} | StreamID: {}", sessionId, ctx.channel().id());
+                    }
+
                 } else {
                     logger.warn("❓ Unknown Stream Type: {}", streamType);
                 }
@@ -162,8 +167,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                 if (metrics != null) {
                     final long metricSessionId = sessionId;
                     final long metricStreamId = streamChannel.streamId();
-                    final boolean metricBidi = isBidi;
-                    metrics.onStreamOpened(metricSessionId, metricStreamId, metricBidi);
+                    metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
                     streamChannel.closeFuture().addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
                 }
                 // Fire any remaining bytes in the cumulated buffer down the pipeline
@@ -220,7 +224,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                                     }
                                 }
 
-                                 if (Boolean.TRUE.equals(isHeartbeat)) {
+                                 if (isHeartbeat) {
                                      if ("ECHO".equals(keepAliveMode)) {
                                          if (data.isReadable()) {
                                              if (logger.isDebugEnabled()) {

@@ -31,7 +31,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
     private @Nullable Consumer<WebTransportBuffer> dataConsumer;
 
-    private @Nullable Runnable closeHandler;
+    private @Nullable OnCloseListener closeHandler;
 
     private @Nullable Consumer<Throwable> errorHandler;
 
@@ -85,8 +85,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         });
     }
 
-    public void onClose(@NonNull Runnable handler) {
-        this.closeHandler = handler;
+    public void onClose(@NonNull OnCloseListener onCloseListener) {
+        this.closeHandler = onCloseListener;
     }
 
     public void onError(@NonNull Consumer<Throwable> handler) {
@@ -97,7 +97,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         return dataConsumer;
     }
 
-    public @Nullable Runnable getCloseHandler() {
+    public @Nullable OnCloseListener getCloseHandler() {
         return closeHandler;
     }
 

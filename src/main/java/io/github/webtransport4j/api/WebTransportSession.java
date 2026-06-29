@@ -13,6 +13,7 @@ import io.netty.util.concurrent.Promise;
 import org.jspecify.annotations.NonNull;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -84,19 +85,22 @@ public class WebTransportSession {
 
     private final AtomicLong lastReadTime = new AtomicLong(System.currentTimeMillis());
 
-    private SessionClosedListener onClosedCallback;
+    private OnCloseListener onClosedCallback;
 
-    public void setOnClosedCallback(SessionClosedListener onClosedCallback) {
+    public void setOnClosedCallback(OnCloseListener onClosedCallback) {
         this.onClosedCallback = onClosedCallback;
     }
 
+    private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
+
     public WebTransportSession(long sessionStreamId, @NonNull QuicStreamChannel connectStream, @NonNull String path,
             long maxStreamsUni, long maxStreamsBidi, long maxData, long peerMaxStreamsUni, long peerMaxStreamsBidi,
-            long peerMaxData, boolean flowControlEnabled) {
+            long peerMaxData, boolean peerMaxDataNegotiated, boolean flowControlEnabled) {
         this.sessionStreamId = sessionStreamId;
         this.path = path;
         this.connectStream = connectStream;
         this.flowControlEnabled = flowControlEnabled;
+        this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
         // Stream limits — always needed
         this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
         this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
@@ -224,6 +228,10 @@ public class WebTransportSession {
         this.peerSettingsMaxData.set(value);
     }
 
+    public boolean markPeerMaxDataCapsuleReceived() {
+        return hasReceivedPeerMaxDataCapsule.compareAndSet(false, true);
+    }
+
     public long getClientInitiatedStreamsUni() {
         return clientInitiatedStreamsUni.get();
     }
@@ -330,7 +338,7 @@ public class WebTransportSession {
             activeStream.close();
         }
         if (onClosedCallback != null) {
-            onClosedCallback.onSessionClosed();
+            onClosedCallback.onClose();
         }
         connectStream.close();
     }
@@ -361,7 +369,7 @@ public class WebTransportSession {
             activeStream.shutdown(code, activeStream.newPromise());
         }
         if (onClosedCallback != null) {
-            onClosedCallback.onSessionClosed();
+            onClosedCallback.onClose();
         }
         connectStream.shutdown(code, connectStream.newPromise());
     }
@@ -400,20 +408,18 @@ public class WebTransportSession {
      * Sends a datagram package over the WebTransport session.
      *
      * @param data The datagram payload byte array.
-     * @return A future that is notified when the write completes.
      */
-    public @NonNull Future<Void> sendDatagram(byte @NonNull [] data) {
+    public void sendDatagram(byte @NonNull [] data) {
         Channel parentChannel = connectStream.parent();
         io.netty.buffer.ByteBuf buffer = parentChannel.alloc().directBuffer();
         WebTransportUtils.writeVarInt(buffer, sessionStreamId);
         buffer.writeBytes(data);
-        Future<Void> future = parentChannel.writeAndFlush(buffer);
+        parentChannel.writeAndFlush(buffer);
         // Fire metrics: datagram sent
         WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
         if (metrics != null) {
             metrics.onDatagramSent(sessionStreamId, data.length);
         }
-        return future;
     }
 
     public @NonNull String path() {
@@ -436,13 +442,13 @@ public class WebTransportSession {
         protected void initChannel(@NonNull QuicStreamChannel ch) {
             ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
             ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
-            ch.pipeline().addLast(new io.github.webtransport4j.server.WebTransportCapsuleHandler());
-            java.util.function.Supplier<io.github.webtransport4j.server.MessageDispatcher> supplier = ch.parent()
-                    .attr(io.github.webtransport4j.server.WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
+            ch.pipeline().addLast(new WebTransportCapsuleHandler());
+            java.util.function.Supplier<MessageDispatcher> supplier = ch.parent()
+                    .attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
             if (supplier != null) {
                 ch.pipeline().addLast(supplier.get());
             } else {
-                ch.pipeline().addLast(new io.github.webtransport4j.server.DefaultMessageDispatcher());
+                ch.pipeline().addLast(new DefaultMessageDispatcher());
             }
         }
     };

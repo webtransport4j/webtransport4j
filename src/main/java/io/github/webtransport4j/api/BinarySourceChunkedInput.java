@@ -4,128 +4,143 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.stream.ChunkedInput;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public final class BinarySourceChunkedInput
-        implements ChunkedInput<ByteBuf> {
-    private static final Logger logger = LoggerFactory.getLogger(BinarySourceChunkedInput.class);
-    private static final int DEFAULT_CHUNK_SIZE = Integer.getInteger("webtransport4j.chunked.input.size", 16 * 1024);
+/**
+ * A chunked input that reads from a binary source.
+ */
+public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
+  private static final Logger logger = LoggerFactory.getLogger(BinarySourceChunkedInput.class);
+  private static final int DEFAULT_CHUNK_SIZE = Integer.getInteger("webtransport4j.chunked.input.size",
+          16 * 1024);
 
-    private final BinarySource source;
-    private final int chunkSize;
+  private final BinarySource source;
+  private final int chunkSize;
 
-    private boolean eof;
-    private long progress;
+  private boolean eof;
+  private long progress;
 
-    public BinarySourceChunkedInput(@NonNull BinarySource source) {
-        this(Objects.requireNonNull(source,"source must not be null"), DEFAULT_CHUNK_SIZE);
+  /**
+   * Creates a new instance with the default chunk size.
+   *
+   * @param source the binary source to read from
+   */
+  public BinarySourceChunkedInput(@NonNull BinarySource source) {
+    this(Objects.requireNonNull(source, "source must not be null"), DEFAULT_CHUNK_SIZE);
+  }
+
+  /**
+   * Creates a new instance with the specified chunk size.
+   *
+   * @param source the binary source to read from
+   * @param chunkSize the size of each chunk to read
+   */
+  public BinarySourceChunkedInput(BinarySource source, int chunkSize) {
+    this.source = Objects.requireNonNull(source, "source must not be null");
+    if (chunkSize <= 0) {
+      throw new IllegalArgumentException("chunk size must be greater than 0");
+    }
+    this.chunkSize = chunkSize;
+  }
+
+  @Override
+  public boolean isEndOfInput() {
+    return eof;
+  }
+
+  @Override
+  public void close() throws IOException {
+    source.close();
+  }
+
+  @Override
+  public @Nullable ByteBuf readChunk(@NonNull ChannelHandlerContext ctx) throws Exception {
+    return readChunk(ctx.alloc());
+  }
+
+  @Override
+  public @Nullable ByteBuf readChunk(@NonNull ByteBufAllocator alloc) throws Exception {
+    if (eof) {
+      return null;
     }
 
-    public BinarySourceChunkedInput(BinarySource source, int chunkSize) {
-        this.source = Objects.requireNonNull(source, "source must not be null");
-        if(chunkSize <= 0) {
-            throw new IllegalArgumentException("chunk size must be greater than 0");
+    int currentChunkSize = chunkSize;
+    if (source.hasKnownSize()) {
+      long remaining = source.size() - progress;
+      if (remaining <= 0) {
+        eof = true;
+        close();
+        return null;
+      } else if (remaining < currentChunkSize) {
+        currentChunkSize = (int) remaining;
+      }
+    }
+
+    ByteBuf buf = alloc.buffer(currentChunkSize);
+    int totalRead = 0;
+
+    try {
+      ByteBuffer nio = buf.nioBuffer(0, currentChunkSize);
+
+      while (totalRead < currentChunkSize) {
+        int read = source.read(nio);
+
+        if (read < 0) {
+          eof = true;
+          break;
         }
-        this.chunkSize = chunkSize;
-    }
 
-    @Override
-    public boolean isEndOfInput() {
-        return eof;
-    }
+        if (read == 0) {
+          break;
+        }
 
-    @Override
-    public void close() throws IOException {
-        source.close();
-    }
+        totalRead += read;
+      }
 
-    @Override
-    public @Nullable ByteBuf readChunk(@NonNull ChannelHandlerContext ctx) throws Exception {
-        return readChunk(ctx.alloc());
-    }
-
-    @Override
-    public @Nullable ByteBuf readChunk(@NonNull ByteBufAllocator alloc) throws Exception {
+      if (totalRead == 0) {
+        buf.release();
         if (eof) {
-            return null;
+          close();
         }
+        return null;
+      }
 
-        int currentChunkSize = chunkSize;
-        if (source.hasKnownSize()) {
-            long remaining = source.size() - progress;
-            if (remaining <= 0) {
-                eof = true;
-                close();
-                return null;
-            } else if (remaining < currentChunkSize) {
-                currentChunkSize = (int) remaining;
-            }
-        }
+      buf.writerIndex(totalRead);
+      progress += totalRead;
 
-        ByteBuf buf = alloc.buffer(currentChunkSize);
-        int totalRead = 0;
+      if (eof) {
+        close();
+      }
 
-        try {
-            ByteBuffer nio = buf.nioBuffer(0, currentChunkSize);
-
-            while (totalRead < currentChunkSize) {
-                int read = source.read(nio);
-
-                if (read < 0) {
-                    eof = true;
-                    break;
-                }
-
-                if (read == 0) {
-                    break;
-                }
-
-                totalRead += read;
-            }
-
-            if (totalRead == 0) {
-                buf.release();
-                if (eof) {
-                    close();
-                }
-                return null;
-            }
-
-            buf.writerIndex(totalRead);
-            progress += totalRead;
-
-            if (eof) {
-                close();
-            }
-
-            if (logger.isDebugEnabled()) {
-                logger.debug("Read chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
-            }
-            return buf;
-        } catch (Throwable t) {
-            buf.release();
-            close();
-            throw t;
-        }
+      if (logger.isDebugEnabled()) {
+        logger.debug("Read chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
+      }
+      return buf;
+    } catch (Throwable t) {
+      buf.release();
+      close();
+      throw t;
     }
+  }
 
-    @Override
-    public long length() {
-        try {
-            return source.hasKnownSize() ? source.size() : -1;
-        } catch (IOException e) {
-            return -1;
-        }
+  @Override
+  public long length() {
+    try {
+      return source.hasKnownSize() ? source.size() : -1;
+    } catch (IOException e) {
+      logger.error("Error occurred while fetching source size", e);
+      return -1;
     }
+  }
 
-    @Override
-    public long progress() {
-        return progress;
-    }
+  @Override
+  public long progress() {
+    return progress;
+  }
 }

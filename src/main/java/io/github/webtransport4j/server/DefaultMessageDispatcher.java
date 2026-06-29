@@ -1,16 +1,26 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.*;
+import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.api.DefaultNettyWebTransportStream;
+import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.concurrent.RejectedExecutionException;
+
+import io.netty.handler.codec.quic.QuicStreamResetException;
+import io.netty.util.Attribute;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jspecify.annotations.NonNull;
 
-public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame> implements MessageDispatcher {
+public class DefaultMessageDispatcher
+        extends SimpleChannelInboundHandler<WebTransportFrame>
+        implements MessageDispatcher {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultMessageDispatcher.class);
 
@@ -43,7 +53,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
             boolean submitted = false;
             try {
                 if (logger.isDebugEnabled()) {
-                    logger.debug("📤 Submitting task to executor: {}", executor != null ? executor.getClass().getSimpleName() : "NULL");
+                    logger.debug("📤 Submitting task to executor: {}", executor.getClass().getSimpleName());
                 }
                 executor.execute(() -> {
                     try {
@@ -56,14 +66,18 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
                 });
                 submitted = true;
             } catch (RejectedExecutionException e) {
-                logger.error("❌ REJECTED: Task submission rejected by business executor (queue full?). Executor: {} | SessionID: {} | Shutting down stream with WT_SESSION_GONE", (executor != null ? executor.getClass().getSimpleName() : "NULL"), finalSessionId, e);
+                logger.error("❌ REJECTED: Task submission rejected by business executor (queue full?). " +
+                        "Executor: {} | SessionID: {} | Shutting down stream with WT_SESSION_GONE",
+                        executor.getClass().getSimpleName(), finalSessionId, e);
                 if (channel instanceof QuicStreamChannel) {
                     ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
                 } else {
                     channel.close();
                 }
             } catch (Throwable t) {
-                logger.error("❌ FAILED: Failed to submit task to business executor. Executor: {} | SessionID: {} | Cause: {}", (executor != null ? executor.getClass().getSimpleName() : "NULL"), finalSessionId, t.getMessage(), t);
+                logger.error("❌ FAILED: Failed to submit task to business executor. " +
+                        "Executor: {} | SessionID: {} | Cause: {}",
+                        executor.getClass().getSimpleName(), finalSessionId, t.getMessage(), t);
                 if (channel instanceof QuicStreamChannel) {
                     ((QuicStreamChannel) channel).shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
                 } else {
@@ -89,15 +103,17 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
                 }
             }
         }
-        if (cause instanceof io.netty.handler.codec.quic.QuicStreamResetException) {
-            io.netty.handler.codec.quic.QuicStreamResetException reset = (io.netty.handler.codec.quic.QuicStreamResetException) cause;
+        if (cause instanceof QuicStreamResetException) {
+            QuicStreamResetException reset = (QuicStreamResetException) cause;
             long httpErrorCode = reset.applicationProtocolCode();
             if (WebTransportUtils.isWebTransportApplicationError(httpErrorCode)) {
                 long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(httpErrorCode);
-                logger.info("🌊 Stream reset by peer with WebTransport application error code: 0x{} ({})", Long.toHexString(wtErrorCode), wtErrorCode);
+                logger.info("🌊 Stream reset by peer with WebTransport application error code: 0x{} ({})",
+                        Long.toHexString(wtErrorCode), wtErrorCode);
             } else {
                 if (logger.isDebugEnabled()) {
-                    logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x{}", Long.toHexString(httpErrorCode));
+                    logger.debug("🌊 Stream reset by peer with HTTP/3 error code: 0x{}",
+                            Long.toHexString(httpErrorCode));
                 }
             }
         } else {
@@ -126,7 +142,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
             return;
         }
         WebTransportServer server;
-        io.netty.util.Attribute<WebTransportServer> attr;
+        Attribute<WebTransportServer> attr;
         if (channel instanceof QuicStreamChannel) {
             attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
         } else {
@@ -137,6 +153,9 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         };
         try {
             if (frame instanceof WebTransportStreamFrame) {
+                if (!(channel instanceof QuicStreamChannel)) {
+                    throw new RuntimeException("Implemented only for QuicStreamChannel");
+                }
                 QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
                 WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
                 if (stream == null) {
@@ -146,7 +165,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
                     streamChannel.closeFuture().addListener(f -> {
                         if (finalStream.getCloseHandler() != null) {
                             try {
-                                finalStream.getCloseHandler().run();
+                                finalStream.getCloseHandler();
                             } catch (Exception e) {
                                 logger.error("Error in stream onClose handler", e);
                             }

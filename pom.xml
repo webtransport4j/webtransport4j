@@ -15,6 +15,8 @@
     <properties>
         <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+        <checkstyle.config.location>${project.basedir}/config/checkstyle/google_checks.xml</checkstyle.config.location>
         <netty.version>4.2.15.Final</netty.version>
         <bench.src.dir>${project.basedir}/src/main/resources</bench.src.dir>
     </properties>
@@ -312,6 +314,30 @@
                 <version>3.5.4</version>
                 <configuration>
                     <argLine>-Dio.netty.leakDetection.level=PARANOID</argLine>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${maven-checkstyle-plugin.version}</version>
+                <configuration>
+                    <configLocation>${checkstyle.config.location}</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <includeResources>false</includeResources>
+                    <includeTestResources>false</includeTestResources>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <violationSeverity>warning</violationSeverity>
+                    <sourceDirectories>
+                        <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                        <sourceDirectory>${project.basedir}/src/main/java-25</sourceDirectory>
+                    </sourceDirectories>
+                    <testSourceDirectories>
+                        <testSourceDirectory>${project.build.testSourceDirectory}</testSourceDirectory>
+                        <testSourceDirectory>${project.basedir}/src/test/java-25</testSourceDirectory>
+                        <testSourceDirectory>${project.basedir}/src/jmh/java</testSourceDirectory>
+                        <testSourceDirectory>${project.basedir}/src/jmh/java-25</testSourceDirectory>
+                    </testSourceDirectories>
                 </configuration>
             </plugin>
 

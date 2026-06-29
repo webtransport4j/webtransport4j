@@ -77,14 +77,15 @@ public class WebTransportSessionManager {
         Long peerUni = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get() : null;
         Long peerBidi = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get() : null;
         Long peerData = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get() : null;
-        long peerUniVal = peerUni != null ? peerUni : Integer.MAX_VALUE; //fix client and make it to 0L
-        long peerBidiVal = peerBidi != null ? peerBidi : Integer.MAX_VALUE; //fix client and make it to 0L
-        long peerDataVal = peerData != null ? peerData : Integer.MAX_VALUE; //fix client and make it to 0L
+        long peerUniVal = peerUni != null ? peerUni : 1000L; //need to 0 after client fix
+        long peerBidiVal = peerBidi != null ? peerBidi : 1000L; //need to 0 after client fix
+        long peerDataVal = peerData != null ? peerData : 2147483647L; //need to 0 after client fix
+        boolean peerMaxDataNegotiated = peerData != null;
         String pathStr = null;
         if (quic != null && quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
             pathStr = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
         }
-        WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, pathStr, uniMaxVal, biMaxVal, dataMaxVal, peerUniVal, peerBidiVal, peerDataVal, flowControlEnabled);
+        WebTransportSession session = new WebTransportSession(sessionStreamId, connectStream, pathStr, uniMaxVal, biMaxVal, dataMaxVal, peerUniVal, peerBidiVal, peerDataVal, peerMaxDataNegotiated, flowControlEnabled);
         session.setOnClosedCallback(() -> unregister(connectStream));
         sessions.put(sessionStreamId, session);
         
@@ -185,7 +186,7 @@ public class WebTransportSessionManager {
                 try {
                     handler.onSessionClosed(removed);
                 } catch (Exception e) {
-                    logger.error("Error in onSessionClosed callback", e);
+                    logger.error("Error in onClose callback", e);
                 }
             }
             

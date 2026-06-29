@@ -12,6 +12,7 @@ import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 
+
 import io.netty.handler.codec.http3.Http3;
 import java.lang.reflect.Method;
 import io.netty.handler.codec.http3.Http3Settings;
@@ -89,12 +90,16 @@ public class WebTransportServer {
         return trimmed;
     }
 
-    public void registerHandler(@NonNull String path, @NonNull WebTransportHandler handler) {
+    public void registerHandler(@NonNull String path, @Nullable WebTransportHandler handler) {
         String normalized = normalizePath(path);
         if (normalized == null || !normalized.startsWith("/")) {
             throw new IllegalArgumentException("path must not be null and empty and must start with '/'");
         }
-        handlers.put(normalized, handler);
+        if (handler == null) {
+            handlers.remove(normalized);
+        } else {
+            handlers.put(normalized, handler);
+        }
     }
 
     /**
@@ -152,7 +157,7 @@ public class WebTransportServer {
             throw new IllegalStateException("Server cannot start without a registered default path handler.");
         }
         port = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
-        String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", "*");
+        String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
         allowedOrigins = Arrays.asList(originsProp.split(","));
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutdown hook triggered. Stopping server...");
@@ -304,7 +309,8 @@ public class WebTransportServer {
                 logger.error("❌ Failed to parse webtransport4j.ssl.session.ticket.keys", e);
             }
         }
-        String allowedProp = WebTransportConfig.get("webtransport4j.webtransport.settings.nonstandardallowed", "0x2c7cf000,0x2b64,0x2b65,0x2b61");
+        String allowedProp = WebTransportConfig.getNonNull("webtransport4j.webtransport.settings.nonstandardallowed", "0x2c7cf000,0x2b64,0x2b65,0x2b61");
+
         Set<Long> allowed = new HashSet<>();
         for (String val : allowedProp.split(",")) {
             allowed.add(Long.decode(val.trim()));
@@ -329,7 +335,11 @@ public class WebTransportServer {
         settings.put(0x2b65L, wtMaxStreamsBidi);
         // SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
         settings.put(0x2b61L, wtInitialMaxData);
-        logger.info("Server side settings : {}", settings);
+        // SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
+        settings.put(0x2b603742L, 1L);
+        if(logger.isDebugEnabled()) {
+            logger.debug("Server side settings : {}", settings);
+        }
         ChannelHandler serverCodec = Http3.newQuicServerCodecBuilder()
                 .sslContext(sslContext)
                 .maxIdleTimeout(WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60), TimeUnit.SECONDS)
@@ -344,7 +354,8 @@ public class WebTransportServer {
                 .tokenHandler(getTokenHandler())
                 .handler(new QuicChannelInitializer(this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
                 .build();
-        this.channel = new Bootstrap().group(group).channel(channelClass).handler(serverCodec).bind(new InetSocketAddress(port))
+        this.channel = new Bootstrap().group(group).channel(channelClass)
+                .handler(serverCodec).bind(new InetSocketAddress(port))
                 .addListener(future -> {
                     if (future.isSuccess()) {
                         logger.info("✅ WebTransport server started on port {}", port);

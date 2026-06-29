@@ -36,6 +36,15 @@ public class WebTransportConfig {
      * Environment Variable (ENV_KEY_NAME) 3. properties file default value
      */
     public static @Nullable String get(@NonNull String key, @Nullable String defaultValue) {
+        return getVal(key, defaultValue);
+    }
+
+    public static @NonNull String getNonNull(@NonNull String key, @NonNull String defaultValue) {
+        return getVal(key, defaultValue);
+    }
+
+    private static String getVal(String key, String defaultVal){
+
         // 1. Check System Properties (-Dserver.port=...)
         String value = System.getProperty(key);
         if (value != null)
@@ -46,9 +55,9 @@ public class WebTransportConfig {
         if (value != null)
             return value;
         // 3. Fallback to properties file
-        return properties.getProperty(key, defaultValue);
-    }
+        return properties.getProperty(key, defaultVal);
 
+    }
     private static long evaluateExpression(@NonNull String val) {
         val = val.trim();
         if (val.contains("*")) {

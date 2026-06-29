@@ -27,7 +27,10 @@ public class WebTransportTestHandler implements WebTransportHandler {
 
   @Override
   public void onSessionReady(@NonNull WebTransportSession session) {
-    logger.info("🟢 [TEST HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
+    logger.info("🟢 [TEST HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}",
+            session.path(),
+            session.getSessionStreamId()
+    );
 
       // 1. Initiate a Server-to-Client Unidirectional Stream
       logger.info("🚀 [TEST HANDLER] Creating server-initiated unidirectional stream...");

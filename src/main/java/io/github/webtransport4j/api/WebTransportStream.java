@@ -27,7 +27,7 @@ public interface WebTransportStream {
     /* ---------- Callbacks ---------- */
     void onData(@NonNull Consumer<WebTransportBuffer> consumer);
 
-    void onClose(@NonNull Runnable handler);
+    void onClose(@NonNull OnCloseListener listener);
 
     void onError(@NonNull Consumer<Throwable> handler);
 
@@ -35,7 +35,7 @@ public interface WebTransportStream {
 
     @Nullable Consumer<WebTransportBuffer> getDataConsumer();
 
-    @Nullable Runnable getCloseHandler();
+    @Nullable OnCloseListener getCloseHandler();
 
     default <T> void onData(@NonNull StreamCodec<T> codec, @NonNull Consumer<T> consumer) {
         onData(buf -> codec.decode(buf, msg -> {

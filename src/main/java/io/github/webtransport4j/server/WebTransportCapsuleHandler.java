@@ -164,7 +164,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                         WebTransportSession session = mgr.get(capsule.sessionId());
                         if (session != null) {
                             long currentPeerLimit = session.getPeerSettingsMaxData();
-                            if (maxData < currentPeerLimit) {
+                            boolean isFirstUpdate = session.markPeerMaxDataCapsuleReceived();
+                            if (!isFirstUpdate && maxData < currentPeerLimit) {
                                 logger.info("❌ Received WT_MAX_DATA ({}) less than previous limit ({}). Closing session.", maxData, currentPeerLimit);
                                 mgr.closeSessionWithFlowControlError(capsule.sessionId());
                             } else {
