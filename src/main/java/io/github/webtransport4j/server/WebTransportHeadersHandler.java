@@ -162,7 +162,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       }
       String pathStr = path.toString();
       quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
-      logger.info("✅ Handshake Success for Path: {}", pathStr);
+      logger.debug("✅ Handshake Success for Path: {}", pathStr);
       Http3Headers responseHeaders = new DefaultHttp3Headers();
       responseHeaders.status(HttpResponseStatus.OK.codeAsText());
       ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));

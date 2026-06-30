@@ -41,10 +41,8 @@ final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
       Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
       long sessionId = (sessId != null) ? sessId : ((QuicStreamChannel) ctx.channel()).streamId();
       if (logger.isTraceEnabled()) {
-        logger.trace(
-            String.format(
-                "💊 Received Capsule | Type: 0x%X | Length: %d | Hex: %s",
-                capType, capLen, ByteBufUtil.hexDump(capVal)));
+        logger.trace("💊 Received Capsule | Type: 0x{} | Length: {} | Hex: {}",
+                capType, capLen, ByteBufUtil.hexDump(capVal));
       }
       out.add(new WebTransportCapsule(sessionId, capType, capVal));
     }

@@ -41,19 +41,20 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
     if (!in.isReadable()) {
       return;
     }
-    if (logger.isDebugEnabled()) {
-      if (logger.isTraceEnabled()) {
-        logger.trace(
-            "📦 [SNIFFER] Bytes: {} | HEX: [{}]", in.readableBytes(), ByteBufUtil.hexDump(in));
-      }
+    if (logger.isTraceEnabled()) {
+      logger.trace(
+          "📦 [SNIFFER] Bytes: {} | HEX: [{}]", in.readableBytes(), ByteBufUtil.hexDump(in));
     }
+
     long marker = peekVarInt(in);
     // Not enough bytes yet to decode a complete QUIC varint.
     if (marker == -1) {
       return;
     }
     if (marker == WebTransportUtils.BI_STREAM_TYPE) {
-      logger.info("🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));
+      if (logger.isDebugEnabled()) {
+        logger.debug("🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));
+      }
       detected = true;
       hijackPipeline(ctx);
       if (in.isReadable()) {

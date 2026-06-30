@@ -69,11 +69,11 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
 
     if (resolvedExecutor != null) {
       ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(resolvedExecutor);
-      logger.info(
+      logger.debug(
           "⚠️  BUSINESS EXECUTOR CONFIGURED: {} (Execution mode: NOT NETTY_EVENT_LOOP)",
           resolvedExecutor.getClass().getSimpleName());
     } else {
-      logger.info("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
+      logger.debug("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
     }
     long connWriteLimit =
         WebTransportConfig.getLong("webtransport4j.server.traffic.connection.write.limit", 0L);

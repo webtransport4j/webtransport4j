@@ -29,7 +29,6 @@ public class Http3InboundControlStreamHandler
     if (logger.isDebugEnabled()) {
       logger.debug("PEER SETTINGS: {}", settingsFrame);
     }
-    logger.info("PEER SETTINGS: {}", settingsFrame);
     io.netty.handler.codec.http3.Http3Settings settings = settingsFrame.settings();
     if (settings != null) {
       QuicChannel quic = null;
