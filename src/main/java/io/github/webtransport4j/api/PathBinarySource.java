@@ -10,38 +10,38 @@ import org.jspecify.annotations.NonNull;
 
 /**
  * A {@link BinarySource} backed by a file {@link Path}.
- * <p>
- * This source efficiently determines the total file size and reads via a
- * {@link SeekableByteChannel}. Calling {@link #close()} closes the channel.
+ *
+ * <p>This source efficiently determines the total file size and reads via a {@link
+ * SeekableByteChannel}. Calling {@link #close()} closes the channel.
  */
 final class PathBinarySource implements BinarySource {
 
-    private final SeekableByteChannel channel;
+  private final SeekableByteChannel channel;
 
-    private final long size;
+  private final long size;
 
-    PathBinarySource(Path path) throws IOException {
-        this.channel = Files.newByteChannel(path, StandardOpenOption.READ);
-        this.size = channel.size();
-    }
+  PathBinarySource(Path path) throws IOException {
+    this.channel = Files.newByteChannel(path, StandardOpenOption.READ);
+    this.size = channel.size();
+  }
 
-    @Override
-    public int read(@NonNull ByteBuffer dst) throws IOException {
-        return channel.read(dst);
-    }
+  @Override
+  public int read(@NonNull ByteBuffer dst) throws IOException {
+    return channel.read(dst);
+  }
 
-    @Override
-    public long size() {
-        return size;
-    }
+  @Override
+  public long size() {
+    return size;
+  }
 
-    @Override
-    public boolean hasKnownSize() {
-        return true;
-    }
+  @Override
+  public boolean hasKnownSize() {
+    return true;
+  }
 
-    @Override
-    public void close() throws IOException {
-        channel.close();
-    }
+  @Override
+  public void close() throws IOException {
+    channel.close();
+  }
 }

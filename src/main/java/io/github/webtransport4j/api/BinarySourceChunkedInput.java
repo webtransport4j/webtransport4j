@@ -12,13 +12,11 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * A chunked input that reads from a binary source.
- */
+/** A chunked input that reads from a binary source. */
 public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
   private static final Logger logger = LoggerFactory.getLogger(BinarySourceChunkedInput.class);
-  private static final int DEFAULT_CHUNK_SIZE = Integer.getInteger("webtransport4j.chunked.input.size",
-          16 * 1024);
+  private static final int DEFAULT_CHUNK_SIZE =
+      Integer.getInteger("webtransport4j.chunked.input.size", 16 * 1024);
 
   private final BinarySource source;
   private final int chunkSize;

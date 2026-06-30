@@ -1,12 +1,20 @@
 package io.github.webtransport4j.server;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import io.github.webtransport4j.api.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -18,11 +26,13 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+/** Test cases for framing layer. */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
-    private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
-
+  private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
 
   @Test
   public void testDatagramFraming() {
@@ -49,9 +59,10 @@ public class FramingLayerTest {
   public void testDataHandlerCapsuleParsing() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline()
-            .addLast(new Http3DataToByteBufHandler())
-            .addLast(new WebTransportCapsuleDecoder());
+    channel
+        .pipeline()
+        .addLast(new Http3DataToByteBufHandler())
+        .addLast(new WebTransportCapsuleDecoder());
     final WebTransportCapsule[] received = new WebTransportCapsule[1];
     channel
         .pipeline()
@@ -86,9 +97,10 @@ public class FramingLayerTest {
   public void testDataHandlerCapsuleFragmentation() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline()
-            .addLast(new Http3DataToByteBufHandler())
-            .addLast(new WebTransportCapsuleDecoder());
+    channel
+        .pipeline()
+        .addLast(new Http3DataToByteBufHandler())
+        .addLast(new WebTransportCapsuleDecoder());
     final WebTransportCapsule[] received = new WebTransportCapsule[1];
     channel
         .pipeline()
@@ -134,9 +146,10 @@ public class FramingLayerTest {
   public void testDataHandlerMultipleCapsules() {
     EmbeddedChannel channel = new EmbeddedChannel();
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
-    channel.pipeline()
-            .addLast(new Http3DataToByteBufHandler())
-            .addLast(new WebTransportCapsuleDecoder());
+    channel
+        .pipeline()
+        .addLast(new Http3DataToByteBufHandler())
+        .addLast(new WebTransportCapsuleDecoder());
 
     final java.util.List<WebTransportCapsule> list = new java.util.ArrayList<>();
     channel
@@ -178,7 +191,6 @@ public class FramingLayerTest {
 
   @Test
   public void testStreamFrameDecoderDirectly() throws Exception {
-    WebTransportStreamFrameDecoder decoder = new WebTransportStreamFrameDecoder();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
 
@@ -196,6 +208,7 @@ public class FramingLayerTest {
     when(mockStream.streamId()).thenReturn(99L);
 
     ByteBuf input = Unpooled.copiedBuffer("Hello".getBytes(StandardCharsets.UTF_8));
+    WebTransportStreamFrameDecoder decoder = new WebTransportStreamFrameDecoder();
     decoder.channelRead(mockCtx, input);
 
     ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
@@ -214,7 +227,6 @@ public class FramingLayerTest {
 
   @Test
   public void testMessageDispatcherStreamFrame() throws Exception {
-    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -284,6 +296,7 @@ public class FramingLayerTest {
     ByteBuf data = Unpooled.copiedBuffer("App Message".getBytes(StandardCharsets.UTF_8));
     WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
 
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     dispatcher.channelRead(mockCtx, frame);
 
     assertTrue(executed[0]);
@@ -360,7 +373,8 @@ public class FramingLayerTest {
 
     io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
     when(defaultDataAttr.get()).thenReturn(10000L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for createUniStream / createBiStream
     io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -375,8 +389,6 @@ public class FramingLayerTest {
     when(mockFuture.addListener(any())).thenReturn(mockFuture);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     io.netty.handler.codec.http3.Http3Headers mockHeaders =
         new io.netty.handler.codec.http3.DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
@@ -384,6 +396,8 @@ public class FramingLayerTest {
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
+    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -451,7 +465,8 @@ public class FramingLayerTest {
 
     io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
     when(defaultDataAttr.get()).thenReturn(50000L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for createUniStream / createBiStream
     io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -466,8 +481,6 @@ public class FramingLayerTest {
     when(mockFuture.addListener(any())).thenReturn(mockFuture);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     io.netty.handler.codec.http3.Http3Headers mockHeaders =
         new io.netty.handler.codec.http3.DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
@@ -475,6 +488,8 @@ public class FramingLayerTest {
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
+    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -503,8 +518,6 @@ public class FramingLayerTest {
     when(mockStream.streamId()).thenReturn(101L);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     io.netty.handler.codec.http3.Http3Headers mockHeaders =
         new io.netty.handler.codec.http3.DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
@@ -512,6 +525,8 @@ public class FramingLayerTest {
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
+    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -546,7 +561,8 @@ public class FramingLayerTest {
         .thenReturn(localLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(localLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(localLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(localLimitAttr);
 
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(io.netty.util.Attribute.class));
@@ -652,7 +668,8 @@ public class FramingLayerTest {
 
     io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
     when(defaultDataAttr.get()).thenReturn(10000L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for stream creation
     io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
@@ -666,8 +683,6 @@ public class FramingLayerTest {
 
     // Case 1: Origin "https://localhost:4433" -> Should be ALLOWED
     {
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       io.netty.handler.codec.http3.Http3Headers mockHeaders =
           new io.netty.handler.codec.http3.DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
@@ -676,6 +691,8 @@ public class FramingLayerTest {
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
       mockHeaders.set("origin", "https://localhost:4433");
+      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
@@ -691,8 +708,6 @@ public class FramingLayerTest {
 
     // Case 2: Origin "https://evil.com" -> Should be FORBIDDEN
     {
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       io.netty.handler.codec.http3.Http3Headers mockHeaders =
           new io.netty.handler.codec.http3.DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
@@ -701,6 +716,8 @@ public class FramingLayerTest {
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
       mockHeaders.set("origin", "https://evil.com");
+      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
@@ -715,8 +732,6 @@ public class FramingLayerTest {
 
     // Case 3: Origin absent, Authority "localhost:4433" (e.g. backend client) -> Should be ALLOWED
     {
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       io.netty.handler.codec.http3.Http3Headers mockHeaders =
           new io.netty.handler.codec.http3.DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
@@ -724,6 +739,8 @@ public class FramingLayerTest {
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
+      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
@@ -769,18 +786,19 @@ public class FramingLayerTest {
       io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr =
           mock(io.netty.util.Attribute.class);
       when(allowedOriginsAttr.get()).thenReturn(null);
-      when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
+      when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS))
+          .thenReturn(allowedOriginsAttr);
 
       io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
       when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
       // Setup session manager with 1 active session registered
-      WebTransportSessionManager mgr = new WebTransportSessionManager();
       QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
       when(existingStream.streamId()).thenReturn(40L);
       when(existingStream.parent()).thenReturn(mockParent);
       when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
           .thenReturn(mock(io.netty.util.Attribute.class));
+      WebTransportSessionManager mgr = new WebTransportSessionManager();
       mgr.register(existingStream);
 
       io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
@@ -800,11 +818,10 @@ public class FramingLayerTest {
 
       io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
       when(defaultDataAttr.get()).thenReturn(10000L);
-      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(defaultDataAttr);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+          .thenReturn(defaultDataAttr);
 
       // Setup new CONNECT request
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       io.netty.handler.codec.http3.Http3Headers mockHeaders =
           new io.netty.handler.codec.http3.DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
@@ -812,6 +829,8 @@ public class FramingLayerTest {
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
+      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
+          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       // Execute channelRead — this should trigger simultaneous session limit (since 1 session is

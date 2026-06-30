@@ -1,52 +1,66 @@
 package io.github.webtransport4j.example;
 
-import io.github.webtransport4j.api.*;
 import io.github.webtransport4j.api.WebTransportBuffer;
-
+import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.api.WebTransportStream;
 import java.nio.charset.StandardCharsets;
-
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** Default handler for WebTransport paths. */
 public class DefaultPathHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(DefaultPathHandler.class);
 
   @Override
   public void onSessionReady(@NonNull WebTransportSession session) {
-    logger.info("🟢 [DEFAULT HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
+    logger.info(
+        "🟢 [DEFAULT HANDLER] WebTransport Session Ready. Path: {} | Session Stream ID: {}",
+        session.path(),
+        session.getSessionStreamId());
   }
 
   @Override
   public void onSessionClosed(@NonNull WebTransportSession session) {
-    logger.info("🔴 [DEFAULT HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}", session.path(), session.getSessionStreamId());
+    logger.info(
+        "🔴 [DEFAULT HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}",
+        session.path(),
+        session.getSessionStreamId());
   }
 
   @Override
-  public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+  public void onIncomingStream(
+      @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
     boolean isBidi = stream.isBidirectional();
-    logger.info("📥 [DEFAULT HANDLER] New client-initiated stream received. ID: {} | Type: {}", stream.streamId(), (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
+    logger.info(
+        "📥 [DEFAULT HANDLER] New client-initiated stream received. ID: {} | Type: {}",
+        stream.streamId(),
+        (isBidi ? "BIDIRECTIONAL" : "UNIDIRECTIONAL"));
 
     stream.onClose(() -> logger.info("🔒 [DEFAULT HANDLER] Stream {} closed.", stream.streamId()));
-    stream.onError(err -> logger.error("❌ [DEFAULT HANDLER] Stream {} error", stream.streamId(), err));
+    stream.onError(
+        err -> logger.error("❌ [DEFAULT HANDLER] Stream {} error", stream.streamId(), err));
 
-    LengthPrefixedCodec codec =
-    new LengthPrefixedCodec();
+    LengthPrefixedCodec codec = new LengthPrefixedCodec();
     stream.onData(
         codec,
         message -> {
-            System.out.println(
-                "      ["+ stream.streamId() + "] Received data: "+ new String(message, java.nio.charset.StandardCharsets.UTF_8));
+          System.out.println(
+              "      ["
+                  + stream.streamId()
+                  + "] Received data: "
+                  + new String(message, java.nio.charset.StandardCharsets.UTF_8));
 
-            byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
+          byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
 
-stream.write(codec.encode(payload));
-        }
-    );
+          stream.write(codec.encode(payload));
+        });
   }
 
   @Override
-  public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
+  public void onDatagramReceived(
+      @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
     String content = new String(data.readBytes(), java.nio.charset.StandardCharsets.UTF_8);
     logger.info("☄️ [DEFAULT HANDLER] Received Datagram: {}", content);
     String replyText = "DEFAULT ACK DG: " + content;

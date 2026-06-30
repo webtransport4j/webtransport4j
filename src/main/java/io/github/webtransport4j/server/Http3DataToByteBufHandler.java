@@ -7,13 +7,18 @@ import java.util.List;
 import org.jspecify.annotations.NonNull;
 
 /**
+ * Decodes HTTP/3 data frames into ByteBuf instances.
+ *
  * @author https://github.com/sanjomo
  * @date 24/06/26 1:06 pm
  */
 final class Http3DataToByteBufHandler extends MessageToMessageDecoder<Http3DataFrame> {
 
-    @Override
-    protected void decode(@NonNull ChannelHandlerContext ctx, @NonNull Http3DataFrame frame, @NonNull List<Object> out) {
-        out.add(frame.content().retain());
-    }
+  @Override
+  protected void decode(
+      @NonNull ChannelHandlerContext ctx,
+      @NonNull Http3DataFrame frame,
+      @NonNull List<Object> out) {
+    out.add(frame.content().retain());
+  }
 }

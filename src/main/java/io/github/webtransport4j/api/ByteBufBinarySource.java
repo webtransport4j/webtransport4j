@@ -1,47 +1,45 @@
 package io.github.webtransport4j.api;
 
 import io.netty.buffer.ByteBuf;
-import org.jspecify.annotations.NonNull;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
+import org.jspecify.annotations.NonNull;
 
 /**
  * A {@link BinarySource} backed by a Netty {@link ByteBuf}.
- * <p>
- * Reading from this source will advance the reader index of the underlying
- * buffer. The source considers the initial {@link ByteBuf#readableBytes()}
- * as its total size.
+ *
+ * <p>Reading from this source will advance the reader index of the underlying buffer. The source
+ * considers the initial {@link ByteBuf#readableBytes()} as its total size.
  */
 final class ByteBufBinarySource implements BinarySource {
 
-    private final ByteBuf buffer;
-    private final int size;
+  private final ByteBuf buffer;
+  private final int size;
 
-    ByteBufBinarySource(@NonNull ByteBuf buffer) {
-        this.buffer = Objects.requireNonNull(buffer, "buffer must not be null");
-        this.size = buffer.readableBytes();
+  ByteBufBinarySource(@NonNull ByteBuf buffer) {
+    this.buffer = Objects.requireNonNull(buffer, "buffer must not be null");
+    this.size = buffer.readableBytes();
+  }
+
+  @Override
+  public int read(@NonNull ByteBuffer dst) throws IOException {
+    if (!buffer.isReadable()) {
+      return -1;
     }
 
-    @Override
-    public int read(@NonNull ByteBuffer dst) throws IOException {
-        if (!buffer.isReadable()) {
-            return -1;
-        }
+    int bytes = Math.min(dst.remaining(), buffer.readableBytes());
 
-        int bytes = Math.min(dst.remaining(), buffer.readableBytes());
-        
-        int oldLimit = dst.limit();
-        dst.limit(dst.position() + bytes);
-        buffer.readBytes(dst);
-        dst.limit(oldLimit);
-        
-        return bytes;
-    }
+    int oldLimit = dst.limit();
+    dst.limit(dst.position() + bytes);
+    buffer.readBytes(dst);
+    dst.limit(oldLimit);
 
-    @Override
-    public long size() {
-        return size;
-    }
+    return bytes;
+  }
+
+  @Override
+  public long size() {
+    return size;
+  }
 }

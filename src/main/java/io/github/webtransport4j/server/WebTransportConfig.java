@@ -2,102 +2,117 @@ package io.github.webtransport4j.server;
 
 import java.io.InputStream;
 import java.util.Properties;
-
+import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.jspecify.annotations.NonNull;
 
+/** Configuration utility for WebTransport server settings. */
 public class WebTransportConfig {
 
-    private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
 
-    private static final Properties properties = new Properties();
+  private static final Properties properties = new Properties();
 
-    private WebTransportConfig() {
-        throw new UnsupportedOperationException("Utility class cannot be instantiated");
+  private WebTransportConfig() {
+    throw new UnsupportedOperationException("Utility class cannot be instantiated");
+  }
+
+  static {
+    try (InputStream in =
+        WebTransportConfig.class.getClassLoader().getResourceAsStream("webtransport.properties")) {
+      if (in != null) {
+        properties.load(in);
+        logger.info("📡 Loaded default configuration from webtransport.properties");
+      } else {
+        logger.warn("⚠️ webtransport.properties not found in resources. Using fallback defaults.");
+      }
+    } catch (Exception e) {
+      logger.error("❌ Failed to load properties", e);
     }
+  }
 
-    static {
-        try (InputStream in = WebTransportConfig.class.getClassLoader().getResourceAsStream("webtransport.properties")) {
-            if (in != null) {
-                properties.load(in);
-                logger.info("📡 Loaded default configuration from webtransport.properties");
-            } else {
-                logger.warn("⚠️ webtransport.properties not found in resources. Using fallback defaults.");
-            }
-        } catch (Exception e) {
-            logger.error("❌ Failed to load properties", e);
-        }
+  /**
+   * Resolves configuration key with precedence: 1. Java System Property (-Dkey=value) 2.
+   * Environment Variable (ENV_KEY_NAME) 3. properties file default value
+   */
+  public static @Nullable String get(@NonNull String key, @Nullable String defaultValue) {
+    return getVal(key, defaultValue);
+  }
+
+  public static @NonNull String getNonNull(@NonNull String key, @NonNull String defaultValue) {
+    return getVal(key, defaultValue);
+  }
+
+  private static String getVal(String key, String defaultVal) {
+
+    // 1. Check System Properties (-Dserver.port=...)
+    String value = System.getProperty(key);
+    if (value != null) {
+      return value;
     }
-
-    /**
-     * Resolves configuration key with precedence: 1. Java System Property (-Dkey=value) 2.
-     * Environment Variable (ENV_KEY_NAME) 3. properties file default value
-     */
-    public static @Nullable String get(@NonNull String key, @Nullable String defaultValue) {
-        return getVal(key, defaultValue);
+    // 2. Check Environment Variables (SERVER_PORT=...)
+    String envKey = key.toUpperCase().replace('.', '_');
+    value = System.getenv(envKey);
+    if (value != null) {
+      return value;
     }
+    // 3. Fallback to properties file
+    return properties.getProperty(key, defaultVal);
+  }
 
-    public static @NonNull String getNonNull(@NonNull String key, @NonNull String defaultValue) {
-        return getVal(key, defaultValue);
+  private static long evaluateExpression(@NonNull String val) {
+    val = val.trim();
+    if (val.contains("*")) {
+      String[] parts = val.split("\\*");
+      long result = 1;
+      for (String part : parts) {
+        result *= Long.parseLong(part.trim());
+      }
+      return result;
     }
+    return Long.parseLong(val);
+  }
 
-    private static String getVal(String key, String defaultVal){
-
-        // 1. Check System Properties (-Dserver.port=...)
-        String value = System.getProperty(key);
-        if (value != null)
-            return value;
-        // 2. Check Environment Variables (SERVER_PORT=...)
-        String envKey = key.toUpperCase().replace('.', '_');
-        value = System.getenv(envKey);
-        if (value != null)
-            return value;
-        // 3. Fallback to properties file
-        return properties.getProperty(key, defaultVal);
-
+  /** Returns the int. */
+  public static int getInt(@NonNull String key, int defaultValue) {
+    String val = get(key, null);
+    if (val == null) {
+      return defaultValue;
     }
-    private static long evaluateExpression(@NonNull String val) {
-        val = val.trim();
-        if (val.contains("*")) {
-            String[] parts = val.split("\\*");
-            long result = 1;
-            for (String part : parts) {
-                result *= Long.parseLong(part.trim());
-            }
-            return result;
-        }
-        return Long.parseLong(val);
+    try {
+      return (int) evaluateExpression(val);
+    } catch (Exception e) {
+      logger.warn(
+          "⚠️ Failed to parse int value for key '{}': {}. Using default: {}",
+          key,
+          val,
+          defaultValue,
+          e);
+      return defaultValue;
     }
+  }
 
-    public static int getInt(@NonNull String key, int defaultValue) {
-        String val = get(key, null);
-        if (val == null) {
-            return defaultValue;
-        }
-        try {
-            return (int) evaluateExpression(val);
-        } catch (Exception e) {
-            logger.warn("⚠️ Failed to parse int value for key '{}': {}. Using default: {}", key, val, defaultValue, e);
-            return defaultValue;
-        }
+  /** Returns the long. */
+  public static long getLong(@NonNull String key, long defaultValue) {
+    String val = get(key, null);
+    if (val == null) {
+      return defaultValue;
     }
+    try {
+      return evaluateExpression(val);
+    } catch (Exception e) {
+      logger.warn(
+          "⚠️ Failed to parse long value for key '{}': {}. Using default: {}",
+          key,
+          val,
+          defaultValue,
+          e);
+      return defaultValue;
+    }
+  }
 
-    public static long getLong(@NonNull String key, long defaultValue) {
-        String val = get(key, null);
-        if (val == null) {
-            return defaultValue;
-        }
-        try {
-            return evaluateExpression(val);
-        } catch (Exception e) {
-            logger.warn("⚠️ Failed to parse long value for key '{}': {}. Using default: {}", key, val, defaultValue, e);
-            return defaultValue;
-        }
-    }
-
-    public static boolean getBoolean(@NonNull String key, boolean defaultValue) {
-        return Boolean.parseBoolean(get(key, String.valueOf(defaultValue)));
-    }
+  public static boolean getBoolean(@NonNull String key, boolean defaultValue) {
+    return Boolean.parseBoolean(get(key, String.valueOf(defaultValue)));
+  }
 }

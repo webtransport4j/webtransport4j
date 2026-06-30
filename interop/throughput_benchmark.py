@@ -233,11 +233,11 @@ async def main():
         try:
             if test_num is None or test_num == 1:
                 # 8 concurrent streams for throughput stress
-                await run_stream_throughput_test(client, url, duration_secs=60.0, num_streams=8)
+                await run_stream_throughput_test(client, url, duration_secs=6.0, num_streams=8)
                 print()
             if test_num is None or test_num == 2:
                 # 20 concurrent workers blasting datagrams
-                await run_datagram_ops_test(client, url, duration_secs=60.0, concurrency=20)
+                await run_datagram_ops_test(client, url, duration_secs=6.0, concurrency=20)
                 print()
             if test_num is None or test_num == 3:
                 # 100 concurrent streams doing ping-pongs

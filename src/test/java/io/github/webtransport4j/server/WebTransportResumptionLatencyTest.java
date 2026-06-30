@@ -1,32 +1,51 @@
 package io.github.webtransport4j.server;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.assertTrue;
 
-import io.github.webtransport4j.api.*;
-import static org.junit.Assert.*;
-
+import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3Headers;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3ClientConnectionHandler;
+import io.netty.handler.codec.http3.Http3Headers;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicChannelBootstrap;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicSslSessionContext;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.concurrent.Future;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+/** Test cases for web transport resumption latency. */
 @SuppressWarnings("deprecation")
 public class WebTransportResumptionLatencyTest {
-    private static final Logger log = LoggerFactory.getLogger(WebTransportResumptionLatencyTest.class);
-
+  private static final Logger log =
+      LoggerFactory.getLogger(WebTransportResumptionLatencyTest.class);
 
   private NioEventLoopGroup serverGroup;
   private NioEventLoopGroup clientGroup;
@@ -34,6 +53,7 @@ public class WebTransportResumptionLatencyTest {
   private int port;
   private WebTransportServer webTransportServer;
 
+  /** Sets up test fixtures. */
   @Before
   public void setUp() throws Exception {
     webTransportServer = new WebTransportServer();
@@ -50,7 +70,8 @@ public class WebTransportResumptionLatencyTest {
     clientGroup = new NioEventLoopGroup(1);
 
     // Build Server SSL Context
-    io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate();
+    io.netty.handler.ssl.util.SelfSignedCertificate ssc =
+        new io.netty.handler.ssl.util.SelfSignedCertificate();
     QuicSslContext serverSslContext =
         QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
             .earlyData(true)
@@ -61,12 +82,13 @@ public class WebTransportResumptionLatencyTest {
 
     // Enable session ticket key on server side
     if (serverSslContext.sessionContext() instanceof QuicSslSessionContext) {
-      SslSessionTicketKey ticketKey = new SslSessionTicketKey(
-          "1234567890123456".getBytes(), "1234567890123456".getBytes(), "1234567890123456".getBytes()
-      );
-      ((QuicSslSessionContext) serverSslContext.sessionContext()).setTicketKeys(
-          new SslSessionTicketKey[] { ticketKey }
-      );
+      SslSessionTicketKey ticketKey =
+          new SslSessionTicketKey(
+              "1234567890123456".getBytes(),
+              "1234567890123456".getBytes(),
+              "1234567890123456".getBytes());
+      ((QuicSslSessionContext) serverSslContext.sessionContext())
+          .setTicketKeys(new SslSessionTicketKey[] {ticketKey});
     }
 
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
@@ -92,7 +114,8 @@ public class WebTransportResumptionLatencyTest {
                   @Override
                   protected void initChannel(QuicChannel ch) {
                     ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(webTransportServer);
-                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(new WebTransportSessionManager());
+                    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
+                        .set(new WebTransportSessionManager());
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(10L);
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
                     ch.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).set(100000L);
@@ -100,18 +123,19 @@ public class WebTransportResumptionLatencyTest {
                     ch.pipeline().addLast(new WebTransportDatagramDecoder());
                     ch.pipeline().addLast(new WebTransportCapsuleHandler());
                     ch.pipeline().addLast(new DefaultMessageDispatcher());
-                    ch.pipeline().addLast(
-                        new Http3ServerConnectionHandler(
-                            new WebTransportStreamChannelInitializer(),
-                            new ChannelInboundHandlerAdapter() {
-                              @Override
-                              public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                                io.netty.util.ReferenceCountUtil.release(msg);
-                              }
-                            },
-                            (streamType) -> null,
-                            new DefaultHttp3SettingsFrame(serverSettings),
-                            true));
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ServerConnectionHandler(
+                                new WebTransportStreamChannelInitializer(),
+                                new ChannelInboundHandlerAdapter() {
+                                  @Override
+                                  public void channelRead(ChannelHandlerContext ctx, Object msg) {
+                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                  }
+                                },
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(serverSettings),
+                                true));
                   }
                 })
             .build();
@@ -128,6 +152,7 @@ public class WebTransportResumptionLatencyTest {
     port = ((InetSocketAddress) serverChannel.localAddress()).getPort();
   }
 
+  /** Cleans up test fixtures. */
   @After
   public void tearDown() throws Exception {
     if (serverChannel != null) {
@@ -183,17 +208,18 @@ public class WebTransportResumptionLatencyTest {
                 new ChannelInitializer<QuicChannel>() {
                   @Override
                   protected void initChannel(QuicChannel ch) {
-                    ch.pipeline().addLast(
-                        new Http3ClientConnectionHandler(
-                            new ChannelInitializer<QuicStreamChannel>() {
-                              @Override
-                              protected void initChannel(QuicStreamChannel stream) {}
-                            },
-                            (streamType) -> null,
-                            (streamType) -> null,
-                            new DefaultHttp3SettingsFrame(clientSettings),
-                            false,
-                            (id, value) -> true));
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                  @Override
+                                  protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true));
                   }
                 })
             .remoteAddress(new InetSocketAddress("127.0.0.1", port));
@@ -212,24 +238,32 @@ public class WebTransportResumptionLatencyTest {
             new ChannelInitializer<QuicStreamChannel>() {
               @Override
               protected void initChannel(QuicStreamChannel ch) {
-                ch.pipeline().addLast(
-                    new SimpleChannelInboundHandler<Object>() {
-                      @Override
-                      protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                        if (msg instanceof Http3HeadersFrame) {
-                          if ("200".equals(((Http3HeadersFrame) msg).headers().status().toString())) {
-                            latch1.countDown();
+                ch.pipeline()
+                    .addLast(
+                        new SimpleChannelInboundHandler<Object>() {
+                          @Override
+                          protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                            if (msg instanceof Http3HeadersFrame) {
+                              if ("200"
+                                  .equals(
+                                      ((Http3HeadersFrame) msg).headers().status().toString())) {
+                                latch1.countDown();
+                              }
+                            }
                           }
-                        }
-                      }
-                    });
+                        });
               }
             })
         .addListener(
             (Future<QuicStreamChannel> f) -> {
               if (f.isSuccess()) {
                 Http3Headers headers = new DefaultHttp3Headers();
-                headers.method("CONNECT").scheme("https").path("/test-resumption").authority("localhost").set(":protocol", "webtransport");
+                headers
+                    .method("CONNECT")
+                    .scheme("https")
+                    .path("/test-resumption")
+                    .authority("localhost")
+                    .set(":protocol", "webtransport");
                 f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
               }
             });
@@ -274,17 +308,18 @@ public class WebTransportResumptionLatencyTest {
                 new ChannelInitializer<QuicChannel>() {
                   @Override
                   protected void initChannel(QuicChannel ch) {
-                    ch.pipeline().addLast(
-                        new Http3ClientConnectionHandler(
-                            new ChannelInitializer<QuicStreamChannel>() {
-                              @Override
-                              protected void initChannel(QuicStreamChannel stream) {}
-                            },
-                            (streamType) -> null,
-                            (streamType) -> null,
-                            new DefaultHttp3SettingsFrame(clientSettings),
-                            false,
-                            (id, value) -> true));
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ClientConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                  @Override
+                                  protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                (streamType) -> null,
+                                (streamType) -> null,
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true));
                   }
                 })
             .remoteAddress(new InetSocketAddress("127.0.0.1", port));
@@ -303,24 +338,32 @@ public class WebTransportResumptionLatencyTest {
             new ChannelInitializer<QuicStreamChannel>() {
               @Override
               protected void initChannel(QuicStreamChannel ch) {
-                ch.pipeline().addLast(
-                    new SimpleChannelInboundHandler<Object>() {
-                      @Override
-                      protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                        if (msg instanceof Http3HeadersFrame) {
-                          if ("200".equals(((Http3HeadersFrame) msg).headers().status().toString())) {
-                            latch2.countDown();
+                ch.pipeline()
+                    .addLast(
+                        new SimpleChannelInboundHandler<Object>() {
+                          @Override
+                          protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                            if (msg instanceof Http3HeadersFrame) {
+                              if ("200"
+                                  .equals(
+                                      ((Http3HeadersFrame) msg).headers().status().toString())) {
+                                latch2.countDown();
+                              }
+                            }
                           }
-                        }
-                      }
-                    });
+                        });
               }
             })
         .addListener(
             (Future<QuicStreamChannel> f) -> {
               if (f.getNow() != null) {
                 Http3Headers headers = new DefaultHttp3Headers();
-                headers.method("CONNECT").scheme("https").path("/test-resumption").authority("localhost").set(":protocol", "webtransport");
+                headers
+                    .method("CONNECT")
+                    .scheme("https")
+                    .path("/test-resumption")
+                    .authority("localhost")
+                    .set(":protocol", "webtransport");
                 f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
               }
             });
@@ -332,12 +375,19 @@ public class WebTransportResumptionLatencyTest {
     java.lang.reflect.Method m = clientEngine.getClass().getDeclaredMethod("isSessionReused");
     m.setAccessible(true);
     boolean clientResumed = (Boolean) m.invoke(clientEngine);
-    assertTrue("Client Connection 2 SHOULD be resumed (QUIC Level Session Resumption)", clientResumed);
+    assertTrue(
+        "Client Connection 2 SHOULD be resumed (QUIC Level Session Resumption)", clientResumed);
 
     log.info("🚀 RESUMPTION VERIFIED SUCCESSFULLY!");
     double speedup = durationFullMs / durationResumedMs;
     log.info("📊 Speedup: " + speedup + "x faster");
-    assertTrue("Resumed connection should be faster than a full handshake (Full: " + durationFullMs + "ms, Resumed: " + durationResumedMs + "ms)", durationFullMs > durationResumedMs);
+    assertTrue(
+        "Resumed connection should be faster than a full handshake (Full: "
+            + durationFullMs
+            + "ms, Resumed: "
+            + durationResumedMs
+            + "ms)",
+        durationFullMs > durationResumedMs);
 
     quicClient2.close().sync();
     clientChannel2.close().sync();

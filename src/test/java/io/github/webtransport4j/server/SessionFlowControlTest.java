@@ -1,10 +1,14 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import java.io.IOException;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -12,8 +16,10 @@ import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
+import java.io.IOException;
 import org.junit.Test;
 
+/** Test cases for session flow control. */
 public class SessionFlowControlTest {
 
   @SuppressWarnings("unchecked")
@@ -25,7 +31,6 @@ public class SessionFlowControlTest {
 
   @Test
   public void testReceiveMaxDataCapsuleUpdatesPeerLimit() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -60,7 +65,8 @@ public class SessionFlowControlTest {
         .thenReturn(uniLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -73,6 +79,7 @@ public class SessionFlowControlTest {
     WebTransportUtils.writeVarInt(payload, 2000);
     WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D3DL, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: Peer max data updated
@@ -82,7 +89,6 @@ public class SessionFlowControlTest {
 
   @Test
   public void testReceiveSmallerMaxDataCapsuleClosesSession() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -118,7 +124,8 @@ public class SessionFlowControlTest {
         .thenReturn(uniLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -127,6 +134,7 @@ public class SessionFlowControlTest {
     WebTransportUtils.writeVarInt(payload, 500);
     WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D3DL, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: Connect stream shutdown with WT_FLOW_CONTROL_ERROR (0x045d4487)
@@ -136,7 +144,6 @@ public class SessionFlowControlTest {
 
   @Test
   public void testIncomingDataExceedingLimitClosesSession() throws Exception {
-    RawWebTransportHandler handler = new RawWebTransportHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -173,7 +180,8 @@ public class SessionFlowControlTest {
         .thenReturn(uniLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -184,10 +192,12 @@ public class SessionFlowControlTest {
 
     when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(streamTypeAttr);
-    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
+        .thenReturn(serverInitAttr);
 
     // Send 50 bytes (below limit of 100)
     ByteBuf data1 = Unpooled.copiedBuffer(new byte[50]);
+    RawWebTransportHandler handler = new RawWebTransportHandler();
     handler.channelRead(mockCtx, data1);
     verify(mockCtx).fireChannelRead(data1);
 
@@ -204,7 +214,6 @@ public class SessionFlowControlTest {
 
   @Test
   public void testOutgoingDataExceedingLimitFailsImmediately() throws Exception {
-    RawWebTransportHandler handler = new RawWebTransportHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -246,7 +255,8 @@ public class SessionFlowControlTest {
         .thenReturn(uniLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -255,11 +265,13 @@ public class SessionFlowControlTest {
     Attribute<Boolean> serverInitAttr = mockAttribute(false);
 
     when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
-    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(serverInitAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
+        .thenReturn(serverInitAttr);
 
     // Write 60 bytes (below limit of 100)
     ChannelPromise promise1 = mock(ChannelPromise.class);
     ByteBuf data1 = Unpooled.copiedBuffer(new byte[60]);
+    RawWebTransportHandler handler = new RawWebTransportHandler();
     handler.write(mockCtx, data1, promise1);
     verify(mockCtx).write(data1, promise1);
 
@@ -280,7 +292,6 @@ public class SessionFlowControlTest {
 
   @Test
   public void testReceiveDataBlockedExtendsLimit() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -315,7 +326,8 @@ public class SessionFlowControlTest {
         .thenReturn(uniLimitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(localDataLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)).thenReturn(peerDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -328,6 +340,7 @@ public class SessionFlowControlTest {
     WebTransportUtils.writeVarInt(payload, 1000);
     WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D41L, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: settingsMaxData extended from 1000 by the configured extend amount

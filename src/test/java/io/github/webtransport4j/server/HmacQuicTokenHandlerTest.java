@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -8,6 +9,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import org.junit.Test;
 
+/** Test cases for hmac quic token handler. */
 public class HmacQuicTokenHandlerTest {
 
   @Test
@@ -16,16 +18,16 @@ public class HmacQuicTokenHandlerTest {
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
     dcid.writeLong(12345L);
-    
+
     InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address));
-    
+
     // Validate the token
     int result = handler.validateToken(out, address);
     assertTrue(result >= 0);
     assertEquals(40, result); // 40 bytes header (dcid starts at offset 40)
-    
+
     out.release();
     dcid.release();
   }
@@ -35,16 +37,16 @@ public class HmacQuicTokenHandlerTest {
     HmacQuicTokenHandler handler = new HmacQuicTokenHandler();
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
-    
+
     InetSocketAddress address1 = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
     InetSocketAddress address2 = new InetSocketAddress(InetAddress.getByName("192.168.1.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address1));
-    
+
     // Validate with address2 - should fail
     int result = handler.validateToken(out, address2);
     assertEquals(-1, result);
-    
+
     out.release();
     dcid.release();
   }
@@ -56,15 +58,15 @@ public class HmacQuicTokenHandlerTest {
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
     InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address));
-    
+
     // Wait for it to expire
     Thread.sleep(100L);
-    
+
     int result = handler.validateToken(out, address);
     assertEquals(-1, result);
-    
+
     out.release();
     dcid.release();
   }
@@ -75,16 +77,16 @@ public class HmacQuicTokenHandlerTest {
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
     InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address));
-    
+
     // Modify one byte of the signature (which starts at index 8)
     byte b = out.getByte(15);
     out.setByte(15, b ^ 1);
-    
+
     int result = handler.validateToken(out, address);
     assertEquals(-1, result);
-    
+
     out.release();
     dcid.release();
   }
@@ -95,16 +97,16 @@ public class HmacQuicTokenHandlerTest {
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
     InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address));
-    
+
     // Modify one byte of the timestamp (starts at index 0)
     byte b = out.getByte(2);
     out.setByte(2, b ^ 1);
-    
+
     int result = handler.validateToken(out, address);
     assertEquals(-1, result);
-    
+
     out.release();
     dcid.release();
   }
@@ -115,18 +117,18 @@ public class HmacQuicTokenHandlerTest {
     ByteBuf out = Unpooled.buffer();
     ByteBuf dcid = Unpooled.buffer();
     InetSocketAddress address = new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 4433);
-    
+
     assertTrue(handler.writeToken(out, dcid, address));
-    
+
     int resultImmediate = handler.validateToken(out, address);
     assertTrue(resultImmediate >= 0);
-    
+
     Thread.sleep(100L);
-    
+
     out.readerIndex(0);
     int resultExpired = handler.validateToken(out, address);
     assertEquals(-1, resultExpired);
-    
+
     out.release();
     dcid.release();
   }

@@ -1,9 +1,18 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -15,6 +24,7 @@ import io.netty.util.Attribute;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 
+/** Test cases for stream buffering. */
 public class StreamBufferingTest {
 
   @SuppressWarnings("unchecked")
@@ -224,30 +234,32 @@ public class StreamBufferingTest {
     int totalBytes = data.readableBytes();
     assertTrue(totalBytes > 4);
 
-    ByteBuf piece1 = data.readRetainedSlice(1); // 1st byte of streamType
-    ByteBuf piece2 = data.readRetainedSlice(1); // 1st byte of sessionId
-    ByteBuf piece3 = data.readRetainedSlice(totalBytes - 2); // rest of sessionId + payload
-
     RawWebTransportHandler handler = new RawWebTransportHandler();
 
     // Send first piece
+    ByteBuf piece1 = data.readRetainedSlice(1); // 1st byte of streamType
     handler.channelRead(mockCtx, piece1);
     // Verify no fireChannelRead happened yet
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Send second piece
+    ByteBuf piece2 = data.readRetainedSlice(1); // 1st byte of sessionId
     handler.channelRead(mockCtx, piece2);
     // Verify no fireChannelRead happened yet
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Mock capturing fired object
     final ByteBuf[] firedPayload = new ByteBuf[1];
-    doAnswer(invocation -> {
-      firedPayload[0] = invocation.getArgument(0);
-      return null;
-    }).when(mockCtx).fireChannelRead(any());
+    doAnswer(
+            invocation -> {
+              firedPayload[0] = invocation.getArgument(0);
+              return null;
+            })
+        .when(mockCtx)
+        .fireChannelRead(any());
 
     // Send third piece (completes headers + delivers payload)
+    ByteBuf piece3 = data.readRetainedSlice(totalBytes - 2); // rest of sessionId + payload
     handler.channelRead(mockCtx, piece3);
 
     // Verify fireChannelRead was called once
@@ -308,7 +320,8 @@ public class StreamBufferingTest {
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(typeAttr);
     when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
-    // 3. Prepare data: Stream Type 0x41 (Bidi, 1 byte) + Session ID 50 (fits in 1 byte) + Payload "Hi"
+    // 3. Prepare data: Stream Type 0x41 (Bidi, 1 byte) + Session ID 50 (fits in 1 byte) + Payload
+    // "Hi"
     ByteBuf data = Unpooled.buffer();
     WebTransportUtils.writeVarInt(data, 0x41);
     WebTransportUtils.writeVarInt(data, 50);
@@ -318,39 +331,42 @@ public class StreamBufferingTest {
     int totalBytes = data.readableBytes();
     assertEquals(5, totalBytes);
 
-    ByteBuf p1 = data.readRetainedSlice(1); // 0x41 Part 1
-    ByteBuf p2 = data.readRetainedSlice(1); // 0x41 Part 2
-    ByteBuf p3 = data.readRetainedSlice(1); // 0x32 (Session ID)
-    ByteBuf p4 = data.readRetainedSlice(1); // 'H' (Payload)
-    ByteBuf p5 = data.readRetainedSlice(1); // 'i' (Payload)
-
     RawWebTransportHandler handler = new RawWebTransportHandler();
 
     // Feed piece 1 (Stream Type Part 1)
+    ByteBuf p1 = data.readRetainedSlice(1); // 0x41 Part 1
     handler.channelRead(mockCtx, p1);
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Feed piece 2 (Stream Type Part 2)
+    ByteBuf p2 = data.readRetainedSlice(1); // 0x41 Part 2
     handler.channelRead(mockCtx, p2);
     verify(mockCtx, never()).fireChannelRead(any());
 
-    // Feed piece 3 (Session ID) -> Completes headers, but no payload is present in this write, so no fire yet
+    // Feed piece 3 (Session ID) -> Completes headers, but no payload is present in this write, so
+    // no fire yet
+    ByteBuf p3 = data.readRetainedSlice(1); // 0x32 (Session ID)
     handler.channelRead(mockCtx, p3);
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Mock capturing fired object
     final java.util.List<ByteBuf> firedPayloads = new java.util.ArrayList<>();
-    doAnswer(invocation -> {
-      firedPayloads.add(invocation.getArgument(0));
-      return null;
-    }).when(mockCtx).fireChannelRead(any());
+    doAnswer(
+            invocation -> {
+              firedPayloads.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(mockCtx)
+        .fireChannelRead(any());
 
     // Feed piece 4 ('H') -> Fired immediately because headers are already consumed
+    ByteBuf p4 = data.readRetainedSlice(1); // 'H' (Payload)
     handler.channelRead(mockCtx, p4);
     assertEquals(1, firedPayloads.size());
     assertEquals("H", firedPayloads.get(0).toString(StandardCharsets.UTF_8));
 
     // Feed piece 5 ('i') -> Fired immediately
+    ByteBuf p5 = data.readRetainedSlice(1); // 'i' (Payload)
     handler.channelRead(mockCtx, p5);
     assertEquals(2, firedPayloads.size());
     assertEquals("i", firedPayloads.get(1).toString(StandardCharsets.UTF_8));
@@ -416,47 +432,50 @@ public class StreamBufferingTest {
     WebTransportUtils.writeVarInt(data, 100000L);
     data.writeBytes("World".getBytes(StandardCharsets.UTF_8));
 
-    // 0x41 (65) is written as 2 bytes, 100000 is written as 4 bytes, "World" is 5 bytes. Total = 11 bytes.
+    // 0x41 (65) is written as 2 bytes, 100000 is written as 4 bytes, "World" is 5 bytes. Total = 11
+    // bytes.
     int totalBytes = data.readableBytes();
     assertEquals(11, totalBytes);
-
-    ByteBuf piece1 = data.readRetainedSlice(1); // Type part 1
-    ByteBuf piece2 = data.readRetainedSlice(1); // Type part 2
-    ByteBuf piece3 = data.readRetainedSlice(1); // Session ID byte 1
-    ByteBuf piece4 = data.readRetainedSlice(1); // Session ID byte 2
-    ByteBuf piece5 = data.readRetainedSlice(1); // Session ID byte 3
-    ByteBuf piece6 = data.readRetainedSlice(1); // Session ID byte 4
-    ByteBuf piece7 = data.readRetainedSlice(5); // Payload "World"
 
     RawWebTransportHandler handler = new RawWebTransportHandler();
 
     // Feed pieces 1 to 6 one by one
+    ByteBuf piece1 = data.readRetainedSlice(1); // Type part 1
     handler.channelRead(mockCtx, piece1);
     verify(mockCtx, never()).fireChannelRead(any());
 
+    ByteBuf piece2 = data.readRetainedSlice(1); // Type part 2
     handler.channelRead(mockCtx, piece2);
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Mock capturing fired object
     final ByteBuf[] firedPayload = new ByteBuf[1];
-    doAnswer(invocation -> {
-      firedPayload[0] = invocation.getArgument(0);
-      return null;
-    }).when(mockCtx).fireChannelRead(any());
+    doAnswer(
+            invocation -> {
+              firedPayload[0] = invocation.getArgument(0);
+              return null;
+            })
+        .when(mockCtx)
+        .fireChannelRead(any());
 
+    ByteBuf piece3 = data.readRetainedSlice(1); // Session ID byte 1
     handler.channelRead(mockCtx, piece3);
     verify(mockCtx, never()).fireChannelRead(any());
 
+    ByteBuf piece4 = data.readRetainedSlice(1); // Session ID byte 2
     handler.channelRead(mockCtx, piece4);
     verify(mockCtx, never()).fireChannelRead(any());
 
+    ByteBuf piece5 = data.readRetainedSlice(1); // Session ID byte 3
     handler.channelRead(mockCtx, piece5);
     verify(mockCtx, never()).fireChannelRead(any());
 
+    ByteBuf piece6 = data.readRetainedSlice(1); // Session ID byte 4
     handler.channelRead(mockCtx, piece6);
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Feed piece 7 (completes header + has remaining payload "World" in the same write)
+    ByteBuf piece7 = data.readRetainedSlice(5); // Payload "World"
     handler.channelRead(mockCtx, piece7);
 
     // Verify payload is fired

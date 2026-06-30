@@ -1,13 +1,17 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+/** Test cases for web transport config. */
 public class WebTransportConfigTest {
-
+  /** Cleanup. */
   @Before
   @After
   public void cleanup() {
@@ -95,15 +99,21 @@ public class WebTransportConfigTest {
 
   @Test
   public void testTokenHandlerProperties() {
-    System.setProperty("webtransport4j.quic.token.handler.hmac.key", "0123456789abcdef0123456789abcdef");
+    System.setProperty(
+        "webtransport4j.quic.token.handler.hmac.key", "0123456789abcdef0123456789abcdef");
     System.setProperty("webtransport4j.quic.token.handler.hmac.expiration.ms", "30000");
     System.setProperty("webtransport4j.quic.early.data.enabled", "true");
     System.setProperty("webtransport4j.ssl.session.timeout.seconds", "86400");
     System.setProperty("webtransport4j.ssl.session.cache.size", "20480");
 
-    assertEquals("0123456789abcdef0123456789abcdef", WebTransportConfig.get("webtransport4j.quic.token.handler.hmac.key", null));
-    assertEquals(30000L, WebTransportConfig.getLong("webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L));
-    assertEquals(86400L, WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L));
+    assertEquals(
+        "0123456789abcdef0123456789abcdef",
+        WebTransportConfig.get("webtransport4j.quic.token.handler.hmac.key", null));
+    assertEquals(
+        30000L,
+        WebTransportConfig.getLong("webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L));
+    assertEquals(
+        86400L, WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L));
     assertEquals(20480L, WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L));
   }
 

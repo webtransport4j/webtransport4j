@@ -1,154 +1,129 @@
 package io.github.webtransport4j.example;
 
-import io.github.webtransport4j.server.WebTransportUtils;
 import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import org.jspecify.annotations.NonNull;
-
 import java.util.function.Consumer;
+import org.jspecify.annotations.NonNull;
 
 /**
  * A simple length-prefixed framing codec using QUIC variable-length integer encoding.
- * <p>
- * This encoding saves bandwidth by compressing the frame length prefix into 1, 2, 4, 
- * or 8 bytes depending on the payload size. The first two bits of the encoded integer 
- * determine its total byte length:
+ *
+ * <p>This encoding saves bandwidth by compressing the frame length prefix into 1, 2, 4, or 8 bytes
+ * depending on the payload size. The first two bits of the encoded integer determine its total byte
+ * length:
+ *
  * <ul>
- *   <li><b>00</b>: 1 byte  (Payloads up to 63 bytes)</li>
- *   <li><b>01</b>: 2 bytes (Payloads up to 16,383 bytes)</li>
- *   <li><b>10</b>: 4 bytes (Payloads up to 1,073,741,823 bytes)</li>
- *   <li><b>11</b>: 8 bytes (Payloads up to 4,611,686,018,427,387,903 bytes)</li>
+ *   <li><b>00</b>: 1 byte (Payloads up to 63 bytes)
+ *   <li><b>01</b>: 2 bytes (Payloads up to 16,383 bytes)
+ *   <li><b>10</b>: 4 bytes (Payloads up to 1,073,741,823 bytes)
+ *   <li><b>11</b>: 8 bytes (Payloads up to 4,611,686,018,427,387,903 bytes)
  * </ul>
  *
- * Frame format:
- * +--------------+-------------------+
- * | QUIC Var Int |     Payload       |
- * +--------------+-------------------+
- * | Length (N)   | N bytes           |
+ * <p>Frame format: +--------------+-------------------+ | QUIC Var Int | Payload |
+ * +--------------+-------------------+ | Length (N) | N bytes |
  * +--------------+-------------------+
  */
-public final class LengthPrefixedCodec
-        implements StreamCodec<byte[]> {
+public final class LengthPrefixedCodec implements StreamCodec<byte[]> {
 
-    /**
-     * Default maximum frame size (16 MiB).
-     */
-    public static final int DEFAULT_MAX_FRAME_SIZE =
-            16 * 1024 * 1024;
+  /** Default maximum frame size (16 MiB). */
+  public static final int DEFAULT_MAX_FRAME_SIZE = 16 * 1024 * 1024;
 
-    /**
-     * Maximum allowed payload size.
-     */
-    private final int maxFrameSize;
+  /** Maximum allowed payload size. */
+  private final int maxFrameSize;
 
-    /**
-     * Accumulates fragmented incoming bytes until complete
-     * frames are available.
-     */
-    private final ByteBuf accumulator;
+  /** Accumulates fragmented incoming bytes until complete frames are available. */
+  private final ByteBuf accumulator;
 
-    /**
-     * Creates a codec using the default maximum frame size.
-     */
-    public LengthPrefixedCodec() {
-        this(DEFAULT_MAX_FRAME_SIZE);
+  /** Creates a codec using the default maximum frame size. */
+  public LengthPrefixedCodec() {
+    this(DEFAULT_MAX_FRAME_SIZE);
+  }
+
+  /**
+   * Creates a codec with a custom maximum frame size.
+   *
+   * @param maxFrameSize maximum payload size in bytes
+   */
+  public LengthPrefixedCodec(int maxFrameSize) {
+
+    if (maxFrameSize <= 0) {
+      throw new IllegalArgumentException("maxFrameSize must be greater than zero");
     }
 
-    /**
-     * Creates a codec with a custom maximum frame size.
-     *
-     * @param maxFrameSize maximum payload size in bytes
-     */
-    public LengthPrefixedCodec(int maxFrameSize) {
+    this.maxFrameSize = maxFrameSize;
+    this.accumulator = Unpooled.buffer();
+  }
 
-        if (maxFrameSize <= 0) {
-            throw new IllegalArgumentException(
-                    "maxFrameSize must be greater than zero");
-        }
+  /** Returns the configured maximum frame size. */
+  public int maxFrameSize() {
+    return maxFrameSize;
+  }
 
-        this.maxFrameSize = maxFrameSize;
-        this.accumulator = Unpooled.buffer();
+  @Override
+  public @NonNull WebTransportBuffer encode(byte @NonNull [] message) {
+
+    int length = message.length;
+
+    if (length > maxFrameSize) {
+      throw new IllegalArgumentException(
+          "Frame size " + length + " exceeds configured maximum of " + maxFrameSize + " bytes");
     }
 
-    /**
-     * Returns the configured maximum frame size.
-     */
-    public int maxFrameSize() {
-        return maxFrameSize;
+    ByteBuf out = Unpooled.buffer(8 + length, 8 + length);
+
+    WebTransportUtils.writeVarInt(out, length);
+
+    out.writeBytes(message);
+
+    return new DefaultNettyWebTransportBuffer(out);
+  }
+
+  @Override
+  public void decode(@NonNull WebTransportBuffer incoming, @NonNull Consumer<byte[]> consumer) {
+
+    accumulator.writeBytes(incoming.nioBuffer());
+
+    while (true) {
+
+      if (!accumulator.isReadable()) {
+        return;
+      }
+
+      accumulator.markReaderIndex();
+
+      long lengthLong = WebTransportUtils.readVariableLengthInt(accumulator);
+
+      if (lengthLong == -1) {
+        accumulator.resetReaderIndex();
+        return;
+      }
+
+      if (lengthLong < 0 || lengthLong > maxFrameSize) {
+        throw new IllegalArgumentException(
+            "Invalid frame size: " + lengthLong + " (maximum " + maxFrameSize + " bytes)");
+      }
+
+      int length = (int) lengthLong;
+
+      if (accumulator.readableBytes() < length) {
+        accumulator.resetReaderIndex();
+        return;
+      }
+
+      byte[] payload = new byte[length];
+      accumulator.readBytes(payload);
+      consumer.accept(payload);
     }
+  }
 
-    @Override
-    public @NonNull WebTransportBuffer encode(byte @NonNull [] message) {
+  @Override
+  public void close() {
 
-        int length = message.length;
-
-        if (length > maxFrameSize) {
-            throw new IllegalArgumentException(
-                    "Frame size " + length
-                            + " exceeds configured maximum of "
-                            + maxFrameSize + " bytes");
-        }
-
-        ByteBuf out = Unpooled.buffer(8 + length, 8 + length);
-
-        WebTransportUtils.writeVarInt(out, length);
-
-        out.writeBytes(message);
-
-        return new DefaultNettyWebTransportBuffer(out);
+    if (accumulator.refCnt() > 0) {
+      accumulator.release();
     }
-
-    @Override
-    public void decode(
-            @NonNull WebTransportBuffer incoming,
-            @NonNull Consumer<byte[]> consumer) {
-
-        accumulator.writeBytes(incoming.nioBuffer());
-
-        while (true) {
-
-            if (!accumulator.isReadable()) {
-                return;
-            }
-
-            accumulator.markReaderIndex();
-
-            long lengthLong = WebTransportUtils.readVariableLengthInt(accumulator);
-            
-            if (lengthLong == -1) {
-                accumulator.resetReaderIndex();
-                return;
-            }
-
-            if (lengthLong < 0 || lengthLong > maxFrameSize) {
-                throw new IllegalArgumentException(
-                        "Invalid frame size: "
-                                + lengthLong
-                                + " (maximum "
-                                + maxFrameSize
-                                + " bytes)");
-            }
-            
-            int length = (int) lengthLong;
-
-            if (accumulator.readableBytes() < length) {
-                accumulator.resetReaderIndex();
-                return;
-            }
-
-            byte[] payload = new byte[length];
-            accumulator.readBytes(payload);
-            consumer.accept(payload);
-        }
-    }
-
-    @Override
-    public void close() {
-
-        if (accumulator.refCnt() > 0) {
-            accumulator.release();
-        }
-    }
+  }
 }

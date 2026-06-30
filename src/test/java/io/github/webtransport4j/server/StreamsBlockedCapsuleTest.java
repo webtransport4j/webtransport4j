@@ -1,9 +1,18 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.*;
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -13,12 +22,12 @@ import io.netty.util.Attribute;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
+/** Test cases for streams blocked capsule. */
 public class StreamsBlockedCapsuleTest {
 
   @SuppressWarnings("unchecked")
   @Test
   public void testBidiStreamsBlockedExtendsLimit() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -35,11 +44,13 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 100L) with initial limits (maxStreamsUni = 10, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
@@ -49,8 +60,10 @@ public class StreamsBlockedCapsuleTest {
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(5L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(limitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
@@ -69,6 +82,7 @@ public class StreamsBlockedCapsuleTest {
     WebTransportUtils.writeVarInt(payload, 10);
     WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D43L, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: New limit = 10 (blocked max) + 3 (remaining allowed) = 13
@@ -86,7 +100,6 @@ public class StreamsBlockedCapsuleTest {
   @SuppressWarnings("unchecked")
   @Test
   public void testUniStreamsBlockedExtendsLimit() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -103,11 +116,13 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 200L) with initial limits (maxStreamsUni = 8, maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     when(mockConnectStream.streamId()).thenReturn(200L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
@@ -124,7 +139,8 @@ public class StreamsBlockedCapsuleTest {
     when(bidiLimitAttr.get()).thenReturn(5L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(bidiLimitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(bidiLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(bidiLimitAttr);
 
     mgr.register(mockConnectStream);
 
@@ -143,6 +159,7 @@ public class StreamsBlockedCapsuleTest {
     WebTransportUtils.writeVarInt(payload, 20);
     WebTransportCapsule capsule = new WebTransportCapsule(200L, 0x190B4D44L, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: New limit = 20 (blocked max) + 5 (remaining allowed) = 25
@@ -158,7 +175,6 @@ public class StreamsBlockedCapsuleTest {
   @SuppressWarnings("unchecked")
   @Test
   public void testStreamsBlockedNoExtensionIfAtLimit() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -175,11 +191,13 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 300L) with initial limits (maxStreamsBidi = 2)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     when(mockConnectStream.streamId()).thenReturn(300L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
@@ -189,8 +207,10 @@ public class StreamsBlockedCapsuleTest {
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(2L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(limitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
@@ -209,6 +229,7 @@ public class StreamsBlockedCapsuleTest {
     WebTransportUtils.writeVarInt(payload, 2);
     WebTransportCapsule capsule = new WebTransportCapsule(300L, 0x190B4D43L, payload);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
     // Assert: Limit was NOT extended, remains at 2 (since remaining allowed active slots was 0)
@@ -224,7 +245,6 @@ public class StreamsBlockedCapsuleTest {
   @SuppressWarnings("unchecked")
   @Test
   public void testSequentialLimitExtensions() throws Exception {
-    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -241,11 +261,13 @@ public class StreamsBlockedCapsuleTest {
 
     // Register session (ID = 400L) with initial limits (maxStreamsBidi = 5)
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     when(mockConnectStream.streamId()).thenReturn(400L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
@@ -255,8 +277,10 @@ public class StreamsBlockedCapsuleTest {
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(5L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(limitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
@@ -277,6 +301,7 @@ public class StreamsBlockedCapsuleTest {
     WebTransportUtils.writeVarInt(payload1, 10);
     WebTransportCapsule capsule1 = new WebTransportCapsule(400L, 0x190B4D43L, payload1);
 
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule1);
 
     // Assert: New limit = 10 (blocked max) + 3 (remaining allowed) = 13
@@ -305,20 +330,25 @@ public class StreamsBlockedCapsuleTest {
   @Test
   public void testStreamLimitExceededSendsStreamsBlockedCapsule() throws Exception {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
-
-    QuicChannel mockParent = mock(QuicChannel.class);
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     when(mockConnectStream.streamId()).thenReturn(100L);
+    QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.newPromise()).thenAnswer(invocation -> new io.netty.util.concurrent.DefaultPromise<>(io.netty.util.concurrent.ImmediateEventExecutor.INSTANCE));
+    when(mockEventLoop.newPromise())
+        .thenAnswer(
+            invocation ->
+                new io.netty.util.concurrent.DefaultPromise<>(
+                    io.netty.util.concurrent.ImmediateEventExecutor.INSTANCE));
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
@@ -327,8 +357,10 @@ public class StreamsBlockedCapsuleTest {
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(1L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(limitAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(limitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
@@ -339,12 +371,14 @@ public class StreamsBlockedCapsuleTest {
     session.setPeerSettingsMaxStreamsBidi(0L);
 
     io.netty.util.concurrent.Future<QuicStreamChannel> f1 =
-        WebTransportUtils.createUniStream(mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        WebTransportUtils.createUniStream(
+            mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     assertTrue(f1.isDone());
     assertFalse(f1.isSuccess());
 
     io.netty.util.concurrent.Future<QuicStreamChannel> f2 =
-        WebTransportUtils.createBiStream(mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        WebTransportUtils.createBiStream(
+            mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
     assertTrue(f2.isDone());
     assertFalse(f2.isSuccess());
 
@@ -355,11 +389,13 @@ public class StreamsBlockedCapsuleTest {
   @Test
   public void testSessionFallbackLimits() throws Exception {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(invocation -> {
-        Object msg = invocation.getArgument(0);
-        io.netty.util.ReferenceCountUtil.release(msg);
-        return null;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              io.netty.util.ReferenceCountUtil.release(msg);
+              return null;
+            });
 
     QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.streamId()).thenReturn(500L);
@@ -373,11 +409,14 @@ public class StreamsBlockedCapsuleTest {
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
-    // Mock initial max streams as 0 (triggering fallback), but max data as 10000 (flow control enabled)
+    // Mock initial max streams as 0 (triggering fallback), but max data as 10000 (flow control
+    // enabled)
     Attribute<Long> zeroAttr = mock(Attribute.class);
     when(zeroAttr.get()).thenReturn(0L);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(zeroAttr);
-    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI)).thenReturn(zeroAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(zeroAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(zeroAttr);
 
     Attribute<Long> dataAttr = mock(Attribute.class);
     when(dataAttr.get()).thenReturn(10000L);
@@ -388,8 +427,12 @@ public class StreamsBlockedCapsuleTest {
     assertNotNull(session);
 
     // Verify bidi and uni limits are set to their fallback default values
-    long fallbackBidi = io.github.webtransport4j.server.WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-    long fallbackUni = io.github.webtransport4j.server.WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+    long fallbackBidi =
+        io.github.webtransport4j.server.WebTransportConfig.getLong(
+            "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+    long fallbackUni =
+        io.github.webtransport4j.server.WebTransportConfig.getLong(
+            "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
     assertEquals(fallbackBidi, session.getInitialMaxStreamsBidi());
     assertEquals(fallbackUni, session.getInitialMaxStreamsUni());
 

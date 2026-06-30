@@ -1,8 +1,9 @@
 package io.github.webtransport4j.example;
 
-import io.github.webtransport4j.api.*;
-import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.util.concurrent.Future;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -15,256 +16,280 @@ import org.slf4j.LoggerFactory;
 /**
  * A real-life Chat Handler demonstrating WebTransport features.
  *
- * Protocol Design:
+ * <p>Protocol Design:
+ *
  * <ul>
- *   <li><b>Control Stream (Bidi, Type 0x01)</b>: Handles authentication, join/leave commands.</li>
- *   <li><b>Text Chat Stream (Bidi, Type 0x02)</b>: Handles text messaging within a room.</li>
- *   <li><b>Voice Stream (Uni, Type 0x03)</b>: Client stream streams voice chunks (uni), server broadcasts via server uni-streams.</li>
- *   <li><b>Typing Status (Datagrams)</b>: Typing notifications (lossy, extremely low latency).</li>
+ *   <li><b>Control Stream (Bidi, Type 0x01)</b>: Handles authentication, join/leave commands.
+ *   <li><b>Text Chat Stream (Bidi, Type 0x02)</b>: Handles text messaging within a room.
+ *   <li><b>Voice Stream (Uni, Type 0x03)</b>: Client stream streams voice chunks (uni), server
+ *       broadcasts via server uni-streams.
+ *   <li><b>Typing Status (Datagrams)</b>: Typing notifications (lossy, extremely low latency).
  * </ul>
  */
 public class WebTransportChatHandler implements WebTransportHandler {
 
-    private static final Logger logger = LoggerFactory.getLogger(WebTransportChatHandler.class);
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportChatHandler.class);
 
-    // In-memory registry of active users: Session -> ChatUser
-    private final Map<WebTransportSession, ChatUser> users = new ConcurrentHashMap<>();
+  // In-memory registry of active users: Session -> ChatUser
+  private final Map<WebTransportSession, ChatUser> users = new ConcurrentHashMap<>();
 
-    // Demultiplexing headers
-    private static final byte STREAM_TYPE_CONTROL = 0x01;
+  // Demultiplexing headers
+  private static final byte STREAM_TYPE_CONTROL = 0x01;
 
-    private static final byte STREAM_TYPE_CHAT = 0x02;
+  private static final byte STREAM_TYPE_CHAT = 0x02;
 
-    private static final byte STREAM_TYPE_VOICE = 0x03;
+  private static final byte STREAM_TYPE_VOICE = 0x03;
 
-    @Override
-    public void onSessionReady(@NonNull WebTransportSession session) {
-        long sessionId = session.getSessionStreamId();
-        logger.info("💬 [CHAT] User session established. Session ID: {}", sessionId);
-        // Register the user with a default username until they send a JOIN command
-        users.put(session, new ChatUser(session));
+  @Override
+  public void onSessionReady(@NonNull WebTransportSession session) {
+    long sessionId = session.getSessionStreamId();
+    logger.info("💬 [CHAT] User session established. Session ID: {}", sessionId);
+    // Register the user with a default username until they send a JOIN command
+    users.put(session, new ChatUser(session));
+  }
+
+  @Override
+  public void onSessionClosed(@NonNull WebTransportSession session) {
+    ChatUser user = users.remove(session);
+    if (user != null && user.username != null) {
+      logger.info("💬 [CHAT] User '{}' left the chat.", user.username);
+      broadcastToRoom(user.room, "SYSTEM: " + user.username + " has left the room.", null);
+      user.cleanup();
     }
+  }
 
-    @Override
-    public void onSessionClosed(@NonNull WebTransportSession session) {
-        ChatUser user = users.remove(session);
-        if (user != null && user.username != null) {
-            logger.info("💬 [CHAT] User '{}' left the chat.", user.username);
-            broadcastToRoom(user.room, "SYSTEM: " + user.username + " has left the room.", null);
-            user.cleanup();
-        }
+  @Override
+  public void onIncomingStream(
+      @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+    ChatUser user = users.get(session);
+    if (user == null) {
+      logger.warn("⚠️ Received stream for unregistered session: {}", session.getSessionStreamId());
+      stream.close();
+      return;
     }
-
-    @Override
-    public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
-        ChatUser user = users.get(session);
-        if (user == null) {
-            logger.warn("⚠️ Received stream for unregistered session: {}", session.getSessionStreamId());
-            stream.close();
-            return;
-        }
-        // Set stream listeners
-        stream.onClose(() -> {
-            if (logger.isDebugEnabled()) {
-                logger.debug("💬 [CHAT] Stream {} closed.", stream.streamId());
-            }
+    // Set stream listeners
+    stream.onClose(
+        () -> {
+          if (logger.isDebugEnabled()) {
+            logger.debug("💬 [CHAT] Stream {} closed.", stream.streamId());
+          }
         });
-        stream.onError(err -> logger.error("💬 [CHAT] Stream error on {}", stream.streamId(), err));
-        // Register raw data consumer to demultiplex stream purpose using the first byte
-        stream.onData(new Consumer<WebTransportBuffer>() {
+    stream.onError(err -> logger.error("💬 [CHAT] Stream error on {}", stream.streamId(), err));
+    // Register raw data consumer to demultiplex stream purpose using the first byte
+    stream.onData(
+        new Consumer<WebTransportBuffer>() {
 
-            private byte streamPurpose = 0x00;
+          private byte streamPurpose = 0x00;
 
-            private boolean purposeIdentified = false;
+          private boolean purposeIdentified = false;
 
-            @Override
-            public void accept(@NonNull WebTransportBuffer data) {
-                if (!purposeIdentified) {
-                    if (data.readableBytes() == 0)
-                        return;
-                    java.nio.ByteBuffer nioBuffer = data.nioBuffer();
-                    streamPurpose = nioBuffer.get();
-                    // Advance position manually since nioBuffer is just a view
-                    // Actually, wait, WebTransportBuffer doesn't have readByte()
-                    // Let's just read into byte array to keep it simple
-                    byte[] raw = data.readBytes();
-                    streamPurpose = raw[0];
-                    purposeIdentified = true;
-                    // Map stream in our user state for targeting later
-                    if (streamPurpose == STREAM_TYPE_CONTROL) {
-                        user.controlStream = stream;
-                        logger.info("💬 [CHAT] Control stream linked for User: {}", user.username);
-                    } else if (streamPurpose == STREAM_TYPE_CHAT) {
-                        user.chatStream = stream;
-                        logger.info("💬 [CHAT] Text Chat stream linked for User: {}", user.username);
-                    } else if (streamPurpose == STREAM_TYPE_VOICE) {
-                        logger.info("💬 [CHAT] Incoming Client Voice stream opened by User: {}", user.username);
-                    }
-                }
-                // Process stream payload according to its tagged purpose
-                if (data.readableBytes() > 0) {
-                    // Extract remaining payload
-                    byte[] payloadBytes = data.readBytes();
-                    if (streamPurpose == STREAM_TYPE_CONTROL) {
-                        handleControlMessage(user, payloadBytes);
-                    } else if (streamPurpose == STREAM_TYPE_CHAT) {
-                        handleTextMessage(user, payloadBytes);
-                    } else if (streamPurpose == STREAM_TYPE_VOICE) {
-                        handleVoiceChunk(user, payloadBytes);
-                    }
-                }
-            }
-        });
-    }
-
-    @Override
-    public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
-        ChatUser user = users.get(session);
-        if (user == null || user.room == null)
-            return;
-        String content = new String(data.readBytes(), StandardCharsets.UTF_8);
-        // Typing Indicator Protocol: "TYPING <isTyping>"
-        if (content.startsWith("TYPING ")) {
-            boolean isTyping = Boolean.parseBoolean(content.substring(7).trim());
-            String broadcastMsg = "TYPING:" + user.username + ":" + isTyping;
-            // Broadcast typing indicator to all other users in the room via low-latency datagrams
-            byte[] payloadBytes = broadcastMsg.getBytes(StandardCharsets.UTF_8);
-            for (ChatUser roomMember : users.values()) {
-                if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
-                    roomMember.session.sendDatagram(payloadBytes);
-                }
-            }
-        }
-    }
-
-    // --- Core Protocol Message Handlers ---
-    private void handleControlMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
-        String command = new String(payload, StandardCharsets.UTF_8).trim();
-        logger.info("💬 [CHAT-CONTROL] Command from {}: {}", user.username, command);
-        // JOIN <room> <username>
-        if (command.startsWith("JOIN ")) {
-            String[] parts = command.substring(5).split(" ", 2);
-            if (parts.length < 2) {
-                sendControlReply(user, "ERROR: Invalid JOIN format. Use: JOIN <room> <username>");
+          @Override
+          public void accept(@NonNull WebTransportBuffer data) {
+            if (!purposeIdentified) {
+              if (data.readableBytes() == 0) {
                 return;
+              }
+              java.nio.ByteBuffer nioBuffer = data.nioBuffer();
+              streamPurpose = nioBuffer.get();
+              // Advance position manually since nioBuffer is just a view
+              // Actually, wait, WebTransportBuffer doesn't have readByte()
+              // Let's just read into byte array to keep it simple
+              byte[] raw = data.readBytes();
+              streamPurpose = raw[0];
+              purposeIdentified = true;
+              // Map stream in our user state for targeting later
+              if (streamPurpose == STREAM_TYPE_CONTROL) {
+                user.controlStream = stream;
+                logger.info("💬 [CHAT] Control stream linked for User: {}", user.username);
+              } else if (streamPurpose == STREAM_TYPE_CHAT) {
+                user.chatStream = stream;
+                logger.info("💬 [CHAT] Text Chat stream linked for User: {}", user.username);
+              } else if (streamPurpose == STREAM_TYPE_VOICE) {
+                logger.info(
+                    "💬 [CHAT] Incoming Client Voice stream opened by User: {}", user.username);
+              }
             }
-            String oldRoom = user.room;
-            user.room = parts[0].trim();
-            user.username = parts[1].trim();
-            // Clean up previous room state if any
-            if (oldRoom != null) {
-                broadcastToRoom(oldRoom, "SYSTEM: " + user.username + " left the room.", user);
+            // Process stream payload according to its tagged purpose
+            if (data.readableBytes() > 0) {
+              // Extract remaining payload
+              byte[] payloadBytes = data.readBytes();
+              if (streamPurpose == STREAM_TYPE_CONTROL) {
+                handleControlMessage(user, payloadBytes);
+              } else if (streamPurpose == STREAM_TYPE_CHAT) {
+                handleTextMessage(user, payloadBytes);
+              } else if (streamPurpose == STREAM_TYPE_VOICE) {
+                handleVoiceChunk(user, payloadBytes);
+              }
             }
-            // Initialize outgoing server unidirectional voice broadcast stream for the user
-            user.session.createUniStream().addListener((Future<WebTransportStream> f) -> {
+          }
+        });
+  }
+
+  @Override
+  public void onDatagramReceived(
+      @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
+    ChatUser user = users.get(session);
+    if (user == null || user.room == null) {
+      return;
+    }
+    String content = new String(data.readBytes(), StandardCharsets.UTF_8);
+    // Typing Indicator Protocol: "TYPING <isTyping>"
+    if (content.startsWith("TYPING ")) {
+      boolean isTyping = Boolean.parseBoolean(content.substring(7).trim());
+      String broadcastMsg = "TYPING:" + user.username + ":" + isTyping;
+      // Broadcast typing indicator to all other users in the room via low-latency datagrams
+      byte[] payloadBytes = broadcastMsg.getBytes(StandardCharsets.UTF_8);
+      for (ChatUser roomMember : users.values()) {
+        if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
+          roomMember.session.sendDatagram(payloadBytes);
+        }
+      }
+    }
+  }
+
+  // --- Core Protocol Message Handlers ---
+  private void handleControlMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
+    String command = new String(payload, StandardCharsets.UTF_8).trim();
+    logger.info("💬 [CHAT-CONTROL] Command from {}: {}", user.username, command);
+    // JOIN <room> <username>
+    if (command.startsWith("JOIN ")) {
+      String[] parts = command.substring(5).split(" ", 2);
+      if (parts.length < 2) {
+        sendControlReply(user, "ERROR: Invalid JOIN format. Use: JOIN <room> <username>");
+        return;
+      }
+      String oldRoom = user.room;
+      user.room = parts[0].trim();
+      user.username = parts[1].trim();
+      // Clean up previous room state if any
+      if (oldRoom != null) {
+        broadcastToRoom(oldRoom, "SYSTEM: " + user.username + " left the room.", user);
+      }
+      // Initialize outgoing server unidirectional voice broadcast stream for the user
+      user.session
+          .createUniStream()
+          .addListener(
+              (Future<WebTransportStream> f) -> {
                 if (f.isSuccess()) {
-                    WebTransportStream serverUni = f.getNow();
-                    // Write demux prefix identifying it as a voice stream (0x03)
-                    byte[] prefix = new byte[] { STREAM_TYPE_VOICE };
-                    serverUni.write(prefix);
-                    user.serverVoiceStream = serverUni;
-                    logger.info("💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
+                  WebTransportStream serverUni = f.getNow();
+                  // Write demux prefix identifying it as a voice stream (0x03)
+                  byte[] prefix = new byte[] {STREAM_TYPE_VOICE};
+                  serverUni.write(prefix);
+                  user.serverVoiceStream = serverUni;
+                  logger.info(
+                      "💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
                 }
-            });
-            sendControlReply(user, "OK: Joined room " + user.room + " as " + user.username);
-            broadcastToRoom(user.room, "SYSTEM: " + user.username + " joined the room.", user);
-        } else // LEAVE
-        if ("LEAVE".equals(command)) {
-            if (user.room != null) {
-                broadcastToRoom(user.room, "SYSTEM: " + user.username + " left the room.", user);
-                sendControlReply(user, "OK: Left room " + user.room);
-                user.room = null;
-                if (user.serverVoiceStream != null) {
-                    user.serverVoiceStream.close();
-                    user.serverVoiceStream = null;
-                }
-            } else {
-                sendControlReply(user, "ERROR: You are not in a room.");
-            }
+              });
+      sendControlReply(user, "OK: Joined room " + user.room + " as " + user.username);
+      broadcastToRoom(user.room, "SYSTEM: " + user.username + " joined the room.", user);
+    } else // LEAVE
+    if ("LEAVE".equals(command)) {
+      if (user.room != null) {
+        broadcastToRoom(user.room, "SYSTEM: " + user.username + " left the room.", user);
+        sendControlReply(user, "OK: Left room " + user.room);
+        user.room = null;
+        if (user.serverVoiceStream != null) {
+          user.serverVoiceStream.close();
+          user.serverVoiceStream = null;
         }
+      } else {
+        sendControlReply(user, "ERROR: You are not in a room.");
+      }
+    }
+  }
+
+  private void handleTextMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
+    if (user.room == null) {
+      sendControlReply(user, "ERROR: Join a room before chatting.");
+      return;
+    }
+    String message = new String(payload, StandardCharsets.UTF_8);
+    logger.info("💬 [CHAT-MSG] [{}] {}: {}", user.room, user.username, message);
+    String formattedMsg = user.username + ": " + message;
+    broadcastToRoom(user.room, formattedMsg, null);
+  }
+
+  private void handleVoiceChunk(@NonNull ChatUser user, @NonNull byte[] payload) {
+    if (user.room == null) {
+      return;
+    }
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)",
+          user.username,
+          payload.length);
+    }
+    // Broadcast the voice bytes to everyone else in the same room using server-initiated voice
+    // streams
+    for (ChatUser roomMember : users.values()) {
+      if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
+        if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.isActive()) {
+          // Send raw voice data to peer
+          roomMember.serverVoiceStream.write(payload);
+        }
+      }
+    }
+  }
+
+  // --- Helper Methods ---
+  private void sendControlReply(@NonNull ChatUser user, @NonNull String reply) {
+    if (user.controlStream != null && user.controlStream.isActive()) {
+      user.controlStream.writeText(reply);
+    } else {
+      logger.warn(
+          "⚠️ Control stream not active for user {} , unable to send: {}", user.username, reply);
+    }
+  }
+
+  private void broadcastToRoom(
+      @NonNull String room, @NonNull String message, @NonNull ChatUser excludeUser) {
+    if (room == null) {
+      return;
+    }
+    for (ChatUser roomMember : users.values()) {
+      if (room.equals(roomMember.room)) {
+        if (excludeUser != null && roomMember.session == excludeUser.session) {
+          // Skip the sender
+          continue;
+        }
+        if (roomMember.chatStream != null && roomMember.chatStream.isActive()) {
+          roomMember.chatStream.writeText(message);
+        }
+      }
+    }
+  }
+
+  // --- Inner Helper class representing Chat User State ---
+  private static class ChatUser {
+
+    final WebTransportSession session;
+
+    String username;
+
+    String room;
+
+    // High-level wrapper stream references
+    WebTransportStream controlStream;
+
+    WebTransportStream chatStream;
+
+    WebTransportStream serverVoiceStream;
+
+    ChatUser(WebTransportSession session) {
+      this.session = session;
+      this.username = "Guest-" + session.getSessionStreamId();
     }
 
-    private void handleTextMessage(@NonNull ChatUser user, @NonNull byte[] payload) {
-        if (user.room == null) {
-            sendControlReply(user, "ERROR: Join a room before chatting.");
-            return;
-        }
-        String message = new String(payload, StandardCharsets.UTF_8);
-        logger.info("💬 [CHAT-MSG] [{}] {}: {}", user.room, user.username, message);
-        String formattedMsg = user.username + ": " + message;
-        broadcastToRoom(user.room, formattedMsg, null);
+    void cleanup() {
+      if (controlStream != null) {
+        controlStream.close();
+      }
+      if (chatStream != null) {
+        chatStream.close();
+      }
+      if (serverVoiceStream != null) {
+        serverVoiceStream.close();
+      }
     }
-
-    private void handleVoiceChunk(@NonNull ChatUser user, @NonNull byte[] payload) {
-        if (user.room == null)
-            return;
-        if (logger.isDebugEnabled()) {
-            logger.debug("💬 [CHAT-VOICE] Broadcast voice chunk from {} ({} bytes)", user.username, payload.length);
-        }
-        // Broadcast the voice bytes to everyone else in the same room using server-initiated voice streams
-        for (ChatUser roomMember : users.values()) {
-            if (user.room.equals(roomMember.room) && roomMember.session != user.session) {
-                if (roomMember.serverVoiceStream != null && roomMember.serverVoiceStream.isActive()) {
-                    // Send raw voice data to peer
-                    roomMember.serverVoiceStream.write(payload);
-                }
-            }
-        }
-    }
-
-    // --- Helper Methods ---
-    private void sendControlReply(@NonNull ChatUser user, @NonNull String reply) {
-        if (user.controlStream != null && user.controlStream.isActive()) {
-            user.controlStream.writeText(reply);
-        } else {
-            logger.warn("⚠️ Control stream not active for user {} , unable to send: {}", user.username, reply);
-        }
-    }
-
-    private void broadcastToRoom(@NonNull String room, @NonNull String message, @NonNull ChatUser excludeUser) {
-        if (room == null)
-            return;
-        for (ChatUser roomMember : users.values()) {
-            if (room.equals(roomMember.room)) {
-                if (excludeUser != null && roomMember.session == excludeUser.session) {
-                    // Skip the sender
-                    continue;
-                }
-                if (roomMember.chatStream != null && roomMember.chatStream.isActive()) {
-                    roomMember.chatStream.writeText(message);
-                }
-            }
-        }
-    }
-
-    // --- Inner Helper class representing Chat User State ---
-    private static class ChatUser {
-
-        final WebTransportSession session;
-
-        String username;
-
-        String room;
-
-        // High-level wrapper stream references
-        WebTransportStream controlStream;
-
-        WebTransportStream chatStream;
-
-        WebTransportStream serverVoiceStream;
-
-        ChatUser(WebTransportSession session) {
-            this.session = session;
-            this.username = "Guest-" + session.getSessionStreamId();
-        }
-
-        void cleanup() {
-            if (controlStream != null)
-                controlStream.close();
-            if (chatStream != null)
-                chatStream.close();
-            if (serverVoiceStream != null)
-                serverVoiceStream.close();
-        }
-    }
+  }
 }
