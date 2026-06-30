@@ -81,14 +81,14 @@ public class WebTransportResumptionLatencyTest {
             .build();
 
     // Enable session ticket key on server side
-    if (serverSslContext.sessionContext() instanceof QuicSslSessionContext) {
+    if (serverSslContext.sessionContext() != null) {
       SslSessionTicketKey ticketKey =
           new SslSessionTicketKey(
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes());
-      ((QuicSslSessionContext) serverSslContext.sessionContext())
-          .setTicketKeys(new SslSessionTicketKey[] {ticketKey});
+      serverSslContext.sessionContext()
+          .setTicketKeys(ticketKey);
     }
 
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
