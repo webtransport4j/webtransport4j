@@ -25,6 +25,12 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   }
 
   @Override
+  public ByteBuffer skipBytes(int length) {
+    return delegate.skipBytes(length).nioBuffer();
+  }
+
+
+  @Override
   public byte[] readBytes() {
     byte[] bytes = new byte[delegate.readableBytes()];
     delegate.readBytes(bytes);

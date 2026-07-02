@@ -1,5 +1,7 @@
 package io.github.webtransport4j.api;
 
+import io.netty.buffer.ByteBuf;
+
 import java.nio.ByteBuffer;
 
 /**
@@ -23,6 +25,8 @@ public interface WebTransportBuffer extends AutoCloseable {
    * @return a zero-copy ByteBuffer view.
    */
   ByteBuffer nioBuffer();
+
+  ByteBuffer skipBytes(int bytes);
 
   /**
    * Copies the readable bytes from this buffer into a newly allocated byte array.

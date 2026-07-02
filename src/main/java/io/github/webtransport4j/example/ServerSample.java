@@ -13,6 +13,7 @@ public class ServerSample {
     server.setMetricsListener(new LoggingWebTransportMetricsListener(60, TimeUnit.SECONDS));
     server.registerHandler("/test", new WebTransportTestHandler());
     server.registerHandler("/chat", new WebTransportChatHandler());
+    server.registerHandler("/echo",new EchoWebTransportHandler());
     server.start();
   }
 }

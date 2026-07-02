@@ -18,11 +18,11 @@ class WebTransportDatagramDecoder extends MessageToMessageDecoder<ByteBuf> {
     if (logger.isDebugEnabled()) {
       logger.debug("☄️ DatagramHandler received data: {} bytes", msg.readableBytes());
     }
-    long sessionId = WebTransportUtils.readVariableLengthInt(msg);
-    if (sessionId == -1) {
+    long quarterSessionId = WebTransportUtils.readVariableLengthInt(msg);
+    if (quarterSessionId == -1) {
       return;
     }
     ByteBuf payload = msg.readRetainedSlice(msg.readableBytes());
-    out.add(new WebTransportDatagramFrame(sessionId, payload));
+    out.add(new WebTransportDatagramFrame(quarterSessionId<<2, payload));
   }
 }

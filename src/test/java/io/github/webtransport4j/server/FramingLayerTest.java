@@ -50,7 +50,7 @@ public class FramingLayerTest {
     assertTrue(output instanceof WebTransportDatagramFrame);
 
     WebTransportDatagramFrame frame = (WebTransportDatagramFrame) output;
-    assertEquals(40L, frame.sessionId());
+    assertEquals(40L<<2, frame.sessionId());
     assertEquals("Hello", frame.content().toString(StandardCharsets.UTF_8));
     frame.release();
   }

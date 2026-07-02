@@ -281,24 +281,7 @@ async def main():
         verify_mode=ssl.CERT_NONE,
         log_level="DEBUG",
 
-        # WebTransport flow control
-        initial_max_data=64 * 1024 * 1024 * 1024 * 1024,
-        initial_max_streams_bidi=100,
-        initial_max_streams_uni=100,
 
-        # QUIC transport
-        quic_max_concurrent_bidi_streams=100,
-        quic_max_concurrent_uni_streams=100,
-        quic_receive_window=64 * 1024 * 1024 * 1024 * 1024,
-        quic_send_window=64 * 1024 * 1024 * 1024 * 1024,
-        quic_stream_receive_window=64 * 1024 * 1024 * 1024 * 1024,
-
-        # Buffers
-        max_stream_read_buffer_size=64 * 1024 * 1024 * 1024 * 1024,
-        max_stream_write_buffer_size=64 * 1024 * 1024 * 1024 * 1024,
-
-        # Datagram
-        max_datagram_size=65527,
     )
     url = "https://localhost:4433/test"
 
