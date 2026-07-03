@@ -7,7 +7,9 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
@@ -419,11 +421,14 @@ public class WebTransportServer {
                 new QuicChannelInitializer(
                     this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
             .build();
+    FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(2048);
+    recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
     this.channel =
         new Bootstrap()
             .group(group)
             .channel(channelClass)
             .handler(serverCodec)
+                .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
             .bind(new InetSocketAddress(port))
             .addListener(
                 future -> {
