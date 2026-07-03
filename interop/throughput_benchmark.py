@@ -5,91 +5,186 @@ import time
 
 from pywebtransport import ClientConfig, WebTransportClient
 
-async def discard_receiver(stream, stop_event: asyncio.Event):
+
+async def discard_receiver(stream, stop_event: asyncio.Event, stats: dict):
     """
-    Constantly drains the incoming buffer and discards it.
-    This prevents QUIC flow control from blocking the sender.
+    Continuously read echoed data so the receive window doesn't fill up.
     """
     try:
         while not stop_event.is_set():
-            chunk = await stream.read()
-            if not chunk:
+            data = await stream.read()
+            if not data:
                 break
-            # Intentionally do nothing with the chunk to maximize speed
-            del chunk
+            stats["recv_bytes"] += len(data)
     except Exception:
         pass
 
-async def benchmark_pure_send(session, chunk_size_bytes: int, duration: float):
-    chunk = b"X" * chunk_size_bytes
-    bytes_sent = 0
 
-    print(f"\n--- Starting Pure Send Throughput Benchmark ({duration}s) ---")
+async def benchmark(session, chunk_size: int, duration: float):
+    chunk = b"X" * chunk_size
+
     stream = await session.create_bidirectional_stream()
-    print("Stream opened. Commencing egress flood...")
 
+    print("\n==========================================")
+    print("WebTransport Throughput Benchmark")
+    print("==========================================")
+    print(f"Chunk Size : {chunk_size / 1024:.0f} KB")
+    print(f"Duration   : {duration:.1f} seconds")
+    print("==========================================\n")
+
+    stats = {"recv_bytes": 0}
     stop_event = asyncio.Event()
 
-    # Start the discard receiver in the background to prevent window blocking
-    receiver_task = asyncio.create_task(discard_receiver(stream, stop_event))
+    receiver = asyncio.create_task(
+        discard_receiver(stream, stop_event, stats)
+    )
 
-    start_time = time.perf_counter()
-    end_time = start_time + duration
+    bytes_sent = 0
+    writes = 0
+
+    total_write_ns = 0
+    max_write_ns = 0
+
+    start = time.perf_counter()
+    end = start + duration
+
+    last_report = start
+    last_bytes = 0
+    last_writes = 0
 
     try:
-        while time.perf_counter() < end_time:
-            await stream.write_all(data=chunk)
-            bytes_sent += chunk_size_bytes
+        while True:
+            now = time.perf_counter()
 
-            # Yield control minimally to allow the event loop to drive the socket
+            if now >= end:
+                break
+
+            t0 = time.perf_counter_ns()
+
+            await stream.write_all(chunk)
+
+            elapsed_ns = time.perf_counter_ns() - t0
+
+            total_write_ns += elapsed_ns
+            max_write_ns = max(max_write_ns, elapsed_ns)
+
+            writes += 1
+            bytes_sent += chunk_size
+
             await asyncio.sleep(0)
-    except Exception as e:
-        print(f"[Sender Error] Transmit interrupted: {e}")
+
+            if now - last_report >= 1.0:
+                delta_bytes = bytes_sent - last_bytes
+                delta_writes = writes - last_writes
+                delta_time = now - last_report
+
+                mbps = delta_bytes / (1024 * 1024) / delta_time
+                gbps = mbps * 8 / 1000
+
+                print(
+                    f"[{now-start:5.1f}s] "
+                    f"{mbps:8.2f} MB/s "
+                    f"({gbps:.2f} Gbps) "
+                    f"{delta_writes:6d} writes/s"
+                )
+
+                last_report = now
+                last_bytes = bytes_sent
+                last_writes = writes
+
     finally:
         stop_event.set()
-        # Allow a brief moment for the receiver task to wind down cleanly
-        await asyncio.gather(receiver_task, return_exceptions=True)
+        await asyncio.gather(receiver, return_exceptions=True)
 
-    actual_duration = time.perf_counter() - start_time
+        try:
+            await stream.close()
+        except Exception:
+            pass
+
+    elapsed = time.perf_counter() - start
+
     sent_mb = bytes_sent / (1024 * 1024)
-    send_throughput = sent_mb / actual_duration
+    recv_mb = stats["recv_bytes"] / (1024 * 1024)
 
-    print("\n================ BENCHMARK RESULTS ================")
-    print(f"Actual Duration:   {actual_duration:.2f} seconds")
-    print(f"Total Bytes Sent:   {bytes_sent:,} bytes")
-    print(f"Total Data Sent:    {sent_mb:.2f} MB")
-    print(f"Pure Send Speed:    {send_throughput:.2f} MB/s")
-    print("===================================================")
+    print("\n============== RESULTS =================")
+    print(f"Elapsed Time        : {elapsed:.3f} s")
+    print(f"Chunk Size          : {chunk_size:,} bytes")
+    print(f"Writes              : {writes:,}")
+    print(f"Writes/sec          : {writes / elapsed:.2f}")
+    print(f"Bytes Sent          : {bytes_sent:,}")
+    print(f"Bytes Received      : {stats['recv_bytes']:,}")
+    print(f"Data Sent           : {sent_mb:.2f} MB")
+    print(f"Data Received       : {recv_mb:.2f} MB")
+
+    throughput = sent_mb / elapsed
+    print(f"Throughput          : {throughput:.2f} MB/s")
+    print(f"Throughput          : {throughput * 8 / 1000:.2f} Gbps")
+
+    if writes:
+        print(f"Average write_all() : {total_write_ns / writes / 1000:.2f} µs")
+        print(f"Maximum write_all() : {max_write_ns / 1000:.2f} µs")
+
+    print("========================================")
+
 
 async def main():
-    parser = argparse.ArgumentParser(description="PyWebTransport Pure Send Benchmark")
-    parser.add_argument("--url", type=str, default="https://127.0.0.1:4433/echo", help="Server URL")
-    parser.add_argument("--duration", type=float, default=5.0, help="Test duration in seconds")
-    parser.add_argument("--chunk-size", type=int, default=4 * 1024 * 1024, help="Chunk block size in bytes (Default: 4MB)")
+    parser = argparse.ArgumentParser(
+        description="WebTransport Upload Benchmark"
+    )
+
+    parser.add_argument(
+        "--url",
+        default="https://127.0.0.1:4433/echo",
+        help="WebTransport URL",
+    )
+
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=5.0,
+        help="Benchmark duration (seconds)",
+    )
+
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=64 * 1024,
+        help="Chunk size in bytes",
+    )
+
     args = parser.parse_args()
 
-    config = ClientConfig(verify_mode=ssl.CERT_NONE)
+    config = ClientConfig(
+        verify_mode=ssl.CERT_NONE
+    )
 
-    print(f"Target URL: {args.url}")
-    print("Connecting to server...")
+    print("Connecting...")
+
+    connect_start = time.perf_counter()
 
     async with WebTransportClient(config=config) as client:
-        try:
-            session = await client.connect(url=args.url)
-            print("Connected successfully.")
-            await benchmark_pure_send(session, args.chunk_size, args.duration)
-        except Exception as e:
-            print(f"Benchmark run aborted: {e}")
+        session = await client.connect(args.url)
+
+        connect_time = time.perf_counter() - connect_start
+
+        print(f"Connected in {connect_time:.3f} s")
+
+        await benchmark(
+            session=session,
+            chunk_size=args.chunk_size,
+            duration=args.duration,
+        )
+
 
 if __name__ == "__main__":
     try:
         import uvloop
-        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        print("Optimized event loop configured via uvloop policy.")
-    except ImportError:
-        print("uvloop missing; defaulting to native asyncio loop framework.")
 
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nBenchmark interrupted by user sequence.")
+        asyncio.set_event_loop_policy(
+            uvloop.EventLoopPolicy()
+        )
+        print("Using uvloop")
+    except ImportError:
+        print("Using default asyncio")
+
+    asyncio.run(main())

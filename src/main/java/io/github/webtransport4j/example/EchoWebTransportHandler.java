@@ -51,11 +51,7 @@ public final class EchoWebTransportHandler implements WebTransportHandler {
         stream.onError(error ->
                 logger.error("Stream {} error", stream.streamId(), error));
 
-        stream.onData(data -> {
-
-
-            data.skipBytes(data.readableBytes());
-        });
+        stream.onData(data-> stream.write(data));
     }
 
     @Override
@@ -63,7 +59,6 @@ public final class EchoWebTransportHandler implements WebTransportHandler {
             @NonNull WebTransportSession session,
             @NonNull WebTransportBuffer data) {
 
-        // Echo datagram back
-        data.skipBytes(data.readableBytes());
+       session.sendDatagram(data);
     }
 }

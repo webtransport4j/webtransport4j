@@ -13,9 +13,7 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.RecvByteBufAllocator;
-import io.netty.channel.kqueue.KQueueDatagramChannel;
-import io.netty.channel.kqueue.KQueueEventLoopGroup;
-import io.netty.channel.kqueue.KQueueIoHandler;
+
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ChannelInputShutdownReadComplete;
 import io.netty.channel.socket.nio.NioDatagramChannel;
