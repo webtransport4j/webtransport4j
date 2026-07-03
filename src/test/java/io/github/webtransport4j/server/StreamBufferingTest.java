@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -175,6 +176,68 @@ public class StreamBufferingTest {
 
   @SuppressWarnings("unchecked")
   @Test
+  public void testCompleteHeaderPayloadKeepsOriginalBuffer() throws Exception {
+    QuicChannel mockParent = mock(QuicChannel.class);
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+    when(mgrAttr.get()).thenReturn(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    Attribute<Long> defaultBidiAttr = mock(Attribute.class);
+    when(defaultBidiAttr.get()).thenReturn(10L);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(defaultBidiAttr);
+
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.streamId()).thenReturn(100L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
+        .thenReturn(mock(Attribute.class));
+    mgr.register(mockConnectStream);
+
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.streamId()).thenReturn(200L);
+    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
+    when(mockStream.pipeline()).thenReturn(mock(ChannelPipeline.class));
+    when(mockStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+
+    Attribute<Long> typeAttr = mock(Attribute.class);
+    Attribute<Long> sessIdAttr = mock(Attribute.class);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(typeAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+    ByteBuf data = Unpooled.buffer();
+    WebTransportUtils.writeVarInt(data, 0x41);
+    WebTransportUtils.writeVarInt(data, 100);
+    data.writeBytes("Hello".getBytes(StandardCharsets.UTF_8));
+
+    final ByteBuf[] firedPayload = new ByteBuf[1];
+    doAnswer(
+            invocation -> {
+              firedPayload[0] = invocation.getArgument(0);
+              return null;
+            })
+        .when(mockCtx)
+        .fireChannelRead(any());
+
+    RawWebTransportHandler handler = new RawWebTransportHandler();
+    handler.channelRead(mockCtx, data);
+
+    verify(mockCtx, times(1)).fireChannelRead(any());
+    assertSame(data, firedPayload[0]);
+    assertEquals("Hello", firedPayload[0].toString(StandardCharsets.UTF_8));
+    firedPayload[0].release();
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
   public void testFragmentedHeaderParsing() throws Exception {
     // 1. Mock Parent QUIC Channel and Session Manager
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -261,6 +324,7 @@ public class StreamBufferingTest {
     // Verify fireChannelRead was called once
     verify(mockCtx, times(1)).fireChannelRead(any());
     assertNotNull(firedPayload[0]);
+    assertSame(piece3, firedPayload[0]);
     assertEquals("Hello", firedPayload[0].toString(StandardCharsets.UTF_8));
 
     // Clean up
@@ -477,6 +541,7 @@ public class StreamBufferingTest {
     // Verify payload is fired
     verify(mockCtx, times(1)).fireChannelRead(any());
     assertNotNull(firedPayload[0]);
+    assertSame(piece7, firedPayload[0]);
     assertEquals("World", firedPayload[0].toString(StandardCharsets.UTF_8));
 
     // Clean up

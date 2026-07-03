@@ -25,8 +25,8 @@ public final class WebTransportStreamChannelInitializer
       logger.debug(
           "🔧 Added WebTransportDetectorHandler. Pipeline now: {}", stream.pipeline().names());
     }
-    stream.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
     if (logger.isDebugEnabled()) {
+      stream.pipeline().addFirst(new QuicGlobalSniffer("STREAM-" + stream.streamId()));
       logger.debug(
           "🔧 Added QuicGlobalSniffer (per-stream). Pipeline now: {}", stream.pipeline().names());
     }

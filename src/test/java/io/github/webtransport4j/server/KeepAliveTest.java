@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -46,6 +47,7 @@ public class KeepAliveTest {
   @Test
   public void testHeartbeatInterceptionAndPong() throws Exception {
     ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
     QuicStreamChannel channel = mock(QuicStreamChannel.class);
     QuicChannel parent = mock(QuicChannel.class);
 
@@ -208,6 +210,7 @@ public class KeepAliveTest {
     try {
 
       ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+      when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
       QuicStreamChannel channel = mock(QuicStreamChannel.class);
       QuicChannel parent = mock(QuicChannel.class);
 
@@ -286,6 +289,7 @@ public class KeepAliveTest {
     try {
 
       ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+      when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
       QuicStreamChannel channel = mock(QuicStreamChannel.class);
       QuicChannel parent = mock(QuicChannel.class);
 
@@ -367,6 +371,7 @@ public class KeepAliveTest {
   @Test
   public void testFragmentedMagicByteAndPing() throws Exception {
     ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
     QuicStreamChannel channel = mock(QuicStreamChannel.class);
     QuicChannel parent = mock(QuicChannel.class);
 
@@ -445,6 +450,7 @@ public class KeepAliveTest {
   @Test
   public void testMultiplePingsInSinglePacket() throws Exception {
     ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
     QuicStreamChannel channel = mock(QuicStreamChannel.class);
     QuicChannel parent = mock(QuicChannel.class);
 
@@ -504,7 +510,13 @@ public class KeepAliveTest {
     handler.channelRead(ctx, multiPings);
 
     // Verify that 3 PONG responses were written out
-    verify(ctx, times(3)).writeAndFlush(any());
+    ArgumentCaptor<ByteBuf> writeCaptor = ArgumentCaptor.forClass(ByteBuf.class);
+    verify(ctx, times(3)).writeAndFlush(writeCaptor.capture());
+    for (ByteBuf written : writeCaptor.getAllValues()) {
+      assertEquals(1, written.readableBytes());
+      assertEquals(0x01, written.readByte());
+      written.release();
+    }
   }
 
   @SuppressWarnings("unchecked")
@@ -515,6 +527,7 @@ public class KeepAliveTest {
     try {
 
       ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+      when(ctx.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
       QuicStreamChannel channel = mock(QuicStreamChannel.class);
       QuicChannel parent = mock(QuicChannel.class);
 

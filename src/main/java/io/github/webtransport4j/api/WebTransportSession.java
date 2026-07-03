@@ -6,6 +6,7 @@ import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;
 import io.github.webtransport4j.server.WebTransportStreamFrameDecoder;
 import io.github.webtransport4j.server.WebTransportUtils;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -403,12 +404,11 @@ public class WebTransportSession {
   public void sendDatagram(@NonNull WebTransportBuffer data) {
     Channel parentChannel = connectStream.parent();
     int dataBytes = data.readableBytes();
-    io.netty.buffer.ByteBuf header = parentChannel.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(header, sessionStreamId);
-    CompositeByteBuf composite = parentChannel.alloc().compositeBuffer(2);
-    composite.addComponent(true, header);
-    composite.addComponent(true, Unpooled.wrappedBuffer(data.nioBuffer()));
-    parentChannel.writeAndFlush(composite);
+    ByteBuf payload =
+        data instanceof DefaultNettyWebTransportBuffer
+            ? ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer()
+            : Unpooled.wrappedBuffer(data.nioBuffer());
+    writeDatagram(parentChannel, payload);
     // Fire metrics: datagram sent
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
     if (metrics != null) {
@@ -420,17 +420,41 @@ public class WebTransportSession {
    * Sends a datagram package over the WebTransport session.
    *
    * @param data The datagram payload byte array.
+   *     The array is wrapped without copying. Do not modify it until Netty completes the write.
    */
   public void sendDatagram(byte @NonNull [] data) {
     Channel parentChannel = connectStream.parent();
-    io.netty.buffer.ByteBuf buffer = parentChannel.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(buffer, sessionStreamId);
-    buffer.writeBytes(data);
-    parentChannel.writeAndFlush(buffer);
+    writeDatagram(parentChannel, Unpooled.wrappedBuffer(data));
     // Fire metrics: datagram sent
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
     if (metrics != null) {
       metrics.onDatagramSent(sessionStreamId, data.length);
+    }
+  }
+
+  private void writeDatagram(@NonNull Channel parentChannel, @NonNull ByteBuf payload) {
+    ByteBuf header = null;
+    CompositeByteBuf composite = null;
+    try {
+      header = parentChannel.alloc().directBuffer(WebTransportUtils.varIntLength(sessionStreamId));
+      WebTransportUtils.writeVarInt(header, sessionStreamId);
+      composite = parentChannel.alloc().compositeBuffer(2);
+      composite.addComponent(true, header);
+      header = null;
+      composite.addComponent(true, payload);
+      payload = null;
+      parentChannel.writeAndFlush(composite);
+      composite = null;
+    } finally {
+      if (header != null) {
+        header.release();
+      }
+      if (payload != null) {
+        payload.release();
+      }
+      if (composite != null) {
+        composite.release();
+      }
     }
   }
 

@@ -16,6 +16,8 @@ final class InputStreamBinarySource implements BinarySource {
 
   private final InputStream in;
 
+  private byte[] scratch;
+
   InputStreamBinarySource(@NonNull InputStream in) {
     this.in = Objects.requireNonNull(in, "in must not be null");
   }
@@ -36,11 +38,14 @@ final class InputStreamBinarySource implements BinarySource {
         dst.position(dst.position() + bytesRead);
       }
     } else {
-      byte[] buffer = new byte[Math.min(dst.remaining(), 8192)];
-      bytesRead = in.read(buffer);
+      int scratchSize = Math.min(dst.remaining(), 8192);
+      if (scratch == null || scratch.length < scratchSize) {
+        scratch = new byte[scratchSize];
+      }
+      bytesRead = in.read(scratch, 0, scratchSize);
 
       if (bytesRead > 0) {
-        dst.put(buffer, 0, bytesRead);
+        dst.put(scratch, 0, bytesRead);
       }
     }
 

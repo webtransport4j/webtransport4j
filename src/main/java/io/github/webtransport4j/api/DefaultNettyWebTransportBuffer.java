@@ -14,6 +14,10 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
     this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
   }
 
+  @NonNull ByteBuf retainedReadableBuffer() {
+    return delegate.retainedSlice(delegate.readerIndex(), delegate.readableBytes());
+  }
+
   @Override
   public int readableBytes() {
     return delegate.readableBytes();
@@ -28,7 +32,6 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   public ByteBuffer skipBytes(int length) {
     return delegate.skipBytes(length).nioBuffer();
   }
-
 
   @Override
   public byte[] readBytes() {

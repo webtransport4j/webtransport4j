@@ -80,6 +80,10 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
       }
     }
 
+    if (source instanceof ZeroCopyBinarySource) {
+      return readZeroCopyChunk((ZeroCopyBinarySource) source, currentChunkSize);
+    }
+
     ByteBuf buf = alloc.buffer(currentChunkSize);
     int totalRead = 0;
 
@@ -125,6 +129,31 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
       close();
       throw t;
     }
+  }
+
+  private @Nullable ByteBuf readZeroCopyChunk(
+      @NonNull ZeroCopyBinarySource zeroCopySource, int currentChunkSize) throws IOException {
+    ByteBuf chunk = zeroCopySource.readRetainedChunk(currentChunkSize);
+    if (chunk == null) {
+      eof = true;
+      close();
+      return null;
+    }
+    int totalRead = chunk.readableBytes();
+    if (totalRead == 0) {
+      chunk.release();
+      return null;
+    }
+    progress += totalRead;
+    if (source.hasKnownSize() && progress >= source.size()) {
+      eof = true;
+      close();
+    }
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "Read zero-copy chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
+    }
+    return chunk;
   }
 
   @Override

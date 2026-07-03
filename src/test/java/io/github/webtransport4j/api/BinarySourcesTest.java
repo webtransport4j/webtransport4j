@@ -3,9 +3,11 @@ package io.github.webtransport4j.api;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -103,6 +105,45 @@ public class BinarySourcesTest {
     verifySource(source);
     assertEquals(
         "Underlying Netty ByteBuf readerIndex should be exhausted", 0, buf.readableBytes());
+  }
+
+  @Test
+  public void testChunkedInputUsesZeroCopyByteArrayChunks() throws Exception {
+    byte[] data = "abcdef".getBytes();
+    BinarySourceChunkedInput input =
+        new BinarySourceChunkedInput(BinarySources.fromByteArray(data), 3);
+
+    ByteBuf first = input.readChunk(ByteBufAllocator.DEFAULT);
+    assertEquals(3, first.readableBytes());
+    data[0] = 'z';
+    assertEquals('z', first.getByte(0));
+    first.release();
+
+    ByteBuf second = input.readChunk(ByteBufAllocator.DEFAULT);
+    assertEquals(3, second.readableBytes());
+    second.release();
+
+    assertNull(input.readChunk(ByteBufAllocator.DEFAULT));
+    assertTrue(input.isEndOfInput());
+  }
+
+  @Test
+  public void testChunkedInputUsesRetainedByteBufSlices() throws Exception {
+    ByteBuf sourceBuffer = Unpooled.wrappedBuffer("abcdef".getBytes());
+    BinarySourceChunkedInput input =
+        new BinarySourceChunkedInput(BinarySources.fromByteBuf(sourceBuffer), 4);
+
+    ByteBuf first = input.readChunk(ByteBufAllocator.DEFAULT);
+    assertEquals(4, first.readableBytes());
+    assertEquals(4, sourceBuffer.readerIndex());
+    sourceBuffer.setByte(0, 'z');
+    assertEquals('z', first.getByte(0));
+    first.release();
+
+    ByteBuf second = input.readChunk(ByteBufAllocator.DEFAULT);
+    assertEquals(2, second.readableBytes());
+    second.release();
+    sourceBuffer.release();
   }
 
   @Test

@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -20,6 +21,8 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
   private static final byte HEARTBEAT_MAGIC_BYTE =
       (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.stream.magic.byte", 0x3F);
+
+  private static final int MAX_STREAM_HEADER_BYTES = 16;
 
   private final boolean keepAliveEnabled;
 
@@ -88,128 +91,29 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
         }
       }
       if (!protocolHeaderConsumed) {
-        // Accumulate fragmented stream header bytes
+        StreamHeader header = null;
         if (cumulation == null) {
-          cumulation =
-              (ctx.alloc() != null) ? ctx.alloc().buffer() : io.netty.buffer.Unpooled.buffer();
+          header = readStreamHeader(data);
         }
-        cumulation.writeBytes(data);
-        data.release();
-        cumulation.markReaderIndex();
-        long streamType = WebTransportUtils.readVariableLengthInt(cumulation);
-        if (streamType == -1) {
-          cumulation.resetReaderIndex();
+        if (header == null) {
+          if (!accumulateHeaderBytes(ctx, data)) {
+            data.release();
+            return;
+          }
+          header = readStreamHeader(cumulation);
+          if (header == null) {
+            data.release();
+            return;
+          }
+          releaseCumulation();
+        }
+        if (!initializeClientStream(ctx, header.streamType, header.sessionId)) {
+          releaseCumulation();
+          data.release();
           return;
         }
-        long sessionId = WebTransportUtils.readVariableLengthInt(cumulation);
-        if (sessionId == -1) {
-          cumulation.resetReaderIndex();
-          return;
-        }
-        QuicChannel quic = (QuicChannel) ctx.channel().parent();
-        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-        if (mgr == null || !mgr.hasSession(sessionId)) {
-          logger.warn("❌ Unknown Session ID: {}", sessionId);
-          // Fire metrics: datagram/stream discarded due to unknown session
-          WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
-          if (metrics != null) {
-            metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
-          }
-          cumulation.release();
-          cumulation = null;
-          if (ctx.channel() instanceof QuicStreamChannel) {
-            ((QuicStreamChannel) ctx.channel())
-                .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
-          } else {
-            ctx.close();
-          }
-          return;
-        }
-        if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
-          if (logger.isDebugEnabled()) {
-            logger.debug(
-                "🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}",
-                sessionId,
-                ctx.channel().id());
-          }
-        } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
-          if (logger.isDebugEnabled()) {
-            logger.debug(
-                "➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {} | StreamID: {}",
-                sessionId,
-                ctx.channel().id());
-          }
-
-        } else {
-          logger.warn("❓ Unknown Stream Type: {}", streamType);
-        }
-        ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
-        ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
-        WebTransportSession session = mgr.get(sessionId);
-        if (session == null) {
-          cumulation.release();
-          cumulation = null;
-          return;
-        }
-        boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
-        long value =
-            isBidi
-                ? session.incrementAndGetClientInitiatedStreamsBidi()
-                : session.incrementAndGetClientInitiatedStreamsUni();
-        long maxAllowed =
-            isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
-        if (value > maxAllowed) {
-          logger.warn(
-              "❌ WebTransport stream limit exceeded for session {}: {} > {}",
-              sessionId,
-              value,
-              maxAllowed);
-          mgr.closeSessionWithFlowControlError(sessionId);
-          cumulation.release();
-          cumulation = null;
-          if (ctx.channel() instanceof QuicStreamChannel) {
-            ((QuicStreamChannel) ctx.channel())
-                .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-          } else {
-            ctx.close();
-          }
-          return;
-        }
-        if (logger.isDebugEnabled()) {
-          logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
-        }
-        protocolHeaderConsumed = true;
-        QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
-        if (isBidi) {
-          session.getActiveClientInitiatedBi().add(streamChannel);
-          streamChannel
-              .closeFuture()
-              .addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
-        } else {
-          session.getActiveClientInitiatedUni().add(streamChannel);
-          streamChannel
-              .closeFuture()
-              .addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
-        }
-        // Fire metrics: stream opened
-        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
-        if (metrics != null) {
-          final long metricSessionId = sessionId;
-          final long metricStreamId = streamChannel.streamId();
-          metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
-          streamChannel
-              .closeFuture()
-              .addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
-        }
-        // Fire any remaining bytes in the cumulated buffer down the pipeline
-        if (cumulation.isReadable()) {
-          ByteBuf remaining = cumulation.readBytes(cumulation.readableBytes());
-          cumulation.release();
-          cumulation = null;
-          data = remaining;
-        } else {
-          cumulation.release();
-          cumulation = null;
+        if (!data.isReadable()) {
+          data.release();
           return;
         }
       }
@@ -270,7 +174,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                             data.readableBytes(),
                             sessionId);
                       }
-                      ctx.writeAndFlush(data.retain());
+                      writeAndFlushOwned(ctx, data.retain());
                     }
                   } else {
                     while (data.isReadable()) {
@@ -286,7 +190,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                         }
                         ByteBuf pong = ctx.alloc().buffer(1);
                         pong.writeByte(keepAlivePongByte);
-                        ctx.writeAndFlush(pong);
+                        writeAndFlushOwned(ctx, pong);
                       }
                     }
                   }
@@ -343,6 +247,185 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
     // message dispatcher
     ctx.fireChannelRead(data);
+  }
+
+  private static StreamHeader readStreamHeader(@NonNull ByteBuf in) {
+    in.markReaderIndex();
+    long streamType = WebTransportUtils.readVariableLengthInt(in);
+    if (streamType == -1) {
+      in.resetReaderIndex();
+      return null;
+    }
+    long sessionId = WebTransportUtils.readVariableLengthInt(in);
+    if (sessionId == -1) {
+      in.resetReaderIndex();
+      return null;
+    }
+    return new StreamHeader(streamType, sessionId);
+  }
+
+  private static StreamHeader peekStreamHeader(@NonNull ByteBuf in) {
+    in.markReaderIndex();
+    StreamHeader header = readStreamHeader(in);
+    in.resetReaderIndex();
+    return header;
+  }
+
+  private boolean accumulateHeaderBytes(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data) {
+    if (cumulation == null) {
+      cumulation =
+          (ctx.alloc() != null)
+              ? ctx.alloc().buffer(MAX_STREAM_HEADER_BYTES, MAX_STREAM_HEADER_BYTES)
+              : io.netty.buffer.Unpooled.buffer(MAX_STREAM_HEADER_BYTES, MAX_STREAM_HEADER_BYTES);
+    }
+    while (data.isReadable()) {
+      if (cumulation.readableBytes() >= MAX_STREAM_HEADER_BYTES) {
+        rejectMalformedStreamHeader(ctx);
+        return false;
+      }
+      cumulation.writeByte(data.readByte());
+      if (peekStreamHeader(cumulation) != null) {
+        return true;
+      }
+    }
+    if (cumulation.readableBytes() >= MAX_STREAM_HEADER_BYTES) {
+      rejectMalformedStreamHeader(ctx);
+      return false;
+    }
+    return true;
+  }
+
+  private void rejectMalformedStreamHeader(@NonNull ChannelHandlerContext ctx) {
+    logger.warn("❌ Malformed WebTransport stream header");
+    releaseCumulation();
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      ((QuicStreamChannel) ctx.channel())
+          .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+    } else {
+      ctx.close();
+    }
+  }
+
+  private void releaseCumulation() {
+    if (cumulation != null) {
+      cumulation.release();
+      cumulation = null;
+    }
+  }
+
+  private static void writeAndFlushOwned(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf owned) {
+    boolean release = true;
+    try {
+      ChannelFuture future = ctx.writeAndFlush(owned);
+      release = future == null;
+    } finally {
+      if (release) {
+        owned.release();
+      }
+    }
+  }
+
+  private boolean initializeClientStream(
+      @NonNull ChannelHandlerContext ctx, long streamType, long sessionId) {
+    QuicChannel quic = (QuicChannel) ctx.channel().parent();
+    WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+    if (mgr == null || !mgr.hasSession(sessionId)) {
+      logger.warn("❌ Unknown Session ID: {}", sessionId);
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+      if (metrics != null) {
+        metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
+      }
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) ctx.channel())
+            .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+      } else {
+        ctx.close();
+      }
+      return false;
+    }
+    if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}",
+            sessionId,
+            ctx.channel().id());
+      }
+    } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {} | StreamID: {}",
+            sessionId,
+            ctx.channel().id());
+      }
+    } else {
+      logger.warn("❓ Unknown Stream Type: {}", streamType);
+    }
+    ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
+    ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
+    WebTransportSession session = mgr.get(sessionId);
+    if (session == null) {
+      return false;
+    }
+    boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
+    long value =
+        isBidi
+            ? session.incrementAndGetClientInitiatedStreamsBidi()
+            : session.incrementAndGetClientInitiatedStreamsUni();
+    long maxAllowed =
+        isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+    if (value > maxAllowed) {
+      logger.warn(
+          "❌ WebTransport stream limit exceeded for session {}: {} > {}",
+          sessionId,
+          value,
+          maxAllowed);
+      mgr.closeSessionWithFlowControlError(sessionId);
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) ctx.channel())
+            .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+      } else {
+        ctx.close();
+      }
+      return false;
+    }
+    if (logger.isDebugEnabled()) {
+      logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
+    }
+    protocolHeaderConsumed = true;
+    QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+    if (isBidi) {
+      session.getActiveClientInitiatedBi().add(streamChannel);
+      streamChannel
+          .closeFuture()
+          .addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
+    } else {
+      session.getActiveClientInitiatedUni().add(streamChannel);
+      streamChannel
+          .closeFuture()
+          .addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
+    }
+    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+    if (metrics != null) {
+      final long metricSessionId = sessionId;
+      final long metricStreamId = streamChannel.streamId();
+      metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
+      streamChannel
+          .closeFuture()
+          .addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
+    }
+    return true;
+  }
+
+  private static final class StreamHeader {
+    private final long streamType;
+    private final long sessionId;
+
+    private StreamHeader(long streamType, long sessionId) {
+      this.streamType = streamType;
+      this.sessionId = sessionId;
+    }
   }
 
   /**

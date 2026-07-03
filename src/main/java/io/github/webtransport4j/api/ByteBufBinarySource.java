@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A {@link BinarySource} backed by a Netty {@link ByteBuf}.
@@ -12,7 +13,7 @@ import org.jspecify.annotations.NonNull;
  * <p>Reading from this source will advance the reader index of the underlying buffer. The source
  * considers the initial {@link ByteBuf#readableBytes()} as its total size.
  */
-final class ByteBufBinarySource implements BinarySource {
+final class ByteBufBinarySource implements ZeroCopyBinarySource {
 
   private final ByteBuf buffer;
   private final int size;
@@ -36,6 +37,14 @@ final class ByteBufBinarySource implements BinarySource {
     dst.limit(oldLimit);
 
     return bytes;
+  }
+
+  @Override
+  public @Nullable ByteBuf readRetainedChunk(int maxBytes) {
+    if (!buffer.isReadable()) {
+      return null;
+    }
+    return buffer.readRetainedSlice(Math.min(maxBytes, buffer.readableBytes()));
   }
 
   @Override

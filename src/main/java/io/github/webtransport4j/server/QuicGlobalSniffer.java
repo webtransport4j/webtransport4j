@@ -24,14 +24,9 @@ class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
       ByteBuf data = (ByteBuf) msg;
       int len = data.readableBytes();
       // Formatting for readability
-      if (len > 0) {
-        String hex = ByteBufUtil.hexDump(data);
-        if (logger.isTraceEnabled()) {
-          logger.trace("👀 [{}] ID:{} LEN:{}", prefix, ctx.channel().id().asShortText(), len);
-        }
-        if (logger.isTraceEnabled()) {
-          logger.trace("    HEX: {}", hex);
-        }
+      if (len > 0 && logger.isTraceEnabled()) {
+        logger.trace("👀 [{}] ID:{} LEN:{}", prefix, ctx.channel().id().asShortText(), len);
+        logger.trace("    HEX: {}", ByteBufUtil.hexDump(data));
       }
     } else {
       if (logger.isDebugEnabled()) {

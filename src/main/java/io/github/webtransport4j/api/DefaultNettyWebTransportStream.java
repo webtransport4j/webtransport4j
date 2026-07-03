@@ -2,6 +2,7 @@ package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.example.StreamCodec;
 import io.github.webtransport4j.server.WebTransportUtils;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
@@ -115,6 +116,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public @NonNull Future<Void> write(@NonNull WebTransportBuffer data) {
+    if (data instanceof DefaultNettyWebTransportBuffer) {
+      ByteBuf retained = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
+      try {
+        return streamChannel().writeAndFlush(retained);
+      } catch (RuntimeException | Error e) {
+        retained.release();
+        throw e;
+      }
+    }
     return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data.nioBuffer()));
   }
 
