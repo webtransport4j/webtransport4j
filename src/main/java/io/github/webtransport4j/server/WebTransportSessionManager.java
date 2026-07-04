@@ -1,16 +1,21 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.DefaultNettyWebTransportStream;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -26,7 +31,7 @@ public class WebTransportSessionManager {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
 
-  private AtomicBoolean keepAliveStarted = new AtomicBoolean(false);
+  private final AtomicBoolean keepAliveStarted = new AtomicBoolean(false);
   private ScheduledFuture<?> keepAliveFuture = null;
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
@@ -170,14 +175,13 @@ public class WebTransportSessionManager {
         quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
     WebTransportHandler handler =
-        server != null ? server.getHandler(pathStr) : new WebTransportHandler() {};
-    if (handler != null) {
+        server != null ? server.getHandler(pathStr) : new WebTransportHandler() {
+        };
       try {
-        handler.onSessionReady(session);
+          handler.onSessionReady(session);
       } catch (Exception e) {
-        logger.error("Error in onSessionReady callback", e);
+          logger.error("Error in onSessionReady callback", e);
       }
-    }
   }
 
   /** Required by the Demux handler to validate incoming Bidi streams. */
@@ -202,8 +206,8 @@ public class WebTransportSessionManager {
     long sessionStreamId = connecStreamChannel.streamId();
     WebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed != null) {
-      int closeCode = (int) removed.getCloseCode();
-      for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedBi()) {
+      int closeCode = removed.getCloseCode();
+      for (QuicStreamChannel activeStream : removed.getAllActiveWebTransportStreams()) {
         if (closeCode != 0) {
           activeStream
               .shutdown(closeCode, activeStream.newPromise())
@@ -212,49 +216,24 @@ public class WebTransportSessionManager {
           activeStream.close();
         }
       }
-      for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedBi()) {
-        if (closeCode != 0) {
-          activeStream
-              .shutdown(closeCode, activeStream.newPromise())
-              .addListener(f -> activeStream.close());
-        } else {
-          activeStream.close();
-        }
-      }
-      for (QuicStreamChannel activeStream : removed.getActiveClientInitiatedUni()) {
-        if (closeCode != 0) {
-          activeStream
-              .shutdown(closeCode, activeStream.newPromise())
-              .addListener(f -> activeStream.close());
-        } else {
-          activeStream.close();
-        }
-      }
-      for (QuicStreamChannel activeStream : removed.getActiveServerInitiatedUni()) {
-        if (closeCode != 0) {
-          activeStream
-              .shutdown(closeCode, activeStream.newPromise())
-              .addListener(f -> activeStream.close());
-        } else {
-          activeStream.close();
-        }
-      }
-      QuicChannel quic = (QuicChannel) connecStreamChannel.parent();
+      QuicChannel quic = connecStreamChannel.parent();
       Attribute<WebTransportServer> serverAttr =
           quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
       WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
       WebTransportHandler handler =
-          server != null ? server.getHandler(removed.path()) : new WebTransportHandler() {};
-      if (handler != null) {
+          server != null ? server.getHandler(removed.path()) : null;
         try {
-          handler.onSessionClosed(removed);
+          if (handler!=null) {
+            handler.onSessionClosed(removed);
+          } else {
+            logger.warn("this path {} doesnt have any handler registered", removed.path());
+          }
         } catch (Exception e) {
-          logger.error("Error in onClose callback", e);
+            logger.error("Error in onClose callback", e);
         }
-      }
 
-      if (quic != null) {
-        io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr =
+        if (quic != null) {
+        Attribute<AtomicInteger> globalAttr =
             quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
         if (globalAttr != null && globalAttr.get() != null) {
           globalAttr.get().decrementAndGet();
@@ -266,9 +245,9 @@ public class WebTransportSessionManager {
         }
       }
 
-      if (logger.isDebugEnabled()) {
-        logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
-      }
+        if (logger.isDebugEnabled()) {
+          logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
+        }
     }
   }
 
@@ -332,17 +311,13 @@ public class WebTransportSessionManager {
   public void closeAll() {
     if (!sessions.isEmpty()) {
       int count = sessions.size();
-
-      // Get the first session's connection to decrement global count
-      if (count > 0) {
-        WebTransportSession first = sessions.values().iterator().next();
-        QuicChannel quic = first.getConnectStream().parent();
-        if (quic != null) {
-          io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr =
-              quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
-          if (globalAttr != null && globalAttr.get() != null) {
-            globalAttr.get().addAndGet(-count);
-          }
+      WebTransportSession first = sessions.values().iterator().next();
+      QuicChannel quic = first.getConnectStream().parent();
+      if (quic != null) {
+        Attribute<AtomicInteger> globalAttr =
+            quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+        if (globalAttr != null && globalAttr.get() != null) {
+          globalAttr.get().addAndGet(-count);
         }
       }
 

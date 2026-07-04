@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Detects whether a newly created QUIC bidirectional stream is:
  *
- * <p>1. A normal HTTP/3 request stream 2. A WebTransport WT_STREAM (0x41)
+ * <p>1. A normal HTTP/3 request stream 2. A WebTransport WT_STREAM (0x41) -BiDirectional
  *
  * <p>This implementation: - Uses Netty's built-in cumulation via ByteToMessageDecoder - Handles
  * fragmented packets correctly - Uses QUIC varint decoding instead of raw byte matching - Does not

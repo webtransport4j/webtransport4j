@@ -42,9 +42,19 @@ import org.slf4j.LoggerFactory;
 /** Main WebTransport server managing QUIC connections. */
 public class WebTransportServer {
 
+  static {
+    // Disable PooledByteBufAllocator cache for non-FastThreadLocal threads (like Virtual Threads)
+    // to prevent severe direct memory leaks/exhaustion when executing async task queues.
+    System.setProperty("io.netty.allocator.useCacheForAllThreads", "false");
+  }
+
   private static final Logger logger = LoggerFactory.getLogger(WebTransportServer.class);
 
   private int port;
+
+  public Map<String, WebTransportHandler> getHandlers() {
+    return handlers;
+  }
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
 
@@ -68,11 +78,13 @@ public class WebTransportServer {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
     this.defaultHandler = defaultHandler;
+    handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
   }
 
   public WebTransportServer() {
     this.defaultHandler = new WebTransportHandler() {};
+    handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
   }
 
@@ -82,6 +94,7 @@ public class WebTransportServer {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
     this.defaultHandler = defaultHandler;
+    handlers.put("/", defaultHandler);
     this.businessExecutor = businessExecutor;
   }
 
@@ -155,9 +168,7 @@ public class WebTransportServer {
 
   private final ExecutorService businessExecutor;
 
-  private List<String> allowedOrigins;
-
-  private EventLoopGroup group;
+    private EventLoopGroup group;
 
   private Channel channel;
 
@@ -169,7 +180,7 @@ public class WebTransportServer {
     }
     port = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
     String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
-    allowedOrigins = Arrays.asList(originsProp.split(","));
+    List<String> allowedOrigins = Arrays.asList(originsProp.split(","));
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(

@@ -51,7 +51,7 @@ public final class EchoWebTransportHandler implements WebTransportHandler {
         stream.onError(error ->
                 logger.error("Stream {} error", stream.streamId(), error));
 
-        stream.onData(data-> stream.write(data));
+        stream.onData(stream::write);
     }
 
     @Override

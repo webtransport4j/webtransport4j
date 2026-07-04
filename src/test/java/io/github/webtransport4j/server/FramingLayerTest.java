@@ -246,6 +246,15 @@ public class FramingLayerTest {
         .when(mockEventLoop)
         .execute(any(Runnable.class));
 
+    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
+        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.config()).thenReturn(mockConfig);
+    when(mockConfig.isAutoRead()).thenReturn(true);
+
+    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
+    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
+
     io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
         mock(io.netty.util.Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
@@ -288,6 +297,12 @@ public class FramingLayerTest {
           }
         };
     when(execAttr.get()).thenReturn(directExecutor);
+
+    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr =
+        mock(io.netty.util.Attribute.class);
+    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
+    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
 
     io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
@@ -928,5 +943,212 @@ public class FramingLayerTest {
       log.error("Exception caught", e);
     }
     log.info("==============================================================");
+  }
+
+  @Test
+  public void testMessageDispatcherEventLoopMode() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+
+    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(mock(io.netty.util.Attribute.class));
+
+    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
+    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
+    when(mockSessionMgr.get(any(Long.class))).thenReturn(null);
+
+    ByteBuf data = Unpooled.copiedBuffer("EventLoop Msg".getBytes(StandardCharsets.UTF_8));
+    WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
+
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
+    dispatcher.channelRead(mockCtx, frame);
+
+    assertEquals(0, frame.refCnt());
+  }
+
+  @Test
+  public void testMessageDispatcherVirtualThreadsMode() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+
+    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    doAnswer(
+            invocation -> {
+              Runnable r = invocation.getArgument(0);
+              r.run();
+              return null;
+            })
+        .when(mockEventLoop)
+        .execute(any(Runnable.class));
+
+    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
+        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.config()).thenReturn(mockConfig);
+    when(mockConfig.isAutoRead()).thenReturn(true);
+
+    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
+    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
+
+    final boolean[] executed = new boolean[1];
+    java.util.concurrent.ExecutorService mockExecutor = mock(java.util.concurrent.ExecutorService.class);
+    doAnswer(
+            invocation -> {
+              executed[0] = true;
+              Runnable r = invocation.getArgument(0);
+              r.run();
+              return null;
+            })
+        .when(mockExecutor)
+        .execute(any(Runnable.class));
+
+    io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
+        mock(io.netty.util.Attribute.class);
+    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
+    when(execAttr.get()).thenReturn(mockExecutor);
+
+    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
+    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
+
+    ByteBuf data = Unpooled.copiedBuffer("VT Msg".getBytes(StandardCharsets.UTF_8));
+    WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
+
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
+    dispatcher.channelRead(mockCtx, frame);
+
+    assertTrue(executed[0]);
+    assertEquals(0, frame.refCnt());
+  }
+
+  @Test
+  public void testMessageDispatcherFixedThreadPoolMode() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+
+    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    doAnswer(
+            invocation -> {
+              Runnable r = invocation.getArgument(0);
+              r.run();
+              return null;
+            })
+        .when(mockEventLoop)
+        .execute(any(Runnable.class));
+
+    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
+        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.config()).thenReturn(mockConfig);
+    when(mockConfig.isAutoRead()).thenReturn(true);
+
+    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
+    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
+
+    final boolean[] executed = new boolean[1];
+    java.util.concurrent.ThreadPoolExecutor mockFixedPool = mock(java.util.concurrent.ThreadPoolExecutor.class);
+    doAnswer(
+            invocation -> {
+              executed[0] = true;
+              Runnable r = invocation.getArgument(0);
+              r.run();
+              return null;
+            })
+        .when(mockFixedPool)
+        .execute(any(Runnable.class));
+
+    io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
+        mock(io.netty.util.Attribute.class);
+    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
+    when(execAttr.get()).thenReturn(mockFixedPool);
+
+    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
+    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
+
+    ByteBuf data = Unpooled.copiedBuffer("Fixed Msg".getBytes(StandardCharsets.UTF_8));
+    WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
+
+    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
+    dispatcher.channelRead(mockCtx, frame);
+
+    assertTrue(executed[0]);
+    assertEquals(0, frame.refCnt());
+  }
+
+  @Test
+  public void testStreamMailboxBackpressureThrottling() throws Exception {
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
+    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
+        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.config()).thenReturn(mockConfig);
+    when(mockConfig.isAutoRead()).thenReturn(true);
+
+    final java.util.List<Runnable> tasks = new java.util.ArrayList<>();
+    java.util.concurrent.ExecutorService mockExecutor = mock(java.util.concurrent.ExecutorService.class);
+    doAnswer(
+            invocation -> {
+              tasks.add(invocation.getArgument(0));
+              return null;
+            })
+        .when(mockExecutor)
+        .execute(any(Runnable.class));
+
+    StreamMailbox.FrameDispatcher mockDispatcher = mock(StreamMailbox.FrameDispatcher.class);
+
+    StreamMailbox mailbox = new StreamMailbox(mockStream, mockExecutor, mockDispatcher, 1L);
+
+    java.util.List<WebTransportStreamFrame> frames = new java.util.ArrayList<>();
+    for (int i = 0; i < 16; i++) {
+      ByteBuf data = Unpooled.buffer(0);
+      WebTransportStreamFrame f = new WebTransportStreamFrame(1L, 1L, true, data);
+      frames.add(f);
+      mailbox.enqueue(f);
+    }
+    verify(mockConfig, times(0)).setAutoRead(false);
+
+    ByteBuf data = Unpooled.buffer(0);
+    WebTransportStreamFrame seventeenthFrame = new WebTransportStreamFrame(1L, 1L, true, data);
+    frames.add(seventeenthFrame);
+    mailbox.enqueue(seventeenthFrame);
+    verify(mockConfig, times(1)).setAutoRead(false);
+
+    assertEquals(1, tasks.size());
+    Runnable mailboxTask = tasks.get(0);
+    mailboxTask.run();
+
+    verify(mockConfig, times(1)).setAutoRead(true);
+
+    // Simulate Netty auto-release that occurs when channelRead0 finishes
+    for (WebTransportStreamFrame f : frames) {
+      f.release();
+    }
+
+    for (WebTransportStreamFrame f : frames) {
+      assertEquals(0, f.refCnt());
+    }
   }
 }

@@ -4,6 +4,8 @@ import io.github.webtransport4j.example.StreamCodec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
@@ -274,5 +276,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   @Override
   public boolean isActive() {
     return streamChannel().isActive();
+  }
+
+  @Override
+  public @NonNull ChannelFuture shutdown(int error, @NonNull ChannelPromise promise) {
+    return streamChannel().shutdown(error, promise);
+  }
+
+  @Override
+  public @NonNull ChannelPromise newPromise() {
+    return streamChannel().newPromise();
   }
 }

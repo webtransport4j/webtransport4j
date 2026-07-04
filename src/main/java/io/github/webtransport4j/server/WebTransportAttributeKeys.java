@@ -6,6 +6,7 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Supplier;
 
 /** Netty channel attribute keys for WebTransport. */
 public final class WebTransportAttributeKeys {
@@ -16,7 +17,8 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<WebTransportServer> SERVER_KEY =
       AttributeKey.valueOf("wt.server.instance");
 
-  public static final AttributeKey<Long> SESSION_ID_KEY = AttributeKey.valueOf("wt.session.id");
+  public static final AttributeKey<Long> SESSION_ID_KEY =
+          AttributeKey.valueOf("wt.session.id");
 
   public static final AttributeKey<String> SESSION_PATH_KEY =
       AttributeKey.valueOf("wt.session.path.key");
@@ -40,7 +42,8 @@ public final class WebTransportAttributeKeys {
       AttributeKey.valueOf("wt.global.session.count");
 
   // Stream-related Attribute Keys
-  public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
+  public static final AttributeKey<Long> STREAM_TYPE_KEY =
+          AttributeKey.valueOf("wt.stream.type");
 
   public static final AttributeKey<Boolean> SERVER_INITIATED_KEY =
       AttributeKey.valueOf("wt.stream.server_initiated");
@@ -85,6 +88,10 @@ public final class WebTransportAttributeKeys {
       AttributeKey.valueOf("wt.metrics.listener");
 
   // Message dispatcher factory
-  public static final AttributeKey<java.util.function.Supplier<MessageDispatcher>>
-      MESSAGE_DISPATCHER_SUPPLIER = AttributeKey.valueOf("wt.message.dispatcher.supplier");
+  public static final AttributeKey<Supplier<MessageDispatcher>> MESSAGE_DISPATCHER_SUPPLIER =
+          AttributeKey.valueOf("wt.message.dispatcher.supplier");
+
+  // Stream Mailbox Attribute Key
+  public static final AttributeKey<StreamMailbox> STREAM_MAILBOX_KEY =
+      AttributeKey.valueOf("wt.stream.mailbox");
 }

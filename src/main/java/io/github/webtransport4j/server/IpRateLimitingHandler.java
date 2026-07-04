@@ -6,6 +6,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
@@ -31,7 +32,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
             "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100);
 
     String engineType =
-        WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "trie")
+        Objects.requireNonNull(WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "trie"))
             .toLowerCase();
     if ("netty".equals(engineType)) {
       this.whitelistEngine = new NettyLinearIpFilterEngine<>();
@@ -42,7 +43,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     }
 
     String whitelistConfig =
-        WebTransportConfig.get("webtransport4j.server.ratelimit.whitelist", "");
+        WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.whitelist", "");
     for (String allowed : whitelistConfig.split(",")) {
       allowed = allowed.trim();
       if (!allowed.isEmpty()) {
@@ -51,7 +52,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     }
 
     String overridesConfig =
-        WebTransportConfig.get("webtransport4j.server.ratelimit.overrides", "");
+        WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.overrides", "");
     if (!overridesConfig.isEmpty()) {
       for (String override : overridesConfig.split(",")) {
         int lastColon = override.lastIndexOf(":");
@@ -72,7 +73,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
             "webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1_000_000);
     double bloomFpp = 0.000000001;
     String fppStr =
-        WebTransportConfig.get(
+        WebTransportConfig.getNonNull(
             "webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001");
     try {
       bloomFpp = Double.parseDouble(fppStr);
@@ -83,7 +84,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     // Initialize blocklist bloom filter
     this.blocklistFilter = new IpBloomFilter(bloomCapacity, bloomFpp);
     String blocklistConfig =
-        WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist", "");
+        WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.blocklist", "");
     if (!blocklistConfig.isEmpty()) {
       for (String blockedIp : blocklistConfig.split(",")) {
         this.blocklistFilter.add(blockedIp.trim());

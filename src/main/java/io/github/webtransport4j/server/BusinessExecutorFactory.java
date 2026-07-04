@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import java.lang.reflect.Method;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -55,7 +56,7 @@ public final class BusinessExecutorFactory {
           private final AtomicInteger count = new AtomicInteger(1);
 
           @Override
-          public Thread newThread(Runnable r) {
+          public Thread newThread(@NonNull Runnable r) {
             Thread thread = new Thread(r, "wt-netty-executor-" + count.getAndIncrement());
             thread.setDaemon(true);
             return thread;
@@ -123,7 +124,7 @@ public final class BusinessExecutorFactory {
           }
         },
         createRejectedExecutionHandler(
-            WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT")));
+                Objects.requireNonNull(WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT"))));
   }
 
   private static @NonNull RejectedExecutionHandler createRejectedExecutionHandler(

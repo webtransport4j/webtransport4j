@@ -10,8 +10,10 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
@@ -21,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
+
 
 /**
  * Represents a WebTransport session and manages its streams.
@@ -154,50 +157,31 @@ public class WebTransportSession {
     lastReadTime.set(System.currentTimeMillis());
   }
 
-  public @NonNull Set<QuicStreamChannel> getActiveClientInitiatedUni() {
+
+  public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
     return activeClientInitiatedUni;
   }
 
-  public @NonNull Set<WebTransportStream> getClientInitiatedUniStreams() {
-    return toWebTransportStreams(activeClientInitiatedUni);
-  }
-
-  public @NonNull Set<QuicStreamChannel> getActiveServerInitiatedUni() {
+  public Set<QuicStreamChannel> getActiveServerInitiatedUni() {
     return activeServerInitiatedUni;
   }
 
-  public @NonNull Set<WebTransportStream> getServerInitiatedUniStreams() {
-    return toWebTransportStreams(activeServerInitiatedUni);
-  }
-
-  public @NonNull Set<QuicStreamChannel> getActiveClientInitiatedBi() {
+  public Set<QuicStreamChannel> getActiveClientInitiatedBi() {
     return activeClientInitiatedBi;
   }
 
-  public @NonNull Set<WebTransportStream> getClientInitiatedBiStreams() {
-    return toWebTransportStreams(activeClientInitiatedBi);
-  }
-
-  public @NonNull Set<QuicStreamChannel> getActiveServerInitiatedBi() {
+  public Set<QuicStreamChannel> getActiveServerInitiatedBi() {
     return activeServerInitiatedBi;
   }
 
-  public @NonNull Set<WebTransportStream> getServerInitiatedBiStreams() {
-    return toWebTransportStreams(activeServerInitiatedBi);
+  public @NonNull Set<QuicStreamChannel> getAllActiveWebTransportStreams() {
+    Set<QuicStreamChannel> webTransportStreams = new HashSet<>();
+    webTransportStreams.addAll(getActiveClientInitiatedUni());
+    webTransportStreams.addAll(getActiveServerInitiatedUni());
+    webTransportStreams.addAll(getActiveClientInitiatedBi());
+    webTransportStreams.addAll(getActiveServerInitiatedBi());
+    return webTransportStreams;
   }
-
-  private @NonNull Set<WebTransportStream> toWebTransportStreams(
-      @NonNull Set<QuicStreamChannel> quicStreamChannelSet) {
-    Set<WebTransportStream> streams = new HashSet<>();
-    for (QuicStreamChannel ch : quicStreamChannelSet) {
-      WebTransportStream s = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-      if (s != null) {
-        streams.add(s);
-      }
-    }
-    return streams;
-  }
-
   public boolean isFlowControlEnabled() {
     return flowControlEnabled;
   }
@@ -370,16 +354,7 @@ public class WebTransportSession {
     }
 
     // Reset all associated data streams
-    for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
-      activeStream.shutdown(code, activeStream.newPromise());
-    }
-    for (QuicStreamChannel activeStream : activeServerInitiatedBi) {
-      activeStream.shutdown(code, activeStream.newPromise());
-    }
-    for (QuicStreamChannel activeStream : activeClientInitiatedUni) {
-      activeStream.shutdown(code, activeStream.newPromise());
-    }
-    for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
+    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.shutdown(code, activeStream.newPromise());
     }
     if (onClosedCallback != null) {

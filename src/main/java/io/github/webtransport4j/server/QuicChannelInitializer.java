@@ -95,7 +95,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
             new io.netty.channel.ChannelInboundHandlerAdapter() {
               private String currentRemoteAddress =
                   ch.remoteSocketAddress() != null
-                      ? ch.remoteSocketAddress().toString()
+                      ? Objects.requireNonNull(ch.remoteSocketAddress()).toString()
                       : "unknown";
 
               @Override

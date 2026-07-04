@@ -67,7 +67,7 @@ public class WebTransportUtils {
     }
     QuicChannel quic =
         (channel instanceof QuicStreamChannel)
-            ? (QuicChannel) ((QuicStreamChannel) channel).parent()
+            ? ((QuicStreamChannel) channel).parent()
             : (channel instanceof QuicChannel ? (QuicChannel) channel : null);
     return getMetrics(quic);
   }

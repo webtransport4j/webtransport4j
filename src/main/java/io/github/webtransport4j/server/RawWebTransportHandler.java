@@ -11,6 +11,8 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.io.IOException;
+import java.util.Objects;
+
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,7 +45,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     this.keepAliveEnabled =
         WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
     this.keepAliveMode =
-        WebTransportConfig.get("webtransport4j.server.keepalive.mode", "STRICT").toUpperCase();
+        Objects.requireNonNull(WebTransportConfig.get("webtransport4j.server.keepalive.mode", "STRICT")).toUpperCase();
     this.keepAlivePingByte =
         (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.ping.byte", 1);
     this.keepAlivePongByte =

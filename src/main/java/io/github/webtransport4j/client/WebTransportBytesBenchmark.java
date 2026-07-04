@@ -20,7 +20,7 @@ import java.util.concurrent.locks.LockSupport;
 /**
  * Aggressive Bulk Throughput Benchmark for 1GB WebTransport Transfer
  */
-public final class WebTransport1GBBenchmark {
+public final class WebTransportBytesBenchmark {
 
     // 1 GB total data = 1,073,741,824 bytes
     private static final long TOTAL_BYTES = 1024L * 1024L * 1024L;
@@ -78,7 +78,7 @@ public final class WebTransport1GBBenchmark {
             connectStreamChannel.writeAndFlush(frame).sync();
 
             long sessionId = connectStreamChannel.streamId();
-            BulkThroughputHandler1 throughputHandler = new BulkThroughputHandler1();
+            BulkThroughputHandler throughputHandler = new BulkThroughputHandler();
 
             QuicStreamChannel biStreamChannel = quicChannel.createStream(
                     QuicStreamType.BIDIRECTIONAL,
@@ -97,7 +97,7 @@ public final class WebTransport1GBBenchmark {
                 payloadChunk.writeByte((byte) 'x');
             }
 
-            System.out.println("Starting Aggressive 1GB Bidirectional Stream Benchmark...");
+            System.out.printf("Starting Aggressive Bidirectional Stream Benchmark for %,d bytes...%n", TOTAL_BYTES);
             long startTime = System.nanoTime();
 
             // Start sending data with aggressive backpressure safety
@@ -113,7 +113,7 @@ public final class WebTransport1GBBenchmark {
             double gbps = (TOTAL_BYTES * 8.0 / 1_000_000_000.0) / seconds;
 
             System.out.println("\n================ BENCHMARK RESULTS ================");
-            System.out.printf("Total Data Transferred : %.2f GB (Send & Receive)%n", TOTAL_BYTES / (1024.0 * 1024.0 * 1024.0));
+            System.out.printf("Total Data Transferred : %.2f MB (Send & Receive)%n", TOTAL_BYTES / (1024.0 * 1024.0));
             System.out.println("Time Taken             : " + durationMs + " ms (" + String.format("%.2f", seconds) + " seconds)");
             System.out.printf("Throughput (MB/s)      : %,.2f MB/s%n", mbps);
             System.out.printf("Throughput (Network)   : %,.2f Gbps%n", gbps);
@@ -124,7 +124,7 @@ public final class WebTransport1GBBenchmark {
         }
     }
 
-    private static void streamDataWithBackpressure(QuicStreamChannel channel, BulkThroughputHandler1 handler, ByteBuf chunk) throws InterruptedException {
+    private static void streamDataWithBackpressure(QuicStreamChannel channel, BulkThroughputHandler handler, ByteBuf chunk) throws InterruptedException {
         CountDownLatch latch = new CountDownLatch(1);
         handler.expect(TOTAL_BYTES, latch);
 
@@ -133,8 +133,13 @@ public final class WebTransport1GBBenchmark {
 
         while (bytesSent < TOTAL_BYTES) {
             if (channel.isWritable()) {
-                channel.write(chunk.retainedDuplicate());
-                bytesSent += CHUNK_SIZE;
+                int bytesToWrite = (int) Math.min(CHUNK_SIZE, TOTAL_BYTES - bytesSent);
+                if (bytesToWrite == CHUNK_SIZE) {
+                    channel.write(chunk.retainedDuplicate());
+                } else {
+                    channel.write(chunk.retainedSlice(0, bytesToWrite));
+                }
+                bytesSent += bytesToWrite;
                 flushCounter++;
 
                 // Flush every 16 chunks (4 MB batches) to lower CPU overhead
@@ -154,7 +159,7 @@ public final class WebTransport1GBBenchmark {
         // Final flush for remaining chunks
         channel.flush();
 
-        System.out.println("All 1GB sent. Awaiting full echo receipt from server...");
+        System.out.printf("All %,d bytes sent. Awaiting full echo receipt from server...%n", TOTAL_BYTES);
         latch.await();
     }
 }
@@ -186,9 +191,14 @@ class BulkThroughputHandler extends ChannelDuplexHandler {
             if (currentPercent >= lastReportedPercent + 10) {
                 lastReportedPercent = (currentPercent / 10) * 10;
                 System.out.println("Progress: Received " + lastReportedPercent + "% (" + (bytesReceived / (1024 * 1024)) + " MB)");
+                System.out.flush();
             }
 
             if (currentLatch != null && bytesReceived >= bytesExpected) {
+                if (lastReportedPercent < 100) {
+                    System.out.println("Progress: Received 100% (" + (bytesReceived / (1024 * 1024)) + " MB)");
+                    System.out.flush();
+                }
                 currentLatch.countDown();
             }
             ReferenceCountUtil.release(msg);

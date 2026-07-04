@@ -5,6 +5,7 @@ package io.github.webtransport4j.client;
  * @date 03/07/26 4:53 pm
  */
 
+import io.github.webtransport4j.server.UnknownStreamHandlerFactory;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -38,7 +39,7 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
     public WebTransportClientHandler(Http3SettingsFrame localSettings, boolean disableQpackDynamicTable,
                                      Http3Settings.NonStandardHttp3SettingsValidator
                                              nonStandardSettingsValidator) {
-        super(null, null, null, localSettings,
+        super(null, null, new UnknownStreamHandlerFactory(), localSettings,
                 disableQpackDynamicTable, nonStandardSettingsValidator);
     }
 

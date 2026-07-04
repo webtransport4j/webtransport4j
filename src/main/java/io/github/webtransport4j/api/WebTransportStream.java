@@ -1,6 +1,8 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.example.StreamCodec;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelPromise;
 import io.netty.util.concurrent.Future;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
@@ -94,4 +96,8 @@ public interface WebTransportStream {
   @NonNull Map<String, Object> getAttributes();
 
   boolean isActive();
+
+  @NonNull Future<Void> shutdown(int error, @NonNull ChannelPromise promise);
+
+  @NonNull ChannelPromise newPromise();
 }

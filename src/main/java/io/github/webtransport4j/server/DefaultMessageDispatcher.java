@@ -26,13 +26,10 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   @Override
   protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
     Channel channel = ctx.channel();
-    // 1. Debug: Log the raw hex to see invisible bytes (like 0x00)
     if (logger.isDebugEnabled()) {
       logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
     }
     long sessionId = msg.sessionId();
-    // 2. Offload to Business Logic
-    msg.retain();
     final long finalSessionId = sessionId;
     java.util.concurrent.ExecutorService executor;
     if (channel instanceof QuicStreamChannel) {
@@ -44,61 +41,55 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
     } else {
       executor = channel.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
     }
+
     if (executor == null) {
       try {
         tryDispatchToHandler(channel, finalSessionId, msg);
       } catch (Throwable t) {
         logger.error("Uncaught exception/error during business logic execution", t);
-      } finally {
-        msg.release();
       }
     } else {
-      boolean submitted = false;
-      try {
-        if (logger.isDebugEnabled()) {
-          logger.debug("📤 Submitting task to executor: {}", executor.getClass().getSimpleName());
+      if (channel instanceof QuicStreamChannel) {
+        QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
+        StreamMailbox mailbox = streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).get();
+        if (mailbox == null) {
+          mailbox = new StreamMailbox(streamChannel, executor, this::tryDispatchToHandler, finalSessionId);
+          StreamMailbox oldMailbox = streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).setIfAbsent(mailbox);
+          if (oldMailbox != null) {
+            mailbox = oldMailbox;
+          }
         }
-        executor.execute(
-            () -> {
-              try {
-                tryDispatchToHandler(channel, finalSessionId, msg);
-              } catch (Throwable t) {
-                logger.error("Uncaught exception/error during business logic execution", t);
-              } finally {
-                msg.release();
-              }
-            });
-        submitted = true;
-      } catch (RejectedExecutionException e) {
-        logger.error(
-            "❌ REJECTED: Task submission rejected by business executor (queue full?). "
-                + "Executor: {} | SessionID: {} | Shutting down stream with WT_SESSION_GONE",
-            executor.getClass().getSimpleName(),
-            finalSessionId,
-            e);
-        if (channel instanceof QuicStreamChannel) {
-          ((QuicStreamChannel) channel)
-              .shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
-        } else {
+        mailbox.enqueue(msg);
+      } else {
+        msg.retain();
+        boolean submitted = false;
+        try {
+          if (logger.isDebugEnabled()) {
+            logger.debug("📤 Submitting task to executor: {}", executor.getClass().getSimpleName());
+          }
+          executor.execute(
+              () -> {
+                try {
+                  tryDispatchToHandler(channel, finalSessionId, msg);
+                } catch (Throwable t) {
+                  logger.error("Uncaught exception/error during business logic execution", t);
+                } finally {
+                  msg.release();
+                }
+              });
+          submitted = true;
+        } catch (RejectedExecutionException e) {
+          logger.error(
+              "❌ REJECTED: Task submission rejected by business executor (queue full?). "
+                  + "Executor: {} | SessionID: {} | Shutting down connection",
+              executor.getClass().getSimpleName(),
+              finalSessionId,
+              e);
           channel.close();
-        }
-      } catch (Throwable t) {
-        logger.error(
-            "❌ FAILED: Failed to submit task to business executor. "
-                + "Executor: {} | SessionID: {} | Cause: {}",
-            executor.getClass().getSimpleName(),
-            finalSessionId,
-            t.getMessage(),
-            t);
-        if (channel instanceof QuicStreamChannel) {
-          ((QuicStreamChannel) channel)
-              .shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
-        } else {
-          channel.close();
-        }
-      } finally {
-        if (!submitted) {
-          msg.release();
+        } finally {
+          if (!submitted) {
+            msg.release();
+          }
         }
       }
     }

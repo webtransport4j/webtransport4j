@@ -27,12 +27,10 @@ public final class WebTransportStreamFrameDecoder extends MessageToMessageDecode
     Long typeAttr = stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get();
     Long sessId = stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
     long sessionId = (sessId != null) ? sessId : stream.streamId();
-    boolean bidirectional = (typeAttr == null || typeAttr != 0x54);
+    boolean bidirectional = (typeAttr == null || typeAttr == WebTransportUtils.BI_STREAM_TYPE);
     if (logger.isDebugEnabled()) {
-      logger.debug(
-          String.format(
-              "🖼️ Framing Stream Data: Session: %d | Stream: %d | Bidi: %b | Bytes: %d",
-              sessionId, stream.streamId(), bidirectional, msg.readableBytes()));
+      logger.debug("🖼️ Framing Stream Data: Session: {} | Stream: {} | Bidi: {} | Bytes: {}",
+              sessionId, stream.streamId(), bidirectional, msg.readableBytes());
     }
     out.add(new WebTransportStreamFrame(sessionId, stream.streamId(), bidirectional, msg.retain()));
   }
