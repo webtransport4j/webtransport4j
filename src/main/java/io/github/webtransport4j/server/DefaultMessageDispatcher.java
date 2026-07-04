@@ -12,6 +12,8 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
+
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -27,11 +29,10 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
     Channel channel = ctx.channel();
     if (logger.isDebugEnabled()) {
-      logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
+    logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
     }
-    long sessionId = msg.sessionId();
-    final long finalSessionId = sessionId;
-    java.util.concurrent.ExecutorService executor;
+    final long finalSessionId = msg.sessionId();
+    ExecutorService executor;
     if (channel instanceof QuicStreamChannel) {
       executor =
           ((QuicStreamChannel) channel)

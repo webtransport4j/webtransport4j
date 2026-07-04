@@ -4,6 +4,8 @@ import io.netty.channel.Channel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -35,10 +37,12 @@ public final class StreamMailbox implements Runnable {
 
   private volatile boolean paused = false;
 
-  public StreamMailbox(QuicStreamChannel channel, ExecutorService executor, FrameDispatcher dispatcher, long sessionId) {
-    this.channel = channel;
-    this.executor = executor;
-    this.dispatcher = dispatcher;
+  public StreamMailbox(@NonNull QuicStreamChannel channel, @NonNull ExecutorService executor,
+                       @NonNull FrameDispatcher dispatcher,
+                       long sessionId) {
+    this.channel = Objects.requireNonNull(channel, "channel must not be null");
+    this.executor = Objects.requireNonNull(executor, "executor must not be null");
+    this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
     this.sessionId = sessionId;
   }
 
@@ -50,7 +54,7 @@ public final class StreamMailbox implements Runnable {
     }
   }
 
-  public void enqueue(WebTransportFrame frame) {
+  public void enqueue(@NonNull WebTransportFrame frame) {
     frame.retain();
     queue.add(frame);
 

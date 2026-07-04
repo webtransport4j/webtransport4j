@@ -39,7 +39,7 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
    * @param source the binary source to read from
    * @param chunkSize the size of each chunk to read
    */
-  public BinarySourceChunkedInput(BinarySource source, int chunkSize) {
+  public BinarySourceChunkedInput(@NonNull BinarySource source, int chunkSize) {
     this.source = Objects.requireNonNull(source, "source must not be null");
     if (chunkSize <= 0) {
       throw new IllegalArgumentException("chunk size must be greater than 0");
