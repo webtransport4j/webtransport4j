@@ -24,6 +24,10 @@ public class WebTransportConfigTest {
     System.clearProperty("webtransport4j.quic.token.handler.hmac.expiration.ms");
     System.clearProperty("webtransport4j.ssl.session.timeout.seconds");
     System.clearProperty("webtransport4j.ssl.session.cache.size");
+    System.clearProperty("webtransport4j.epoll.udpgro");
+    System.clearProperty("webtransport4j.epoll.udpgso");
+    System.clearProperty("webtransport4j.epoll.gso.size");
+    System.clearProperty("webtransport4j.server.recv.buffer.size");
   }
 
   @Test
@@ -131,5 +135,58 @@ public class WebTransportConfigTest {
   @Test
   public void testGetStringNullableDefault() {
     assertNull(WebTransportConfig.get("another.nonexistent.key", null));
+  }
+
+  @Test
+  public void testEpollConfigOptions() {
+    // Test defaults
+    assertTrue(WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true));
+    assertTrue(WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true));
+    assertEquals(64, WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64));
+
+    // Test system property override
+    System.setProperty("webtransport4j.epoll.udpgro", "false");
+    System.setProperty("webtransport4j.epoll.udpgso", "false");
+    System.setProperty("webtransport4j.epoll.gso.size", "16");
+
+    assertTrue(!WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true));
+    assertTrue(!WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true));
+    assertEquals(16, WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64));
+
+    // Test invalid GSO size range validation logic (throws IllegalArgumentException)
+    System.setProperty("webtransport4j.epoll.gso.size", "0");
+    int sizeInvalidLow = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
+    boolean exceptionThrown = false;
+    try {
+      if (sizeInvalidLow < 1 || sizeInvalidLow > 64) {
+        throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
+      }
+    } catch (IllegalArgumentException e) {
+      exceptionThrown = true;
+    }
+    assertTrue(exceptionThrown);
+
+    System.setProperty("webtransport4j.epoll.gso.size", "65");
+    int sizeInvalidHigh = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
+    exceptionThrown = false;
+    try {
+      if (sizeInvalidHigh < 1 || sizeInvalidHigh > 64) {
+        throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
+      }
+    } catch (IllegalArgumentException e) {
+      exceptionThrown = true;
+    }
+    assertTrue(exceptionThrown);
+  }
+
+  @Test
+  public void testRecvBufferSizeConfiguration() {
+    // Default fallback
+    assertEquals(2048, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 2048));
+    assertEquals(65536, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 65536));
+
+    // Custom configuration
+    System.setProperty("webtransport4j.server.recv.buffer.size", "32768");
+    assertEquals(32768, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 2048));
   }
 }

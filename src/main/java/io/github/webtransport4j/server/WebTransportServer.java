@@ -16,7 +16,9 @@ import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.EpollQuicUtils;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
+import io.netty.handler.codec.quic.QuicChannelOption;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
@@ -174,6 +176,7 @@ public class WebTransportServer {
 
   /** Start. */
   public void start() throws Exception {
+    boolean epollGroEnabled = false;
     if (defaultHandler == null) {
       throw new IllegalStateException(
           "Server cannot start without a registered default path handler.");
@@ -194,7 +197,7 @@ public class WebTransportServer {
     String transportType = WebTransportConfig.get("webtransport4j.server.transport", "auto");
     IoHandlerFactory ioHandlerFactory = null;
     Class<? extends Channel> channelClass = null;
-
+    Bootstrap bootstrap = new Bootstrap();
     if ("auto".equalsIgnoreCase(transportType) || "iouring".equalsIgnoreCase(transportType)) {
       try {
         Class<?> ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
@@ -227,13 +230,29 @@ public class WebTransportServer {
         && ("auto".equalsIgnoreCase(transportType) || "epoll".equalsIgnoreCase(transportType))) {
       try {
         Class<?> epollClass = Class.forName("io.netty.channel.epoll.Epoll");
+        Class<?> epollOptionClass = Class.forName("io.netty.channel.epoll.EpollChannelOption");
         Method isAvailableMethod = epollClass.getMethod("isAvailable");
         boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
         if (isAvailable) {
           Class<?> ioHandlerClass = Class.forName("io.netty.channel.epoll.EpollIoHandler");
           Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
+          boolean udpGro = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true);
+          epollGroEnabled = udpGro;
+          @SuppressWarnings("unchecked")
+          ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+          bootstrap.option(udpGroOption, udpGro);
 
+          boolean udpGso = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true);
+          if (udpGso) {
+            int gsoSize = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
+            if (gsoSize < 1 || gsoSize > 64) {
+              throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
+            }
+            // Enable GSO for QUIC packets by supplying a segmented allocator
+            bootstrap.option(QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
+                    EpollQuicUtils.newSegmentedAllocator(gsoSize));
+          }
           @SuppressWarnings("unchecked")
           Class<? extends Channel> clazz =
               (Class<? extends Channel>)
@@ -432,10 +451,12 @@ public class WebTransportServer {
                 new QuicChannelInitializer(
                     this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
             .build();
-    FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(2048);
+    int defaultRecvBufSize = epollGroEnabled ? 65536 : 2048;
+    int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
+    FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
     this.channel =
-        new Bootstrap()
+        bootstrap
             .group(group)
             .channel(channelClass)
             .handler(serverCodec)
