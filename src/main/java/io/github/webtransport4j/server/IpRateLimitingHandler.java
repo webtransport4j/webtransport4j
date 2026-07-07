@@ -7,7 +7,11 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Map;
 import java.util.Objects;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
@@ -28,7 +32,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     final IpFilterEngine<Boolean> whitelistEngine;
     final IpFilterEngine<Integer> overridesEngine;
     final IpBloomFilter blocklistFilter;
-    final java.util.Set<String> exactBlocklist;
+    final Set<String> exactBlocklist;
 
     // Fields to detect changes
     final String rawBlocklistConfig;
@@ -123,7 +127,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         this.exactBlocklist = previous.exactBlocklist;
       } else {
         this.blocklistFilter = new IpBloomFilter(this.bloomCapacity, this.bloomFpp);
-        this.exactBlocklist = new java.util.HashSet<>();
+        this.exactBlocklist = new HashSet<>();
         if (!this.rawBlocklistConfig.isEmpty()) {
           for (String blocked : this.rawBlocklistConfig.split(",")) {
             blocked = blocked.trim();
@@ -150,7 +154,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       int reloadInterval =
           WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
       if (reloadInterval > 0) {
-        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+        Executors.newSingleThreadScheduledExecutor(r -> {
           Thread t = new Thread(r, "wt-rate-limit-reloader");
           t.setDaemon(true);
           return t;
@@ -162,7 +166,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           } catch (Exception e) {
             logger.error("Error reloading configuration in background", e);
           }
-        }, reloadInterval, reloadInterval, java.util.concurrent.TimeUnit.SECONDS);
+        }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
       }
     }
   }
@@ -173,7 +177,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private final IpFilterEngine<Boolean> whitelistEngine;
   private final IpFilterEngine<Integer> overridesEngine;
   private final IpBloomFilter blocklistFilter;
-  private final java.util.Set<String> exactBlocklist;
+  private final Set<String> exactBlocklist;
 
   /** Ip Rate Limiting Handler. */
   public IpRateLimitingHandler() {

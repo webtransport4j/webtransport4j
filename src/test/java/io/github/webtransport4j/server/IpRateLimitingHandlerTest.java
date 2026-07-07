@@ -9,10 +9,18 @@ import static org.mockito.Mockito.when;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.quic.QuicChannel;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
+import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertNotSame;
 
 /** Test cases for ip rate limiting handler. */
 public class IpRateLimitingHandlerTest {
@@ -161,13 +169,13 @@ public class IpRateLimitingHandlerTest {
 
   @Test
   public void testExactBlocklistContents() throws Exception {
-    java.lang.reflect.Field field = IpRateLimitingHandler.class.getDeclaredField("exactBlocklist");
+    Field field = IpRateLimitingHandler.class.getDeclaredField("exactBlocklist");
     field.setAccessible(true);
-    java.util.Set<String> exactBlocklist = (java.util.Set<String>) field.get(handler);
+    Set<String> exactBlocklist = (Set<String>) field.get(handler);
 
-    org.junit.Assert.assertTrue(exactBlocklist.contains("9.9.9.9"));
-    org.junit.Assert.assertTrue(exactBlocklist.contains("1.2.3.4"));
-    org.junit.Assert.assertFalse(exactBlocklist.contains("1.1.1.1"));
+    assertTrue(exactBlocklist.contains("9.9.9.9"));
+    assertTrue(exactBlocklist.contains("1.2.3.4"));
+    assertFalse(exactBlocklist.contains("1.1.1.1"));
   }
 
   @Test
@@ -177,8 +185,8 @@ public class IpRateLimitingHandlerTest {
     WebTransportConfig.reload();
 
     try {
-      org.junit.Assert.assertFalse(WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true));
-      org.junit.Assert.assertEquals(45, WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10));
+      assertFalse(WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true));
+      assertEquals(45, WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10));
     } finally {
       System.clearProperty("webtransport4j.server.ratelimit.dynamic_reload.enabled");
       System.clearProperty("webtransport4j.server.ratelimit.dynamic_reload.interval_secs");
@@ -189,9 +197,9 @@ public class IpRateLimitingHandlerTest {
   @Test
   public void testSharedRateLimitRulesIncrementalReuse() throws Exception {
     Class<?> rulesClass = Class.forName("io.github.webtransport4j.server.IpRateLimitingHandler$SharedRateLimitRules");
-    java.lang.reflect.Constructor<?> defaultCtor = rulesClass.getDeclaredConstructor();
+    Constructor<?> defaultCtor = rulesClass.getDeclaredConstructor();
     defaultCtor.setAccessible(true);
-    java.lang.reflect.Constructor<?> paramCtor = rulesClass.getDeclaredConstructor(rulesClass);
+    Constructor<?> paramCtor = rulesClass.getDeclaredConstructor(rulesClass);
     paramCtor.setAccessible(true);
 
     // Initial construction
@@ -210,20 +218,20 @@ public class IpRateLimitingHandlerTest {
     }
 
     // Retrieve fields
-    java.lang.reflect.Field whitelistField = rulesClass.getDeclaredField("whitelistEngine");
+    Field whitelistField = rulesClass.getDeclaredField("whitelistEngine");
     whitelistField.setAccessible(true);
-    java.lang.reflect.Field overridesField = rulesClass.getDeclaredField("overridesEngine");
+    Field overridesField = rulesClass.getDeclaredField("overridesEngine");
     overridesField.setAccessible(true);
-    java.lang.reflect.Field blocklistField = rulesClass.getDeclaredField("blocklistFilter");
+    Field blocklistField = rulesClass.getDeclaredField("blocklistFilter");
     blocklistField.setAccessible(true);
-    java.lang.reflect.Field exactBlocklistField = rulesClass.getDeclaredField("exactBlocklist");
+    Field exactBlocklistField = rulesClass.getDeclaredField("exactBlocklist");
     exactBlocklistField.setAccessible(true);
 
     // Assert same references are reused
-    org.junit.Assert.assertSame(whitelistField.get(rules1), whitelistField.get(rules2));
-    org.junit.Assert.assertSame(overridesField.get(rules1), overridesField.get(rules2));
-    org.junit.Assert.assertSame(blocklistField.get(rules1), blocklistField.get(rules2));
-    org.junit.Assert.assertSame(exactBlocklistField.get(rules1), exactBlocklistField.get(rules2));
+    assertSame(whitelistField.get(rules1), whitelistField.get(rules2));
+    assertSame(overridesField.get(rules1), overridesField.get(rules2));
+    assertSame(blocklistField.get(rules1), blocklistField.get(rules2));
+    assertSame(exactBlocklistField.get(rules1), exactBlocklistField.get(rules2));
 
     // 2. Change blocklist configuration
     System.setProperty("webtransport4j.server.ratelimit.blocklist", "10.0.0.1");
@@ -238,11 +246,11 @@ public class IpRateLimitingHandlerTest {
     }
 
     // Whitelist and overrides should still be reused
-    org.junit.Assert.assertSame(whitelistField.get(rules2), whitelistField.get(rules3));
-    org.junit.Assert.assertSame(overridesField.get(rules2), overridesField.get(rules3));
+    assertSame(whitelistField.get(rules2), whitelistField.get(rules3));
+    assertSame(overridesField.get(rules2), overridesField.get(rules3));
 
     // Blocklist should be recreated
-    org.junit.Assert.assertNotSame(blocklistField.get(rules2), blocklistField.get(rules3));
-    org.junit.Assert.assertNotSame(exactBlocklistField.get(rules2), exactBlocklistField.get(rules3));
+    assertNotSame(blocklistField.get(rules2), blocklistField.get(rules3));
+    assertNotSame(exactBlocklistField.get(rules2), exactBlocklistField.get(rules3));
   }
 }

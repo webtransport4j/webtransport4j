@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
 
 import io.github.webtransport4j.api.*;
 import io.netty.bootstrap.Bootstrap;
@@ -23,9 +25,13 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.concurrent.Future;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
@@ -6295,13 +6301,13 @@ clientSetting.enableConnectProtocol(true);
 
   @Test
   public void testBackgroundConfigReloaderIntegration() throws Exception {
-    java.lang.reflect.Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
+    Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
     field.setAccessible(true);
-    java.util.Map<?, ?> ipCounts = (java.util.Map<?, ?>) field.get(null);
+    Map<?, ?> ipCounts = (Map<?, ?>) field.get(null);
     ipCounts.clear();
 
     // Verify localhost is normally accepted
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     if (tempFile.exists()) {
       tempFile.delete();
     }
@@ -6313,7 +6319,7 @@ clientSetting.enableConnectProtocol(true);
     assertTrue("Normally localhost should connect", tryConnectAndVerifyActive(port));
 
     // Now write blocklist to properties file to simulate dynamic file modification
-    java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+    Files.write(tempFile.toPath(), Arrays.asList(
         "webtransport4j.server.ratelimit.blocklist=127.0.0.1",
         "webtransport4j.server.ratelimit.whitelist="
     ));
@@ -6494,9 +6500,9 @@ clientSetting.enableConnectProtocol(true);
 
       // Assert fallback to new session:
       // 1. No new token should be sent
-      org.junit.Assert.assertNull("No resumption token should be sent when resumption is disabled", returnedTokenContainer[0]);
+      assertNull("No resumption token should be sent when resumption is disabled", returnedTokenContainer[0]);
       // 2. The connection channels are different
-      org.junit.Assert.assertNotEquals(quicClient1, quicClient2);
+      assertNotEquals(quicClient1, quicClient2);
 
       quicClient2.close().sync();
     } finally {

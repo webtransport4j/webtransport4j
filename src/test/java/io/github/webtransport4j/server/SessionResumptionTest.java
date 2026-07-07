@@ -9,6 +9,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
@@ -268,7 +269,7 @@ public class SessionResumptionTest {
       setupQuicParentAttributes(mockParent, mgr);
 
       Http3HeadersFrame headersFrame = mock(Http3HeadersFrame.class);
-      Http3Headers headers = new io.netty.handler.codec.http3.DefaultHttp3Headers();
+      Http3Headers headers = new DefaultHttp3Headers();
       headers.method("CONNECT");
       headers.scheme("https");
       headers.authority("localhost");
