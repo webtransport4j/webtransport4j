@@ -38,6 +38,36 @@ public class WebTransportSessionManager {
   // Value: The Session object containing state
   private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
 
+  public void registerResumed(@NonNull WebTransportSession session, @NonNull QuicStreamChannel newConnectStream) {
+    long sessionStreamId = newConnectStream.streamId();
+    session.updateConnectStream(newConnectStream);
+    if (newConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
+      newConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
+    }
+    sessions.put(sessionStreamId, session);
+    QuicChannel quic = newConnectStream.parent();
+    if (quic != null) {
+      io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr =
+          quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+      if (globalAttr != null && globalAttr.get() != null) {
+        globalAttr.get().incrementAndGet();
+      }
+    }
+    logger.info("🔑 SessionManager: Resumed Session ID {} successfully on new stream", sessionStreamId);
+
+    Attribute<WebTransportServer> serverAttr =
+        quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+    WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    WebTransportHandler handler =
+        server != null ? server.getHandler(session.path()) : new WebTransportHandler() {
+        };
+    try {
+      handler.onSessionResumed(session);
+    } catch (Exception e) {
+      logger.error("Error in onSessionResumed callback", e);
+    }
+  }
+
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
     logger.debug("Registering started,connectstreamid : {}", connectStream.streamId());
@@ -206,6 +236,9 @@ public class WebTransportSessionManager {
     long sessionStreamId = connecStreamChannel.streamId();
     WebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed != null) {
+      if (WebTransportConfig.getBoolean("webtransport4j.session.resumption.enabled", true)) {
+        SessionResumptionManager.getInstance().registerOrphanedSession(removed.getResumptionToken(), removed);
+      }
       int closeCode = removed.getCloseCode();
       for (QuicStreamChannel activeStream : removed.getAllActiveWebTransportStreams()) {
         if (closeCode != 0) {
@@ -309,6 +342,12 @@ public class WebTransportSessionManager {
 
   /** Closes all managed sessions. */
   public void closeAll() {
+    if (keepAliveFuture != null) {
+      keepAliveFuture.cancel(false);
+      keepAliveFuture = null;
+    }
+    keepAliveStarted.set(false);
+
     if (!sessions.isEmpty()) {
       int count = sessions.size();
       WebTransportSession first = sessions.values().iterator().next();
@@ -321,9 +360,10 @@ public class WebTransportSessionManager {
         }
       }
 
-      if (keepAliveFuture != null) {
-        keepAliveFuture.cancel(false);
-        keepAliveFuture = null;
+      if (WebTransportConfig.getBoolean("webtransport4j.session.resumption.enabled", true)) {
+        for (WebTransportSession session : sessions.values()) {
+          SessionResumptionManager.getInstance().registerOrphanedSession(session.getResumptionToken(), session);
+        }
       }
       if (logger.isDebugEnabled()) {
         logger.debug(

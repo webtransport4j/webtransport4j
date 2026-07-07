@@ -1,6 +1,9 @@
 package io.github.webtransport4j.server;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelInitializer;
+
 import java.util.function.LongFunction;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -24,6 +27,16 @@ public final class UnknownStreamHandlerFactory implements LongFunction<ChannelHa
     if (logger.isDebugEnabled()) {
       logger.debug("Unknown stream type: {}", streamType);
     }
-    return null;
+    return new ChannelInitializer<Channel>() {
+      @Override
+      protected void initChannel(Channel ch) {
+        ch.eventLoop().execute(() -> {
+          if (ch instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
+            ((io.netty.handler.codec.quic.QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
+          }
+          ch.close();
+        });
+      }
+    };
   }
 }

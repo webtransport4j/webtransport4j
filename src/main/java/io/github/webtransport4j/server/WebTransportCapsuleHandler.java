@@ -17,6 +17,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
   @Override
   protected void channelRead0(
       @NonNull ChannelHandlerContext ctx, @NonNull WebTransportCapsule capsule) throws Exception {
+    logger.info("ℹ️ CAPSULE_RECEIVED: type=0x" + Long.toHexString(capsule.capsuleType()) 
+        + ", sessionId=" + capsule.sessionId());
     if (logger.isDebugEnabled()) {
       logger.debug(
           "🚷 Received protocol capsule on EventLoop: 0x{}",
@@ -291,7 +293,13 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                       100L);
               long cappedRemaining = Math.min(remaining, maxActiveStreams);
               if (cappedRemaining > 0) {
-                long newLimit = blockedAtMax + cappedRemaining;
+                long maxAbsolute =
+                    WebTransportConfig.getLong(
+                        isBidi
+                            ? "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi"
+                            : "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni",
+                        5000L);
+                long newLimit = Math.min(blockedAtMax + cappedRemaining, maxAbsolute);
                 if (isBidi) {
                   session.setSettingsMaxStreamsBidi(newLimit);
                 } else {
@@ -299,13 +307,14 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                 }
                 logger.info(
                     "📊 WT_STREAMS_BLOCKED received. Extending {} limit to {} (blocked={}"
-                        + " + capped_remaining={} / {} max_active={})",
+                        + " + capped_remaining={} / {} max_active={} max_absolute={})",
                     isBidi ? "bidi" : "uni",
                     newLimit,
                     blockedAtMax,
                     cappedRemaining,
                     remaining,
-                    maxActiveStreams);
+                    maxActiveStreams,
+                    maxAbsolute);
                 WebTransportUtils.sendMaxStreamsCapsule(
                     session.getConnectStream(), isBidi, newLimit);
               } else {

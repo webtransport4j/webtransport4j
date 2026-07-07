@@ -12,6 +12,7 @@ import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.ReferenceCountUtil;
+import io.github.webtransport4j.api.WebTransportSession;
 import java.util.Map;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -163,23 +164,50 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       String pathStr = path.toString();
       quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
       logger.debug("✅ Handshake Success for Path: {}", pathStr);
+
+      boolean resumptionEnabled =
+          WebTransportConfig.getBoolean("webtransport4j.session.resumption.enabled", true);
+      WebTransportSession resumedSession = null;
+      if (resumptionEnabled) {
+        CharSequence resumptionTokenSeq = frame.headers().get("webtransport-resumption-token");
+        String resumptionToken = resumptionTokenSeq != null ? resumptionTokenSeq.toString().trim() : null;
+        if (resumptionToken != null && !resumptionToken.isEmpty()) {
+          resumedSession = SessionResumptionManager.getInstance().retrieveAndRemove(resumptionToken);
+        }
+      }
+
       Http3Headers responseHeaders = new DefaultHttp3Headers();
       responseHeaders.status(HttpResponseStatus.OK.codeAsText());
-      ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-      if (logger.isDebugEnabled()) {
-        logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
-      }
-      if (logger.isDebugEnabled()) {
-        logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
-      }
+
       if (mgr != null) {
+        if (resumedSession != null) {
+          logger.info("🔑 Resumed session matched. Resuming with token: {}", resumedSession.getResumptionToken());
+          resumedSession.rotateResumptionToken();
+          mgr.registerResumed(resumedSession, connectStream);
+          responseHeaders.add("sec-webtransport-resumption-token", resumedSession.getResumptionToken());
+        } else {
+          mgr.register(connectStream);
+          if (resumptionEnabled) {
+            WebTransportSession session = mgr.get(connectStream.streamId());
+            if (session != null) {
+              responseHeaders.add("sec-webtransport-resumption-token", session.getResumptionToken());
+            }
+          }
+        }
         connectStream
             .closeFuture()
             .addListener(
                 f -> {
                   mgr.unregister(connectStream);
                 });
-        mgr.register(connectStream);
+      }
+
+      ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+      if (logger.isDebugEnabled()) {
+        logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
+      }
+      if (logger.isDebugEnabled()) {
+        logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
       }
     }
     ReferenceCountUtil.release(frame);

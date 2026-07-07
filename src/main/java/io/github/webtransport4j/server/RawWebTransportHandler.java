@@ -179,9 +179,11 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                       writeAndFlushOwned(ctx, data.retain());
                     }
                   } else {
-                    while (data.isReadable()) {
+                    int pongsSent = 0;
+                    while (data.isReadable() && pongsSent < 3) {
                       byte b = data.readByte();
                       if (b == keepAlivePingByte) {
+                        pongsSent++;
                         if (logger.isDebugEnabled()) {
                           logger.debug(
                               "📥 Received Keep-Alive PING (0x{}) on Session ID: {}. Sending PONG"
@@ -347,6 +349,27 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       }
       return false;
     }
+
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
+      io.netty.handler.codec.quic.QuicStreamType streamTypeEnum = stream.type();
+      if (streamTypeEnum != null) {
+        boolean isBidiStream = streamTypeEnum == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
+        if ((isBidiStream && streamType != WebTransportUtils.BI_STREAM_TYPE)
+            || (!isBidiStream && streamType != WebTransportUtils.UNI_STREAM_TYPE)) {
+          logger.warn(
+              "❌ Protocol Error: Mismatched stream type prefix {} on stream (bidi={})",
+              streamType,
+              isBidiStream);
+          if (mgr != null) {
+            mgr.closeSessionWithFlowControlError(sessionId);
+          }
+          stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+          return false;
+        }
+      }
+    }
+
     if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
       if (logger.isDebugEnabled()) {
         logger.debug(

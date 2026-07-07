@@ -42,7 +42,9 @@ public class WebTransportSession {
 
   private final String path;
 
-  private final QuicStreamChannel connectStream;
+  private volatile QuicStreamChannel connectStream;
+
+  private volatile String resumptionToken;
 
   private final Set<QuicStreamChannel> activeClientInitiatedUni;
 
@@ -120,6 +122,7 @@ public class WebTransportSession {
     this.sessionStreamId = sessionStreamId;
     this.path = path;
     this.connectStream = connectStream;
+    this.resumptionToken = java.util.UUID.randomUUID().toString();
     this.flowControlEnabled = flowControlEnabled;
     this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
     // Stream limits — always needed
@@ -516,5 +519,17 @@ public class WebTransportSession {
 
   public int getCloseCode() {
     return closeCode;
+  }
+
+  public @NonNull String getResumptionToken() {
+    return resumptionToken;
+  }
+
+  public void rotateResumptionToken() {
+    this.resumptionToken = java.util.UUID.randomUUID().toString();
+  }
+
+  public void updateConnectStream(@NonNull QuicStreamChannel newConnectStream) {
+    this.connectStream = newConnectStream;
   }
 }

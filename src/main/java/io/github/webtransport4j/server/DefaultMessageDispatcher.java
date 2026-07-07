@@ -182,7 +182,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
                   f -> {
                     if (finalStream.getCloseHandler() != null) {
                       try {
-                        finalStream.getCloseHandler();
+                        finalStream.getCloseHandler().onClose();
                       } catch (Exception e) {
                         logger.error("Error in stream onClose handler", e);
                       }

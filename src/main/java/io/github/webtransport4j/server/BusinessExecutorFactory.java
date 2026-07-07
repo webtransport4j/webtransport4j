@@ -93,10 +93,13 @@ public final class BusinessExecutorFactory {
     BlockingQueue<Runnable> queue;
     if ("ARRAY".equalsIgnoreCase(queueType) || "RING_BUFFER".equalsIgnoreCase(queueType)) {
       if (queueCapacity == Integer.MAX_VALUE) {
+        int fallbackCapacity =
+            WebTransportConfig.getInt("webtransport4j.business.queue.fallback_capacity", 10000);
         logger.warn(
             "⚠️ ArrayBlockingQueue/RingBuffer cannot be used with unbounded queue capacity."
-                + " Defaulting queue capacity to 10000.");
-        queue = new ArrayBlockingQueue<>(10000);
+                + " Defaulting queue capacity to {}.",
+            fallbackCapacity);
+        queue = new ArrayBlockingQueue<>(fallbackCapacity);
       } else {
         queue = new ArrayBlockingQueue<>(queueCapacity);
       }
@@ -106,7 +109,7 @@ public final class BusinessExecutorFactory {
               ? new LinkedBlockingQueue<>()
               : new LinkedBlockingQueue<>(queueCapacity);
     }
-    return new ThreadPoolExecutor(
+    ThreadPoolExecutor executor = new ThreadPoolExecutor(
         poolSize,
         poolSize,
         60L,
@@ -125,6 +128,33 @@ public final class BusinessExecutorFactory {
         },
         createRejectedExecutionHandler(
                 Objects.requireNonNull(WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT"))));
+
+    if (queueCapacity > 0 && queueCapacity != Integer.MAX_VALUE) {
+      Thread monitorThread = new Thread(() -> {
+        while (!executor.isShutdown()) {
+          try {
+            Thread.sleep(5000);
+            int size = executor.getQueue().size();
+            double pct = ((double) size / queueCapacity) * 100.0;
+            if (pct >= 80.0) {
+              logger.warn(
+                  "⚠️ Business executor queue is near saturation ({}% full: {}/{} tasks). Latency spikes may occur.",
+                  String.format(Locale.ROOT, "%.1f", pct),
+                  size,
+                  queueCapacity);
+            }
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            break;
+          } catch (Exception e) {
+            // Safe fallback
+          }
+        }
+      }, "wt-business-queue-monitor");
+      monitorThread.setDaemon(true);
+      monitorThread.start();
+    }
+    return executor;
   }
 
   private static @NonNull RejectedExecutionHandler createRejectedExecutionHandler(

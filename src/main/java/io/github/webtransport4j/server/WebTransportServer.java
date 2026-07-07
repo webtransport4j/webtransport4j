@@ -455,6 +455,15 @@ public class WebTransportServer {
     int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
+    int sndBuf = WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", 0);
+    if (sndBuf > 0) {
+      bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
+    }
+    int rcvBuf = WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", 0);
+    if (rcvBuf > 0) {
+      bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
+    }
+
     this.channel =
         bootstrap
             .group(group)

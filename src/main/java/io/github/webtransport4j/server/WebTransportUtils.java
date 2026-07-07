@@ -138,10 +138,11 @@ public class WebTransportUtils {
         sendStreamsBlockedCapsule(
             session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
-            new IllegalStateException(
-                QuicStreamType.BIDIRECTIONAL == quicStreamType
-                    ? "Bidirectional"
-                    : "Unidirectional" + " stream limit exceeded"));
+                new IllegalStateException(
+                        (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional") 
+                        + " stream limit exceeded"
+                )
+        );
         return promise;
       }
       long l =
