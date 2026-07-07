@@ -21,6 +21,8 @@ import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannelOption;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicCongestionControlAlgorithm;
+import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
@@ -176,7 +178,6 @@ public class WebTransportServer {
 
   /** Start. */
   public void start() throws Exception {
-    boolean epollGroEnabled = false;
     if (defaultHandler == null) {
       throw new IllegalStateException(
           "Server cannot start without a registered default path handler.");
@@ -194,10 +195,71 @@ public class WebTransportServer {
     if (logger.isDebugEnabled()) {
       logger.debug("🚀 STARTING DEBUG SERVER...");
     }
+
+    Bootstrap bootstrap = new Bootstrap();
     String transportType = WebTransportConfig.get("webtransport4j.server.transport", "auto");
+    TransportConfig transportConfig = resolveTransport(transportType, bootstrap);
+
+    this.group =
+        new MultiThreadIoEventLoopGroup(
+            Runtime.getRuntime().availableProcessors(), transportConfig.ioHandlerFactory);
+
+    setupTrafficShaping();
+
+    QuicSslContext sslContext = buildSslContext();
+    Http3Settings settings = buildHttp3Settings();
+
+    QuicServerCodecBuilder builder =
+        Http3.newQuicServerCodecBuilder()
+            .sslContext(sslContext)
+            .maxIdleTimeout(
+                WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60),
+                TimeUnit.SECONDS)
+            .initialMaxData(WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L))
+            .initialMaxStreamDataBidirectionalLocal(
+                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
+            .initialMaxStreamDataBidirectionalRemote(
+                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
+            .initialMaxStreamsBidirectional(
+                WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L))
+            .datagram(
+                WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
+                WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
+            .initialMaxStreamsUnidirectional(
+                WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L))
+            .initialMaxStreamDataUnidirectional(
+                WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
+            .tokenHandler(getTokenHandler())
+            .handler(
+                new QuicChannelInitializer(
+                    this, settings, businessExecutor, allowedOrigins, globalActiveSessions));
+
+    configureOptionalQuicParams(builder);
+
+    ChannelHandler serverCodec = builder.build();
+    bindServer(bootstrap, transportConfig, serverCodec);
+  }
+
+  private static class TransportConfig {
+    final IoHandlerFactory ioHandlerFactory;
+    final Class<? extends Channel> channelClass;
+    final boolean epollGroEnabled;
+
+    TransportConfig(
+        IoHandlerFactory ioHandlerFactory,
+        Class<? extends Channel> channelClass,
+        boolean epollGroEnabled) {
+      this.ioHandlerFactory = ioHandlerFactory;
+      this.channelClass = channelClass;
+      this.epollGroEnabled = epollGroEnabled;
+    }
+  }
+
+  private @NonNull TransportConfig resolveTransport(String transportType, Bootstrap bootstrap) {
     IoHandlerFactory ioHandlerFactory = null;
     Class<? extends Channel> channelClass = null;
-    Bootstrap bootstrap = new Bootstrap();
+    boolean epollGroEnabled = false;
+
     if ("auto".equalsIgnoreCase(transportType) || "iouring".equalsIgnoreCase(transportType)) {
       try {
         Class<?> ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
@@ -240,18 +302,20 @@ public class WebTransportServer {
           boolean udpGro = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true);
           epollGroEnabled = udpGro;
           @SuppressWarnings("unchecked")
-          ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+          ChannelOption<Boolean> udpGroOption =
+              (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
           bootstrap.option(udpGroOption, udpGro);
 
           boolean udpGso = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true);
           if (udpGso) {
             int gsoSize = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
             if (gsoSize < 1 || gsoSize > 64) {
-              throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
+              throw new IllegalArgumentException(
+                  "webtransport4j.epoll.gso.size must be in range 1 - 64");
             }
-            // Enable GSO for QUIC packets by supplying a segmented allocator
-            bootstrap.option(QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
-                    EpollQuicUtils.newSegmentedAllocator(gsoSize));
+            bootstrap.option(
+                QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
+                EpollQuicUtils.newSegmentedAllocator(gsoSize));
           }
           @SuppressWarnings("unchecked")
           Class<? extends Channel> clazz =
@@ -304,9 +368,10 @@ public class WebTransportServer {
       channelClass = NioDatagramChannel.class;
     }
 
-    this.group =
-        new MultiThreadIoEventLoopGroup(
-            Runtime.getRuntime().availableProcessors(), ioHandlerFactory);
+    return new TransportConfig(ioHandlerFactory, channelClass, epollGroEnabled);
+  }
+
+  private void setupTrafficShaping() {
     long globalWriteLimit =
         WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
     long globalReadLimit =
@@ -315,6 +380,9 @@ public class WebTransportServer {
       globalTrafficShaper =
           new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
     }
+  }
+
+  private @NonNull QuicSslContext buildSslContext() throws Exception {
     String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
     String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
     if (keyPath == null && certPath == null) {
@@ -377,6 +445,10 @@ public class WebTransportServer {
         logger.error("❌ Failed to parse webtransport4j.ssl.session.ticket.keys", e);
       }
     }
+    return sslContext;
+  }
+
+  private @NonNull Http3Settings buildHttp3Settings() {
     String allowedProp =
         WebTransportConfig.getNonNull(
             "webtransport4j.webtransport.settings.nonstandardallowed",
@@ -398,8 +470,6 @@ public class WebTransportServer {
         WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
     long quicInitialMaxData =
         WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
-    // Validate that QUIC limits are not lesser than WebTransport initial session
-    // limits
     validateConfig(
         quicMaxStreamsBidi,
         wtMaxStreamsBidi,
@@ -413,46 +483,100 @@ public class WebTransportServer {
     settings.enableConnectProtocol(
         WebTransportConfig.getBoolean(
             "webtransport4j.webtransport.settings.enable_connect_protocol", false));
-    // SETTINGS_WT_ENABLED (0x2c7cf000) - draft-15
     settings.put(
         0x2c7cf000L,
         WebTransportConfig.getLong("webtransport4j.webtransport.settings.wt_enabled.value", 0L));
-    // SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) - draft-15
     settings.put(0x2b64L, wtMaxStreamsUni);
-    // SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) - draft-15
     settings.put(0x2b65L, wtMaxStreamsBidi);
-    // SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) - draft-15
     settings.put(0x2b61L, wtInitialMaxData);
-    // SETTINGS_ENABLE_WEBTRANSPORT (0x2b603742) - draft-02
     settings.put(0x2b603742L, 1L);
     if (logger.isDebugEnabled()) {
       logger.debug("Server side settings : {}", settings);
     }
-    ChannelHandler serverCodec =
-        Http3.newQuicServerCodecBuilder()
-            .sslContext(sslContext)
-            .maxIdleTimeout(
-                WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60),
-                TimeUnit.SECONDS)
-            .initialMaxData(quicInitialMaxData)
-            .initialMaxStreamDataBidirectionalLocal(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
-            .initialMaxStreamDataBidirectionalRemote(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
-            .initialMaxStreamsBidirectional(quicMaxStreamsBidi)
-            .datagram(
-                WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
-                WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
-            .initialMaxStreamsUnidirectional(quicMaxStreamsUni)
-            .initialMaxStreamDataUnidirectional(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
-            .tokenHandler(getTokenHandler())
-            .handler(
-                new QuicChannelInitializer(
-                    this, settings, businessExecutor, allowedOrigins, globalActiveSessions))
-            .build();
-    int defaultRecvBufSize = epollGroEnabled ? 65536 : 2048;
-    int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
+    return settings;
+  }
+
+  private void configureOptionalQuicParams(QuicServerCodecBuilder builder) {
+    String greaseVal = WebTransportConfig.get("webtransport4j.quic.grease.enabled", null);
+    if (greaseVal != null) {
+      builder.grease(Boolean.parseBoolean(greaseVal));
+    }
+
+    String maxSendUdpVal =
+        WebTransportConfig.get("webtransport4j.quic.payload.size.send.max", null);
+    if (maxSendUdpVal != null) {
+      builder.maxSendUdpPayloadSize(Long.parseLong(maxSendUdpVal));
+    }
+
+    String maxRecvUdpVal =
+        WebTransportConfig.get("webtransport4j.quic.payload.size.recv.max", null);
+    if (maxRecvUdpVal != null) {
+      builder.maxRecvUdpPayloadSize(Long.parseLong(maxRecvUdpVal));
+    }
+
+    String ackExponentVal = WebTransportConfig.get("webtransport4j.quic.ack.delay.exponent", null);
+    if (ackExponentVal != null) {
+      builder.ackDelayExponent(Long.parseLong(ackExponentVal));
+    }
+
+    String maxAckDelayVal = WebTransportConfig.get("webtransport4j.quic.ack.delay.max.ms", null);
+    if (maxAckDelayVal != null) {
+      builder.maxAckDelay(Long.parseLong(maxAckDelayVal), TimeUnit.MILLISECONDS);
+    }
+
+    String migrationVal =
+        WebTransportConfig.get("webtransport4j.quic.active.migration.enabled", null);
+    if (migrationVal != null) {
+      builder.activeMigration(Boolean.parseBoolean(migrationVal));
+    }
+
+    String hystartVal = WebTransportConfig.get("webtransport4j.quic.hystart.enabled", null);
+    if (hystartVal != null) {
+      builder.hystart(Boolean.parseBoolean(hystartVal));
+    }
+
+    String discoverPmtuVal =
+        WebTransportConfig.get("webtransport4j.quic.discover.pmtu.enabled", null);
+    if (discoverPmtuVal != null) {
+      builder.discoverPmtu(Boolean.parseBoolean(discoverPmtuVal));
+    }
+
+    String ccAlgoVal =
+        WebTransportConfig.get("webtransport4j.quic.congestion.control.algorithm", null);
+    if (ccAlgoVal != null) {
+      try {
+        builder.congestionControlAlgorithm(
+            QuicCongestionControlAlgorithm.valueOf(ccAlgoVal.toUpperCase()));
+      } catch (IllegalArgumentException e) {
+        logger.warn("⚠️ Invalid congestion control algorithm '{}'. Using default.", ccAlgoVal);
+      }
+    }
+
+    String initialCwndVal =
+        WebTransportConfig.get("webtransport4j.quic.initial.congestion.window.packets", null);
+    if (initialCwndVal != null) {
+      builder.initialCongestionWindowPackets(Integer.parseInt(initialCwndVal));
+    }
+
+    String localConnIdLenVal =
+        WebTransportConfig.get("webtransport4j.quic.connection.id.length.local", null);
+    if (localConnIdLenVal != null) {
+      builder.localConnectionIdLength(Integer.parseInt(localConnIdLenVal));
+    }
+
+    String activeConnIdLimitVal =
+        WebTransportConfig.get("webtransport4j.quic.connection.id.limit.active", null);
+    if (activeConnIdLimitVal != null) {
+      builder.activeConnectionIdLimit(Long.parseLong(activeConnIdLimitVal));
+    }
+  }
+
+  private void bindServer(
+      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec)
+      throws Exception {
+    int defaultRecvBufSize = transportConfig.epollGroEnabled ? 65536 : 2048;
+    int recvBufSize =
+        WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
     int sndBuf = WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", 0);
@@ -467,9 +591,9 @@ public class WebTransportServer {
     this.channel =
         bootstrap
             .group(group)
-            .channel(channelClass)
+            .channel(transportConfig.channelClass)
             .handler(serverCodec)
-                .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
+            .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
             .bind(new InetSocketAddress(port))
             .addListener(
                 future -> {
@@ -481,7 +605,6 @@ public class WebTransportServer {
                   }
                 })
             .channel();
-    // Attach the metrics listener to the server channel attribute so it can be accessed by handlers
     this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
     this.channel.closeFuture().sync();
   }
