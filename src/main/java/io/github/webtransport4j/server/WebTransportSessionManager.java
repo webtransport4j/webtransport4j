@@ -1,15 +1,12 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.DefaultNettyWebTransportStream;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
-import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -37,36 +34,6 @@ public class WebTransportSessionManager {
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
   private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
-
-  public void registerResumed(@NonNull WebTransportSession session, @NonNull QuicStreamChannel newConnectStream) {
-    long sessionStreamId = newConnectStream.streamId();
-    session.updateConnectStream(newConnectStream);
-    if (newConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
-      newConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
-    }
-    sessions.put(sessionStreamId, session);
-    QuicChannel quic = newConnectStream.parent();
-    if (quic != null) {
-      io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr =
-          quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
-      if (globalAttr != null && globalAttr.get() != null) {
-        globalAttr.get().incrementAndGet();
-      }
-    }
-    logger.info("🔑 SessionManager: Resumed Session ID {} successfully on new stream", sessionStreamId);
-
-    Attribute<WebTransportServer> serverAttr =
-        quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
-    WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
-    WebTransportHandler handler =
-        server != null ? server.getHandler(session.path()) : new WebTransportHandler() {
-        };
-    try {
-      handler.onSessionResumed(session);
-    } catch (Exception e) {
-      logger.error("Error in onSessionResumed callback", e);
-    }
-  }
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
@@ -236,9 +203,6 @@ public class WebTransportSessionManager {
     long sessionStreamId = connecStreamChannel.streamId();
     WebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed != null) {
-      if (WebTransportConfig.getBoolean("webtransport4j.session.resumption.enabled", true)) {
-        SessionResumptionManager.getInstance().registerOrphanedSession(removed.getResumptionToken(), removed);
-      }
       int closeCode = removed.getCloseCode();
       for (QuicStreamChannel activeStream : removed.getAllActiveWebTransportStreams()) {
         if (closeCode != 0) {
@@ -360,11 +324,6 @@ public class WebTransportSessionManager {
         }
       }
 
-      if (WebTransportConfig.getBoolean("webtransport4j.session.resumption.enabled", true)) {
-        for (WebTransportSession session : sessions.values()) {
-          SessionResumptionManager.getInstance().registerOrphanedSession(session.getResumptionToken(), session);
-        }
-      }
       if (logger.isDebugEnabled()) {
         logger.debug(
             "💥 SessionManager: Closing all {} active sessions due to connection close.", count);

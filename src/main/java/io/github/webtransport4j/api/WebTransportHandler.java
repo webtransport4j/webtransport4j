@@ -18,16 +18,6 @@ public interface WebTransportHandler {
     }
   }
 
-  /** On Session Resumed. */
-  default void onSessionResumed(@NonNull WebTransportSession session) {
-    if (logger.isDebugEnabled()) {
-      logger.debug(
-          "🔄 [DEFAULT HANDLER] WebTransport Session Resumed. Path: {} | Session Stream ID: {}",
-          session.path(),
-          session.getSessionStreamId());
-    }
-  }
-
   /** On Session Closed. */
   default void onSessionClosed(@NonNull WebTransportSession session) {
     if (logger.isDebugEnabled()) {
