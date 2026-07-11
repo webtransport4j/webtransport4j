@@ -146,27 +146,9 @@ public class WebTransportSessionManager {
     // Fire metrics: session opened
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
     if (metrics != null) {
-      metrics.onSessionOpened(sessionStreamId, pathStr != null ? pathStr : "/");
+      metrics.onSessionOpened(sessionStreamId, pathStr);
     }
 
-    if (keepAliveStarted.compareAndSet(false, true)) {
-      boolean keepAliveEnabled =
-          WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
-      if (keepAliveEnabled && quic != null && quic.eventLoop() != null) {
-        long timeoutSecs =
-            WebTransportConfig.getLong("webtransport4j.server.keepalive.timeout.secs", 30L);
-        long checkIntervalSecs =
-            WebTransportConfig.getLong("webtransport4j.server.keepalive.interval.secs", 5L);
-        long checkIntervalMs = checkIntervalSecs * 1000L;
-        keepAliveFuture =
-            quic.eventLoop()
-                .scheduleWithFixedDelay(
-                    () -> checkKeepAlive(timeoutSecs * 1000L),
-                    checkIntervalMs,
-                    checkIntervalMs,
-                    java.util.concurrent.TimeUnit.MILLISECONDS);
-      }
-    }
 
     Attribute<WebTransportServer> serverAttr =
         quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;

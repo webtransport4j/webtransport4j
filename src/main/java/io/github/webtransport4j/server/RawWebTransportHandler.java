@@ -11,7 +11,6 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.io.IOException;
-import java.util.Objects;
 
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -21,18 +20,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
   private static final Logger logger = LoggerFactory.getLogger(RawWebTransportHandler.class);
 
-  private static final byte HEARTBEAT_MAGIC_BYTE =
-      (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.stream.magic.byte", 0x3F);
-
   private static final int MAX_STREAM_HEADER_BYTES = 16;
-
-  private final boolean keepAliveEnabled;
-
-  private final String keepAliveMode;
-
-  private final byte keepAlivePingByte;
-
-  private final byte keepAlivePongByte;
 
   // Track state per handler instance (per stream)
   private boolean protocolHeaderConsumed = false;
@@ -42,14 +30,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
   private ByteBuf cumulation = null;
 
   public RawWebTransportHandler() {
-    this.keepAliveEnabled =
-        WebTransportConfig.getBoolean("webtransport4j.server.keepalive.enabled", true);
-    this.keepAliveMode =
-        Objects.requireNonNull(WebTransportConfig.get("webtransport4j.server.keepalive.mode", "STRICT")).toUpperCase();
-    this.keepAlivePingByte =
-        (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.ping.byte", 1);
-    this.keepAlivePongByte =
-        (byte) WebTransportConfig.getInt("webtransport4j.server.keepalive.pong.byte", 1);
+
   }
 
   @Override
@@ -133,74 +114,6 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
               WebTransportSession session = mgr.get(sessionId);
               if (session != null) {
                 session.updateLastReadTime();
-
-                Attribute<Boolean> isHeartbeatAttr =
-                    ctx.channel().attr(WebTransportAttributeKeys.IS_HEARTBEAT_STREAM);
-                Boolean isHeartbeat = isHeartbeatAttr != null ? isHeartbeatAttr.get() : null;
-                if (isHeartbeat == null) {
-                  if (keepAliveEnabled) {
-                    data.markReaderIndex();
-                    byte firstByte = data.readByte();
-                    if (firstByte == HEARTBEAT_MAGIC_BYTE) {
-                      if (isHeartbeatAttr != null) {
-                        isHeartbeatAttr.set(true);
-                      }
-                      isHeartbeat = true;
-                      if (logger.isDebugEnabled()) {
-                        logger.debug(
-                            "💓 Intercepted Client Keep-Alive Heartbeat Stream (Session ID: {})",
-                            sessionId);
-                      }
-                    } else {
-                      if (isHeartbeatAttr != null) {
-                        isHeartbeatAttr.set(false);
-                      }
-                      isHeartbeat = false;
-                      data.resetReaderIndex();
-                    }
-                  } else {
-                    if (isHeartbeatAttr != null) {
-                      isHeartbeatAttr.set(false);
-                    }
-                    isHeartbeat = false;
-                  }
-                }
-
-                if (isHeartbeat) {
-                  if ("ECHO".equals(keepAliveMode)) {
-                    if (data.isReadable()) {
-                      if (logger.isDebugEnabled()) {
-                        logger.debug(
-                            "📥 Received Keep-Alive PING of size {} on Session ID: {}. Echoing PONG"
-                                + " (ECHO mode).",
-                            data.readableBytes(),
-                            sessionId);
-                      }
-                      writeAndFlushOwned(ctx, data.retain());
-                    }
-                  } else {
-                    int pongsSent = 0;
-                    while (data.isReadable() && pongsSent < 3) {
-                      byte b = data.readByte();
-                      if (b == keepAlivePingByte) {
-                        pongsSent++;
-                        if (logger.isDebugEnabled()) {
-                          logger.debug(
-                              "📥 Received Keep-Alive PING (0x{}) on Session ID: {}. Sending PONG"
-                                  + " (0x{}).",
-                              Integer.toHexString(keepAlivePingByte & 0xFF),
-                              sessionId,
-                              Integer.toHexString(keepAlivePongByte & 0xFF));
-                        }
-                        ByteBuf pong = ctx.alloc().buffer(1);
-                        pong.writeByte(keepAlivePongByte);
-                        writeAndFlushOwned(ctx, pong);
-                      }
-                    }
-                  }
-                  data.release();
-                  return;
-                }
 
                 if (session.isFlowControlEnabled()) {
                   long localLimit = session.getSettingsMaxData();
