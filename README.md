@@ -1,4 +1,4 @@
-# webtransport4j-incubator
+# webtransport4j
 
 The first high-performance WebTransport server for the Java ecosystem, powered by Netty's asynchronous HTTP/3 stack.
 
