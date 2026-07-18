@@ -1,101 +1,143 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 250" width="100%" height="100%">
   <defs>
-    <!-- Background Gradient -->
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0B0F19" />
-      <stop offset="50%" stop-color="#111827" />
-      <stop offset="100%" stop-color="#0F172A" />
+    <!-- Gotham Night Background Gradient -->
+    <linearGradient id="gotham-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#030408" />
+      <stop offset="50%" stop-color="#080C14" />
+      <stop offset="100%" stop-color="#0E1422" />
     </linearGradient>
 
-    <!-- Glowing Stream Gradients -->
-    <linearGradient id="stream-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+    <!-- Bat-Signal / WayneTech Gold Gradient -->
+    <linearGradient id="bat-gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFD700" />
+      <stop offset="50%" stop-color="#FFB800" />
+      <stop offset="100%" stop-color="#E59500" />
+    </linearGradient>
+
+    <!-- Telemetry Stream Gradient (Gold to Dark) -->
+    <linearGradient id="stream-gold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="0" />
+      <stop offset="60%" stop-color="#FFCA00" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#FFF500" stop-opacity="1" />
+    </linearGradient>
+
+    <!-- Sonar Blue Stream (Night Vision accent) -->
+    <linearGradient id="stream-blue" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#00F2FE" stop-opacity="0" />
-      <stop offset="50%" stop-color="#00F2FE" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#4FACFE" stop-opacity="1" />
-    </linearGradient>
-    
-    <linearGradient id="stream-purple" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#B224EF" stop-opacity="0" />
-      <stop offset="70%" stop-color="#7579FF" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#B224EF" stop-opacity="1" />
+      <stop offset="70%" stop-color="#0088FF" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#00F2FE" stop-opacity="0.9" />
     </linearGradient>
 
-    <!-- Java Orange Accent -->
-    <linearGradient id="java-orange" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#F89820" />
-      <stop offset="100%" stop-color="#FF7300" />
-    </linearGradient>
-
-    <!-- Grid Pattern -->
-    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="1" stroke-opacity="0.5" />
+    <!-- Radar Grid Pattern -->
+    <pattern id="radar-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#162032" stroke-width="0.7" stroke-opacity="0.6" />
+      <circle cx="30" cy="0" r="0.8" fill="#20304C" />
     </pattern>
 
     <!-- Glow Filter -->
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="6" result="blur" />
+    <filter id="gold-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    
+    <filter id="subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
 
   <!-- Background Base -->
-  <rect width="1000" height="250" rx="16" fill="url(#bg)" />
-  <rect width="1000" height="250" rx="16" fill="url(#grid)" />
+  <rect width="1000" height="250" rx="12" fill="url(#gotham-bg)" />
+  <rect width="1000" height="250" rx="12" fill="url(#radar-grid)" />
 
-  <!-- Abstract Network Streams (Right Side Background) -->
-  <g opacity="0.6">
-    <!-- Stream 1 (Bidi) -->
-    <path d="M 450 60 C 600 60, 650 120, 800 120 T 1000 90" fill="none" stroke="url(#stream-cyan)" stroke-width="3" stroke-dasharray="8 4" />
-    <circle cx="800" cy="120" r="4" fill="#00F2FE" filter="url(#glow)" />
-    <circle cx="920" cy="100" r="3" fill="#00F2FE" />
-    
-    <!-- Stream 2 (High Throughput) -->
-    <path d="M 400 150 C 550 150, 650 80, 850 80 T 1000 160" fill="none" stroke="url(#stream-purple)" stroke-width="4" />
-    <circle cx="850" cy="80" r="5" fill="#7579FF" filter="url(#glow)" />
-    <circle cx="680" cy="103" r="3" fill="#B224EF" />
-
-    <!-- Stream 3 (Datagrams - Fast & Unordered) -->
-    <path d="M 500 200 C 650 200, 700 170, 880 170 T 1000 210" fill="none" stroke="url(#stream-cyan)" stroke-width="2" stroke-dasharray="4 8" />
-    <circle cx="700" cy="182" r="3" fill="#00F2FE" />
-    <circle cx="880" cy="170" r="4" fill="#4FACFE" filter="url(#glow)" />
+  <!-- Giant Stylized Bat Emblem Watermark (Right Background) -->
+  <g opacity="0.08" transform="translate(620, 30) scale(0.9)">
+    <path d="M 200 80 C 170 50, 130 50, 100 70 C 85 40, 50 30, 0 50 C -50 30, -85 40, -100 70 C -130 50, -170 50, -200 80 C -190 120, -150 150, -110 140 C -80 180, -40 200, 0 230 C 40 200, 80 180, 110 140 C 150 150, 190 120, 200 80 Z" fill="#FFD700" />
   </g>
 
-  <!-- Left Border Tech Accent -->
-  <rect x="0" y="40" width="6" height="170" rx="3" fill="url(#java-orange)" filter="url(#glow)" />
+  <!-- Gotham City Skyline Silhouette at the bottom -->
+  <g opacity="0.25" fill="#090E17">
+    <rect x="0" y="200" width="30" height="50" /><rect x="25" y="185" width="20" height="65" />
+    <rect x="40" y="210" width="35" height="40" /><rect x="70" y="170" width="25" height="80" />
+    <rect x="90" y="195" width="40" height="55" /><rect x="125" y="160" width="30" height="90" />
+    <polygon points="125,160 140,135 155,160" /><rect x="150" y="180" width="45" height="70" />
+    <rect x="600" y="190" width="35" height="60" /><rect x="630" y="165" width="25" height="85" />
+    <polygon points="630,165 642,140 655,165" /><rect x="650" y="205" width="40" height="45" />
+    <rect x="685" y="175" width="50" height="75" /><rect x="730" y="150" width="35" height="100" />
+    <rect x="760" y="185" width="40" height="65" /><rect x="795" y="170" width="30" height="80" />
+    <rect x="820" y="195" width="45" height="55" /><rect x="860" y="160" width="40" height="90" />
+    <polygon points="860,160 880,130 900,160" /><rect x="895" y="180" width="50" height="70" />
+    <rect x="940" y="190" width="60" height="60" />
+  </g>
 
-  <!-- Main Typography -->
+  <!-- WayneTech Stealth Armor Corner Accents -->
+  <path d="M 0 30 L 0 12 Q 0 0 12 0 L 40 0 L 25 15 L 15 15 L 15 35 Z" fill="url(#bat-gold)" opacity="0.8" />
+  <path d="M 1000 220 L 1000 238 Q 1000 250 988 250 L 960 250 L 975 235 L 985 235 L 985 215 Z" fill="url(#bat-gold)" opacity="0.8" />
+  <path d="M 0 250 L 30 250 L 15 235 L 0 235 Z" fill="#1E293B" />
+  <path d="M 1000 0 L 970 0 L 985 15 L 1000 15 Z" fill="#1E293B" />
+
+  <!-- High-Speed Telemetry Streams (Sonar & Bat-Wing Contours) -->
+  <g fill="none">
+    <!-- Angular Stealth Stream 1 (Gold) -->
+    <path d="M 460 70 L 560 70 L 620 110 L 740 110 L 800 60 L 980 60" stroke="url(#stream-gold)" stroke-width="3" stroke-dasharray="12 6" filter="url(#subtle-glow)" />
+    <circle cx="620" cy="110" r="4" fill="#FFD700" filter="url(#gold-glow)" />
+    <circle cx="800" cy="60" r="3" fill="#FFD700" />
+    <rect x="940" y="57" width="6" height="6" fill="#FFD700" filter="url(#gold-glow)" />
+
+    <!-- Sonar Blue Stream 2 (High Throughput Curve) -->
+    <path d="M 400 160 C 550 160, 600 90, 750 90 C 850 90, 900 140, 1000 130" stroke="url(#stream-blue)" stroke-width="2.5" />
+    <circle cx="750" cy="90" r="4" fill="#00F2FE" filter="url(#subtle-glow)" />
+    <circle cx="580" cy="118" r="3" fill="#0088FF" />
+
+    <!-- Stealth Stream 3 (Fast Datagrams) -->
+    <path d="M 520 200 L 650 200 L 700 160 L 860 160 L 920 190 L 1000 190" stroke="url(#stream-gold)" stroke-width="2" stroke-dasharray="4 8" opacity="0.7" />
+    <polygon points="700,156 705,160 700,164 695,160" fill="#FFB800" filter="url(#gold-glow)" />
+    <polygon points="860,156 865,160 860,164 855,160" fill="#FFB800" />
+  </g>
+
+  <!-- Left Tech Accent Bar -->
+  <rect x="25" y="55" width="4" height="140" rx="2" fill="url(#bat-gold)" filter="url(#subtle-glow)" />
+
+  <!-- Main Typography & UI -->
   <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-    <!-- Protocol Version Tag -->
-    <rect x="60" y="45" width="130" height="26" rx="13" fill="#1E293B" stroke="#334155" stroke-width="1" />
-    <text x="125" y="62" fill="#38BDF8" font-size="12" font-weight="700" letter-spacing="1" text-anchor="middle">HTTP/3 • QUIC</text>
+    
+    <!-- Protocol Badge (WayneTech Style) -->
+    <g transform="translate(45, 50)">
+      <polygon points="0,0 140,0 150,24 10,24" fill="#111827" stroke="#334155" stroke-width="1" />
+      <text x="75" y="16" fill="#FFD700" font-size="11" font-weight="800" letter-spacing="1.5" text-anchor="middle">HTTP/3 • QUIC • TLS 1.3</text>
+    </g>
 
-    <!-- Main Title -->
-    <text x="60" y="125" font-size="56" font-weight="800" fill="#FFFFFF" letter-spacing="-1">
-      webtransport<tspan fill="url(#java-orange)">4j</tspan>
+    <!-- Project Title -->
+    <text x="45" y="128" font-size="56" font-weight="900" fill="#FFFFFF" letter-spacing="-1.5" style="text-transform: lowercase;">
+      webtransport<tspan fill="url(#bat-gold)" filter="url(#gold-glow)">4j</tspan>
     </text>
 
     <!-- Subtitle -->
-    <text x="62" y="165" font-size="18" font-weight="400" fill="#94A3B8" letter-spacing="0.5">
+    <text x="47" y="164" font-size="17" font-weight="500" fill="#94A3B8" letter-spacing="0.5">
       Next-Generation Real-Time Client-Server Networking for Java
     </text>
 
-    <!-- Feature Pills -->
-    <g transform="translate(62, 190)" font-size="12" font-weight="600" fill="#CBD5E1">
+    <!-- Feature Pills (Stealth Tag Style) -->
+    <g transform="translate(47, 195)" font-size="12" font-weight="700" letter-spacing="0.5" fill="#E2E8F0">
       <!-- Pill 1 -->
-      <circle cx="6" cy="-4" r="4" fill="#10B981" />
-      <text x="16" y="0">Zero HoL Blocking</text>
+      <rect x="0" y="-14" width="145" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
+      <circle cx="12" cy="-3" r="3.5" fill="#FFD700" filter="url(#subtle-glow)" />
+      <text x="24" y="1">Zero HoL Blocking</text>
 
       <!-- Pill 2 -->
-      <circle cx="166" cy="-4" r="4" fill="#A855F7" />
-      <text x="176" y="0">Multiplexed Streams</text>
+      <rect x="155" y="-14" width="155" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
+      <circle cx="167" cy="-3" r="3.5" fill="#00F2FE" />
+      <text x="179" y="1">Multiplexed Streams</text>
 
       <!-- Pill 3 -->
-      <circle cx="330" cy="-4" r="4" fill="#38BDF8" />
-      <text x="340" y="0">Unreliable Datagrams</text>
+      <rect x="320" y="-14" width="160" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
+      <circle cx="332" cy="-3" r="3.5" fill="#FFB800" />
+      <text x="344" y="1">Unreliable Datagrams</text>
 
       <!-- Pill 4 -->
-      <circle cx="490" cy="-4" r="4" fill="#F97316" />
-      <text x="500" y="0">Java 8+</text>
+      <rect x="490" y="-14" width="115" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
+      <circle cx="502" cy="-3" r="3.5" fill="#3B82F6" />
+      <text x="514" y="1">Java 17+ Ready</text>
     </g>
   </g>
 </svg>
