@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 250" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B0F19" />
+      <stop offset="50%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+
+    <!-- Glowing Stream Gradients -->
+    <linearGradient id="stream-cyan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00F2FE" stop-opacity="0" />
+      <stop offset="50%" stop-color="#00F2FE" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#4FACFE" stop-opacity="1" />
+    </linearGradient>
+    
+    <linearGradient id="stream-purple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#B224EF" stop-opacity="0" />
+      <stop offset="70%" stop-color="#7579FF" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#B224EF" stop-opacity="1" />
+    </linearGradient>
+
+    <!-- Java Orange Accent -->
+    <linearGradient id="java-orange" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#F89820" />
+      <stop offset="100%" stop-color="#FF7300" />
+    </linearGradient>
+
+    <!-- Grid Pattern -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="1" stroke-opacity="0.5" />
+    </pattern>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="1000" height="250" rx="16" fill="url(#bg)" />
+  <rect width="1000" height="250" rx="16" fill="url(#grid)" />
+
+  <!-- Abstract Network Streams (Right Side Background) -->
+  <g opacity="0.6">
+    <!-- Stream 1 (Bidi) -->
+    <path d="M 450 60 C 600 60, 650 120, 800 120 T 1000 90" fill="none" stroke="url(#stream-cyan)" stroke-width="3" stroke-dasharray="8 4" />
+    <circle cx="800" cy="120" r="4" fill="#00F2FE" filter="url(#glow)" />
+    <circle cx="920" cy="100" r="3" fill="#00F2FE" />
+    
+    <!-- Stream 2 (High Throughput) -->
+    <path d="M 400 150 C 550 150, 650 80, 850 80 T 1000 160" fill="none" stroke="url(#stream-purple)" stroke-width="4" />
+    <circle cx="850" cy="80" r="5" fill="#7579FF" filter="url(#glow)" />
+    <circle cx="680" cy="103" r="3" fill="#B224EF" />
+
+    <!-- Stream 3 (Datagrams - Fast & Unordered) -->
+    <path d="M 500 200 C 650 200, 700 170, 880 170 T 1000 210" fill="none" stroke="url(#stream-cyan)" stroke-width="2" stroke-dasharray="4 8" />
+    <circle cx="700" cy="182" r="3" fill="#00F2FE" />
+    <circle cx="880" cy="170" r="4" fill="#4FACFE" filter="url(#glow)" />
+  </g>
+
+  <!-- Left Border Tech Accent -->
+  <rect x="0" y="40" width="6" height="170" rx="3" fill="url(#java-orange)" filter="url(#glow)" />
+
+  <!-- Main Typography -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+    <!-- Protocol Version Tag -->
+    <rect x="60" y="45" width="130" height="26" rx="13" fill="#1E293B" stroke="#334155" stroke-width="1" />
+    <text x="125" y="62" fill="#38BDF8" font-size="12" font-weight="700" letter-spacing="1" text-anchor="middle">HTTP/3 • QUIC</text>
+
+    <!-- Main Title -->
+    <text x="60" y="125" font-size="56" font-weight="800" fill="#FFFFFF" letter-spacing="-1">
+      webtransport<tspan fill="url(#java-orange)">4j</tspan>
+    </text>
+
+    <!-- Subtitle -->
+    <text x="62" y="165" font-size="18" font-weight="400" fill="#94A3B8" letter-spacing="0.5">
+      Next-Generation Real-Time Client-Server Networking for Java
+    </text>
+
+    <!-- Feature Pills -->
+    <g transform="translate(62, 190)" font-size="12" font-weight="600" fill="#CBD5E1">
+      <!-- Pill 1 -->
+      <circle cx="6" cy="-4" r="4" fill="#10B981" />
+      <text x="16" y="0">Zero HoL Blocking</text>
+
+      <!-- Pill 2 -->
+      <circle cx="166" cy="-4" r="4" fill="#A855F7" />
+      <text x="176" y="0">Multiplexed Streams</text>
+
+      <!-- Pill 3 -->
+      <circle cx="330" cy="-4" r="4" fill="#38BDF8" />
+      <text x="340" y="0">Unreliable Datagrams</text>
+
+      <!-- Pill 4 -->
+      <circle cx="490" cy="-4" r="4" fill="#F97316" />
+      <text x="500" y="0">Java 8+</text>
+    </g>
+  </g>
+</svg>
