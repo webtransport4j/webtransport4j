@@ -5,7 +5,7 @@
 <p align="center">
   <a href="#features"><img src="https://img.shields.io/badge/Protocol-WebTransport%20%2F%20HTTP%2F3-58a6ff?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Protocol"></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-8858ff?style=for-the-badge" alt="License"></a>
-  <a href="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white"><img src="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java Version"></a>
+  <a href="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white"><img src="https://img.shields.io/badge/Java-8%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java Version"></a>
   <a href="#performance"><img src="https://img.shields.io/badge/QUIC-Powered-00D1B2?style=for-the-badge&logo=fastapi&logoColor=white" alt="QUIC Powered"></a>
   <a href="#build"><img src="https://img.shields.io/badge/Throughput-Ultra%20Low%20Latency-ff6c37?style=for-the-badge&logo=speedtest&logoColor=white" alt="Low Latency"></a>
 </p>
