@@ -1,143 +1,178 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 250" width="100%" height="100%">
-  <defs>
-    <!-- Gotham Night Background Gradient -->
-    <linearGradient id="gotham-bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#030408" />
-      <stop offset="50%" stop-color="#080C14" />
-      <stop offset="100%" stop-color="#0E1422" />
-    </linearGradient>
+<p align="center">
+  <img src="assets/banner.svg" alt="webtransport4j Banner" width="100%" />
+</p>
 
-    <!-- Bat-Signal / WayneTech Gold Gradient -->
-    <linearGradient id="bat-gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FFD700" />
-      <stop offset="50%" stop-color="#FFB800" />
-      <stop offset="100%" stop-color="#E59500" />
-    </linearGradient>
+<p align="center">
+  <a href="#features"><img src="https://img.shields.io/badge/Protocol-WebTransport%20%2F%20HTTP%2F3-58a6ff?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Protocol"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-8858ff?style=for-the-badge" alt="License"></a>
+  <a href="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white"><img src="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java Version"></a>
+  <a href="#performance"><img src="https://img.shields.io/badge/QUIC-Powered-00D1B2?style=for-the-badge&logo=fastapi&logoColor=white" alt="QUIC Powered"></a>
+  <a href="#build"><img src="https://img.shields.io/badge/Throughput-Ultra%20Low%20Latency-ff6c37?style=for-the-badge&logo=speedtest&logoColor=white" alt="Low Latency"></a>
+</p>
 
-    <!-- Telemetry Stream Gradient (Gold to Dark) -->
-    <linearGradient id="stream-gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#FFD700" stop-opacity="0" />
-      <stop offset="60%" stop-color="#FFCA00" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#FFF500" stop-opacity="1" />
-    </linearGradient>
+---
 
-    <!-- Sonar Blue Stream (Night Vision accent) -->
-    <linearGradient id="stream-blue" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00F2FE" stop-opacity="0" />
-      <stop offset="70%" stop-color="#0088FF" stop-opacity="0.6" />
-      <stop offset="100%" stop-color="#00F2FE" stop-opacity="0.9" />
-    </linearGradient>
+## ✨ Why webtransport4j?
 
-    <!-- Radar Grid Pattern -->
-    <pattern id="radar-grid" width="30" height="30" patternUnits="userSpaceOnUse">
-      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#162032" stroke-width="0.7" stroke-opacity="0.6" />
-      <circle cx="30" cy="0" r="0.8" fill="#20304C" />
-    </pattern>
+**webtransport4j** brings the raw power of the [W3C/IETF WebTransport protocol](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3) to the Java ecosystem. Designed as the modern, high-performance successor to WebSockets, it leverages **HTTP/3 and QUIC** to deliver real-time, ultra-low-latency client-server communication without the bottlenecks of TCP head-of-line blocking.
 
-    <!-- Glow Filter -->
-    <filter id="gold-glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="5" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-    
-    <filter id="subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-  </defs>
+---
 
-  <!-- Background Base -->
-  <rect width="1000" height="250" rx="12" fill="url(#gotham-bg)" />
-  <rect width="1000" height="250" rx="12" fill="url(#radar-grid)" />
+## ⚡ WebTransport vs. WebSockets
 
-  <!-- Giant Stylized Bat Emblem Watermark (Right Background) -->
-  <g opacity="0.08" transform="translate(620, 30) scale(0.9)">
-    <path d="M 200 80 C 170 50, 130 50, 100 70 C 85 40, 50 30, 0 50 C -50 30, -85 40, -100 70 C -130 50, -170 50, -200 80 C -190 120, -150 150, -110 140 C -80 180, -40 200, 0 230 C 40 200, 80 180, 110 140 C 150 150, 190 120, 200 80 Z" fill="#FFD700" />
-  </g>
+| Feature | Traditional WebSockets (TCP) | webtransport4j (HTTP/3 + QUIC) |
+| :--- | :---: | :---: |
+| **Transport Layer** | TCP / TLS | **UDP / QUIC** |
+| **Head-of-Line Blocking** | ❌ Yes (Packet loss halts all traffic) | **✅ Zero HoL Blocking (Independent streams)** |
+| **Delivery Modes** | Reliable Ordered Only | **Reliable Streams + Unreliable Datagrams** |
+| **Connection Handshake** | 2–3 RTT (TCP + TLS + HTTP Upgrade) | **⚡ 1-RTT (Integrated TLS 1.3)** |
+| **Network Switching** | ❌ Drops connection on Wi-Fi ↔ 4G/5G switch | **✅ Seamless Connection Migration** |
+| **Multiplexing** | Single stream per connection | **🌊 Thousands of concurrent streams** |
 
-  <!-- Gotham City Skyline Silhouette at the bottom -->
-  <g opacity="0.25" fill="#090E17">
-    <rect x="0" y="200" width="30" height="50" /><rect x="25" y="185" width="20" height="65" />
-    <rect x="40" y="210" width="35" height="40" /><rect x="70" y="170" width="25" height="80" />
-    <rect x="90" y="195" width="40" height="55" /><rect x="125" y="160" width="30" height="90" />
-    <polygon points="125,160 140,135 155,160" /><rect x="150" y="180" width="45" height="70" />
-    <rect x="600" y="190" width="35" height="60" /><rect x="630" y="165" width="25" height="85" />
-    <polygon points="630,165 642,140 655,165" /><rect x="650" y="205" width="40" height="45" />
-    <rect x="685" y="175" width="50" height="75" /><rect x="730" y="150" width="35" height="100" />
-    <rect x="760" y="185" width="40" height="65" /><rect x="795" y="170" width="30" height="80" />
-    <rect x="820" y="195" width="45" height="55" /><rect x="860" y="160" width="40" height="90" />
-    <polygon points="860,160 880,130 900,160" /><rect x="895" y="180" width="50" height="70" />
-    <rect x="940" y="190" width="60" height="60" />
-  </g>
+---
 
-  <!-- WayneTech Stealth Armor Corner Accents -->
-  <path d="M 0 30 L 0 12 Q 0 0 12 0 L 40 0 L 25 15 L 15 15 L 15 35 Z" fill="url(#bat-gold)" opacity="0.8" />
-  <path d="M 1000 220 L 1000 238 Q 1000 250 988 250 L 960 250 L 975 235 L 985 235 L 985 215 Z" fill="url(#bat-gold)" opacity="0.8" />
-  <path d="M 0 250 L 30 250 L 15 235 L 0 235 Z" fill="#1E293B" />
-  <path d="M 1000 0 L 970 0 L 985 15 L 1000 15 Z" fill="#1E293B" />
+## 🚀 Core Capabilities & Architecture
 
-  <!-- High-Speed Telemetry Streams (Sonar & Bat-Wing Contours) -->
-  <g fill="none">
-    <!-- Angular Stealth Stream 1 (Gold) -->
-    <path d="M 460 70 L 560 70 L 620 110 L 740 110 L 800 60 L 980 60" stroke="url(#stream-gold)" stroke-width="3" stroke-dasharray="12 6" filter="url(#subtle-glow)" />
-    <circle cx="620" cy="110" r="4" fill="#FFD700" filter="url(#gold-glow)" />
-    <circle cx="800" cy="60" r="3" fill="#FFD700" />
-    <rect x="940" y="57" width="6" height="6" fill="#FFD700" filter="url(#gold-glow)" />
+### 🌐 Next-Gen Transport & Connectivity
+*   **⚡ HTTP/3 & QUIC Foundation:** Bypasses legacy TCP bottlenecks by transmitting over UDP-based QUIC, ensuring exceptional throughput even on high-latency or lossy mobile networks.
+*   **📱 Seamless Connection Migration:** Switch effortlessly between Wi-Fi and 4G/5G cellular networks without dropping active sessions, losing state, or triggering heavy re-handshakes—ideal for mobile and edge clients.
+*   **🔐 1-RTT TLS Resumption:** Powered by native TLS 1.3 over QUIC, enabling instant reconnects with 1 round-trip time (1-RTT) payload delivery for previously authenticated clients.
 
-    <!-- Sonar Blue Stream 2 (High Throughput Curve) -->
-    <path d="M 400 160 C 550 160, 600 90, 750 90 C 850 90, 900 140, 1000 130" stroke="url(#stream-blue)" stroke-width="2.5" />
-    <circle cx="750" cy="90" r="4" fill="#00F2FE" filter="url(#subtle-glow)" />
-    <circle cx="580" cy="118" r="3" fill="#0088FF" />
+### 🌊 Advanced Stream & Data Management
+*   **🔀 Multiplexed Bidirectional & Unidirectional Streams:** Spin up lightweight, concurrent streams over a single connection. Open dedicated request/response channels or high-throughput push pipelines without stream-to-stream blocking.
+*   **📦 Unreliable & Unordered Datagrams:** Need sheer speed over guaranteed delivery? Dispatch low-overhead UDP datagrams perfect for high-frequency gaming state sync, live audio/video streaming, and real-time telemetry.
+*   **🛡️ Zero Head-of-Line (HoL) Blocking:** Unlike TCP, packet loss on QUIC only pauses the exact stream missing a packet. All other parallel streams and datagrams continue transmitting at full velocity.
+*   **⚖️ Granular Flow Control & Backpressure:** Built-in stream-level and connection-level flow control prevents memory exhaustion and handles slow consumers gracefully without degrading global connection throughput.
 
-    <!-- Stealth Stream 3 (Fast Datagrams) -->
-    <path d="M 520 200 L 650 200 L 700 160 L 860 160 L 920 190 L 1000 190" stroke="url(#stream-gold)" stroke-width="2" stroke-dasharray="4 8" opacity="0.7" />
-    <polygon points="700,156 705,160 700,164 695,160" fill="#FFB800" filter="url(#gold-glow)" />
-    <polygon points="860,156 865,160 860,164 855,160" fill="#FFB800" />
-  </g>
+### ☕ Engineered for Java Performance
+*   **🧠 Idiomatic & Asynchronous Java API:** Designed from the ground up for modern Java 17+, integrating cleanly with non-blocking event loops, `CompletableFuture`, and reactive pipelines.
+*   **🏎️ Zero-Copy & Off-Heap Buffering:** Optimized buffer management minimizes garbage collection overhead and memory copies, unlocking maximum I/O throughput for high-concurrency workloads.
+*   **🔒 Enterprise-Grade Security:** Enforces mandatory TLS 1.3 encryption with state-of-the-art cipher suites, protecting data in transit with zero configuration overhead.
 
-  <!-- Left Tech Accent Bar -->
-  <rect x="25" y="55" width="4" height="140" rx="2" fill="url(#bat-gold)" filter="url(#subtle-glow)" />
+---
 
-  <!-- Main Typography & UI -->
-  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-    
-    <!-- Protocol Badge (WayneTech Style) -->
-    <g transform="translate(45, 50)">
-      <polygon points="0,0 140,0 150,24 10,24" fill="#111827" stroke="#334155" stroke-width="1" />
-      <text x="75" y="16" fill="#FFD700" font-size="11" font-weight="800" letter-spacing="1.5" text-anchor="middle">HTTP/3 • QUIC • TLS 1.3</text>
-    </g>
+## 🗺️ Architecture Overview
 
-    <!-- Project Title -->
-    <text x="45" y="128" font-size="56" font-weight="900" fill="#FFFFFF" letter-spacing="-1.5" style="text-transform: lowercase;">
-      webtransport<tspan fill="url(#bat-gold)" filter="url(#gold-glow)">4j</tspan>
-    </text>
+```text
+        Client (Browser / Mobile / Edge)
+        │
+        │  1️⃣  QUIC Handshake (TLS 1.3 / 1-RTT)
+        ▼
+┌──────────────────────────────────────────────┐
+│           webtransport4j Server              │
+│                                              │
+│  ├── 🌊 Bidi Stream #1  (Interactive RPC)    │
+│  ├── 🌊 Bidi Stream #2  (Database Sync)      │
+│  ├── 🌊 Uni Stream #3   (Live Server Push)   │
+│  └── 📦 Datagrams       (60fps Player State) │
+└──────────────────────────────────────────────┘
+        │
+        ▼
+   Zero HoL Blocking • High Throughput • Off-Heap
+```
+# webtransport4j
 
-    <!-- Subtitle -->
-    <text x="47" y="164" font-size="17" font-weight="500" fill="#94A3B8" letter-spacing="0.5">
-      Next-Generation Real-Time Client-Server Networking for Java
-    </text>
+The first high-performance WebTransport server for the Java ecosystem, powered by Netty's asynchronous HTTP/3 stack.
 
-    <!-- Feature Pills (Stealth Tag Style) -->
-    <g transform="translate(47, 195)" font-size="12" font-weight="700" letter-spacing="0.5" fill="#E2E8F0">
-      <!-- Pill 1 -->
-      <rect x="0" y="-14" width="145" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
-      <circle cx="12" cy="-3" r="3.5" fill="#FFD700" filter="url(#subtle-glow)" />
-      <text x="24" y="1">Zero HoL Blocking</text>
+# Local Development Guide
 
-      <!-- Pill 2 -->
-      <rect x="155" y="-14" width="155" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
-      <circle cx="167" cy="-3" r="3.5" fill="#00F2FE" />
-      <text x="179" y="1">Multiplexed Streams</text>
+Follow these steps to run `webtransport4j` locally with a trusted self-signed certificate and a secure browser connection.
 
-      <!-- Pill 3 -->
-      <rect x="320" y="-14" width="160" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
-      <circle cx="332" cy="-3" r="3.5" fill="#FFB800" />
-      <text x="344" y="1">Unreliable Datagrams</text>
+## 1. Generate Certificates (mkcert)
 
-      <!-- Pill 4 -->
-      <rect x="490" y="-14" width="115" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
-      <circle cx="502" cy="-3" r="3.5" fill="#3B82F6" />
-      <text x="514" y="1">Java 8+ Ready</text>
-    </g>
-  </g>
-</svg>
+WebTransport requires HTTPS. We use `mkcert` to create a locally trusted certificate.
+
+1. **Install mkcert:**
+```bash
+brew install mkcert
+brew install nss  # Only needed if you use Firefox
+
+```
+
+
+2. **Initialize Root CA:**
+```bash
+mkcert -install
+
+```
+
+
+3. **Generate Certs:**
+Run this in your **Documents** folder to match the Java config below.
+```bash
+cd ~/Documents
+mkcert localhost
+
+```
+
+
+*Output:* `localhost.pem` and `localhost-key.pem`
+
+```
+openssl req -new -key /Users/<username>/Documents/localhost-key.pem \
+  -out /tmp/localhost.csr \
+  -subj "/CN=localhost" \
+  -config <(printf "[req]\ndistinguished_name=dn\nreq_extensions=ext\n[dn]\nCN=localhost\n[ext]\nsubjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1")
+
+CAROOT=$(mkcert -CAROOT)
+
+openssl x509 -req -in /tmp/localhost.csr \
+  -CA "$CAROOT/rootCA.pem" \
+  -CAkey "$CAROOT/rootCA-key.pem" \
+  -CAcreateserial \
+  -out /Users/<username>/Documents/localhost.pem \
+  -days 10 -sha256 \
+  -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1")
+```
+
+may need to add rootca in keychain and firefox authorities
+---
+
+## 2. Server Setup (Java)
+
+Configure your Netty/Java server to use the generated certificates.
+
+**Code Snippet:**
+
+```java
+QuicSslContext sslContext = QuicSslContextBuilder.forServer(
+        new File("/Users/<username>/Documents/localhost-key.pem"), // Private Key
+        null,
+        new File("/Users/<username>/Documents/localhost.pem"))     // Public Cert
+    .applicationProtocols(Http3.supportedApplicationProtocols())
+    .build();
+
+```
+
+---
+
+## 3. Client Setup (HTML)
+
+
+
+**Use this in html to test webtrasnport all uni/bi/datagram apis**
+***Run server***
+```
+ cd /
+sudo http-server -S \
+-C /Users/<username>/Documents/localhost.pem \
+-K /Users/<username>/Documents/localhost-key.pem \
+-p 8443
+```
+***Navigate to html***
+```
+
+https://localhost:8443/Users/<username>/Documents/GitHub/webtransport4j-incubator/native-wt-test.html
+or
+https://localhost:8443/Users/<username>/Documents/GitHub/webtransport4j-incubator/socketio-wt-test.html
+```
+
+**If you are using firefox**
+add rootCA of mkcert in manage certificate -> authorities
+&
+about:config
+```
+network.http.http3.disable_when_third_party_roots_found	false		
+network.http.http3.enable_localhost	true		
+network.http.http3.enabled	true
+```
