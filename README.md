@@ -1,3 +1,75 @@
+<p align="center">
+  <img src="banner.svg" alt="webtransport4j Banner" width="100%" />
+</p>
+
+<p align="center">
+  <a href="#features"><img src="https://img.shields.io/badge/Protocol-WebTransport%20%2F%20HTTP%2F3-58a6ff?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Protocol"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-Apache%202.0-8858ff?style=for-the-badge" alt="License"></a>
+  <a href="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white"><img src="https://img.shields.io/badge/Java-17%2B-bc8cff?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java Version"></a>
+  <a href="#performance"><img src="https://img.shields.io/badge/QUIC-Powered-00D1B2?style=for-the-badge&logo=fastapi&logoColor=white" alt="QUIC Powered"></a>
+  <a href="#build"><img src="https://img.shields.io/badge/Throughput-Ultra%20Low%20Latency-ff6c37?style=for-the-badge&logo=speedtest&logoColor=white" alt="Low Latency"></a>
+</p>
+
+---
+
+## ✨ Why webtransport4j?
+
+**webtransport4j** brings the raw power of the [W3C/IETF WebTransport protocol](https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3) to the Java ecosystem. Designed as the modern, high-performance successor to WebSockets, it leverages **HTTP/3 and QUIC** to deliver real-time, ultra-low-latency client-server communication without the bottlenecks of TCP head-of-line blocking.
+
+---
+
+## ⚡ WebTransport vs. WebSockets
+
+| Feature | Traditional WebSockets (TCP) | webtransport4j (HTTP/3 + QUIC) |
+| :--- | :---: | :---: |
+| **Transport Layer** | TCP / TLS | **UDP / QUIC** |
+| **Head-of-Line Blocking** | ❌ Yes (Packet loss halts all traffic) | **✅ Zero HoL Blocking (Independent streams)** |
+| **Delivery Modes** | Reliable Ordered Only | **Reliable Streams + Unreliable Datagrams** |
+| **Connection Handshake** | 2–3 RTT (TCP + TLS + HTTP Upgrade) | **⚡ 1-RTT (Integrated TLS 1.3)** |
+| **Network Switching** | ❌ Drops connection on Wi-Fi ↔ 4G/5G switch | **✅ Seamless Connection Migration** |
+| **Multiplexing** | Single stream per connection | **🌊 Thousands of concurrent streams** |
+
+---
+
+## 🚀 Core Capabilities & Architecture
+
+### 🌐 Next-Gen Transport & Connectivity
+*   **⚡ HTTP/3 & QUIC Foundation:** Bypasses legacy TCP bottlenecks by transmitting over UDP-based QUIC, ensuring exceptional throughput even on high-latency or lossy mobile networks.
+*   **📱 Seamless Connection Migration:** Switch effortlessly between Wi-Fi and 4G/5G cellular networks without dropping active sessions, losing state, or triggering heavy re-handshakes—ideal for mobile and edge clients.
+*   **🔐 1-RTT TLS Resumption:** Powered by native TLS 1.3 over QUIC, enabling instant reconnects with 1 round-trip time (1-RTT) payload delivery for previously authenticated clients.
+
+### 🌊 Advanced Stream & Data Management
+*   **🔀 Multiplexed Bidirectional & Unidirectional Streams:** Spin up lightweight, concurrent streams over a single connection. Open dedicated request/response channels or high-throughput push pipelines without stream-to-stream blocking.
+*   **📦 Unreliable & Unordered Datagrams:** Need sheer speed over guaranteed delivery? Dispatch low-overhead UDP datagrams perfect for high-frequency gaming state sync, live audio/video streaming, and real-time telemetry.
+*   **🛡️ Zero Head-of-Line (HoL) Blocking:** Unlike TCP, packet loss on QUIC only pauses the exact stream missing a packet. All other parallel streams and datagrams continue transmitting at full velocity.
+*   **⚖️ Granular Flow Control & Backpressure:** Built-in stream-level and connection-level flow control prevents memory exhaustion and handles slow consumers gracefully without degrading global connection throughput.
+
+### ☕ Engineered for Java Performance
+*   **🧠 Idiomatic & Asynchronous Java API:** Designed from the ground up for modern Java 17+, integrating cleanly with non-blocking event loops, `CompletableFuture`, and reactive pipelines.
+*   **🏎️ Zero-Copy & Off-Heap Buffering:** Optimized buffer management minimizes garbage collection overhead and memory copies, unlocking maximum I/O throughput for high-concurrency workloads.
+*   **🔒 Enterprise-Grade Security:** Enforces mandatory TLS 1.3 encryption with state-of-the-art cipher suites, protecting data in transit with zero configuration overhead.
+
+---
+
+## 🗺️ Architecture Overview
+
+```text
+        Client (Browser / Mobile / Edge)
+        │
+        │  1️⃣  QUIC Handshake (TLS 1.3 / 1-RTT)
+        ▼
+┌──────────────────────────────────────────────┐
+│           webtransport4j Server              │
+│                                              │
+│  ├── 🌊 Bidi Stream #1  (Interactive RPC)    │
+│  ├── 🌊 Bidi Stream #2  (Database Sync)      │
+│  ├── 🌊 Uni Stream #3   (Live Server Push)   │
+│  └── 📦 Datagrams       (60fps Player State) │
+└──────────────────────────────────────────────┘
+        │
+        ▼
+   Zero HoL Blocking • High Throughput • Off-Heap
+```
 # webtransport4j
 
 The first high-performance WebTransport server for the Java ecosystem, powered by Netty's asynchronous HTTP/3 stack.
