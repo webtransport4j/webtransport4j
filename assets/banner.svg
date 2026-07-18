@@ -137,7 +137,7 @@
       <!-- Pill 4 -->
       <rect x="490" y="-14" width="115" height="22" rx="4" fill="#0F172A" stroke="#1E293B" />
       <circle cx="502" cy="-3" r="3.5" fill="#3B82F6" />
-      <text x="514" y="1">Java 17+ Ready</text>
+      <text x="514" y="1">Java 8+ Ready</text>
     </g>
   </g>
 </svg>
