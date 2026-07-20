@@ -50,7 +50,8 @@
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-codec-http3</artifactId>
-            <version>4.2.16.Final-SNAPSHOT</version>
+         <version>${netty.version}</version>
+            <classifier>${os.detected.classifier}</classifier>
         </dependency>
 
         <dependency>
