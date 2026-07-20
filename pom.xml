@@ -51,7 +51,6 @@
             <groupId>io.netty</groupId>
             <artifactId>netty-codec-http3</artifactId>
          <version>${netty.version}</version>
-            <classifier>${os.detected.classifier}</classifier>
         </dependency>
 
         <dependency>
