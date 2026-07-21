@@ -145,10 +145,11 @@ public class WebTransportUtils {
         );
         return promise;
       }
-      long l =
-          QuicStreamType.BIDIRECTIONAL == quicStreamType
-              ? session.incrementAndGetServerInitiatedStreamsBidi()
-              : session.incrementAndGetServerInitiatedStreamsUni();
+      if (QuicStreamType.BIDIRECTIONAL == quicStreamType){
+          session.incrementAndGetServerInitiatedStreamsBidi();
+      } else {
+          session.incrementAndGetServerInitiatedStreamsUni();
+      }
     }
     return connectStreamChannel
         .parent()

@@ -246,26 +246,6 @@ public class WebTransportSessionManager {
     }
   }
 
-  /** Periodic check to reap sessions that have timed out. */
-  private void checkKeepAlive(long timeoutMs) {
-    long now = System.currentTimeMillis();
-    for (WebTransportSession session : sessions.values()) {
-      long lastRead = session.getLastReadTime();
-      if (now - lastRead > timeoutMs) {
-        logger.warn(
-            "❌ Keep-Alive Timeout: Session {} has been idle for {}ms (limit: {}ms). Reaping.",
-            session.getSessionStreamId(),
-            (now - lastRead),
-            timeoutMs);
-        session.setCloseCode(WebTransportUtils.WT_SESSION_GONE);
-        session.close();
-        session
-            .getConnectStream()
-            .shutdown(WebTransportUtils.WT_SESSION_GONE, session.getConnectStream().newPromise());
-      }
-    }
-  }
-
   /**
    * Cleanup: Called when the main QUIC Connection is lost/closed. Prevents memory leaks by clearing
    * the map.

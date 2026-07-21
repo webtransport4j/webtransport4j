@@ -1,6 +1,5 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;

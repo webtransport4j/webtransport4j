@@ -4,7 +4,6 @@ import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelDuplexHandler;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -228,19 +227,6 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     if (cumulation != null) {
       cumulation.release();
       cumulation = null;
-    }
-  }
-
-  private static void writeAndFlushOwned(
-      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf owned) {
-    boolean release = true;
-    try {
-      ChannelFuture future = ctx.writeAndFlush(owned);
-      release = future == null;
-    } finally {
-      if (release) {
-        owned.release();
-      }
     }
   }
 
