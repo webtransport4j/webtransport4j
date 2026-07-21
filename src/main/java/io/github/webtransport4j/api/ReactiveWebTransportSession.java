@@ -84,12 +84,12 @@ public class ReactiveWebTransportSession {
               subscriber.onError(new IllegalArgumentException("Demand must be positive"));
               return;
             }
-            session.createBiStream().addListener(future -> {
-              if (future.isSuccess()) {
-                subscriber.onNext(new ReactiveWebTransportStream((WebTransportStream) future.getNow()));
+            session.createBiStream().whenComplete((stream, ex) -> {
+              if (ex == null) {
+                subscriber.onNext(new ReactiveWebTransportStream(stream));
                 subscriber.onComplete();
               } else {
-                subscriber.onError(future.cause());
+                subscriber.onError(ex);
               }
             });
           }
@@ -115,12 +115,12 @@ public class ReactiveWebTransportSession {
               subscriber.onError(new IllegalArgumentException("Demand must be positive"));
               return;
             }
-            session.createUniStream().addListener(future -> {
-              if (future.isSuccess()) {
-                subscriber.onNext(new ReactiveWebTransportStream((WebTransportStream) future.getNow()));
+            session.createUniStream().whenComplete((stream, ex) -> {
+              if (ex == null) {
+                subscriber.onNext(new ReactiveWebTransportStream(stream));
                 subscriber.onComplete();
               } else {
-                subscriber.onError(future.cause());
+                subscriber.onError(ex);
               }
             });
           }

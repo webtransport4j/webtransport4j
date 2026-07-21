@@ -168,18 +168,13 @@ public class WebTransportChatHandler implements WebTransportHandler {
       // Initialize outgoing server unidirectional voice broadcast stream for the user
       user.session
           .createUniStream()
-          .addListener(
-              (Future<WebTransportStream> f) -> {
-                if (f.isSuccess()) {
-                  WebTransportStream serverUni = f.getNow();
-                  // Write demux prefix identifying it as a voice stream (0x03)
-                  byte[] prefix = new byte[] {STREAM_TYPE_VOICE};
-                  serverUni.write(prefix);
-                  user.serverVoiceStream = serverUni;
-                  logger.info(
-                      "💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
-                }
-              });
+          .thenAccept(serverUni -> {
+            byte[] prefix = new byte[] {STREAM_TYPE_VOICE};
+            serverUni.write(prefix);
+            user.serverVoiceStream = serverUni;
+            logger.info(
+                "💬 [CHAT] Outbound Server Voice stream initialized for {}", user.username);
+          });
       sendControlReply(user, "OK: Joined room " + user.room + " as " + user.username);
       broadcastToRoom(user.room, "SYSTEM: " + user.username + " joined the room.", user);
     } else // LEAVE

@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -145,30 +146,52 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
+    ensureReloaderStarted();
+  }
+
+  private static ScheduledExecutorService reloaderExecutor;
+
+  public static synchronized void stopReloader() {
+    if (reloaderExecutor != null) {
+      reloaderExecutor.shutdownNow();
+      reloaderExecutor = null;
+    }
+    ipCounts.clear();
+  }
+
+  public static void clearState() {
+    ipCounts.clear();
+  }
+
+  public static synchronized void ensureReloaderStarted() {
+    if (reloaderExecutor == null || reloaderExecutor.isShutdown()) {
+      boolean reloadEnabled =
+          WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
+      if (reloadEnabled) {
+        int reloadInterval =
+            WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
+        if (reloadInterval > 0) {
+          reloaderExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "wt-rate-limit-reloader");
+            t.setDaemon(true);
+            return t;
+          });
+          reloaderExecutor.scheduleAtFixedRate(() -> {
+            try {
+              if (WebTransportConfig.reload()) {
+                reloadSharedConfig();
+              }
+            } catch (Exception e) {
+              logger.error("Error reloading configuration in background", e);
+            }
+          }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
+        }
+      }
+    }
   }
 
   static {
-    boolean reloadEnabled =
-        WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
-    if (reloadEnabled) {
-      int reloadInterval =
-          WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
-      if (reloadInterval > 0) {
-        Executors.newSingleThreadScheduledExecutor(r -> {
-          Thread t = new Thread(r, "wt-rate-limit-reloader");
-          t.setDaemon(true);
-          return t;
-        }).scheduleAtFixedRate(() -> {
-          try {
-            if (WebTransportConfig.reload()) {
-              reloadSharedConfig();
-            }
-          } catch (Exception e) {
-            logger.error("Error reloading configuration in background", e);
-          }
-        }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
-      }
-    }
+    ensureReloaderStarted();
   }
 
   private final SharedRateLimitRules rules;

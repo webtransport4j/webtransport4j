@@ -19,6 +19,7 @@ import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -469,26 +470,26 @@ public class WebTransportSession {
         }
       };
 
-  public @NonNull Future<WebTransportStream> createUniStream() {
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream() {
     return createUniStream(DEFAULT_UNI_INITIALIZER);
   }
 
-  public @NonNull Future<WebTransportStream> createUniStream(
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
       @NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createUniStream(connectStream, false, streamHandler));
   }
 
-  public @NonNull Future<WebTransportStream> createBiStream() {
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream() {
     return createBiStream(DEFAULT_BI_INITIALIZER);
   }
 
-  public @NonNull Future<WebTransportStream> createBiStream(@NonNull ChannelHandler streamHandler) {
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createBiStream(connectStream, false, streamHandler));
   }
 
-  private @NonNull Future<WebTransportStream> wrapStreamFuture(
+  private @NonNull CompletableFuture<WebTransportStream> wrapStreamFuture(
       @NonNull Future<QuicStreamChannel> streamFuture) {
-    Promise<WebTransportStream> promise = connectStream.parent().eventLoop().newPromise();
+    CompletableFuture<WebTransportStream> cf = new CompletableFuture<>();
     streamFuture.addListener(
         (Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
@@ -503,14 +504,14 @@ public class WebTransportSession {
                   ch.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
               metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
               ch.closeFuture()
-                  .addListener(cf -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
+                  .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
             }
-            promise.setSuccess(stream);
+            cf.complete(stream);
           } else {
-            promise.setFailure(f.cause());
+            cf.completeExceptionally(f.cause());
           }
         });
-    return promise;
+    return cf;
   }
 
   public void setCloseCode(int closeCode) {

@@ -1,11 +1,14 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
+import io.github.webtransport4j.api.ReactiveWebTransportHandler;
+import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
@@ -54,27 +57,52 @@ public class WebTransportServer {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportServer.class);
 
-  private int port;
-
-  public Map<String, WebTransportHandler> getHandlers() {
-    return handlers;
-  }
+  private Integer configuredPort;
+  private String sslKeyPath;
+  private String sslCertPath;
+  private QuicSslContext sslContext;
+  private List<String> allowedOrigins;
+  private QuicTokenHandler quicTokenHandler;
+  private String transportType;
+  private Long idleTimeoutSeconds;
+  private Long initialMaxStreamsBidi;
+  private Long initialMaxStreamsUni;
+  private Long initialMaxData;
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
-
-  private final WebTransportHandler defaultHandler;
+  private WebTransportHandler defaultHandler;
 
   private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions =
       new java.util.concurrent.atomic.AtomicInteger(0);
 
   /**
-   * The observability metrics listener. Defaults to a no-op implementation. Override before calling
-   * {@link #start()} via {@link #setMetricsListener}.
+   * The observability metrics listener. Defaults to a no-op implementation.
    */
   private volatile WebTransportMetricsListener metricsListener =
       NoOpWebTransportMetricsListener.INSTANCE;
 
   private Supplier<MessageDispatcher> messageDispatcherSupplier = DefaultMessageDispatcher::new;
+  private final ExecutorService businessExecutor;
+
+  public static GlobalTrafficShapingHandler globalTrafficShaper;
+  /** Lifecycle states of the WebTransport server. */
+  public enum ServerState {
+    STOPPED,
+    STARTING,
+    STARTED,
+    STOPPING
+  }
+
+  private final java.util.concurrent.atomic.AtomicReference<ServerState> state =
+      new java.util.concurrent.atomic.AtomicReference<>(ServerState.STOPPED);
+
+  private EventLoopGroup group;
+  private Channel channel;
+  private Thread shutdownHook;
+
+  public static @NonNull WebTransportServerBuilder builder() {
+    return new WebTransportServerBuilder();
+  }
 
   /** Web Transport Server. */
   public WebTransportServer(WebTransportHandler defaultHandler) {
@@ -92,14 +120,50 @@ public class WebTransportServer {
     this.businessExecutor = BusinessExecutorFactory.create();
   }
 
-  /** Web Transport Server. */
+  /** Web Transport Server with custom business executor. */
   public WebTransportServer(WebTransportHandler defaultHandler, ExecutorService businessExecutor) {
     if (defaultHandler == null) {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
     this.defaultHandler = defaultHandler;
     handlers.put("/", defaultHandler);
-    this.businessExecutor = businessExecutor;
+    this.businessExecutor = businessExecutor != null ? businessExecutor : BusinessExecutorFactory.create();
+  }
+
+  /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
+  public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
+    this.configuredPort = builder.getPort();
+    this.sslKeyPath = builder.getSslKeyPath();
+    this.sslCertPath = builder.getSslCertPath();
+    this.sslContext = builder.getSslContext();
+    this.allowedOrigins = builder.getAllowedOrigins();
+    this.quicTokenHandler = builder.getQuicTokenHandler();
+    this.transportType = builder.getTransportType();
+    this.idleTimeoutSeconds = builder.getIdleTimeoutSeconds();
+    this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
+    this.initialMaxStreamsUni = builder.getInitialMaxStreamsUni();
+    this.initialMaxData = builder.getInitialMaxData();
+
+    if (builder.getMetricsListener() != null) {
+      this.metricsListener = builder.getMetricsListener();
+    }
+    if (builder.getMessageDispatcherSupplier() != null) {
+      this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
+    }
+    this.businessExecutor = builder.getBusinessExecutor() != null
+        ? builder.getBusinessExecutor()
+        : BusinessExecutorFactory.create();
+
+    this.defaultHandler = builder.getDefaultHandler() != null
+        ? builder.getDefaultHandler()
+        : new WebTransportHandler() {};
+
+    this.handlers.put("/", this.defaultHandler);
+    this.handlers.putAll(builder.getHandlers());
+  }
+
+  public Map<String, WebTransportHandler> getHandlers() {
+    return handlers;
   }
 
   private static @Nullable String normalizePath(@Nullable String path) {
@@ -126,13 +190,16 @@ public class WebTransportServer {
     }
   }
 
-  /**
-   * Sets a custom metrics listener for observability export (e.g., OTLP, Micrometer, Datadog). Must
-   * be called before {@link #start()}.
-   *
-   * @param listener The listener implementation. Pass {@link
-   *     NoOpWebTransportMetricsListener#INSTANCE} to disable metrics (the default).
-   */
+  /** Registers a reactive handler for a path. */
+  public void registerReactiveHandler(@NonNull String path, @Nullable ReactiveWebTransportHandler reactiveHandler) {
+    if (reactiveHandler == null) {
+      registerHandler(path, (WebTransportHandler) null);
+    } else {
+      registerHandler(path, new ReactiveWebTransportHandlerAdapter(reactiveHandler));
+    }
+  }
+
+  /** Sets a custom metrics listener for observability export. */
   public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
     this.metricsListener = listener;
   }
@@ -149,56 +216,83 @@ public class WebTransportServer {
     return messageDispatcherSupplier;
   }
 
-  /** Returns the handler. */
+  /** Returns the handler for a path. */
   public @NonNull WebTransportHandler getHandler(@NonNull String path) {
     String normalized = normalizePath(path);
     WebTransportHandler handler = handlers.get(normalized);
     return (handler != null) ? handler : this.defaultHandler;
   }
 
-  /** Returns the port. */
+  /** Returns the actual bound server port, or configured port if not started. */
   public int getPort() {
-    if (channel != null && channel.localAddress() instanceof InetSocketAddress) {
+    if (channel != null && channel.isActive() && channel.localAddress() instanceof InetSocketAddress) {
       return ((InetSocketAddress) channel.localAddress()).getPort();
     }
-    return port;
+    if (configuredPort != null) {
+      return configuredPort;
+    }
+    return WebTransportConfig.getInt("webtransport4j.server.port", 4433);
   }
 
   public ExecutorService getBusinessExecutor() {
     return businessExecutor;
   }
 
-  public static GlobalTrafficShapingHandler globalTrafficShaper;
+  /** Returns the current lifecycle state of the server. */
+  public ServerState getState() {
+    return state.get();
+  }
 
-  private final ExecutorService businessExecutor;
+  /** Returns true if the server is active and listening. */
+  public boolean isStarted() {
+    return state.get() == ServerState.STARTED && channel != null && channel.isActive();
+  }
 
-    private EventLoopGroup group;
+  /** Returns true if the server is active and listening. */
+  public boolean isRunning() {
+    return isStarted();
+  }
 
-  private Channel channel;
-
-  /** Start. */
+  /**
+   * Starts the WebTransport server non-blockingly. Returns immediately once the server channel is bound.
+   */
   public void start() throws Exception {
-    if (defaultHandler == null) {
-      throw new IllegalStateException(
-          "Server cannot start without a registered default path handler.");
+    if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
+      ServerState current = state.get();
+      if (current == ServerState.STARTED || current == ServerState.STARTING) {
+        logger.warn("⚠️ Server is already {} on port {}", current.name().toLowerCase(), getPort());
+        return;
+      }
+      throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
     }
-    port = WebTransportConfig.getInt("webtransport4j.server.port", 4433);
-    String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
-    List<String> allowedOrigins = Arrays.asList(originsProp.split(","));
-    Runtime.getRuntime()
-        .addShutdownHook(
-            new Thread(
-                () -> {
-                  logger.info("Shutdown hook triggered. Stopping server...");
-                  stop();
-                }));
+
+    try {
+      if (defaultHandler == null) {
+        throw new IllegalStateException(
+            "Server cannot start without a registered default path handler.");
+      }
+    int targetPort = configuredPort != null ? configuredPort : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+
+    List<String> resolvedOrigins = this.allowedOrigins;
+    if (resolvedOrigins == null) {
+      String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
+      resolvedOrigins = Arrays.asList(originsProp.split(","));
+    }
+
+    shutdownHook = new Thread(
+        () -> {
+          logger.info("Shutdown hook triggered. Stopping server...");
+          stop();
+        });
+    Runtime.getRuntime().addShutdownHook(shutdownHook);
+
     if (logger.isDebugEnabled()) {
-      logger.debug("🚀 STARTING DEBUG SERVER...");
+      logger.debug("🚀 STARTING WEBTRANSPORT SERVER...");
     }
 
     Bootstrap bootstrap = new Bootstrap();
-    String transportType = WebTransportConfig.get("webtransport4j.server.transport", "auto");
-    TransportConfig transportConfig = resolveTransport(transportType, bootstrap);
+    String resolvedTransport = this.transportType != null ? this.transportType : WebTransportConfig.get("webtransport4j.server.transport", "auto");
+    TransportConfig transportConfig = resolveTransport(resolvedTransport, bootstrap);
 
     this.group =
         new MultiThreadIoEventLoopGroup(
@@ -206,38 +300,60 @@ public class WebTransportServer {
 
     setupTrafficShaping();
 
-    QuicSslContext sslContext = buildSslContext();
+    QuicSslContext sslCtx = buildSslContext();
     Http3Settings settings = buildHttp3Settings();
+
+    long idleTimeout = this.idleTimeoutSeconds != null ? this.idleTimeoutSeconds : (long) WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60);
 
     QuicServerCodecBuilder builder =
         Http3.newQuicServerCodecBuilder()
-            .sslContext(sslContext)
-            .maxIdleTimeout(
-                WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60),
-                TimeUnit.SECONDS)
-            .initialMaxData(WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L))
+            .sslContext(sslCtx)
+            .maxIdleTimeout(idleTimeout, TimeUnit.SECONDS)
+            .initialMaxData(this.initialMaxData != null ? this.initialMaxData : WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L))
             .initialMaxStreamDataBidirectionalLocal(
                 WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
             .initialMaxStreamDataBidirectionalRemote(
                 WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
             .initialMaxStreamsBidirectional(
-                WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L))
+                this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi : WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L))
             .datagram(
                 WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
                 WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
             .initialMaxStreamsUnidirectional(
-                WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L))
+                this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L))
             .initialMaxStreamDataUnidirectional(
                 WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
-            .tokenHandler(getTokenHandler())
+            .tokenHandler(resolveTokenHandler())
             .handler(
                 new QuicChannelInitializer(
-                    this, settings, businessExecutor, allowedOrigins, globalActiveSessions));
+                    this, settings, businessExecutor, resolvedOrigins, globalActiveSessions));
 
     configureOptionalQuicParams(builder);
 
     ChannelHandler serverCodec = builder.build();
-    bindServer(bootstrap, transportConfig, serverCodec);
+    bindServer(bootstrap, transportConfig, serverCodec, targetPort);
+    state.set(ServerState.STARTED);
+    } catch (Exception e) {
+      state.set(ServerState.STOPPED);
+      throw e;
+    }
+  }
+
+  /**
+   * Starts the server non-blockingly and then blocks until server shutdown.
+   */
+  public void startAndAwait() throws Exception {
+    start();
+    awaitShutdown();
+  }
+
+  /**
+   * Blocks the current thread until the server channel is closed.
+   */
+  public void awaitShutdown() throws InterruptedException {
+    if (channel != null) {
+      channel.closeFuture().sync();
+    }
   }
 
   private static class TransportConfig {
@@ -383,8 +499,11 @@ public class WebTransportServer {
   }
 
   private @NonNull QuicSslContext buildSslContext() throws Exception {
-    String keyPath = WebTransportConfig.get("webtransport4j.ssl.key.path", null);
-    String certPath = WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
+    if (this.sslContext != null) {
+      return this.sslContext;
+    }
+    String keyPath = this.sslKeyPath != null ? this.sslKeyPath : WebTransportConfig.get("webtransport4j.ssl.key.path", null);
+    String certPath = this.sslCertPath != null ? this.sslCertPath : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
     if (keyPath == null && certPath == null) {
       File keyFile = new File("localhost-key.pem");
       File certFile = new File("localhost.pem");
@@ -397,7 +516,7 @@ public class WebTransportServer {
         WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
     long sessionCacheSize =
         WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
-    QuicSslContext sslContext;
+    QuicSslContext resolvedSslCtx;
     if (keyPath != null && certPath != null) {
       QuicSslContextBuilder builder =
           QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
@@ -408,11 +527,11 @@ public class WebTransportServer {
       if (sessionCacheSize > 0) {
         builder.sessionCacheSize(sessionCacheSize);
       }
-      sslContext = builder.build();
+      resolvedSslCtx = builder.build();
     } else {
       throw new IllegalStateException(
           "SSL key path and certificate path must be configured. Set webtransport4j.ssl.key.path"
-              + " and webtransport4j.ssl.cert.path in configuration.");
+              + " and webtransport4j.ssl.cert.path in configuration or builder.");
     }
     String ticketKeysStr = WebTransportConfig.get("webtransport4j.ssl.session.ticket.keys", null);
     if (ticketKeysStr != null && !ticketKeysStr.trim().isEmpty()) {
@@ -435,8 +554,8 @@ public class WebTransportServer {
           System.arraycopy(keyBytes, 32, aesKey, 0, 16);
           ticketKeys[i] = new SslSessionTicketKey(name, hmacKey, aesKey);
         }
-        if (sslContext.sessionContext() != null) {
-          sslContext.sessionContext().setTicketKeys(ticketKeys);
+        if (resolvedSslCtx.sessionContext() != null) {
+          resolvedSslCtx.sessionContext().setTicketKeys(ticketKeys);
           logger.info(
               "🔑 Explicit TLS Session Ticket Keys loaded. 1-RTT Session Resumption across servers"
                   + " is fully supported.");
@@ -445,7 +564,7 @@ public class WebTransportServer {
         logger.error("❌ Failed to parse webtransport4j.ssl.session.ticket.keys", e);
       }
     }
-    return sslContext;
+    return resolvedSslCtx;
   }
 
   private @NonNull Http3Settings buildHttp3Settings() {
@@ -459,16 +578,16 @@ public class WebTransportServer {
       allowed.add(Long.decode(val.trim()));
     }
     Http3Settings settings = new Http3Settings((id, value) -> allowed.contains(id));
-    long wtMaxStreamsUni =
+    long wtMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni :
         WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.uni", 0L);
-    long wtMaxStreamsBidi =
+    long wtMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi :
         WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.bidi", 0L);
-    long wtInitialMaxData =
+    long wtInitialMaxData = this.initialMaxData != null ? this.initialMaxData :
         WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.data", 0L);
-    long quicMaxStreamsUni = WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L);
-    long quicMaxStreamsBidi =
+    long quicMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L);
+    long quicMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi :
         WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
-    long quicInitialMaxData =
+    long quicInitialMaxData = this.initialMaxData != null ? this.initialMaxData :
         WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
     validateConfig(
         quicMaxStreamsBidi,
@@ -572,7 +691,7 @@ public class WebTransportServer {
   }
 
   private void bindServer(
-      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec)
+      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, int targetPort)
       throws Exception {
     int defaultRecvBufSize = transportConfig.epollGroEnabled ? 65536 : 2048;
     int recvBufSize =
@@ -588,63 +707,87 @@ public class WebTransportServer {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
 
-    this.channel =
+    ChannelFuture bindFuture =
         bootstrap
             .group(group)
             .channel(transportConfig.channelClass)
             .handler(serverCodec)
             .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
-            .bind(new InetSocketAddress(port))
-            .addListener(
-                future -> {
-                  if (future.isSuccess()) {
-                    logger.info("✅ WebTransport server started on port {}", port);
-                  } else {
-                    logger.error(
-                        "❌ Failed to start WebTransport server on port {}", port, future.cause());
-                  }
-                })
-            .channel();
+            .bind(new InetSocketAddress(targetPort));
+
+    bindFuture.sync();
+    this.channel = bindFuture.channel();
     this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
-    this.channel.closeFuture().sync();
+
+    int boundPort = getPort();
+    logger.info("✅ WebTransport server started on port {}", boundPort);
   }
 
-  /** Stop. */
+  /** Stops the server gracefully. */
   public void stop() {
-    logger.info("Stopping WebTransport server...");
-    if (channel != null) {
-      try {
-        channel.close().sync();
-      } catch (Exception e) {
-        logger.error("Error closing server channel", e);
-      } finally {
-        channel = null;
+    stop(5, TimeUnit.SECONDS);
+  }
+
+  /** Stops the server with a specified timeout. */
+  public void stop(long timeout, @NonNull TimeUnit unit) {
+    ServerState previous = state.getAndSet(ServerState.STOPPING);
+    if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
+      logger.debug("Server is already stopped or stopping.");
+      return;
+    }
+    try {
+      if (shutdownHook != null) {
+        try {
+          Runtime.getRuntime().removeShutdownHook(shutdownHook);
+        } catch (Exception ignored) {
+        }
+        shutdownHook = null;
       }
-    }
-    if (group != null) {
-      try {
-        group.shutdownGracefully().sync();
-      } catch (Exception e) {
-        logger.error("Error shutting down event loop group", e);
-      } finally {
-        group = null;
+      logger.info("Stopping WebTransport server...");
+      if (channel != null) {
+        try {
+          channel.close().sync();
+        } catch (Exception e) {
+          logger.error("Error closing server channel", e);
+        } finally {
+          channel = null;
+        }
       }
-    }
-    if (globalTrafficShaper != null) {
-      globalTrafficShaper.release();
-      globalTrafficShaper = null;
-    }
-    if (businessExecutor != null) {
-      businessExecutor.shutdown();
-      try {
-        if (!businessExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+      if (group != null) {
+        try {
+          group.shutdownGracefully(1, timeout, unit).sync();
+        } catch (Exception e) {
+          logger.error("Error shutting down event loop group", e);
+        } finally {
+          group = null;
+        }
+      }
+      if (globalTrafficShaper != null) {
+        globalTrafficShaper.release();
+        globalTrafficShaper = null;
+      }
+      IpRateLimitingHandler.stopReloader();
+      if (businessExecutor != null && !businessExecutor.isShutdown()) {
+        businessExecutor.shutdown();
+        try {
+          if (!businessExecutor.awaitTermination(timeout, unit)) {
+            businessExecutor.shutdownNow();
+          }
+        } catch (InterruptedException e) {
           businessExecutor.shutdownNow();
         }
-      } catch (InterruptedException e) {
-        businessExecutor.shutdownNow();
       }
+      logger.info("WebTransport server stopped successfully.");
+    } finally {
+      state.set(ServerState.STOPPED);
     }
-    logger.info("WebTransport server stopped successfully.");
+  }
+
+  private QuicTokenHandler resolveTokenHandler() {
+    if (this.quicTokenHandler != null) {
+      return this.quicTokenHandler;
+    }
+    return getTokenHandler();
   }
 
   /** Returns the token handler. */

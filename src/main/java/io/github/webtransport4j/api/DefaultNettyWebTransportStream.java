@@ -4,17 +4,17 @@ import io.github.webtransport4j.example.StreamCodec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
+
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
@@ -38,6 +38,20 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   private @Nullable Consumer<Throwable> errorHandler;
 
   private final Map<String, Object> attributes = new ConcurrentHashMap<>();
+
+  private static @NonNull CompletableFuture<Void> toCompletableFuture(
+      @NonNull Future<?> nettyFuture) {
+    CompletableFuture<Void> cf = new CompletableFuture<>();
+    nettyFuture.addListener(
+        f -> {
+          if (f.isSuccess()) {
+            cf.complete(null);
+          } else {
+            cf.completeExceptionally(f.cause());
+          }
+        });
+    return cf;
+  }
 
   /** Default Netty Web Transport Stream. */
   public DefaultNettyWebTransportStream(@NonNull QuicStreamChannel channel, long sessionId) {
@@ -117,17 +131,17 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param data the buffer to write
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> write(@NonNull WebTransportBuffer data) {
+  public @NonNull CompletableFuture<Void> write(@NonNull WebTransportBuffer data) {
     if (data instanceof DefaultNettyWebTransportBuffer) {
       ByteBuf retained = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
       try {
-        return streamChannel().writeAndFlush(retained);
+        return toCompletableFuture(streamChannel().writeAndFlush(retained));
       } catch (RuntimeException | Error e) {
         retained.release();
         throw e;
       }
     }
-    return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data.nioBuffer()));
+    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data.nioBuffer())));
   }
 
   /**
@@ -143,12 +157,12 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param binarySource the binary source to read and stream
    * @return a future that completes when the entire source has been written
    */
-  public @NonNull Future<Void> write(@NonNull BinarySource binarySource) {
-    return streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource));
+  public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource) {
+    return toCompletableFuture(streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource)));
   }
 
-  public @NonNull Future<Void> write(@NonNull BinarySource binarySource, int chunkSize) {
-    return streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize));
+  public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource, int chunkSize) {
+    return toCompletableFuture(streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize)));
   }
 
   /**
@@ -161,8 +175,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param data the byte array to write
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> write(byte @NonNull [] data) {
-    return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data));
+  public @NonNull CompletableFuture<Void> write(byte @NonNull [] data) {
+    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data)));
   }
 
   /**
@@ -177,8 +191,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param length the number of bytes to write
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> write(byte @NonNull [] data, int offset, int length) {
-    return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data, offset, length));
+  public @NonNull CompletableFuture<Void> write(byte @NonNull [] data, int offset, int length) {
+    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data, offset, length)));
   }
 
   /**
@@ -191,8 +205,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param data the buffer to write
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> write(@NonNull ByteBuffer data) {
-    return streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data));
+  public @NonNull CompletableFuture<Void> write(@NonNull ByteBuffer data) {
+    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data)));
   }
 
   /**
@@ -201,7 +215,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param text the text to write
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> writeText(@NonNull String text) {
+  public @NonNull CompletableFuture<Void> writeText(@NonNull String text) {
     return writeText(text, CharsetUtil.UTF_8);
   }
 
@@ -212,9 +226,9 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param charset the character encoding to use
    * @return a future that completes when the write operation is done
    */
-  public @NonNull Future<Void> writeText(
+  public @NonNull CompletableFuture<Void> writeText(
       @NonNull String text, java.nio.charset.@NonNull Charset charset) {
-    return streamChannel().writeAndFlush(Unpooled.copiedBuffer(text, charset));
+    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.copiedBuffer(text, charset)));
   }
 
   public void close() {
@@ -279,12 +293,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   }
 
   @Override
-  public @NonNull ChannelFuture shutdown(int error, @NonNull ChannelPromise promise) {
-    return streamChannel().shutdown(error, promise);
-  }
-
-  @Override
-  public @NonNull ChannelPromise newPromise() {
-    return streamChannel().newPromise();
+  public @NonNull CompletableFuture<Void> shutdown(int error) {
+    return toCompletableFuture(streamChannel().shutdown(error, streamChannel().newPromise()));
   }
 }

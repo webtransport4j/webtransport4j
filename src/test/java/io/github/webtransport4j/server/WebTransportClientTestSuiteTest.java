@@ -30,23 +30,17 @@ public class WebTransportClientTestSuiteTest {
             logger.info("🟢 [CLEAN TEST HANDLER] Session Ready: {}", session.path());
 
             // 1. Initiate server-to-client unidirectional stream with text greeting
-            session.createUniStream().addListener((Future<WebTransportStream> f) -> {
-                if (f.isSuccess()) {
-                    WebTransportStream stream = f.getNow();
-                    stream.writeText("Hello from Server-Initiated Unidirectional Stream! [ID: " + stream.streamId() + "]");
-                }
+            session.createUniStream().thenAccept(stream -> {
+                stream.writeText("Hello from Server-Initiated Unidirectional Stream! [ID: " + stream.streamId() + "]");
             });
 
             // 2. Initiate server-to-client bidirectional stream with text greeting
-            session.createBiStream().addListener((Future<WebTransportStream> f) -> {
-                if (f.isSuccess()) {
-                    WebTransportStream stream = f.getNow();
-                    stream.onData(data -> {
-                        logger.info("   📩 Received response on server-initiated bidi stream {}: {}",
-                                stream.streamId(), new String(data.readBytes(), StandardCharsets.UTF_8));
-                    });
-                    stream.writeText("Hello from Server-Initiated Bidirectional Stream! [ID: " + stream.streamId() + "]");
-                }
+            session.createBiStream().thenAccept(stream -> {
+                stream.onData(data -> {
+                    logger.info("   📩 Received response on server-initiated bidi stream {}: {}",
+                            stream.streamId(), new String(data.readBytes(), StandardCharsets.UTF_8));
+                });
+                stream.writeText("Hello from Server-Initiated Bidirectional Stream! [ID: " + stream.streamId() + "]");
             });
         }
 
@@ -84,15 +78,12 @@ public class WebTransportClientTestSuiteTest {
                         stream.write(bytes);
                     }
                 } else {
-                    session.createUniStream().addListener((Future<WebTransportStream> f) -> {
-                        if (f.isSuccess()) {
-                            WebTransportStream ackStream = f.getNow();
-                            byte[] prefix = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
-                            byte[] resp = new byte[prefix.length + bytes.length];
-                            System.arraycopy(prefix, 0, resp, 0, prefix.length);
-                            System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
-                            ackStream.write(resp).addListener(wf -> ackStream.close());
-                        }
+                    session.createUniStream().thenAccept(ackStream -> {
+                        byte[] prefix = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                        byte[] resp = new byte[prefix.length + bytes.length];
+                        System.arraycopy(prefix, 0, resp, 0, prefix.length);
+                        System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
+                        ackStream.write(resp).thenRun(ackStream::close);
                     });
                 }
             });
@@ -102,11 +93,8 @@ public class WebTransportClientTestSuiteTest {
         public void onDatagramReceived(@NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
             String content = new String(data.readBytes(), StandardCharsets.UTF_8);
             String replyText = "ACK DG: " + content;
-            session.createUniStream().addListener((Future<WebTransportStream> f) -> {
-                if (f.isSuccess()) {
-                    WebTransportStream ackStream = f.getNow();
-                    ackStream.writeText(replyText).addListener(wf -> ackStream.close());
-                }
+            session.createUniStream().thenAccept(ackStream -> {
+                ackStream.writeText(replyText).thenRun(ackStream::close);
             });
         }
     }

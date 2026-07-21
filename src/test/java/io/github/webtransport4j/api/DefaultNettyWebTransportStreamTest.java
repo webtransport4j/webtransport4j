@@ -24,6 +24,12 @@ public class DefaultNettyWebTransportStreamTest {
     when(channel.streamId()).thenReturn(4L);
     when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
     when(channel.writeAndFlush(any())).thenReturn(future);
+    org.mockito.Mockito.doAnswer(invocation -> {
+      io.netty.util.concurrent.GenericFutureListener listener = invocation.getArgument(0);
+      listener.operationComplete(future);
+      return future;
+    }).when(future).addListener(any());
+    when(future.isSuccess()).thenReturn(true);
 
     ByteBuf source = Unpooled.wrappedBuffer("abcdef".getBytes());
     source.skipBytes(1);

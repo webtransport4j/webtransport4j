@@ -120,11 +120,11 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
   @Override
   public void onNext(WebTransportBuffer item) {
-    stream.write(item).addListener(future -> {
-      if (future.isSuccess()) {
+    stream.write(item).whenComplete((res, ex) -> {
+      if (ex == null) {
         subscription.request(1); // request next item
       } else {
-        onError(future.cause());
+        onError(ex);
       }
     });
   }

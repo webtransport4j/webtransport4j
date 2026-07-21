@@ -66,16 +66,9 @@ public class ReactiveWebTransportStreamTest {
   @Test
   public void testSubscriberWritesData() {
     WebTransportStream mockStream = mock(WebTransportStream.class);
-    Future<Void> mockFuture = mock(Future.class);
-    when(mockStream.write(any(WebTransportBuffer.class))).thenReturn(mockFuture);
-
-    // Mock successful write listener trigger
-    doAnswer(invocation -> {
-      io.netty.util.concurrent.GenericFutureListener listener = invocation.getArgument(0);
-      listener.operationComplete(mockFuture);
-      return mockFuture;
-    }).when(mockFuture).addListener(any());
-    when(mockFuture.isSuccess()).thenReturn(true);
+    java.util.concurrent.CompletableFuture<Void> completedFuture =
+        java.util.concurrent.CompletableFuture.completedFuture(null);
+    when(mockStream.write(any(WebTransportBuffer.class))).thenReturn(completedFuture);
 
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
 

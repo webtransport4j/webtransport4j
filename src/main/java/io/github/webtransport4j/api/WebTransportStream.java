@@ -3,11 +3,11 @@ package io.github.webtransport4j.api;
 import io.github.webtransport4j.example.StreamCodec;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelPromise;
-import io.netty.util.concurrent.Future;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -56,22 +56,22 @@ public interface WebTransportStream {
   @Nullable OnCloseListener getCloseHandler();
 
   /* ---------- Primitive Write ---------- */
-  @NonNull Future<Void> write(@NonNull WebTransportBuffer data);
+  @NonNull CompletableFuture<Void> write(@NonNull WebTransportBuffer data);
 
-  @NonNull Future<Void> write(@NonNull BinarySource binarySource);
+  @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource);
 
-  @NonNull Future<Void> write(@NonNull BinarySource binarySource, int chunkSize);
+  @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource, int chunkSize);
 
   /* ---------- Convenience Writes ---------- */
-  @NonNull Future<Void> write(byte @NonNull [] data);
+  @NonNull CompletableFuture<Void> write(byte @NonNull [] data);
 
-  @NonNull Future<Void> write(byte @NonNull [] data, int offset, int length);
+  @NonNull CompletableFuture<Void> write(byte @NonNull [] data, int offset, int length);
 
-  @NonNull Future<Void> write(@NonNull ByteBuffer buffer);
+  @NonNull CompletableFuture<Void> write(@NonNull ByteBuffer buffer);
 
-  @NonNull Future<Void> writeText(@NonNull String text);
+  @NonNull CompletableFuture<Void> writeText(@NonNull String text);
 
-  @NonNull Future<Void> writeText(@NonNull String text, @NonNull Charset charset);
+  @NonNull CompletableFuture<Void> writeText(@NonNull String text, @NonNull Charset charset);
 
   /* ---------- Attributes ---------- */
   boolean hasAttribute(@NonNull String key);
@@ -97,7 +97,5 @@ public interface WebTransportStream {
 
   boolean isActive();
 
-  @NonNull Future<Void> shutdown(int error, @NonNull ChannelPromise promise);
-
-  @NonNull ChannelPromise newPromise();
+  @NonNull CompletableFuture<Void> shutdown(int error);
 }

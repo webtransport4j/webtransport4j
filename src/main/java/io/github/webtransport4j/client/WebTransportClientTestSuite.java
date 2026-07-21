@@ -314,12 +314,12 @@ public class WebTransportClientTestSuite {
                 logger.info("=========================================");
             } else {
                 logger.error("❌ Test suite failed. Some verifications never completed: {}", pendingVerifications);
-                System.exit(1);
+                throw new RuntimeException("Test suite failed. Unmet verifications: " + pendingVerifications);
             }
 
         } catch (Exception e) {
             logger.error("❌ TEST SUITE FAILED: {}", e.getMessage(), e);
-            System.exit(1);
+            throw new RuntimeException("Test suite execution failed", e);
         } finally {
             group.shutdownGracefully();
             logger.info("🏁 Test suite finished.");
