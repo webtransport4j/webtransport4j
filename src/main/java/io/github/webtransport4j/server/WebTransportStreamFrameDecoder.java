@@ -15,6 +15,10 @@ public final class WebTransportStreamFrameDecoder extends MessageToMessageDecode
   private static final Logger logger =
       LoggerFactory.getLogger(WebTransportStreamFrameDecoder.class);
 
+  private long cachedSessionId = -1L;
+  private boolean cachedBidirectional;
+  private boolean initialized;
+
   @Override
   protected void decode(
       @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf msg, @NonNull List<Object> out)
@@ -23,15 +27,20 @@ public final class WebTransportStreamFrameDecoder extends MessageToMessageDecode
       out.add(msg.retain());
       return;
     }
-    QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
-    Long typeAttr = stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get();
-    Long sessId = stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
-    long sessionId = (sessId != null) ? sessId : stream.streamId();
-    boolean bidirectional = (typeAttr == null || typeAttr == WebTransportUtils.BI_STREAM_TYPE);
+    if (!initialized) {
+      QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
+      Long typeAttr = stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get();
+      Long sessId = stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+      cachedSessionId = (sessId != null) ? sessId : stream.streamId();
+      cachedBidirectional = (typeAttr == null || typeAttr == WebTransportUtils.BI_STREAM_TYPE);
+      initialized = true;
+    }
+
+    long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
     if (logger.isDebugEnabled()) {
       logger.debug("🖼️ Framing Stream Data: Session: {} | Stream: {} | Bidi: {} | Bytes: {}",
-              sessionId, stream.streamId(), bidirectional, msg.readableBytes());
+              cachedSessionId, streamId, cachedBidirectional, msg.readableBytes());
     }
-    out.add(new WebTransportStreamFrame(sessionId, stream.streamId(), bidirectional, msg.retain()));
+    out.add(new WebTransportStreamFrame(cachedSessionId, streamId, cachedBidirectional, msg.retain()));
   }
 }

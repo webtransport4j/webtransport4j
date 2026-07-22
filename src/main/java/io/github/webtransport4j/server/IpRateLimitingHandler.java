@@ -177,6 +177,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
+    clearState();
     ensureReloaderStarted();
   }
 

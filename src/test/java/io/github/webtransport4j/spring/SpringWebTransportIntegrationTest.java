@@ -18,6 +18,7 @@ public class SpringWebTransportIntegrationTest {
 
   @Test
   public void testSpringAutoConfigurationAndLifecycle() {
+    System.setProperty("webtransport4j.server.port", "0");
     AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
     context.register(WebTransportAutoConfiguration.class, ChatEndpoint.class);
     context.refresh();
