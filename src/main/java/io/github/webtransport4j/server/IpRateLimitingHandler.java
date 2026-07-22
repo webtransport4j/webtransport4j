@@ -5,15 +5,15 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.Map;
 import java.util.Objects;
-import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -28,7 +28,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
 
   // Simplified token bucket / sliding window per minute (retained for backward compatibility)
-  private static final Map<String, ConnectionCount> ipCounts = new ConcurrentHashMap<>();
+  private static final Map<String, ConnectionCount> ipCounts = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
   private static volatile RateLimitBackend backend = createBackend();
 
   private static RateLimitBackend createBackend() {
@@ -159,7 +159,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         this.exactBlocklist = previous.exactBlocklist;
       } else {
         this.blocklistFilter = new IpBloomFilter(this.bloomCapacity, this.bloomFpp);
-        this.exactBlocklist = new HashSet<>();
+        this.exactBlocklist = new ObjectOpenHashSet<>();
         if (!this.rawBlocklistConfig.isEmpty()) {
           for (String blocked : this.rawBlocklistConfig.split(",")) {
             blocked = blocked.trim();

@@ -6,9 +6,9 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -36,7 +36,7 @@ public class WebTransportServerBuilder {
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
   private WebTransportHandler defaultHandler;
-  private final Map<String, WebTransportHandler> handlers = new HashMap<>();
+  private final Map<String, WebTransportHandler> handlers = new Object2ObjectOpenHashMap<>();
   private Supplier<MessageDispatcher> messageDispatcherSupplier;
 
   public WebTransportServerBuilder() {}
@@ -74,7 +74,7 @@ public class WebTransportServerBuilder {
 
   /** Sets the allowed CORS/WebTransport origins. */
   public @NonNull WebTransportServerBuilder allowedOrigins(@NonNull List<String> allowedOrigins) {
-    this.allowedOrigins = new ArrayList<>(allowedOrigins);
+    this.allowedOrigins = new ObjectArrayList<>(allowedOrigins);
     return this;
   }
 

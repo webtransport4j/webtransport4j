@@ -10,6 +10,7 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
 
 import java.nio.ByteBuffer;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
@@ -37,7 +38,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private @Nullable Consumer<Throwable> errorHandler;
 
-  private final Map<String, Object> attributes = new ConcurrentHashMap<>();
+  private @Nullable Map<String, Object> attributes;
 
   private static @NonNull CompletableFuture<Void> toCompletableFuture(
       @NonNull Future<?> nettyFuture) {
@@ -241,50 +242,61 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   /** Returns whether the given attribute key is present. */
   public boolean hasAttribute(@NonNull String key) {
-    return attributes.containsKey(key);
+    return attributes != null && attributes.containsKey(key);
   }
 
   /** Sets the attribute. */
   public @Nullable Object setAttribute(@NonNull String key, @Nullable Object value) {
     if (value == null) {
-      return attributes.remove(key);
+      return attributes == null ? null : attributes.remove(key);
+    }
+    if (attributes == null) {
+      attributes = new Object2ObjectOpenHashMap<>();
     }
     return attributes.put(key, value);
   }
 
   public <T> @Nullable T getAttribute(@NonNull String key, @NonNull Class<T> type) {
+    if (attributes == null) {
+      return null;
+    }
     Object value = attributes.get(key);
     return value == null ? null : type.cast(value);
   }
 
   public <T> @Nullable T getAttributeOrDefault(
       @NonNull String key, @NonNull Class<T> type, @NonNull T defaultValue) {
+    if (attributes == null) {
+      return defaultValue;
+    }
     Object value = attributes.get(key);
     return value == null ? defaultValue : type.cast(value);
   }
 
   public @Nullable Object removeAttribute(@NonNull String key) {
-    return attributes.remove(key);
+    return attributes == null ? null : attributes.remove(key);
   }
 
   public void clearAttributes() {
-    attributes.clear();
+    if (attributes != null) {
+      attributes.clear();
+    }
   }
 
   public int attributeCount() {
-    return attributes.size();
+    return attributes == null ? 0 : attributes.size();
   }
 
   public boolean hasAttributes() {
-    return !attributes.isEmpty();
+    return attributes != null && !attributes.isEmpty();
   }
 
   public @NonNull Set<String> attributeNames() {
-    return Collections.unmodifiableSet(attributes.keySet());
+    return attributes == null ? Collections.emptySet() : Collections.unmodifiableSet(attributes.keySet());
   }
 
   public @NonNull Map<String, Object> getAttributes() {
-    return Collections.unmodifiableMap(attributes);
+    return attributes == null ? Collections.emptyMap() : Collections.unmodifiableMap(attributes);
   }
 
   @Override

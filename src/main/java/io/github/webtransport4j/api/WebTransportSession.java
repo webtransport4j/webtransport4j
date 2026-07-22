@@ -10,15 +10,12 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.Promise;
-import java.util.HashSet;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -180,7 +177,7 @@ public class WebTransportSession {
   }
 
   public @NonNull Set<QuicStreamChannel> getAllActiveWebTransportStreams() {
-    Set<QuicStreamChannel> webTransportStreams = new HashSet<>();
+    Set<QuicStreamChannel> webTransportStreams = new ObjectOpenHashSet<>();
     webTransportStreams.addAll(getActiveClientInitiatedUni());
     webTransportStreams.addAll(getActiveServerInitiatedUni());
     webTransportStreams.addAll(getActiveClientInitiatedBi());

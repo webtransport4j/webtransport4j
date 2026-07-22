@@ -1,6 +1,6 @@
 package io.github.webtransport4j.spring;
 
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
 
 /**
@@ -12,7 +12,7 @@ public class WebTransportProperties {
   private int port = 4433;
   private String sslKeyPath;
   private String sslCertPath;
-  private List<String> allowedOrigins = new ArrayList<>();
+  private List<String> allowedOrigins = new ObjectArrayList<>();
   private String transport = "auto";
   private long idleTimeoutSeconds = 60;
   private long maxStreamsBidi = 100;

@@ -2,8 +2,8 @@ package io.github.webtransport4j.server;
 
 import io.netty.handler.ipfilter.IpFilterRuleType;
 import io.netty.handler.ipfilter.IpSubnetFilterRule;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,7 +22,7 @@ public class NettyLinearIpFilterEngine<V> implements IpFilterEngine<V> {
     }
   }
 
-  private final List<RuleEntry<V>> rules = new ArrayList<>();
+  private final List<RuleEntry<V>> rules = new ObjectArrayList<>();
 
   @Override
   public void addRule(String cidrOrIp, V value) {

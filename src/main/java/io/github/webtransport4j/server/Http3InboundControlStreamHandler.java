@@ -7,7 +7,7 @@ import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.http3.Http3SettingsFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +65,7 @@ public class Http3InboundControlStreamHandler
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            for (WebTransportSession session : new ArrayList<>(mgr.getSessions())) {
+            for (WebTransportSession session : new ObjectArrayList<>(mgr.getSessions())) {
               logger.warn(
                   "⚡️ Resetting established session ID {} with H3_MESSAGE_ERROR",
                   session.getSessionStreamId());

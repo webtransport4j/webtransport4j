@@ -29,16 +29,18 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -74,7 +76,7 @@ public class WebTransportServer {
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
 
-  private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
+  private final Map<String, WebTransportHandler> handlers = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
   private WebTransportHandler defaultHandler;
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
@@ -604,9 +606,9 @@ public class WebTransportServer {
         "webtransport4j.webtransport.settings.nonstandardallowed",
         "0x2c7cf000,0x2b64,0x2b65,0x2b61");
 
-    Set<Long> allowed = new HashSet<>();
+    LongSet allowed = new LongOpenHashSet();
     for (String val : allowedProp.split(",")) {
-      allowed.add(Long.decode(val.trim()));
+      allowed.add(Long.decode(val.trim()).longValue());
     }
     Http3Settings settings = new Http3Settings((id, value) -> allowed.contains(id));
     long wtMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni

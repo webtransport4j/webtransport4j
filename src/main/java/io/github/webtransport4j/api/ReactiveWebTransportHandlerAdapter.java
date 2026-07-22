@@ -4,7 +4,10 @@ import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import java.util.concurrent.ConcurrentHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.util.Map;
 
 /**
  * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement
@@ -12,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   private final ReactiveWebTransportHandler delegate;
-  private final ConcurrentHashMap<Long, ReactiveWebTransportSession> sessions = new ConcurrentHashMap<>();
+  private final Long2ObjectMap<ReactiveWebTransportSession> sessions = Long2ObjectMaps.synchronize(new Long2ObjectOpenHashMap<>());
 
   public ReactiveWebTransportHandlerAdapter(@NonNull ReactiveWebTransportHandler delegate) {
     this.delegate = delegate;

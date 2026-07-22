@@ -8,7 +8,7 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -94,7 +94,7 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
    */
   private void hijackPipeline(@NonNull ChannelHandlerContext ctx) {
     ChannelPipeline p = ctx.pipeline();
-    List<String> toRemove = new ArrayList<>();
+    List<String> toRemove = new ObjectArrayList<>();
     for (String name : p.names()) {
       ChannelHandler h = p.get(name);
       if (h == null) {

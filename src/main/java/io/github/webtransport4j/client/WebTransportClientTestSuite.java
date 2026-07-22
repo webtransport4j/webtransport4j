@@ -11,20 +11,17 @@ import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.http3.*;
 import io.netty.handler.codec.quic.*;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
-import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
-import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.util.ArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectSets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -38,7 +35,7 @@ import org.slf4j.LoggerFactory;
 public class WebTransportClientTestSuite {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportClientTestSuite.class);
-    private static final Set<String> pendingVerifications = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final Set<String> pendingVerifications = ObjectSets.synchronize(new ObjectOpenHashSet<>());
     private static final List<Consumer<String>> uniStreamListeners = new CopyOnWriteArrayList<>();
 
     private static class Session {
@@ -144,7 +141,7 @@ public class WebTransportClientTestSuite {
             @Override
             public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
                 ctx.channel().eventLoop().execute(() -> {
-                    List<String> toRemove = new ArrayList<>();
+                    List<String> toRemove = new ObjectArrayList<>();
                     for (String name : ctx.pipeline().names()) {
                         ChannelHandler h = ctx.pipeline().get(name);
                         if (h != null && h != this
@@ -642,7 +639,7 @@ public class WebTransportClientTestSuite {
 
     private static void testStreamFlowControl(QuicChannel quicChannel, long sessionId) throws Exception {
         logger.info("🧪 --- Running Stream Limit Exhaustion Test ---");
-        List<QuicStreamChannel> streams = new ArrayList<>();
+        List<QuicStreamChannel> streams = new ObjectArrayList<>();
         boolean blocked = false;
 
         try {

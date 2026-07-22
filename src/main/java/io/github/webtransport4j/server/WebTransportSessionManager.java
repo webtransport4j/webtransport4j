@@ -6,6 +6,9 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,7 +35,7 @@ public class WebTransportSessionManager {
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
-  private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
+  private final Long2ObjectMap<WebTransportSession> sessions = Long2ObjectMaps.synchronize(new Long2ObjectOpenHashMap<>());
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
