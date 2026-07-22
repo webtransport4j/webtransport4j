@@ -3,7 +3,7 @@ package io.github.webtransport4j.server;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
-
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.function.LongFunction;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -31,8 +31,8 @@ public final class UnknownStreamHandlerFactory implements LongFunction<ChannelHa
       @Override
       protected void initChannel(Channel ch) {
         ch.eventLoop().execute(() -> {
-          if (ch instanceof io.netty.handler.codec.quic.QuicStreamChannel) {
-            ((io.netty.handler.codec.quic.QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
+          if (ch instanceof QuicStreamChannel) {
+            ((QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
           }
           ch.close();
         });

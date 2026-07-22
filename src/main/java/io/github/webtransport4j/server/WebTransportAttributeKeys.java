@@ -6,6 +6,7 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /** Netty channel attribute keys for WebTransport. */
@@ -38,7 +39,7 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<List<String>> ALLOWED_ORIGINS =
       AttributeKey.valueOf("wt.allowed.origins");
 
-  public static final AttributeKey<java.util.concurrent.atomic.AtomicInteger> GLOBAL_SESSION_COUNT =
+  public static final AttributeKey<AtomicInteger> GLOBAL_SESSION_COUNT =
       AttributeKey.valueOf("wt.global.session.count");
 
   // Stream-related Attribute Keys

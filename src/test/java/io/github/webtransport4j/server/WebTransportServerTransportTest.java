@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertTrue;
 
+import io.github.webtransport4j.api.WebTransportHandler;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -16,7 +17,7 @@ public class WebTransportServerTransportTest {
   public void setUp() {
     server = new WebTransportServer();
     // Register a dummy handler so the server can start
-    server.registerHandler("/test", new io.github.webtransport4j.api.WebTransportHandler() {});
+    server.registerHandler("/test", new WebTransportHandler() {});
   }
 
   /** Cleans up test fixtures. */

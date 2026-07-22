@@ -15,10 +15,15 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamChannelConfig;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.Test;
 
 /** Test cases for stream buffering. */
@@ -38,15 +43,15 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Setup channel attributes
     Attribute<Long> typeAttr = mock(Attribute.class);
@@ -69,7 +74,7 @@ public class StreamBufferingTest {
     verify(mockStream)
         .shutdown(
             eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED),
-            any(io.netty.channel.ChannelPromise.class));
+            any(ChannelPromise.class));
     // Verify: data was released
     assertEquals(0, data.refCnt());
     // Verify: no data was fired downstream
@@ -96,7 +101,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -108,11 +113,11 @@ public class StreamBufferingTest {
     // New incoming stream
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
-    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Simulate WebTransportServer.java / RawWebTransportHandler.java stream init logic
-    boolean isBidi = mockStream.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
+    boolean isBidi = mockStream.type() == QuicStreamType.BIDIRECTIONAL;
     long value =
         isBidi
             ? session.incrementAndGetClientInitiatedStreamsBidi()
@@ -130,12 +135,12 @@ public class StreamBufferingTest {
     verify(mockConnectStream)
         .shutdown(
             eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR),
-            any(io.netty.channel.ChannelPromise.class));
+            any(ChannelPromise.class));
     // Verify: the offending stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
     verify(mockStream)
         .shutdown(
             eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR),
-            any(io.netty.channel.ChannelPromise.class));
+            any(ChannelPromise.class));
     // Verify: parent connection was NOT closed
     verify(mockParent, never()).close();
   }
@@ -191,7 +196,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -199,14 +204,14 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
+    when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
     when(mockStream.pipeline()).thenReturn(mock(ChannelPipeline.class));
     when(mockStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
-    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     Attribute<Long> typeAttr = mock(Attribute.class);
     Attribute<Long> sessIdAttr = mock(Attribute.class);
@@ -255,7 +260,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -264,19 +269,19 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
     ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
-    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Setup channel attributes
     Attribute<Long> typeAttr = mock(Attribute.class);
@@ -351,7 +356,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(50L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -360,19 +365,19 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
     ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
-    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Setup channel attributes
     Attribute<Long> typeAttr = mock(Attribute.class);
@@ -410,7 +415,7 @@ public class StreamBufferingTest {
     verify(mockCtx, never()).fireChannelRead(any());
 
     // Mock capturing fired object
-    final java.util.List<ByteBuf> firedPayloads = new java.util.ArrayList<>();
+    final List<ByteBuf> firedPayloads = new ArrayList<>();
     doAnswer(
             invocation -> {
               firedPayloads.add(invocation.getArgument(0));
@@ -457,7 +462,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100000L); // Session ID requires 4 bytes
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -466,19 +471,19 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    when(mockStream.type()).thenReturn(io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
     ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
-    when(mockStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockCtx.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Setup channel attributes
     Attribute<Long> typeAttr = mock(Attribute.class);

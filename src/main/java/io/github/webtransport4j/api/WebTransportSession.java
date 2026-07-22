@@ -15,16 +15,18 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
-
 
 /**
  * Represents a WebTransport session and manages its streams.
@@ -123,7 +125,7 @@ public class WebTransportSession {
     this.sessionStreamId = sessionStreamId;
     this.path = path;
     this.connectStream = connectStream;
-    this.resumptionToken = java.util.UUID.randomUUID().toString();
+    this.resumptionToken = UUID.randomUUID().toString();
     this.flowControlEnabled = flowControlEnabled;
     this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
     // Stream limits — always needed
@@ -160,7 +162,6 @@ public class WebTransportSession {
   public void updateLastReadTime() {
     lastReadTime.set(System.currentTimeMillis());
   }
-
 
   public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
     return activeClientInitiatedUni;
@@ -460,7 +461,7 @@ public class WebTransportSession {
           ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
           ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
           ch.pipeline().addLast(new WebTransportCapsuleHandler());
-          java.util.function.Supplier<MessageDispatcher> supplier =
+          Supplier<MessageDispatcher> supplier =
               ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
           if (supplier != null) {
             ch.pipeline().addLast(supplier.get());
@@ -501,7 +502,7 @@ public class WebTransportSession {
                 WebTransportUtils.getMetrics(connectStream.parent());
             if (metrics != null) {
               boolean isBidi =
-                  ch.type() == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
+                  ch.type() == QuicStreamType.BIDIRECTIONAL;
               metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
               ch.closeFuture()
                   .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
@@ -527,7 +528,7 @@ public class WebTransportSession {
   }
 
   public void rotateResumptionToken() {
-    this.resumptionToken = java.util.UUID.randomUUID().toString();
+    this.resumptionToken = UUID.randomUUID().toString();
   }
 
   public void updateConnectStream(@NonNull QuicStreamChannel newConnectStream) {

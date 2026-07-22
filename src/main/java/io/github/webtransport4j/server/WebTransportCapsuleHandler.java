@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.util.CharsetUtil;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       if (content.readableBytes() >= 4) {
         errorCode = content.readUnsignedInt();
         if (content.isReadable()) {
-          errorMessage = content.toString(io.netty.util.CharsetUtil.UTF_8);
+          errorMessage = content.toString(CharsetUtil.UTF_8);
         }
       }
       logger.info(

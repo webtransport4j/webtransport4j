@@ -8,10 +8,16 @@ import io.github.webtransport4j.server.WebTransportFrame;
 import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.EventLoop;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamChannelConfig;
+import io.netty.util.Attribute;
+import io.netty.util.AttributeKey;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -46,9 +52,9 @@ public class MessageDispatcherBenchmark {
 
     Mockito.when(mockCtx.channel()).thenReturn(mockStream);
     Mockito.when(mockStream.parent()).thenReturn(mockParent);
-    Mockito.when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    Mockito.when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    io.netty.channel.EventLoop mockEventLoop = Mockito.mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = Mockito.mock(EventLoop.class);
     Mockito.when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     Mockito.doAnswer(
             invocation -> {
@@ -66,7 +72,7 @@ public class MessageDispatcherBenchmark {
     // Setup Executor based on param
     if ("VIRTUAL_THREADS".equalsIgnoreCase(executionMode)) {
       try {
-        java.lang.reflect.Method method = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
+        Method method = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
         executor = (ExecutorService) method.invoke(null);
       } catch (Exception e) {
         executor = Executors.newCachedThreadPool();
@@ -95,7 +101,7 @@ public class MessageDispatcherBenchmark {
     ByteBuf buf = Unpooled.wrappedBuffer(new byte[] {1, 2, 3, 4, 5});
     try {
       Class<?> clazz = Class.forName("io.github.webtransport4j.server.WebTransportStreamFrame");
-      java.lang.reflect.Constructor<?> constructor = clazz.getDeclaredConstructor(long.class, long.class, boolean.class, ByteBuf.class);
+      Constructor<?> constructor = clazz.getDeclaredConstructor(long.class, long.class, boolean.class, ByteBuf.class);
       constructor.setAccessible(true);
       streamFrame = (WebTransportFrame) constructor.newInstance(1L, 1L, true, buf);
     } catch (Exception e) {
@@ -116,11 +122,11 @@ public class MessageDispatcherBenchmark {
     dispatcher.channelRead(mockCtx, streamFrame);
   }
 
-  private static class BenchmarkAttribute<T> implements io.netty.util.Attribute<T> {
+  private static class BenchmarkAttribute<T> implements Attribute<T> {
     private T value;
 
     @Override
-    public io.netty.util.AttributeKey<T> key() {
+    public AttributeKey<T> key() {
       return null;
     }
 

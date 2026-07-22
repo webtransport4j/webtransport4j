@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
@@ -11,8 +12,12 @@ import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.Attribute;
 import io.netty.util.ReferenceCountUtil;
+import java.net.URI;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -82,9 +87,9 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
       if (quic != null) {
-          io.netty.util.Attribute<Boolean> receivedAttr =
+          Attribute<Boolean> receivedAttr =
                   quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
-          io.netty.util.Attribute<Boolean> validAttr =
+          Attribute<Boolean> validAttr =
                   quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);
           Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
           Boolean settingsValid = validAttr != null ? validAttr.get() : null;
@@ -104,12 +109,12 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           if (sessionId % 4L != 0L) {
               logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
               quic.close(
-                      true, Http3ErrorCode.H3_ID_ERROR.code(), io.netty.buffer.Unpooled.EMPTY_BUFFER);
+                      true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
               ReferenceCountUtil.release(frame);
               return;
           }
           // Validate CORS allowed origins and authority host
-          java.util.List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
+          List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
           if (!isAllowed(allowed, origin, authority)) {
               logger.warn(
                       "❌ Rejecting connection from unauthorized origin: {} (authority: {})",
@@ -137,9 +142,9 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
               return;
           }
 
-          io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalCountAttr =
+          Attribute<AtomicInteger> globalCountAttr =
                   quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
-          java.util.concurrent.atomic.AtomicInteger globalCount =
+          AtomicInteger globalCount =
                   globalCountAttr != null ? globalCountAttr.get() : null;
           int globalMaxSessions =
                   WebTransportConfig.getInt(
@@ -223,7 +228,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       if (!uriStr.contains("://")) {
         uriStr = "https://" + uriStr;
       }
-      java.net.URI uri = new java.net.URI(uriStr);
+      URI uri = new URI(uriStr);
       String host = uri.getHost();
       if (host == null) {
         // In case URI host is null (e.g. for "*"), fallback to value

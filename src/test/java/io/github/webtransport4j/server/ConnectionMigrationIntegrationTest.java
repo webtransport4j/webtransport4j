@@ -35,11 +35,14 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.concurrent.Future;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -153,8 +156,8 @@ public class ConnectionMigrationIntegrationTest {
     serverGroup = new NioEventLoopGroup(1);
     clientGroup = new NioEventLoopGroup(1);
 
-    io.netty.handler.ssl.util.SelfSignedCertificate ssc =
-        new io.netty.handler.ssl.util.SelfSignedCertificate();
+    SelfSignedCertificate ssc =
+        new SelfSignedCertificate();
     QuicSslContext serverSslContext =
         QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
             .applicationProtocols(Http3.supportedApplicationProtocols())
@@ -408,7 +411,7 @@ public class ConnectionMigrationIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null

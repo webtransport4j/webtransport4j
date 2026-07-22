@@ -22,16 +22,17 @@ import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.EpollQuicUtils;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannelOption;
-import io.netty.handler.codec.quic.QuicSslContext;
-import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicCongestionControlAlgorithm;
 import io.netty.handler.codec.quic.QuicServerCodecBuilder;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -40,6 +41,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -72,8 +75,8 @@ public class WebTransportServer {
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private WebTransportHandler defaultHandler;
 
-  private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions =
-      new java.util.concurrent.atomic.AtomicInteger(0);
+  private final AtomicInteger globalActiveSessions =
+      new AtomicInteger(0);
 
   /**
    * The observability metrics listener. Defaults to a no-op implementation.
@@ -93,8 +96,8 @@ public class WebTransportServer {
     STOPPING
   }
 
-  private final java.util.concurrent.atomic.AtomicReference<ServerState> state =
-      new java.util.concurrent.atomic.AtomicReference<>(ServerState.STOPPED);
+  private final AtomicReference<ServerState> state =
+      new AtomicReference<>(ServerState.STOPPED);
 
   private EventLoopGroup group;
   private Channel channel;
@@ -844,7 +847,7 @@ public class WebTransportServer {
       logger.warn(
           "⚠️ HMAC key hex string length is not even: {}. Falling back to plain string bytes.",
           normalized);
-      return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      return normalized.getBytes(StandardCharsets.UTF_8);
     }
     try {
       byte[] data = new byte[normalized.length() / 2];
@@ -861,7 +864,7 @@ public class WebTransportServer {
       logger.warn(
           "⚠️ Failed to parse HMAC key as hex, falling back to plain string bytes: {}",
           e.getMessage());
-      return normalized.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      return normalized.getBytes(StandardCharsets.UTF_8);
     }
   }
 

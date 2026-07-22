@@ -50,7 +50,7 @@ public class DefaultPathHandler implements WebTransportHandler {
               "      ["
                   + stream.streamId()
                   + "] Received data: "
-                  + new String(message, java.nio.charset.StandardCharsets.UTF_8));
+                  + new String(message, StandardCharsets.UTF_8));
 
           byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
 
@@ -61,9 +61,9 @@ public class DefaultPathHandler implements WebTransportHandler {
   @Override
   public void onDatagramReceived(
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
-    String content = new String(data.readBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    String content = new String(data.readBytes(), StandardCharsets.UTF_8);
     logger.info("☄️ [DEFAULT HANDLER] Received Datagram: {}", content);
     String replyText = "DEFAULT ACK DG: " + content;
-    session.sendDatagram(replyText.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    session.sendDatagram(replyText.getBytes(StandardCharsets.UTF_8));
   }
 }

@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import org.junit.After;
@@ -33,7 +34,7 @@ public class MemorySegmentBinarySourceTest {
       // Let's allocate bytes instead.
       MemorySegment byteSegment = arena.allocate(testData.length);
       MemorySegment.copy(
-          testData, 0, byteSegment, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, testData.length);
+          testData, 0, byteSegment, ValueLayout.JAVA_BYTE, 0, testData.length);
 
       BinarySource source = BinarySources.fromMemorySegment(byteSegment);
 

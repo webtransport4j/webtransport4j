@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.util.concurrent.Future;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -89,7 +90,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
               if (data.readableBytes() == 0) {
                 return;
               }
-              java.nio.ByteBuffer nioBuffer = data.nioBuffer();
+              ByteBuffer nioBuffer = data.nioBuffer();
               streamPurpose = nioBuffer.get();
               // Advance position manually since nioBuffer is just a view
               // Actually, wait, WebTransportBuffer doesn't have readByte()

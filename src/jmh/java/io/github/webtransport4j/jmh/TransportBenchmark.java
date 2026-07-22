@@ -34,6 +34,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -251,7 +252,7 @@ public class TransportBenchmark {
                                     .execute(
                                         () -> {
                                           for (String name :
-                                              new java.util.ArrayList<>(ctx.pipeline().names())) {
+                                              new ArrayList<>(ctx.pipeline().names())) {
                                             ChannelHandler h = ctx.pipeline().get(name);
                                             if (h != null
                                                 && h != this

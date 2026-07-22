@@ -30,10 +30,14 @@ import io.netty.handler.codec.quic.QuicSslSessionContext;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.SSLEngine;
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
@@ -70,8 +74,8 @@ public class WebTransportResumptionLatencyTest {
     clientGroup = new NioEventLoopGroup(1);
 
     // Build Server SSL Context
-    io.netty.handler.ssl.util.SelfSignedCertificate ssc =
-        new io.netty.handler.ssl.util.SelfSignedCertificate();
+    SelfSignedCertificate ssc =
+        new SelfSignedCertificate();
     QuicSslContext serverSslContext =
         QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
             .earlyData(true)
@@ -130,7 +134,7 @@ public class WebTransportResumptionLatencyTest {
                                 new ChannelInboundHandlerAdapter() {
                                   @Override
                                   public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                    ReferenceCountUtil.release(msg);
                                   }
                                 },
                                 (streamType) -> null,
@@ -371,8 +375,8 @@ public class WebTransportResumptionLatencyTest {
     assertTrue("Session 2 establishment failed", latch2.await(5, TimeUnit.SECONDS));
 
     // Confirm that the second connection was actually resumed at client TLS level
-    javax.net.ssl.SSLEngine clientEngine = quicClient2.sslEngine();
-    java.lang.reflect.Method m = clientEngine.getClass().getDeclaredMethod("isSessionReused");
+    SSLEngine clientEngine = quicClient2.sslEngine();
+    Method m = clientEngine.getClass().getDeclaredMethod("isSessionReused");
     m.setAccessible(true);
     boolean clientResumed = (Boolean) m.invoke(clientEngine);
     assertTrue(

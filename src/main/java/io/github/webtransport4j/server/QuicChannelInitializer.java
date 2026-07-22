@@ -1,15 +1,22 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicPathEvent;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.util.concurrent.EventExecutorGroup;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +39,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
 
   private final List<String> allowedOrigins;
 
-  private final java.util.concurrent.atomic.AtomicInteger globalActiveSessions;
+  private final AtomicInteger globalActiveSessions;
 
   /** Quic Channel Initializer. */
   public QuicChannelInitializer(
@@ -40,7 +47,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       Http3Settings settings,
       ExecutorService businessExecutor,
       List<String> allowedOrigins,
-      java.util.concurrent.atomic.AtomicInteger globalActiveSessions) {
+      AtomicInteger globalActiveSessions) {
     this.server = server;
     this.settings = settings;
     this.businessExecutor = businessExecutor;
@@ -63,8 +70,8 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
 
     ExecutorService resolvedExecutor = this.businessExecutor;
-    if (resolvedExecutor instanceof io.netty.util.concurrent.EventExecutorGroup) {
-      resolvedExecutor = ((io.netty.util.concurrent.EventExecutorGroup) resolvedExecutor).next();
+    if (resolvedExecutor instanceof EventExecutorGroup) {
+      resolvedExecutor = ((EventExecutorGroup) resolvedExecutor).next();
     }
 
     if (resolvedExecutor != null) {
@@ -92,27 +99,27 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     // Intercept connection migration events to fire metrics
     ch.pipeline()
         .addLast(
-            new io.netty.channel.ChannelInboundHandlerAdapter() {
+            new ChannelInboundHandlerAdapter() {
               private String currentRemoteAddress =
                   ch.remoteSocketAddress() != null
                       ? Objects.requireNonNull(ch.remoteSocketAddress()).toString()
                       : "unknown";
 
               @Override
-              public void userEventTriggered(io.netty.channel.ChannelHandlerContext ctx, Object evt)
+              public void userEventTriggered(ChannelHandlerContext ctx, Object evt)
                   throws Exception {
-                if (evt instanceof io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated) {
-                  io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated event =
-                      (io.netty.handler.codec.quic.QuicPathEvent.PeerMigrated) evt;
+                if (evt instanceof QuicPathEvent.PeerMigrated) {
+                  QuicPathEvent.PeerMigrated event =
+                      (QuicPathEvent.PeerMigrated) evt;
                   String newRemoteAddress = event.remote().toString();
 
-                  io.github.webtransport4j.api.WebTransportMetricsListener metrics =
+                  WebTransportMetricsListener metrics =
                       ctx.channel().attr(WebTransportAttributeKeys.METRICS_LISTENER).get();
                   if (metrics != null) {
                     WebTransportSessionManager mgr =
                         ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
                     if (mgr != null) {
-                      for (io.github.webtransport4j.api.WebTransportSession session :
+                      for (WebTransportSession session :
                           mgr.getSessions()) {
                         metrics.onConnectionMigration(
                             session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);

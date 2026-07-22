@@ -11,13 +11,18 @@ import static org.mockito.Mockito.when;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.EventLoop;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
+import io.netty.util.ReferenceCountUtil;
 import java.io.IOException;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /** Test cases for session flow control. */
 public class SessionFlowControlTest {
@@ -38,7 +43,7 @@ public class SessionFlowControlTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(123L);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -49,7 +54,7 @@ public class SessionFlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -96,7 +101,7 @@ public class SessionFlowControlTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(123L);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -107,7 +112,7 @@ public class SessionFlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -151,7 +156,7 @@ public class SessionFlowControlTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(123L);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
     when(mockCtx.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     // Session Manager setup
@@ -163,7 +168,7 @@ public class SessionFlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -221,12 +226,12 @@ public class SessionFlowControlTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(123L);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
 
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.inEventLoop()).thenReturn(true);
 
@@ -239,7 +244,7 @@ public class SessionFlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -285,9 +290,9 @@ public class SessionFlowControlTest {
     assertEquals(0, data2.refCnt());
 
     // Verify: WT_DATA_BLOCKED capsule was sent back to connectStream
-    org.mockito.ArgumentCaptor<Object> captor = org.mockito.ArgumentCaptor.forClass(Object.class);
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(mockConnectStream).writeAndFlush(captor.capture());
-    io.netty.util.ReferenceCountUtil.release(captor.getValue());
+    ReferenceCountUtil.release(captor.getValue());
   }
 
   @Test
@@ -299,7 +304,7 @@ public class SessionFlowControlTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(123L);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     // Session Manager setup
     WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -310,7 +315,7 @@ public class SessionFlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
-    when(mockConnectStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -349,9 +354,9 @@ public class SessionFlowControlTest {
     assertEquals(1000L + extendAmount, session.getSettingsMaxData());
 
     // Verify: WT_MAX_DATA capsule sent to connectStream
-    org.mockito.ArgumentCaptor<Object> captor = org.mockito.ArgumentCaptor.forClass(Object.class);
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(mockConnectStream).writeAndFlush(captor.capture());
-    io.netty.util.ReferenceCountUtil.release(captor.getValue());
+    ReferenceCountUtil.release(captor.getValue());
     assertEquals(0, capsule.refCnt());
   }
 }

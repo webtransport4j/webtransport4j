@@ -3,14 +3,15 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import java.io.IOException;
-
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -193,7 +194,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       cumulation =
           (ctx.alloc() != null)
               ? ctx.alloc().buffer(MAX_STREAM_HEADER_BYTES, MAX_STREAM_HEADER_BYTES)
-              : io.netty.buffer.Unpooled.buffer(MAX_STREAM_HEADER_BYTES, MAX_STREAM_HEADER_BYTES);
+              : Unpooled.buffer(MAX_STREAM_HEADER_BYTES, MAX_STREAM_HEADER_BYTES);
     }
     while (data.isReadable()) {
       if (cumulation.readableBytes() >= MAX_STREAM_HEADER_BYTES) {
@@ -251,9 +252,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
     if (ctx.channel() instanceof QuicStreamChannel) {
       QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
-      io.netty.handler.codec.quic.QuicStreamType streamTypeEnum = stream.type();
+      QuicStreamType streamTypeEnum = stream.type();
       if (streamTypeEnum != null) {
-        boolean isBidiStream = streamTypeEnum == io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL;
+        boolean isBidiStream = streamTypeEnum == QuicStreamType.BIDIRECTIONAL;
         if ((isBidiStream && streamType != WebTransportUtils.BI_STREAM_TYPE)
             || (!isBidiStream && streamType != WebTransportUtils.UNI_STREAM_TYPE)) {
           logger.warn(

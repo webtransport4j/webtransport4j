@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -14,6 +15,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.util.Attribute;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
 import org.jspecify.annotations.NonNull;
@@ -52,7 +54,7 @@ public class WebTransportUtils {
     if (quic == null) {
       return null;
     }
-    io.netty.util.Attribute<WebTransportMetricsListener> attr =
+    Attribute<WebTransportMetricsListener> attr =
         quic.attr(WebTransportAttributeKeys.METRICS_LISTENER);
     return attr != null ? attr.get() : null;
   }
@@ -302,7 +304,7 @@ public class WebTransportUtils {
       writeCapsule(buf, capsuleType, value);
       int totalBytes = buf.readableBytes();
       if (logger.isTraceEnabled()) {
-        String capsuleHex = io.netty.buffer.ByteBufUtil.hexDump(buf);
+        String capsuleHex = ByteBufUtil.hexDump(buf);
         String frameHex = "";
         ByteBuf frameBuf =
             (connectStream.alloc() != null) ? connectStream.alloc().buffer() : Unpooled.buffer();
@@ -312,7 +314,7 @@ public class WebTransportUtils {
           // Payload Length
           writeVarInt(frameBuf, totalBytes);
           frameBuf.writeBytes(buf.duplicate());
-          frameHex = io.netty.buffer.ByteBufUtil.hexDump(frameBuf);
+          frameHex = ByteBufUtil.hexDump(frameBuf);
         } finally {
           frameBuf.release();
         }

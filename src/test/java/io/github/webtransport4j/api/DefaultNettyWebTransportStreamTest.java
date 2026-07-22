@@ -11,8 +11,10 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
+import io.netty.util.concurrent.GenericFutureListener;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 
 /** Tests for the default Netty-backed stream implementation. */
 public class DefaultNettyWebTransportStreamTest {
@@ -24,8 +26,8 @@ public class DefaultNettyWebTransportStreamTest {
     when(channel.streamId()).thenReturn(4L);
     when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
     when(channel.writeAndFlush(any())).thenReturn(future);
-    org.mockito.Mockito.doAnswer(invocation -> {
-      io.netty.util.concurrent.GenericFutureListener listener = invocation.getArgument(0);
+    Mockito.doAnswer(invocation -> {
+      GenericFutureListener listener = invocation.getArgument(0);
       listener.operationComplete(future);
       return future;
     }).when(future).addListener(any());

@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.http3.Http3SettingsFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -29,7 +30,7 @@ public class Http3InboundControlStreamHandler
     if (logger.isDebugEnabled()) {
       logger.debug("PEER SETTINGS: {}", settingsFrame);
     }
-    io.netty.handler.codec.http3.Http3Settings settings = settingsFrame.settings();
+    Http3Settings settings = settingsFrame.settings();
     if (settings != null) {
       QuicChannel quic = null;
       if (ctx.channel() instanceof QuicStreamChannel) {

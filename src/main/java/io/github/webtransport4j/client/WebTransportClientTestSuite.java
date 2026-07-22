@@ -13,23 +13,24 @@ import io.netty.handler.codec.quic.*;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Replicated Java Client Interop Test Suite from Python's interop_test_suite.py
@@ -38,7 +39,7 @@ public class WebTransportClientTestSuite {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportClientTestSuite.class);
     private static final Set<String> pendingVerifications = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private static final List<Consumer<String>> uniStreamListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+    private static final List<Consumer<String>> uniStreamListeners = new CopyOnWriteArrayList<>();
 
     private static class Session {
         final QuicChannel quicChannel;
@@ -143,7 +144,7 @@ public class WebTransportClientTestSuite {
             @Override
             public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
                 ctx.channel().eventLoop().execute(() -> {
-                    List<String> toRemove = new java.util.ArrayList<>();
+                    List<String> toRemove = new ArrayList<>();
                     for (String name : ctx.pipeline().names()) {
                         ChannelHandler h = ctx.pipeline().get(name);
                         if (h != null && h != this
@@ -446,7 +447,7 @@ public class WebTransportClientTestSuite {
 
         // 250KB payload
         byte[] chunk = new byte[16384 * 16];
-        java.util.Arrays.fill(chunk, (byte) 'A');
+        Arrays.fill(chunk, (byte) 'A');
         byte[] headerBytes = (payloadId + "_").getBytes(StandardCharsets.UTF_8);
         byte[] testMsg = new byte[headerBytes.length + chunk.length];
         System.arraycopy(headerBytes, 0, testMsg, 0, headerBytes.length);
@@ -470,7 +471,7 @@ public class WebTransportClientTestSuite {
                                 if (accum.readableBytes() >= expectedMsg.length) {
                                     byte[] received = new byte[expectedMsg.length];
                                     accum.readBytes(received);
-                                    if (java.util.Arrays.equals(expectedMsg, received)) {
+                                    if (Arrays.equals(expectedMsg, received)) {
                                         logger.info("✅ Large Payload Test Passed");
                                         pendingVerifications.remove(payloadId);
                                         latch.countDown();
@@ -641,7 +642,7 @@ public class WebTransportClientTestSuite {
 
     private static void testStreamFlowControl(QuicChannel quicChannel, long sessionId) throws Exception {
         logger.info("🧪 --- Running Stream Limit Exhaustion Test ---");
-        List<QuicStreamChannel> streams = new java.util.ArrayList<>();
+        List<QuicStreamChannel> streams = new ArrayList<>();
         boolean blocked = false;
 
         try {

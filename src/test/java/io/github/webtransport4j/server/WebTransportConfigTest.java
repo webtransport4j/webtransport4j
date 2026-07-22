@@ -5,6 +5,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.util.Arrays;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -77,11 +83,11 @@ public class WebTransportConfigTest {
     System.setProperty("webtransport4j.business.queue.type", "ARRAY");
     System.setProperty("webtransport4j.business.queue.capacity", "500");
 
-    java.util.concurrent.ExecutorService executor = BusinessExecutorFactory.create();
+    ExecutorService executor = BusinessExecutorFactory.create();
     assertNotNull(executor);
-    assertTrue(executor instanceof java.util.concurrent.ThreadPoolExecutor);
-    java.util.concurrent.ThreadPoolExecutor tp = (java.util.concurrent.ThreadPoolExecutor) executor;
-    assertTrue(tp.getQueue() instanceof java.util.concurrent.ArrayBlockingQueue);
+    assertTrue(executor instanceof ThreadPoolExecutor);
+    ThreadPoolExecutor tp = (ThreadPoolExecutor) executor;
+    assertTrue(tp.getQueue() instanceof ArrayBlockingQueue);
     assertEquals(500, tp.getQueue().remainingCapacity());
     executor.shutdown();
   }
@@ -92,11 +98,11 @@ public class WebTransportConfigTest {
     System.setProperty("webtransport4j.business.queue.type", "ARRAY");
     System.setProperty("webtransport4j.business.queue.capacity", "0");
 
-    java.util.concurrent.ExecutorService executor = BusinessExecutorFactory.create();
+    ExecutorService executor = BusinessExecutorFactory.create();
     assertNotNull(executor);
-    assertTrue(executor instanceof java.util.concurrent.ThreadPoolExecutor);
-    java.util.concurrent.ThreadPoolExecutor tp = (java.util.concurrent.ThreadPoolExecutor) executor;
-    assertTrue(tp.getQueue() instanceof java.util.concurrent.ArrayBlockingQueue);
+    assertTrue(executor instanceof ThreadPoolExecutor);
+    ThreadPoolExecutor tp = (ThreadPoolExecutor) executor;
+    assertTrue(tp.getQueue() instanceof ArrayBlockingQueue);
     assertEquals(10000, tp.getQueue().remainingCapacity());
     executor.shutdown();
   }
@@ -192,10 +198,10 @@ public class WebTransportConfigTest {
 
   @Test
   public void testDynamicConfigReloadFromFilesystem() throws Exception {
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Write custom properties to the local file for all dynamic parameters
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=999",
           "webtransport4j.server.ratelimit.max_tracked_ips=12345",
           "webtransport4j.server.ratelimit.filter_engine=trie",

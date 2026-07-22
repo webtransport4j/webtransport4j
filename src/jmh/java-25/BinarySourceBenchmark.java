@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.BinarySources;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -47,7 +48,7 @@ public class BinarySourceBenchmark {
     arena = Arena.ofShared();
     memorySegment = arena.allocate(data.length);
     MemorySegment.copy(
-        data, 0, memorySegment, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, data.length);
+        data, 0, memorySegment, ValueLayout.JAVA_BYTE, 0, data.length);
 
     dstBuffer = ByteBuffer.allocateDirect(128);
   }

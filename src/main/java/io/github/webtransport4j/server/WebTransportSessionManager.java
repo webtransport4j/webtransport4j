@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -132,7 +131,7 @@ public class WebTransportSessionManager {
     sessions.put(sessionStreamId, session);
 
     if (quic != null) {
-      io.netty.util.Attribute<java.util.concurrent.atomic.AtomicInteger> globalAttr =
+      Attribute<AtomicInteger> globalAttr =
           quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
       if (globalAttr != null && globalAttr.get() != null) {
         globalAttr.get().incrementAndGet();
@@ -148,7 +147,6 @@ public class WebTransportSessionManager {
     if (metrics != null) {
       metrics.onSessionOpened(sessionStreamId, pathStr);
     }
-
 
     Attribute<WebTransportServer> serverAttr =
         quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;

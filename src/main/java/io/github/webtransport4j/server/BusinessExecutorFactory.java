@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.Objects;
@@ -50,7 +51,7 @@ public final class BusinessExecutorFactory {
             "webtransport4j.netty.executor.group.size",
             Runtime.getRuntime().availableProcessors() * 2);
     logger.info("Using Netty DefaultEventExecutorGroup. poolSize={}", poolSize);
-    return new io.netty.util.concurrent.DefaultEventExecutorGroup(
+    return new DefaultEventExecutorGroup(
         poolSize,
         new ThreadFactory() {
           private final AtomicInteger count = new AtomicInteger(1);

@@ -9,6 +9,7 @@ import io.github.webtransport4j.server.WebTransportServerBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -16,6 +17,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.AnnotationUtils;
 
 /**
  * Spring Auto-Configuration for WebTransport4J.
@@ -52,7 +54,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
         .sslKeyPath(properties.getSslKeyPath())
         .sslCertPath(properties.getSslCertPath())
         .transportType(properties.getTransport())
-        .idleTimeout(properties.getIdleTimeoutSeconds(), java.util.concurrent.TimeUnit.SECONDS)
+        .idleTimeout(properties.getIdleTimeoutSeconds(), TimeUnit.SECONDS)
         .maxStreams(properties.getMaxStreamsBidi(), properties.getMaxStreamsUni())
         .maxData(properties.getMaxData());
 
@@ -71,7 +73,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
       WebTransportEndpoint ann = bean.getClass().getAnnotation(WebTransportEndpoint.class);
       if (ann == null) {
         // Class level annotation might be on target class if CGLIB proxy
-        ann = org.springframework.core.annotation.AnnotationUtils.findAnnotation(bean.getClass(), WebTransportEndpoint.class);
+        ann = AnnotationUtils.findAnnotation(bean.getClass(), WebTransportEndpoint.class);
       }
       if (ann != null) {
         String path = ann.path();

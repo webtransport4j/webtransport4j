@@ -2,26 +2,38 @@ package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import io.github.webtransport4j.api.*;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http3.*;
+import io.netty.handler.codec.http3.Http3DataFrame;
+import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicChannelBootstrap;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicSslSessionContext;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.handler.codec.quic.QuicStreamType;
+import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import io.netty.util.NetUtil;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.io.File;
 import java.io.IOException;
@@ -29,6 +41,7 @@ import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -39,10 +52,11 @@ import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 /** Test cases for web transport integration. */
 public class WebTransportIntegrationTest {
@@ -150,7 +164,7 @@ public class WebTransportIntegrationTest {
               String content = new String(bytes, StandardCharsets.UTF_8);
               return "REACTIVE ACK: " + content;
             })
-            .map(ackStr -> (WebTransportBuffer) new DefaultNettyWebTransportBuffer(io.netty.buffer.Unpooled.copiedBuffer(ackStr, StandardCharsets.UTF_8)));
+            .map(ackStr -> (WebTransportBuffer) new DefaultNettyWebTransportBuffer(Unpooled.copiedBuffer(ackStr, StandardCharsets.UTF_8)));
             responseFlux.subscribe(reactiveStream);
           }
         });
@@ -158,7 +172,7 @@ public class WebTransportIntegrationTest {
         "/test-pure-reactive",
         new ReactiveWebTransportHandlerAdapter(new ReactiveWebTransportHandler() {
           @Override
-          public org.reactivestreams.Publisher<Void> onIncomingStream(
+          public Publisher<Void> onIncomingStream(
               @NonNull ReactiveWebTransportSession session, @NonNull ReactiveWebTransportStream stream) {
             Flux<WebTransportBuffer> responseFlux = Flux.from(stream)
                 .map(buf -> {
@@ -167,7 +181,7 @@ public class WebTransportIntegrationTest {
                   return "PURE REACTIVE ACK: " + content;
                 })
                 .map(ackStr -> (WebTransportBuffer) new DefaultNettyWebTransportBuffer(
-                    io.netty.buffer.Unpooled.copiedBuffer(ackStr, StandardCharsets.UTF_8)));
+                    Unpooled.copiedBuffer(ackStr, StandardCharsets.UTF_8)));
             return Mono.fromRunnable(() -> responseFlux.subscribe(stream));
           }
         }));
@@ -199,8 +213,8 @@ public class WebTransportIntegrationTest {
               .applicationProtocols(Http3.supportedApplicationProtocols())
               .build();
     } else {
-      io.netty.handler.ssl.util.SelfSignedCertificate ssc =
-          new io.netty.handler.ssl.util.SelfSignedCertificate();
+      SelfSignedCertificate ssc =
+          new SelfSignedCertificate();
       serverSslContext =
           QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
               .earlyData(earlyDataEnabled)
@@ -211,14 +225,14 @@ public class WebTransportIntegrationTest {
     }
 
     if (serverSslContext.sessionContext()
-        instanceof io.netty.handler.codec.quic.QuicSslSessionContext) {
-      io.netty.handler.codec.quic.SslSessionTicketKey ticketKey =
-          new io.netty.handler.codec.quic.SslSessionTicketKey(
+        instanceof QuicSslSessionContext) {
+      SslSessionTicketKey ticketKey =
+          new SslSessionTicketKey(
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes());
-      ((io.netty.handler.codec.quic.QuicSslSessionContext) serverSslContext.sessionContext())
-          .setTicketKeys(new io.netty.handler.codec.quic.SslSessionTicketKey[] {ticketKey});
+      ((QuicSslSessionContext) serverSslContext.sessionContext())
+          .setTicketKeys(new SslSessionTicketKey[] {ticketKey});
     }
 
     // Server Settings
@@ -303,7 +317,7 @@ public class WebTransportIntegrationTest {
                     serverConnectionChannel = ch;
                     ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(webTransportServer);
                     String originsProp = WebTransportConfig.getNonNull("webtransport4j.webtransport.allowed_origins", "*");
-                    java.util.List<String> allowedOrigins = new java.util.ArrayList<>();
+                    List<String> allowedOrigins = new ArrayList<>();
                     for (String origin : originsProp.split(",")) {
                       allowedOrigins.add(origin.trim());
                     }
@@ -321,8 +335,8 @@ public class WebTransportIntegrationTest {
                         WebTransportConfig.getLong(
                             "webtransport4j.server.traffic.connection.read.limit", 0L);
                     if (connWriteLimit > 0 || connReadLimit > 0) {
-                      io.netty.handler.traffic.GlobalTrafficShapingHandler connShaper =
-                          new io.netty.handler.traffic.GlobalTrafficShapingHandler(
+                      GlobalTrafficShapingHandler connShaper =
+                          new GlobalTrafficShapingHandler(
                               ch.eventLoop(), connWriteLimit, connReadLimit);
                       ch.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER).set(connShaper);
                       ch.closeFuture().addListener(f -> connShaper.release());
@@ -361,7 +375,7 @@ public class WebTransportIntegrationTest {
                                             + msg.getClass().getName());
                                     if (msg instanceof Http3SettingsFrame) {
                                       Http3SettingsFrame settingsFrame = (Http3SettingsFrame) msg;
-                                      io.netty.handler.codec.http3.Http3Settings settings =
+                                      Http3Settings settings =
                                           settingsFrame.settings();
                                       log.info("SERVER: Received settings: " + settings);
                                       if (settings != null) {
@@ -403,7 +417,7 @@ public class WebTransportIntegrationTest {
                                                     .get();
                                             if (mgr != null) {
                                               for (WebTransportSession session :
-                                                  new java.util.ArrayList<>(mgr.getSessions())) {
+                                                  new ArrayList<>(mgr.getSessions())) {
                                                 log.info(
                                                     "SERVER: Resetting established session ID "
                                                         + session.getSessionStreamId()
@@ -420,7 +434,7 @@ public class WebTransportIntegrationTest {
                                           // WebTransportHeadersHandler
                                           // reject new CONNECT requests via PEER_SETTINGS_VALID
                                           // attribute check
-                                          io.netty.util.ReferenceCountUtil.release(msg);
+                                          ReferenceCountUtil.release(msg);
                                           return;
                                         }
 
@@ -440,7 +454,7 @@ public class WebTransportIntegrationTest {
                                         }
                                       }
                                     }
-                                    io.netty.util.ReferenceCountUtil.release(msg);
+                                    ReferenceCountUtil.release(msg);
                                   }
                                 },
                                 serverUniStreamFactory,
@@ -660,7 +674,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -714,7 +728,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -841,7 +855,7 @@ public class WebTransportIntegrationTest {
                                                 if (msg instanceof Http3SettingsFrame) {
                                                   Http3SettingsFrame settingsFrame =
                                                       (Http3SettingsFrame) msg;
-                                                  io.netty.handler.codec.http3.Http3Settings
+                                                  Http3Settings
                                                       settings = settingsFrame.settings();
                                                   if (settings != null) {
                                                     QuicChannel quic =
@@ -950,7 +964,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -1241,7 +1255,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -1424,10 +1438,10 @@ public class WebTransportIntegrationTest {
     assertNotNull(caughtException[0]);
     assertTrue(
         "Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName(),
-        caughtException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        caughtException[0] instanceof QuicStreamResetException);
     assertEquals(
         0x010eL,
-        ((io.netty.handler.codec.quic.QuicStreamResetException) caughtException[0])
+        ((QuicStreamResetException) caughtException[0])
             .applicationProtocolCode());
 
     quicClient.close().sync();
@@ -1557,7 +1571,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -1636,9 +1650,9 @@ public class WebTransportIntegrationTest {
     assertTrue("Client did not receive stream reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
     assertNotNull(caughtBidiException[0]);
     assertTrue(
-        caughtBidiException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
-    io.netty.handler.codec.quic.QuicStreamResetException resetExc =
-        (io.netty.handler.codec.quic.QuicStreamResetException) caughtBidiException[0];
+        caughtBidiException[0] instanceof QuicStreamResetException);
+    QuicStreamResetException resetExc =
+        (QuicStreamResetException) caughtBidiException[0];
 
     long wtErrorCode =
         WebTransportUtils.httpCodeToWebTransportCode(resetExc.applicationProtocolCode());
@@ -1790,7 +1804,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -1864,20 +1878,20 @@ public class WebTransportIntegrationTest {
     assertTrue("Client CONNECT stream did not reset", connectResetLatch.await(5, TimeUnit.SECONDS));
     assertNotNull(caughtConnectException[0]);
     assertTrue(
-        caughtConnectException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        caughtConnectException[0] instanceof QuicStreamResetException);
     assertEquals(
         0x1001L,
-        ((io.netty.handler.codec.quic.QuicStreamResetException) caughtConnectException[0])
+        ((QuicStreamResetException) caughtConnectException[0])
             .applicationProtocolCode());
 
     // Verify client bidi stream was reset with error code 0x1001L
     assertTrue("Client bidi stream did not reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
     assertNotNull(caughtBidiException[0]);
     assertTrue(
-        caughtBidiException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        caughtBidiException[0] instanceof QuicStreamResetException);
     assertEquals(
         0x1001L,
-        ((io.netty.handler.codec.quic.QuicStreamResetException) caughtBidiException[0])
+        ((QuicStreamResetException) caughtBidiException[0])
             .applicationProtocolCode());
 
     quicClient.close().sync();
@@ -1908,7 +1922,7 @@ public class WebTransportIntegrationTest {
     if (globalWrite > 0 || globalRead > 0) {
       serverGroup = new NioEventLoopGroup(1);
       WebTransportServer.globalTrafficShaper =
-          new io.netty.handler.traffic.GlobalTrafficShapingHandler(
+          new GlobalTrafficShapingHandler(
               serverGroup, globalWrite, globalRead);
     }
 
@@ -2047,7 +2061,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -2243,7 +2257,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -2525,7 +2539,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -2599,7 +2613,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -2798,7 +2812,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -2994,7 +3008,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -3164,11 +3178,11 @@ public class WebTransportIntegrationTest {
     assertNotNull(caughtException[0]);
     assertTrue(
         "Expected QuicStreamResetException",
-        caughtException[0] instanceof io.netty.handler.codec.quic.QuicStreamResetException);
+        caughtException[0] instanceof QuicStreamResetException);
     // H3_MESSAGE_ERROR is 0x010e (270)
     assertEquals(
         0x010eL,
-        ((io.netty.handler.codec.quic.QuicStreamResetException) caughtException[0])
+        ((QuicStreamResetException) caughtException[0])
             .applicationProtocolCode());
 
     quicClient.close().sync();
@@ -3308,7 +3322,7 @@ public class WebTransportIntegrationTest {
                                 .eventLoop()
                                 .execute(
                                     () -> {
-                                      java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                      List<String> toRemove = new ArrayList<>();
                                       for (String name : ctx.pipeline().names()) {
                                         ChannelHandler h = ctx.pipeline().get(name);
                                         if (h != null
@@ -3337,8 +3351,8 @@ public class WebTransportIntegrationTest {
                             ByteBuf buf = null;
                             if (msg instanceof ByteBuf) {
                               buf = (ByteBuf) msg;
-                            } else if (msg instanceof io.netty.handler.codec.http3.Http3DataFrame) {
-                              buf = ((io.netty.handler.codec.http3.Http3DataFrame) msg).content();
+                            } else if (msg instanceof Http3DataFrame) {
+                              buf = ((Http3DataFrame) msg).content();
                             } else if (msg instanceof WebTransportStreamFrame) {
                               buf = ((WebTransportStreamFrame) msg).content();
                             }
@@ -3462,7 +3476,7 @@ public class WebTransportIntegrationTest {
                                 (id, value) -> true));
                   }
                 })
-            .remoteAddress(new InetSocketAddress(io.netty.util.NetUtil.LOCALHOST4, port))
+            .remoteAddress(new InetSocketAddress(NetUtil.LOCALHOST4, port))
             .connect()
             .sync()
             .getNow();
@@ -3523,7 +3537,7 @@ public class WebTransportIntegrationTest {
                             .eventLoop()
                             .execute(
                                 () -> {
-                                  java.util.List<String> toRemove = new java.util.ArrayList<>();
+                                  List<String> toRemove = new ArrayList<>();
                                   for (String name : ctx.pipeline().names()) {
                                     if (name.startsWith("Http3RequestStream")) {
                                       toRemove.add(name);
@@ -3602,7 +3616,6 @@ public class WebTransportIntegrationTest {
     assertTrue("Chunked echo timed out", chunkedEchoLatch.await(5, TimeUnit.SECONDS));
     quicClient.close().sync();
   }
-
 
   @Test
   public void testSessionReactiveStreamIntegration() throws Exception {
@@ -3718,7 +3731,7 @@ public class WebTransportIntegrationTest {
                           @Override
                           public void handlerAdded(ChannelHandlerContext ctx) {
                             ctx.channel().eventLoop().execute(() -> {
-                              java.util.List<String> toRemove = new java.util.ArrayList<>();
+                              List<String> toRemove = new ArrayList<>();
                               for (String name : ctx.pipeline().names()) {
                                 ChannelHandler h = ctx.pipeline().get(name);
                                 if (h != null && h != this) {
@@ -3731,8 +3744,8 @@ public class WebTransportIntegrationTest {
                               ctx.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
                                 @Override
                                 protected void channelRead0(ChannelHandlerContext c, Object msg) {
-                                  if (msg instanceof io.netty.buffer.ByteBuf) {
-                                    io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) msg;
+                                  if (msg instanceof ByteBuf) {
+                                    ByteBuf buf = (ByteBuf) msg;
                                     String text = buf.toString(StandardCharsets.UTF_8);
                                     if (text.startsWith("REACTIVE ACK: Hello Reactor!")) {
                                       dataLatch.countDown();
@@ -3749,13 +3762,13 @@ public class WebTransportIntegrationTest {
             (Future<QuicStreamChannel> f) -> {
               if (f.isSuccess()) {
                 QuicStreamChannel ch = f.getNow();
-                io.netty.buffer.ByteBuf header = ch.alloc().buffer();
+                ByteBuf header = ch.alloc().buffer();
                 WebTransportUtils.writeVarInt(header, 0x41);
                 WebTransportUtils.writeVarInt(header, connectStream[0].streamId());
                 ch.write(header);
 
                 // Write stream data payload
-                ch.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer("Hello Reactor!", StandardCharsets.UTF_8));
+                ch.writeAndFlush(Unpooled.copiedBuffer("Hello Reactor!", StandardCharsets.UTF_8));
               }
             });
 
@@ -3878,7 +3891,7 @@ public class WebTransportIntegrationTest {
                           @Override
                           public void handlerAdded(ChannelHandlerContext ctx) {
                             ctx.channel().eventLoop().execute(() -> {
-                              java.util.List<String> toRemove = new java.util.ArrayList<>();
+                              List<String> toRemove = new ArrayList<>();
                               for (String name : ctx.pipeline().names()) {
                                 ChannelHandler h = ctx.pipeline().get(name);
                                 if (h != null && h != this) {
@@ -3891,8 +3904,8 @@ public class WebTransportIntegrationTest {
                               ctx.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
                                 @Override
                                 protected void channelRead0(ChannelHandlerContext c, Object msg) {
-                                  if (msg instanceof io.netty.buffer.ByteBuf) {
-                                    io.netty.buffer.ByteBuf buf = (io.netty.buffer.ByteBuf) msg;
+                                  if (msg instanceof ByteBuf) {
+                                    ByteBuf buf = (ByteBuf) msg;
                                     String text = buf.toString(StandardCharsets.UTF_8);
                                     if (text.startsWith("PURE REACTIVE ACK: Hello Pure Reactor!")) {
                                       dataLatch.countDown();
@@ -3909,13 +3922,13 @@ public class WebTransportIntegrationTest {
             (Future<QuicStreamChannel> f) -> {
               if (f.isSuccess()) {
                 QuicStreamChannel ch = f.getNow();
-                io.netty.buffer.ByteBuf header = ch.alloc().buffer();
+                ByteBuf header = ch.alloc().buffer();
                 WebTransportUtils.writeVarInt(header, 0x41);
                 WebTransportUtils.writeVarInt(header, connectStream[0].streamId());
                 ch.write(header);
 
                 // Write stream data payload
-                ch.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer("Hello Pure Reactor!", StandardCharsets.UTF_8));
+                ch.writeAndFlush(Unpooled.copiedBuffer("Hello Pure Reactor!", StandardCharsets.UTF_8));
               }
             });
 
@@ -3977,10 +3990,10 @@ public class WebTransportIntegrationTest {
                 })
             .remoteAddress(new InetSocketAddress("127.0.0.1", port));
 
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // Set limit=1 and clear whitelist
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=1",
           "webtransport4j.server.ratelimit.whitelist="
       ));
@@ -4049,10 +4062,10 @@ public class WebTransportIntegrationTest {
     clientSettings.enableConnectProtocol(true);
     clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
 
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Set max connections to 0 (blocks all) but add localhost to whitelist
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=0",
           "webtransport4j.server.ratelimit.whitelist=127.0.0.1,::1,0:0:0:0:0:0:0:1"
       ));
@@ -4106,10 +4119,10 @@ public class WebTransportIntegrationTest {
     clientSettings.enableConnectProtocol(true);
     clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
 
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Set max connections to 0 (blocks all) but add override limit of 5 for localhost
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=0",
           "webtransport4j.server.ratelimit.whitelist=", // clear whitelist
           "webtransport4j.server.ratelimit.overrides=127.0.0.1:5,::1:5,0:0:0:0:0:0:0:1:5"
@@ -4164,10 +4177,10 @@ public class WebTransportIntegrationTest {
     clientSettings.enableConnectProtocol(true);
     clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
 
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Set max connections to 100 (allows all) but add localhost to blocklist
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=100",
           "webtransport4j.server.ratelimit.whitelist=", // clear whitelist
           "webtransport4j.server.ratelimit.blocklist=127.0.0.1,::1,0:0:0:0:0:0:0:1",
@@ -4279,10 +4292,10 @@ public class WebTransportIntegrationTest {
                 })
             .remoteAddress(new InetSocketAddress("127.0.0.1", port));
 
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
       // Set absolute bidi streams limit to 2
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.webtransport.initial.max.streams.bidi=2",
           "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi=2",
           "webtransport4j.webtransport.initial.max.streams.uni=2",
@@ -4349,12 +4362,12 @@ public class WebTransportIntegrationTest {
       assertTrue("2nd stream creation should succeed", s2.await(2, TimeUnit.SECONDS) && s2.isSuccess());
 
       // Write stream headers to consume limits
-      io.netty.buffer.ByteBuf header1 = s1.getNow().alloc().buffer();
+      ByteBuf header1 = s1.getNow().alloc().buffer();
       WebTransportUtils.writeVarInt(header1, 0x41);
       WebTransportUtils.writeVarInt(header1, connectStream[0].streamId());
       s1.getNow().writeAndFlush(header1).await(2, TimeUnit.SECONDS);
 
-      io.netty.buffer.ByteBuf header2 = s2.getNow().alloc().buffer();
+      ByteBuf header2 = s2.getNow().alloc().buffer();
       WebTransportUtils.writeVarInt(header2, 0x41);
       WebTransportUtils.writeVarInt(header2, connectStream[0].streamId());
       s2.getNow().writeAndFlush(header2).await(2, TimeUnit.SECONDS);
@@ -4366,7 +4379,7 @@ public class WebTransportIntegrationTest {
       assertTrue("3rd stream QUIC creation should succeed locally", s3.await(2, TimeUnit.SECONDS) && s3.isSuccess());
  
       // Write stream header to s3: triggers server WebTransport limit enforcement
-      io.netty.buffer.ByteBuf header3 = s3.getNow().alloc().buffer();
+      ByteBuf header3 = s3.getNow().alloc().buffer();
       WebTransportUtils.writeVarInt(header3, 0x41);
       WebTransportUtils.writeVarInt(header3, connectStream[0].streamId());
       s3.getNow().writeAndFlush(header3).await(2, TimeUnit.SECONDS);
@@ -4387,9 +4400,9 @@ public class WebTransportIntegrationTest {
 
   @Test
   public void testOriginValidationRejectionIntegration() throws Exception {
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.webtransport.allowed_origins=https://trusted.com"
       ));
       WebTransportConfig.reload();
@@ -4602,7 +4615,7 @@ public class WebTransportIntegrationTest {
     assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
 
     byte[] largePayloadBytes = new byte[1000];
-    java.util.Arrays.fill(largePayloadBytes, (byte) 'A');
+    Arrays.fill(largePayloadBytes, (byte) 'A');
 
     ByteBuf payloadBuf = quicClient.alloc().buffer();
     WebTransportUtils.writeVarInt(payloadBuf, connectStream[0].streamId());
@@ -4826,9 +4839,9 @@ public class WebTransportIntegrationTest {
 
     Future<QuicStreamChannel> badUniStreamFuture = quicClient.createStream(QuicStreamType.UNIDIRECTIONAL, new ChannelInitializer<QuicStreamChannel>() {
       @Override protected void initChannel(QuicStreamChannel ch) {
-        ch.pipeline().addLast(new io.netty.channel.ChannelInboundHandlerAdapter() {
+        ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
           @Override
-          public void exceptionCaught(io.netty.channel.ChannelHandlerContext ctx, Throwable cause) {
+          public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             ctx.close();
           }
         });
@@ -4962,9 +4975,9 @@ public class WebTransportIntegrationTest {
 
   @Test
   public void testMaxSessionsPerConnectionEnforcementIntegration() throws Exception {
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.webtransport.max_sessions_per_connection=2"
       ));
       WebTransportConfig.reload();
@@ -5102,9 +5115,9 @@ clientSettings.enableH3Datagram(true);
 
   @Test
   public void testDynamicTrafficShapingReloadIntegration() throws Exception {
-    java.io.File tempFile = new java.io.File("webtransport-dynamic.properties");
+    File tempFile = new File("webtransport-dynamic.properties");
     try {
-      java.nio.file.Files.write(tempFile.toPath(), java.util.Arrays.asList(
+      Files.write(tempFile.toPath(), Arrays.asList(
           "webtransport4j.server.traffic.connection.read.limit=2048"
       ));
       WebTransportConfig.reload();
@@ -5205,7 +5218,7 @@ clientSetting.enableConnectProtocol(true);
             @Override
             public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
               ctx.channel().eventLoop().execute(() -> {
-                java.util.List<String> toRemove = new java.util.ArrayList<>();
+                List<String> toRemove = new ArrayList<>();
                 for (String name : ctx.pipeline().names()) {
                   ChannelHandler h = ctx.pipeline().get(name);
                   if (h != null && h != this && (name.contains("Http3") || h.getClass().getName().contains("Http3"))) {
@@ -5239,10 +5252,10 @@ clientSetting.enableConnectProtocol(true);
       s1.writeAndFlush(header).await(2, TimeUnit.SECONDS);
 
       byte[] payload = new byte[6144];
-      java.util.Arrays.fill(payload, (byte) 'A');
+      Arrays.fill(payload, (byte) 'A');
       
       long startTime = System.currentTimeMillis();
-      s1.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(payload));
+      s1.writeAndFlush(Unpooled.copiedBuffer(payload));
       
       assertTrue("Echo data transfer timed out", bidiLatch.await(10, TimeUnit.SECONDS));
       long duration = System.currentTimeMillis() - startTime;
@@ -5329,9 +5342,9 @@ clientSetting.enableConnectProtocol(true);
 
   @Test
   public void testIpRateLimitingAndBlocklistIntegration() throws Exception {
-    java.lang.reflect.Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
+    Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
     field.setAccessible(true);
-    java.util.Map<?, ?> ipCounts = (java.util.Map<?, ?>) field.get(null);
+    Map<?, ?> ipCounts = (Map<?, ?>) field.get(null);
     ipCounts.clear();
 
     System.setProperty("webtransport4j.server.ratelimit.whitelist", "");

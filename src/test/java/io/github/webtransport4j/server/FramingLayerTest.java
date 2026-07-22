@@ -17,13 +17,38 @@ import static org.mockito.Mockito.when;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.EventLoop;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
+import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.Http3DataFrame;
+import io.netty.handler.codec.http3.Http3Headers;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamChannelConfig;
+import io.netty.util.Attribute;
+import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.concurrent.Promise;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
@@ -67,7 +92,7 @@ public class FramingLayerTest {
     channel
         .pipeline()
         .addLast(
-            new io.netty.channel.ChannelInboundHandlerAdapter() {
+            new ChannelInboundHandlerAdapter() {
               @Override
               public void channelRead(ChannelHandlerContext ctx, Object msg) {
                 if (msg instanceof WebTransportCapsule) {
@@ -105,7 +130,7 @@ public class FramingLayerTest {
     channel
         .pipeline()
         .addLast(
-            new io.netty.channel.ChannelInboundHandlerAdapter() {
+            new ChannelInboundHandlerAdapter() {
               @Override
               public void channelRead(ChannelHandlerContext ctx, Object msg) {
                 if (msg instanceof WebTransportCapsule) {
@@ -151,11 +176,11 @@ public class FramingLayerTest {
         .addLast(new Http3DataToByteBufHandler())
         .addLast(new WebTransportCapsuleDecoder());
 
-    final java.util.List<WebTransportCapsule> list = new java.util.ArrayList<>();
+    final List<WebTransportCapsule> list = new ArrayList<>();
     channel
         .pipeline()
         .addLast(
-            new io.netty.channel.ChannelInboundHandlerAdapter() {
+            new ChannelInboundHandlerAdapter() {
               @Override
               public void channelRead(ChannelHandlerContext ctx, Object msg) {
                 if (msg instanceof WebTransportCapsule) {
@@ -196,8 +221,8 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
 
-    io.netty.util.Attribute<Long> typeAttr = mock(io.netty.util.Attribute.class);
-    io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> typeAttr = mock(Attribute.class);
+    Attribute<Long> sessIdAttr = mock(Attribute.class);
 
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(typeAttr);
     when(typeAttr.get()).thenReturn(0x41L); // BIDIRECTIONAL
@@ -233,9 +258,9 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     doAnswer(
             invocation -> {
@@ -246,22 +271,22 @@ public class FramingLayerTest {
         .when(mockEventLoop)
         .execute(any(Runnable.class));
 
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
     when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
 
-    io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<ExecutorService> execAttr =
+        mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
 
     final boolean[] executed = new boolean[1];
-    java.util.concurrent.ExecutorService directExecutor =
-        new java.util.concurrent.AbstractExecutorService() {
+    ExecutorService directExecutor =
+        new AbstractExecutorService() {
           private boolean shutdown = false;
 
           @Override
@@ -270,9 +295,9 @@ public class FramingLayerTest {
           }
 
           @Override
-          public java.util.List<Runnable> shutdownNow() {
+          public List<Runnable> shutdownNow() {
             shutdown = true;
-            return java.util.Collections.emptyList();
+            return Collections.emptyList();
           }
 
           @Override
@@ -286,7 +311,7 @@ public class FramingLayerTest {
           }
 
           @Override
-          public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) {
+          public boolean awaitTermination(long timeout, TimeUnit unit) {
             return true;
           }
 
@@ -298,13 +323,13 @@ public class FramingLayerTest {
         };
     when(execAttr.get()).thenReturn(directExecutor);
 
-    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> sessionMgrAttr =
+        mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
     when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
 
-    io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+    Attribute<String> pathAttr = mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
     when(pathAttr.get()).thenReturn("/test-path");
 
@@ -346,73 +371,73 @@ public class FramingLayerTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(100L);
-    io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
 
-    io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> sessIdAttr = mock(Attribute.class);
     when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    io.netty.channel.ChannelPipeline mockPipeline = mock(io.netty.channel.ChannelPipeline.class);
+    ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
-    when(mockPipeline.names()).thenReturn(java.util.Collections.emptyList());
+    when(mockPipeline.names()).thenReturn(Collections.emptyList());
 
     // Attributes on Parent (QuicChannel)
-    io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<List<String>> allowedOriginsAttr =
+        mock(Attribute.class);
     when(allowedOriginsAttr.get()).thenReturn(null); // allow all
     when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
 
-    io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+    Attribute<String> pathAttr = mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
-    io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> mgrAttr =
+        mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
-    io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(10L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(defaultBidiAttr);
 
-    io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultUniAttr = mock(Attribute.class);
     when(defaultUniAttr.get()).thenReturn(10L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(defaultUniAttr);
 
-    io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultDataAttr = mock(Attribute.class);
     when(defaultDataAttr.get()).thenReturn(10000L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for createUniStream / createBiStream
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+    Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
 
     // Mock createStream for createUniStream / createBiStream
-    io.netty.util.concurrent.Future mockFuture = mock(io.netty.util.concurrent.Future.class);
+    Future mockFuture = mock(Future.class);
     when(mockParent.createStream(any(), any())).thenReturn(mockFuture);
     when(mockFuture.addListener(any())).thenReturn(mockFuture);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3Headers mockHeaders =
-        new io.netty.handler.codec.http3.DefaultHttp3Headers();
+    Http3Headers mockHeaders =
+        new DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
     mockHeaders.scheme("https");
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+    Http3HeadersFrame mockHeadersFrame =
+        mock(Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -426,8 +451,8 @@ public class FramingLayerTest {
     // Verify response sent
     ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(mockCtx).writeAndFlush(captor.capture());
-    io.netty.handler.codec.http3.Http3HeadersFrame respFrame =
-        (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getValue();
+    Http3HeadersFrame respFrame =
+        (Http3HeadersFrame) captor.getValue();
     assertEquals("200", respFrame.headers().status().toString());
   }
 
@@ -442,69 +467,69 @@ public class FramingLayerTest {
     when(mockCtx.channel()).thenReturn(mockStreamChannel);
     when(mockStreamChannel.parent()).thenReturn(mockParent);
     when(mockStreamChannel.streamId()).thenReturn(200L);
-    io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStreamChannel.closeFuture()).thenReturn(mockCloseFuture);
 
-    io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> sessIdAttr = mock(Attribute.class);
     when(mockStreamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
-    when(mockCtx.pipeline()).thenReturn(mock(io.netty.channel.ChannelPipeline.class));
+    when(mockCtx.pipeline()).thenReturn(mock(ChannelPipeline.class));
     when(mockStreamChannel.config())
-        .thenReturn(mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class));
+        .thenReturn(mock(QuicStreamChannelConfig.class));
 
     // Attributes on Parent (QuicChannel)
-    io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<List<String>> allowedOriginsAttr =
+        mock(Attribute.class);
     when(allowedOriginsAttr.get()).thenReturn(null); // allow all
     when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
 
-    io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+    Attribute<String> pathAttr = mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
-    io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> mgrAttr =
+        mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Connection-level limits: 50L bidi, 60L uni, 50000L data
-    io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(50L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(defaultBidiAttr);
 
-    io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultUniAttr = mock(Attribute.class);
     when(defaultUniAttr.get()).thenReturn(60L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(defaultUniAttr);
 
-    io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultDataAttr = mock(Attribute.class);
     when(defaultDataAttr.get()).thenReturn(50000L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for createUniStream / createBiStream
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+    Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
 
     // Mock createStream
-    io.netty.util.concurrent.Future mockFuture = mock(io.netty.util.concurrent.Future.class);
+    Future mockFuture = mock(Future.class);
     when(mockParent.createStream(any(), any())).thenReturn(mockFuture);
     when(mockFuture.addListener(any())).thenReturn(mockFuture);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3Headers mockHeaders =
-        new io.netty.handler.codec.http3.DefaultHttp3Headers();
+    Http3Headers mockHeaders =
+        new DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
     mockHeaders.scheme("https");
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+    Http3HeadersFrame mockHeadersFrame =
+        mock(Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -533,15 +558,15 @@ public class FramingLayerTest {
     when(mockStream.streamId()).thenReturn(101L);
 
     // Http3HeadersFrame
-    io.netty.handler.codec.http3.Http3Headers mockHeaders =
-        new io.netty.handler.codec.http3.DefaultHttp3Headers();
+    Http3Headers mockHeaders =
+        new DefaultHttp3Headers();
     mockHeaders.method("CONNECT");
     mockHeaders.scheme("https");
     mockHeaders.authority("localhost");
     mockHeaders.path("/webtransport-test");
     mockHeaders.set(":protocol", "webtransport-h3");
-    io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-        mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+    Http3HeadersFrame mockHeadersFrame =
+        mock(Http3HeadersFrame.class);
     when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
     handler.channelRead(mockCtx, mockHeadersFrame);
@@ -557,20 +582,20 @@ public class FramingLayerTest {
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
 
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+    Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
 
     // Setup Session Manager
     WebTransportSessionManager mgr = new WebTransportSessionManager();
-    io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> mgrAttr =
+        mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
     // Set up limits on parent so register() can read them
-    io.netty.util.Attribute<Long> localLimitAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> localLimitAttr = mock(Attribute.class);
     when(localLimitAttr.get()).thenReturn(5L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(localLimitAttr);
@@ -580,7 +605,7 @@ public class FramingLayerTest {
         .thenReturn(localLimitAttr);
 
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
-        .thenReturn(mock(io.netty.util.Attribute.class));
+        .thenReturn(mock(Attribute.class));
 
     mgr.register(mockConnectStream);
     WebTransportSession session = mgr.get(100L);
@@ -592,43 +617,43 @@ public class FramingLayerTest {
 
     // Mock createStream to return successful future
     QuicStreamChannel mockNewStream = mock(QuicStreamChannel.class);
-    when(mockNewStream.attr(any(io.netty.util.AttributeKey.class)))
-        .thenReturn(mock(io.netty.util.Attribute.class));
-    when(mockNewStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+    when(mockNewStream.attr(any(AttributeKey.class)))
+        .thenReturn(mock(Attribute.class));
+    when(mockNewStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
 
-    io.netty.util.concurrent.Future<QuicStreamChannel> successFuture =
-        mock(io.netty.util.concurrent.Future.class);
+    Future<QuicStreamChannel> successFuture =
+        mock(Future.class);
     when(successFuture.isSuccess()).thenReturn(true);
     when(successFuture.getNow()).thenReturn(mockNewStream);
     when(mockParent.createStream(any(), any())).thenReturn(successFuture);
     when(successFuture.addListener(any()))
         .thenAnswer(
             inv -> {
-              io.netty.util.concurrent.GenericFutureListener listener = inv.getArgument(0);
+              GenericFutureListener listener = inv.getArgument(0);
               listener.operationComplete(successFuture);
               return successFuture;
             });
 
     // 1. Create Uni Stream - First creation should succeed
     WebTransportUtils.createUniStream(
-        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(ChannelHandler.class));
 
     // Create Uni Stream - Second creation should succeed
     WebTransportUtils.createUniStream(
-        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(ChannelHandler.class));
 
     // Create Uni Stream - Third creation should fail (exceeds limit 2)
     WebTransportUtils.createUniStream(
-        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(ChannelHandler.class));
     verify(mockPromise).setFailure(any(IllegalStateException.class));
 
     // 2. Create Bi Stream - First creation should succeed
     WebTransportUtils.createBiStream(
-        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(ChannelHandler.class));
 
     // Create Bi Stream - Second creation should fail (exceeds limit 1)
     WebTransportUtils.createBiStream(
-        mockConnectStream, false, mock(io.netty.channel.ChannelHandler.class));
+        mockConnectStream, false, mock(ChannelHandler.class));
     verify(mockPromise, times(2)).setFailure(any(IllegalStateException.class));
   }
 
@@ -642,80 +667,80 @@ public class FramingLayerTest {
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(100L);
-    io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
     when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
-    io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> sessIdAttr = mock(Attribute.class);
     when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    io.netty.channel.ChannelPipeline mockPipeline = mock(io.netty.channel.ChannelPipeline.class);
+    ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
-    when(mockPipeline.names()).thenReturn(java.util.Collections.emptyList());
+    when(mockPipeline.names()).thenReturn(Collections.emptyList());
 
     // Configure allowed origins: [google.com, localhost]
-    io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr =
-        mock(io.netty.util.Attribute.class);
-    when(allowedOriginsAttr.get()).thenReturn(java.util.Arrays.asList("google.com", "localhost"));
+    Attribute<List<String>> allowedOriginsAttr =
+        mock(Attribute.class);
+    when(allowedOriginsAttr.get()).thenReturn(Arrays.asList("google.com", "localhost"));
     when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS)).thenReturn(allowedOriginsAttr);
 
-    io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+    Attribute<String> pathAttr = mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
-    io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> mgrAttr =
+        mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
-    io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(10L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(defaultBidiAttr);
 
-    io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultUniAttr = mock(Attribute.class);
     when(defaultUniAttr.get()).thenReturn(10L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
         .thenReturn(defaultUniAttr);
 
-    io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+    Attribute<Long> defaultDataAttr = mock(Attribute.class);
     when(defaultDataAttr.get()).thenReturn(10000L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
         .thenReturn(defaultDataAttr);
 
     // Mock EventLoop and Promise for stream creation
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    io.netty.util.concurrent.Promise mockPromise = mock(io.netty.util.concurrent.Promise.class);
+    Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
-    io.netty.util.concurrent.Future mockFuture = mock(io.netty.util.concurrent.Future.class);
+    Future mockFuture = mock(Future.class);
     when(mockParent.createStream(any(), any())).thenReturn(mockFuture);
     when(mockFuture.addListener(any())).thenReturn(mockFuture);
 
     // Case 1: Origin "https://localhost:4433" -> Should be ALLOWED
     {
-      io.netty.handler.codec.http3.Http3Headers mockHeaders =
-          new io.netty.handler.codec.http3.DefaultHttp3Headers();
+      Http3Headers mockHeaders =
+          new DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
       mockHeaders.scheme("https");
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
       mockHeaders.set("origin", "https://localhost:4433");
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+      Http3HeadersFrame mockHeadersFrame =
+          mock(Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
 
       ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
       verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
-      io.netty.handler.codec.http3.Http3HeadersFrame respFrame =
-          (io.netty.handler.codec.http3.Http3HeadersFrame)
+      Http3HeadersFrame respFrame =
+          (Http3HeadersFrame)
               captor.getAllValues().get(captor.getAllValues().size() - 1);
       assertEquals("200", respFrame.headers().status().toString());
       mgr.closeAll();
@@ -723,47 +748,47 @@ public class FramingLayerTest {
 
     // Case 2: Origin "https://evil.com" -> Should be FORBIDDEN
     {
-      io.netty.handler.codec.http3.Http3Headers mockHeaders =
-          new io.netty.handler.codec.http3.DefaultHttp3Headers();
+      Http3Headers mockHeaders =
+          new DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
       mockHeaders.scheme("https");
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
       mockHeaders.set("origin", "https://evil.com");
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+      Http3HeadersFrame mockHeadersFrame =
+          mock(Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
 
       ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
       verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
-      io.netty.handler.codec.http3.Http3HeadersFrame respFrame =
-          (io.netty.handler.codec.http3.Http3HeadersFrame)
+      Http3HeadersFrame respFrame =
+          (Http3HeadersFrame)
               captor.getAllValues().get(captor.getAllValues().size() - 1);
       assertEquals("403", respFrame.headers().status().toString());
     }
 
     // Case 3: Origin absent, Authority "localhost:4433" (e.g. backend client) -> Should be ALLOWED
     {
-      io.netty.handler.codec.http3.Http3Headers mockHeaders =
-          new io.netty.handler.codec.http3.DefaultHttp3Headers();
+      Http3Headers mockHeaders =
+          new DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
       mockHeaders.scheme("https");
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+      Http3HeadersFrame mockHeadersFrame =
+          mock(Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       handler.channelRead(mockCtx, mockHeadersFrame);
 
       ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
       verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
-      io.netty.handler.codec.http3.Http3HeadersFrame respFrame =
-          (io.netty.handler.codec.http3.Http3HeadersFrame)
+      Http3HeadersFrame respFrame =
+          (Http3HeadersFrame)
               captor.getAllValues().get(captor.getAllValues().size() - 1);
       assertEquals("200", respFrame.headers().status().toString());
       mgr.closeAll();
@@ -783,28 +808,28 @@ public class FramingLayerTest {
       when(mockCtx.channel()).thenReturn(mockStream);
       when(mockStream.parent()).thenReturn(mockParent);
       when(mockStream.streamId()).thenReturn(100L);
-      io.netty.channel.ChannelFuture mockCloseFuture = mock(io.netty.channel.ChannelFuture.class);
+      ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
       when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
-      io.netty.util.Attribute<Long> sessIdAttr = mock(io.netty.util.Attribute.class);
+      Attribute<Long> sessIdAttr = mock(Attribute.class);
       when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
-      io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-          mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+      QuicStreamChannelConfig mockConfig =
+          mock(QuicStreamChannelConfig.class);
       when(mockStream.config()).thenReturn(mockConfig);
       when(mockConfig.isAutoRead()).thenReturn(true);
 
-      io.netty.channel.ChannelPipeline mockPipeline = mock(io.netty.channel.ChannelPipeline.class);
+      ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
       when(mockCtx.pipeline()).thenReturn(mockPipeline);
-      when(mockPipeline.names()).thenReturn(java.util.Collections.emptyList());
+      when(mockPipeline.names()).thenReturn(Collections.emptyList());
 
       // Mock ALLOWED_ORIGINS to allow everything
-      io.netty.util.Attribute<java.util.List<String>> allowedOriginsAttr =
-          mock(io.netty.util.Attribute.class);
+      Attribute<List<String>> allowedOriginsAttr =
+          mock(Attribute.class);
       when(allowedOriginsAttr.get()).thenReturn(null);
       when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS))
           .thenReturn(allowedOriginsAttr);
 
-      io.netty.util.Attribute<String> pathAttr = mock(io.netty.util.Attribute.class);
+      Attribute<String> pathAttr = mock(Attribute.class);
       when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
 
       // Setup session manager with 1 active session registered
@@ -812,40 +837,40 @@ public class FramingLayerTest {
       when(existingStream.streamId()).thenReturn(40L);
       when(existingStream.parent()).thenReturn(mockParent);
       when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
-          .thenReturn(mock(io.netty.util.Attribute.class));
+          .thenReturn(mock(Attribute.class));
       WebTransportSessionManager mgr = new WebTransportSessionManager();
       mgr.register(existingStream);
 
-      io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
-          mock(io.netty.util.Attribute.class);
+      Attribute<WebTransportSessionManager> mgrAttr =
+          mock(Attribute.class);
       when(mgrAttr.get()).thenReturn(mgr);
       when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
-      io.netty.util.Attribute<Long> defaultBidiAttr = mock(io.netty.util.Attribute.class);
+      Attribute<Long> defaultBidiAttr = mock(Attribute.class);
       when(defaultBidiAttr.get()).thenReturn(10L);
       when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
           .thenReturn(defaultBidiAttr);
 
-      io.netty.util.Attribute<Long> defaultUniAttr = mock(io.netty.util.Attribute.class);
+      Attribute<Long> defaultUniAttr = mock(Attribute.class);
       when(defaultUniAttr.get()).thenReturn(10L);
       when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
           .thenReturn(defaultUniAttr);
 
-      io.netty.util.Attribute<Long> defaultDataAttr = mock(io.netty.util.Attribute.class);
+      Attribute<Long> defaultDataAttr = mock(Attribute.class);
       when(defaultDataAttr.get()).thenReturn(10000L);
       when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
           .thenReturn(defaultDataAttr);
 
       // Setup new CONNECT request
-      io.netty.handler.codec.http3.Http3Headers mockHeaders =
-          new io.netty.handler.codec.http3.DefaultHttp3Headers();
+      Http3Headers mockHeaders =
+          new DefaultHttp3Headers();
       mockHeaders.method("CONNECT");
       mockHeaders.scheme("https");
       mockHeaders.authority("localhost:4433");
       mockHeaders.path("/webtransport-test");
       mockHeaders.set(":protocol", "webtransport-h3");
-      io.netty.handler.codec.http3.Http3HeadersFrame mockHeadersFrame =
-          mock(io.netty.handler.codec.http3.Http3HeadersFrame.class);
+      Http3HeadersFrame mockHeadersFrame =
+          mock(Http3HeadersFrame.class);
       when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
 
       // Execute channelRead — this should trigger simultaneous session limit (since 1 session is
@@ -855,8 +880,8 @@ public class FramingLayerTest {
       // Verify status 429 Too Many Requests response is sent
       ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
       verify(mockCtx).writeAndFlush(captor.capture());
-      io.netty.handler.codec.http3.Http3HeadersFrame respFrame =
-          (io.netty.handler.codec.http3.Http3HeadersFrame) captor.getValue();
+      Http3HeadersFrame respFrame =
+          (Http3HeadersFrame) captor.getValue();
       assertEquals("429", respFrame.headers().status().toString());
     } finally {
       System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");
@@ -908,7 +933,7 @@ public class FramingLayerTest {
   @Test
   public void testResetStreamApplicationErrorCodeMapping() throws Exception {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    io.netty.channel.ChannelPromise mockPromise = mock(io.netty.channel.ChannelPromise.class);
+    ChannelPromise mockPromise = mock(ChannelPromise.class);
     when(mockStream.newPromise()).thenReturn(mockPromise);
 
     // Application error code = 500
@@ -929,14 +954,14 @@ public class FramingLayerTest {
     log.info("=== REFLECTION: io.netty.handler.codec.quic.QuicStreamChannel ===");
     try {
       Class<?> clazz = Class.forName("io.netty.handler.codec.quic.QuicStreamChannel");
-      for (java.lang.reflect.Method method : clazz.getMethods()) {
+      for (Method method : clazz.getMethods()) {
         log.info(
             "Method: "
                 + method.getReturnType().getSimpleName()
                 + " "
                 + method.getName()
                 + " ("
-                + java.util.Arrays.toString(method.getParameterTypes())
+                + Arrays.toString(method.getParameterTypes())
                 + ")");
       }
     } catch (Exception e) {
@@ -953,11 +978,11 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(mock(io.netty.util.Attribute.class));
+    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(mock(Attribute.class));
 
-    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
     when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
@@ -980,9 +1005,9 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     doAnswer(
             invocation -> {
@@ -993,17 +1018,17 @@ public class FramingLayerTest {
         .when(mockEventLoop)
         .execute(any(Runnable.class));
 
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
     when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
 
     final boolean[] executed = new boolean[1];
-    java.util.concurrent.ExecutorService mockExecutor = mock(java.util.concurrent.ExecutorService.class);
+    ExecutorService mockExecutor = mock(ExecutorService.class);
     doAnswer(
             invocation -> {
               executed[0] = true;
@@ -1014,12 +1039,12 @@ public class FramingLayerTest {
         .when(mockExecutor)
         .execute(any(Runnable.class));
 
-    io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<ExecutorService> execAttr =
+        mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
     when(execAttr.get()).thenReturn(mockExecutor);
 
-    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
     when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
@@ -1042,9 +1067,9 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     doAnswer(
             invocation -> {
@@ -1055,17 +1080,17 @@ public class FramingLayerTest {
         .when(mockEventLoop)
         .execute(any(Runnable.class));
 
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    io.netty.util.Attribute<StreamMailbox> mailboxAttr = mock(io.netty.util.Attribute.class);
+    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
     when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
     when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
 
     final boolean[] executed = new boolean[1];
-    java.util.concurrent.ThreadPoolExecutor mockFixedPool = mock(java.util.concurrent.ThreadPoolExecutor.class);
+    ThreadPoolExecutor mockFixedPool = mock(ThreadPoolExecutor.class);
     doAnswer(
             invocation -> {
               executed[0] = true;
@@ -1076,12 +1101,12 @@ public class FramingLayerTest {
         .when(mockFixedPool)
         .execute(any(Runnable.class));
 
-    io.netty.util.Attribute<java.util.concurrent.ExecutorService> execAttr =
-        mock(io.netty.util.Attribute.class);
+    Attribute<ExecutorService> execAttr =
+        mock(Attribute.class);
     when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
     when(execAttr.get()).thenReturn(mockFixedPool);
 
-    io.netty.util.Attribute<WebTransportSessionManager> sessionMgrAttr = mock(io.netty.util.Attribute.class);
+    Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
     when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
@@ -1099,16 +1124,16 @@ public class FramingLayerTest {
   @Test
   public void testStreamMailboxBackpressureThrottling() throws Exception {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    io.netty.channel.EventLoop mockEventLoop = mock(io.netty.channel.EventLoop.class);
+    EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.inEventLoop()).thenReturn(true);
-    io.netty.handler.codec.quic.QuicStreamChannelConfig mockConfig =
-        mock(io.netty.handler.codec.quic.QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig =
+        mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    final java.util.List<Runnable> tasks = new java.util.ArrayList<>();
-    java.util.concurrent.ExecutorService mockExecutor = mock(java.util.concurrent.ExecutorService.class);
+    final List<Runnable> tasks = new ArrayList<>();
+    ExecutorService mockExecutor = mock(ExecutorService.class);
     doAnswer(
             invocation -> {
               tasks.add(invocation.getArgument(0));
@@ -1121,7 +1146,7 @@ public class FramingLayerTest {
 
     StreamMailbox mailbox = new StreamMailbox(mockStream, mockExecutor, mockDispatcher, 1L);
 
-    java.util.List<WebTransportStreamFrame> frames = new java.util.ArrayList<>();
+    List<WebTransportStreamFrame> frames = new ArrayList<>();
     for (int i = 0; i < 16; i++) {
       ByteBuf data = Unpooled.buffer(0);
       WebTransportStreamFrame f = new WebTransportStreamFrame(1L, 1L, true, data);

@@ -7,6 +7,7 @@ package io.github.webtransport4j.client;
 
 import io.github.webtransport4j.server.UnknownStreamHandlerFactory;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.http3.Http3ClientConnectionHandler;
@@ -23,18 +24,15 @@ import org.slf4j.LoggerFactory;
 public class WebTransportClientHandler extends Http3ClientConnectionHandler {
     private Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
 
-
     public WebTransportClientHandler() {
         this(null, true, null);
     }
-
 
     public WebTransportClientHandler(
             Http3SettingsFrame localSettings, boolean disableQpackDynamicTable) {
         this(localSettings,
                 disableQpackDynamicTable, null);
     }
-
 
     public WebTransportClientHandler(Http3SettingsFrame localSettings, boolean disableQpackDynamicTable,
                                      Http3Settings.NonStandardHttp3SettingsValidator
@@ -54,7 +52,7 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
                 if (msg instanceof ByteBuf) {
                     ByteBuf buf = (ByteBuf) msg;
                     System.out.println("=== BIDI STREAM " + channel.streamId() + " ===");
-                    System.out.println(io.netty.buffer.ByteBufUtil.prettyHexDump(buf));
+                    System.out.println(ByteBufUtil.prettyHexDump(buf));
                     System.out.println("ASCII: " +
                             buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
@@ -75,7 +73,7 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
                 if (msg instanceof ByteBuf) {
                     ByteBuf buf = (ByteBuf) msg;
                     System.out.println("=== UNI STREAM " + streamChannel.streamId() + " ===");
-                    System.out.println(io.netty.buffer.ByteBufUtil.prettyHexDump(buf));
+                    System.out.println(ByteBufUtil.prettyHexDump(buf));
                     System.out.println("ASCII: " +
                             buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
@@ -84,6 +82,5 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
             }
         });
     }
-
 
 }

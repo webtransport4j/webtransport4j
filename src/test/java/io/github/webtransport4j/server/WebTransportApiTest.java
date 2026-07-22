@@ -12,6 +12,7 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -75,7 +76,7 @@ public class WebTransportApiTest {
     QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
-    when(mockConnectStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+    when(mockConnectStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
 
     Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
     when(serverAttr.get()).thenReturn(server);
@@ -158,7 +159,7 @@ public class WebTransportApiTest {
     QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
-    when(mockConnectStream.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+    when(mockConnectStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
 
     Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
     when(serverAttr.get()).thenReturn(server);
@@ -191,7 +192,7 @@ public class WebTransportApiTest {
     when(mockStreamChannel.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockStreamChannel.streamId()).thenReturn(200L);
-    when(mockStreamChannel.closeFuture()).thenReturn(mock(io.netty.channel.ChannelFuture.class));
+    when(mockStreamChannel.closeFuture()).thenReturn(mock(ChannelFuture.class));
 
     Attribute<WebTransportStream> streamAttr = mock(Attribute.class);
     when(mockStreamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);

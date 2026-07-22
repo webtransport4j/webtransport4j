@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import io.netty.util.concurrent.Future;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -66,8 +67,8 @@ public class ReactiveWebTransportStreamTest {
   @Test
   public void testSubscriberWritesData() {
     WebTransportStream mockStream = mock(WebTransportStream.class);
-    java.util.concurrent.CompletableFuture<Void> completedFuture =
-        java.util.concurrent.CompletableFuture.completedFuture(null);
+    CompletableFuture<Void> completedFuture =
+        CompletableFuture.completedFuture(null);
     when(mockStream.write(any(WebTransportBuffer.class))).thenReturn(completedFuture);
 
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
