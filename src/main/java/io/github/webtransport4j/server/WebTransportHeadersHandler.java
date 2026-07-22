@@ -18,6 +18,9 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.net.ssl.SSLEngine;
+
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -162,8 +165,28 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           }
           String pathStr = path.toString();
           quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
-          logger.debug("✅ Handshake Success for Path: {}", pathStr);
 
+          String cipherSuite = "TLS_AES_128_GCM_SHA256";
+          String tlsVersion = "TLSv1.3";
+          try {
+            SSLEngine sslEngine = quic.sslEngine();
+            if (sslEngine != null && sslEngine.getSession() != null) {
+              String c = sslEngine.getSession().getCipherSuite();
+              if (c != null && !c.isEmpty() && !"SSL_NULL_WITH_NULL_NULL".equals(c)) {
+                cipherSuite = c;
+              }
+              String p = sslEngine.getSession().getProtocol();
+              if (p != null && !p.isEmpty()) {
+                tlsVersion = p;
+              }
+            }
+          } catch (Exception ignored) {
+          }
+
+          if (logger.isDebugEnabled()) {
+              logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
+                      quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
+          }
           Http3Headers responseHeaders = new DefaultHttp3Headers();
           responseHeaders.status(HttpResponseStatus.OK.codeAsText());
 

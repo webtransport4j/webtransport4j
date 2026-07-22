@@ -53,8 +53,10 @@ import org.slf4j.LoggerFactory;
 public class WebTransportServer {
 
   static {
-    // Disable PooledByteBufAllocator cache for non-FastThreadLocal threads (like Virtual Threads)
-    // to prevent severe direct memory leaks/exhaustion when executing async task queues.
+    // Disable PooledByteBufAllocator cache for non-FastThreadLocal threads (like
+    // Virtual Threads)
+    // to prevent severe direct memory leaks/exhaustion when executing async task
+    // queues.
     System.setProperty("io.netty.allocator.useCacheForAllThreads", "false");
   }
 
@@ -75,19 +77,18 @@ public class WebTransportServer {
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private WebTransportHandler defaultHandler;
 
-  private final AtomicInteger globalActiveSessions =
-      new AtomicInteger(0);
+  private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
 
   /**
    * The observability metrics listener. Defaults to a no-op implementation.
    */
-  private volatile WebTransportMetricsListener metricsListener =
-      NoOpWebTransportMetricsListener.INSTANCE;
+  private volatile WebTransportMetricsListener metricsListener = NoOpWebTransportMetricsListener.INSTANCE;
 
   private Supplier<MessageDispatcher> messageDispatcherSupplier = DefaultMessageDispatcher::new;
   private final ExecutorService businessExecutor;
 
   public static GlobalTrafficShapingHandler globalTrafficShaper;
+
   /** Lifecycle states of the WebTransport server. */
   public enum ServerState {
     STOPPED,
@@ -96,12 +97,24 @@ public class WebTransportServer {
     STOPPING
   }
 
-  private final AtomicReference<ServerState> state =
-      new AtomicReference<>(ServerState.STOPPED);
+  private final AtomicReference<ServerState> state = new AtomicReference<>(ServerState.STOPPED);
 
   private EventLoopGroup group;
   private Channel channel;
   private Thread shutdownHook;
+  private volatile QuicSslContext activeSslContext;
+  private TlsCertificateWatcher tlsWatcher;
+
+  public @Nullable QuicSslContext getActiveSslContext() {
+    return activeSslContext;
+  }
+
+  public boolean checkAndReloadTlsCertificates() {
+    if (tlsWatcher != null) {
+      return tlsWatcher.checkAndReload();
+    }
+    return false;
+  }
 
   public static @NonNull WebTransportServerBuilder builder() {
     return new WebTransportServerBuilder();
@@ -118,7 +131,8 @@ public class WebTransportServer {
   }
 
   public WebTransportServer() {
-    this.defaultHandler = new WebTransportHandler() {};
+    this.defaultHandler = new WebTransportHandler() {
+    };
     handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
   }
@@ -133,7 +147,9 @@ public class WebTransportServer {
     this.businessExecutor = businessExecutor != null ? businessExecutor : BusinessExecutorFactory.create();
   }
 
-  /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
+  /**
+   * Constructs a WebTransportServer using a {@link WebTransportServerBuilder}.
+   */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     this.configuredPort = builder.getPort();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -159,7 +175,8 @@ public class WebTransportServer {
 
     this.defaultHandler = builder.getDefaultHandler() != null
         ? builder.getDefaultHandler()
-        : new WebTransportHandler() {};
+        : new WebTransportHandler() {
+        };
 
     this.handlers.put("/", this.defaultHandler);
     this.handlers.putAll(builder.getHandlers());
@@ -257,7 +274,8 @@ public class WebTransportServer {
   }
 
   /**
-   * Starts the WebTransport server non-blockingly. Returns immediately once the server channel is bound.
+   * Starts the WebTransport server non-blockingly. Returns immediately once the
+   * server channel is bound.
    */
   public void start() throws Exception {
     if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
@@ -274,68 +292,87 @@ public class WebTransportServer {
         throw new IllegalStateException(
             "Server cannot start without a registered default path handler.");
       }
-    int targetPort = configuredPort != null ? configuredPort : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+      int targetPort = configuredPort != null ? configuredPort
+          : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
 
-    List<String> resolvedOrigins = this.allowedOrigins;
-    if (resolvedOrigins == null) {
-      String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
-      resolvedOrigins = Arrays.asList(originsProp.split(","));
-    }
+      List<String> resolvedOrigins = this.allowedOrigins;
+      if (resolvedOrigins == null) {
+        String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
+        resolvedOrigins = Arrays.asList(originsProp.split(","));
+      }
 
-    shutdownHook = new Thread(
-        () -> {
-          logger.info("Shutdown hook triggered. Stopping server...");
-          stop();
+      shutdownHook = new Thread(
+          () -> {
+            logger.info("Shutdown hook triggered. Stopping server...");
+            stop();
+          });
+      Runtime.getRuntime().addShutdownHook(shutdownHook);
+
+      if (logger.isDebugEnabled()) {
+        logger.debug("🚀 STARTING WEBTRANSPORT SERVER...");
+      }
+
+      Bootstrap bootstrap = new Bootstrap();
+      String resolvedTransport = this.transportType != null ? this.transportType
+          : WebTransportConfig.get("webtransport4j.server.transport", "auto");
+      TransportConfig transportConfig = resolveTransport(resolvedTransport, bootstrap);
+
+      this.group = new MultiThreadIoEventLoopGroup(
+          Runtime.getRuntime().availableProcessors(), transportConfig.ioHandlerFactory);
+
+      setupTrafficShaping();
+
+      QuicSslContext sslCtx = buildSslContext();
+      this.activeSslContext = sslCtx;
+
+      String resolvedKeyPath = this.sslKeyPath != null ? this.sslKeyPath
+          : WebTransportConfig.get("webtransport4j.ssl.key.path", null);
+      String resolvedCertPath = this.sslCertPath != null ? this.sslCertPath
+          : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
+      boolean hotReloadEnabled = WebTransportConfig.getBoolean("webtransport4j.ssl.hot_reload.enabled", true);
+
+      if (hotReloadEnabled && resolvedKeyPath != null && resolvedCertPath != null) {
+        this.tlsWatcher = new TlsCertificateWatcher(resolvedKeyPath, resolvedCertPath, newCtx -> {
+          this.activeSslContext = newCtx;
         });
-    Runtime.getRuntime().addShutdownHook(shutdownHook);
+        this.tlsWatcher.start();
+      }
 
-    if (logger.isDebugEnabled()) {
-      logger.debug("🚀 STARTING WEBTRANSPORT SERVER...");
-    }
+      Http3Settings settings = buildHttp3Settings();
 
-    Bootstrap bootstrap = new Bootstrap();
-    String resolvedTransport = this.transportType != null ? this.transportType : WebTransportConfig.get("webtransport4j.server.transport", "auto");
-    TransportConfig transportConfig = resolveTransport(resolvedTransport, bootstrap);
+      long idleTimeout = this.idleTimeoutSeconds != null ? this.idleTimeoutSeconds
+          : (long) WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60);
 
-    this.group =
-        new MultiThreadIoEventLoopGroup(
-            Runtime.getRuntime().availableProcessors(), transportConfig.ioHandlerFactory);
+      QuicServerCodecBuilder builder = Http3.newQuicServerCodecBuilder()
+          .sslContext(sslCtx)
+          .maxIdleTimeout(idleTimeout, TimeUnit.SECONDS)
+          .initialMaxData(this.initialMaxData != null ? this.initialMaxData
+              : WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L))
+          .initialMaxStreamDataBidirectionalLocal(
+              WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
+          .initialMaxStreamDataBidirectionalRemote(
+              WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
+          .initialMaxStreamsBidirectional(
+              this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi
+                  : WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L))
+          .datagram(
+              WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
+              WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
+          .initialMaxStreamsUnidirectional(
+              this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni
+                  : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L))
+          .initialMaxStreamDataUnidirectional(
+              WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
+          .tokenHandler(resolveTokenHandler())
+          .handler(
+              new QuicChannelInitializer(
+                  this, settings, businessExecutor, resolvedOrigins, globalActiveSessions));
 
-    setupTrafficShaping();
+      configureOptionalQuicParams(builder);
 
-    QuicSslContext sslCtx = buildSslContext();
-    Http3Settings settings = buildHttp3Settings();
-
-    long idleTimeout = this.idleTimeoutSeconds != null ? this.idleTimeoutSeconds : (long) WebTransportConfig.getInt("webtransport4j.quic.idle.timeout.seconds", 60);
-
-    QuicServerCodecBuilder builder =
-        Http3.newQuicServerCodecBuilder()
-            .sslContext(sslCtx)
-            .maxIdleTimeout(idleTimeout, TimeUnit.SECONDS)
-            .initialMaxData(this.initialMaxData != null ? this.initialMaxData : WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L))
-            .initialMaxStreamDataBidirectionalLocal(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.local", 0L))
-            .initialMaxStreamDataBidirectionalRemote(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.bidi.remote", 0L))
-            .initialMaxStreamsBidirectional(
-                this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi : WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L))
-            .datagram(
-                WebTransportConfig.getInt("webtransport4j.quic.datagram.recv.queue.len", 0),
-                WebTransportConfig.getInt("webtransport4j.quic.datagram.send.queue.len", 0))
-            .initialMaxStreamsUnidirectional(
-                this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L))
-            .initialMaxStreamDataUnidirectional(
-                WebTransportConfig.getLong("webtransport4j.quic.stream.data.uni", 0L))
-            .tokenHandler(resolveTokenHandler())
-            .handler(
-                new QuicChannelInitializer(
-                    this, settings, businessExecutor, resolvedOrigins, globalActiveSessions));
-
-    configureOptionalQuicParams(builder);
-
-    ChannelHandler serverCodec = builder.build();
-    bindServer(bootstrap, transportConfig, serverCodec, targetPort);
-    state.set(ServerState.STARTED);
+      ChannelHandler serverCodec = builder.build();
+      bindServer(bootstrap, transportConfig, serverCodec, targetPort);
+      state.set(ServerState.STARTED);
     } catch (Exception e) {
       state.set(ServerState.STOPPED);
       throw e;
@@ -390,9 +427,8 @@ public class WebTransportServer {
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
 
           @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz =
-              (Class<? extends Channel>)
-                  Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          Class<? extends Channel> clazz = (Class<? extends Channel>) Class
+              .forName("io.netty.channel.uring.IOUringDatagramChannel");
           channelClass = clazz;
 
           logger.info("Using IOUring native transport");
@@ -421,8 +457,7 @@ public class WebTransportServer {
           boolean udpGro = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true);
           epollGroEnabled = udpGro;
           @SuppressWarnings("unchecked")
-          ChannelOption<Boolean> udpGroOption =
-              (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+          ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
           bootstrap.option(udpGroOption, udpGro);
 
           boolean udpGso = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true);
@@ -437,9 +472,8 @@ public class WebTransportServer {
                 EpollQuicUtils.newSegmentedAllocator(gsoSize));
           }
           @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz =
-              (Class<? extends Channel>)
-                  Class.forName("io.netty.channel.epoll.EpollDatagramChannel");
+          Class<? extends Channel> clazz = (Class<? extends Channel>) Class
+              .forName("io.netty.channel.epoll.EpollDatagramChannel");
           channelClass = clazz;
 
           logger.info("Using Epoll native transport");
@@ -465,9 +499,8 @@ public class WebTransportServer {
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
 
           @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz =
-              (Class<? extends Channel>)
-                  Class.forName("io.netty.channel.kqueue.KQueueDatagramChannel");
+          Class<? extends Channel> clazz = (Class<? extends Channel>) Class
+              .forName("io.netty.channel.kqueue.KQueueDatagramChannel");
           channelClass = clazz;
 
           logger.info("Using KQueue native transport");
@@ -491,13 +524,10 @@ public class WebTransportServer {
   }
 
   private void setupTrafficShaping() {
-    long globalWriteLimit =
-        WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
-    long globalReadLimit =
-        WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
+    long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
+    long globalReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
     if (globalWriteLimit > 0 || globalReadLimit > 0) {
-      globalTrafficShaper =
-          new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+      globalTrafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
     }
   }
 
@@ -505,8 +535,10 @@ public class WebTransportServer {
     if (this.sslContext != null) {
       return this.sslContext;
     }
-    String keyPath = this.sslKeyPath != null ? this.sslKeyPath : WebTransportConfig.get("webtransport4j.ssl.key.path", null);
-    String certPath = this.sslCertPath != null ? this.sslCertPath : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
+    String keyPath = this.sslKeyPath != null ? this.sslKeyPath
+        : WebTransportConfig.get("webtransport4j.ssl.key.path", null);
+    String certPath = this.sslCertPath != null ? this.sslCertPath
+        : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
     if (keyPath == null && certPath == null) {
       File keyFile = new File("localhost-key.pem");
       File certFile = new File("localhost.pem");
@@ -515,15 +547,12 @@ public class WebTransportServer {
         certPath = certFile.getAbsolutePath();
       }
     }
-    long sessionTimeout =
-        WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
-    long sessionCacheSize =
-        WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
+    long sessionTimeout = WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
+    long sessionCacheSize = WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
     QuicSslContext resolvedSslCtx;
     if (keyPath != null && certPath != null) {
-      QuicSslContextBuilder builder =
-          QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
-              .applicationProtocols(Http3.supportedApplicationProtocols());
+      QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
+          .applicationProtocols(Http3.supportedApplicationProtocols());
       if (sessionTimeout > 0) {
         builder.sessionTimeout(sessionTimeout);
       }
@@ -571,27 +600,27 @@ public class WebTransportServer {
   }
 
   private @NonNull Http3Settings buildHttp3Settings() {
-    String allowedProp =
-        WebTransportConfig.getNonNull(
-            "webtransport4j.webtransport.settings.nonstandardallowed",
-            "0x2c7cf000,0x2b64,0x2b65,0x2b61");
+    String allowedProp = WebTransportConfig.getNonNull(
+        "webtransport4j.webtransport.settings.nonstandardallowed",
+        "0x2c7cf000,0x2b64,0x2b65,0x2b61");
 
     Set<Long> allowed = new HashSet<>();
     for (String val : allowedProp.split(",")) {
       allowed.add(Long.decode(val.trim()));
     }
     Http3Settings settings = new Http3Settings((id, value) -> allowed.contains(id));
-    long wtMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni :
-        WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.uni", 0L);
-    long wtMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi :
-        WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.bidi", 0L);
-    long wtInitialMaxData = this.initialMaxData != null ? this.initialMaxData :
-        WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.data", 0L);
-    long quicMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L);
-    long quicMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi :
-        WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
-    long quicInitialMaxData = this.initialMaxData != null ? this.initialMaxData :
-        WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
+    long wtMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni
+        : WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.uni", 0L);
+    long wtMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi
+        : WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.streams.bidi", 0L);
+    long wtInitialMaxData = this.initialMaxData != null ? this.initialMaxData
+        : WebTransportConfig.getLong("webtransport4j.webtransport.initial.max.data", 0L);
+    long quicMaxStreamsUni = this.initialMaxStreamsUni != null ? this.initialMaxStreamsUni
+        : WebTransportConfig.getLong("webtransport4j.quic.max.streams.uni", 0L);
+    long quicMaxStreamsBidi = this.initialMaxStreamsBidi != null ? this.initialMaxStreamsBidi
+        : WebTransportConfig.getLong("webtransport4j.quic.max.streams.bidi", 0L);
+    long quicInitialMaxData = this.initialMaxData != null ? this.initialMaxData
+        : WebTransportConfig.getLong("webtransport4j.quic.initial.max.data", 0L);
     validateConfig(
         quicMaxStreamsBidi,
         wtMaxStreamsBidi,
@@ -624,14 +653,12 @@ public class WebTransportServer {
       builder.grease(Boolean.parseBoolean(greaseVal));
     }
 
-    String maxSendUdpVal =
-        WebTransportConfig.get("webtransport4j.quic.payload.size.send.max", null);
+    String maxSendUdpVal = WebTransportConfig.get("webtransport4j.quic.payload.size.send.max", null);
     if (maxSendUdpVal != null) {
       builder.maxSendUdpPayloadSize(Long.parseLong(maxSendUdpVal));
     }
 
-    String maxRecvUdpVal =
-        WebTransportConfig.get("webtransport4j.quic.payload.size.recv.max", null);
+    String maxRecvUdpVal = WebTransportConfig.get("webtransport4j.quic.payload.size.recv.max", null);
     if (maxRecvUdpVal != null) {
       builder.maxRecvUdpPayloadSize(Long.parseLong(maxRecvUdpVal));
     }
@@ -646,8 +673,7 @@ public class WebTransportServer {
       builder.maxAckDelay(Long.parseLong(maxAckDelayVal), TimeUnit.MILLISECONDS);
     }
 
-    String migrationVal =
-        WebTransportConfig.get("webtransport4j.quic.active.migration.enabled", null);
+    String migrationVal = WebTransportConfig.get("webtransport4j.quic.active.migration.enabled", null);
     if (migrationVal != null) {
       builder.activeMigration(Boolean.parseBoolean(migrationVal));
     }
@@ -657,14 +683,12 @@ public class WebTransportServer {
       builder.hystart(Boolean.parseBoolean(hystartVal));
     }
 
-    String discoverPmtuVal =
-        WebTransportConfig.get("webtransport4j.quic.discover.pmtu.enabled", null);
+    String discoverPmtuVal = WebTransportConfig.get("webtransport4j.quic.discover.pmtu.enabled", null);
     if (discoverPmtuVal != null) {
       builder.discoverPmtu(Boolean.parseBoolean(discoverPmtuVal));
     }
 
-    String ccAlgoVal =
-        WebTransportConfig.get("webtransport4j.quic.congestion.control.algorithm", null);
+    String ccAlgoVal = WebTransportConfig.get("webtransport4j.quic.congestion.control.algorithm", null);
     if (ccAlgoVal != null) {
       try {
         builder.congestionControlAlgorithm(
@@ -674,20 +698,17 @@ public class WebTransportServer {
       }
     }
 
-    String initialCwndVal =
-        WebTransportConfig.get("webtransport4j.quic.initial.congestion.window.packets", null);
+    String initialCwndVal = WebTransportConfig.get("webtransport4j.quic.initial.congestion.window.packets", null);
     if (initialCwndVal != null) {
       builder.initialCongestionWindowPackets(Integer.parseInt(initialCwndVal));
     }
 
-    String localConnIdLenVal =
-        WebTransportConfig.get("webtransport4j.quic.connection.id.length.local", null);
+    String localConnIdLenVal = WebTransportConfig.get("webtransport4j.quic.connection.id.length.local", null);
     if (localConnIdLenVal != null) {
       builder.localConnectionIdLength(Integer.parseInt(localConnIdLenVal));
     }
 
-    String activeConnIdLimitVal =
-        WebTransportConfig.get("webtransport4j.quic.connection.id.limit.active", null);
+    String activeConnIdLimitVal = WebTransportConfig.get("webtransport4j.quic.connection.id.limit.active", null);
     if (activeConnIdLimitVal != null) {
       builder.activeConnectionIdLimit(Long.parseLong(activeConnIdLimitVal));
     }
@@ -697,8 +718,7 @@ public class WebTransportServer {
       Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, int targetPort)
       throws Exception {
     int defaultRecvBufSize = transportConfig.epollGroEnabled ? 65536 : 2048;
-    int recvBufSize =
-        WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
+    int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
     int sndBuf = WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", 0);
@@ -710,13 +730,12 @@ public class WebTransportServer {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
 
-    ChannelFuture bindFuture =
-        bootstrap
-            .group(group)
-            .channel(transportConfig.channelClass)
-            .handler(serverCodec)
-            .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
-            .bind(new InetSocketAddress(targetPort));
+    ChannelFuture bindFuture = bootstrap
+        .group(group)
+        .channel(transportConfig.channelClass)
+        .handler(serverCodec)
+        .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
+        .bind(new InetSocketAddress(targetPort));
 
     bindFuture.sync();
     this.channel = bindFuture.channel();
@@ -739,6 +758,10 @@ public class WebTransportServer {
       return;
     }
     try {
+      if (tlsWatcher != null) {
+        tlsWatcher.stop();
+        tlsWatcher = null;
+      }
       if (shutdownHook != null) {
         try {
           Runtime.getRuntime().removeShutdownHook(shutdownHook);
@@ -800,9 +823,8 @@ public class WebTransportServer {
       logger.info("🔑 QUIC Token Handler configured: INSECURE (InsecureQuicTokenHandler)");
       return InsecureQuicTokenHandler.INSTANCE;
     } else if ("hmac".equalsIgnoreCase(tokenHandlerType)) {
-      long expirationMs =
-          WebTransportConfig.getLong(
-              "webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L);
+      long expirationMs = WebTransportConfig.getLong(
+          "webtransport4j.quic.token.handler.hmac.expiration.ms", 60000L);
       String keyHex = WebTransportConfig.get("webtransport4j.quic.token.handler.hmac.key", null);
       if (keyHex != null && !keyHex.trim().isEmpty()) {
         byte[] key = parseHex(keyHex);
@@ -826,8 +848,7 @@ public class WebTransportServer {
     } else {
       try {
         logger.info("🔑 QUIC Token Handler configured: Custom Class ({})", tokenHandlerType);
-        return (QuicTokenHandler)
-            Class.forName(tokenHandlerType).getDeclaredConstructor().newInstance();
+        return (QuicTokenHandler) Class.forName(tokenHandlerType).getDeclaredConstructor().newInstance();
       } catch (Exception e) {
         logger.error(
             "❌ Failed to load custom QuicTokenHandler: {}. Falling back to HmacQuicTokenHandler.",

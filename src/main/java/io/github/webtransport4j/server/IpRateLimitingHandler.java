@@ -15,17 +15,48 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
+import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
+import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 
 /** Handler for rate-limiting connections per IP. */
 public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
 
-  // Simplified token bucket / sliding window per minute
+  // Simplified token bucket / sliding window per minute (retained for backward compatibility)
   private static final Map<String, ConnectionCount> ipCounts = new ConcurrentHashMap<>();
-  private static final AtomicBoolean clearing = new AtomicBoolean(false);
-  private static volatile long currentMinute = System.currentTimeMillis() / 60000;
+  private static volatile RateLimitBackend backend = createBackend();
+
+  private static RateLimitBackend createBackend() {
+    String backendType = WebTransportConfig.get("webtransport4j.server.ratelimit.backend", "local").toLowerCase();
+    if ("redis".equals(backendType)) {
+      logger.info("⚡ Configured RedisRateLimitBackend for distributed IP rate limiting.");
+      return new RedisRateLimitBackend();
+    } else if (!"local".equals(backendType)) {
+      try {
+        Class<?> clazz = Class.forName(backendType);
+        if (RateLimitBackend.class.isAssignableFrom(clazz)) {
+          logger.info("⚡ Custom RateLimitBackend loaded: {}", backendType);
+          return (RateLimitBackend) clazz.getDeclaredConstructor().newInstance();
+        }
+      } catch (Exception e) {
+        logger.error("❌ Failed to load custom RateLimitBackend class: {}. Falling back to local.", backendType, e);
+      }
+    }
+    return new LocalMemoryRateLimitBackend();
+  }
+
+  public static void setBackend(@NonNull RateLimitBackend customBackend) {
+    backend = customBackend;
+  }
+
+  public static RateLimitBackend getBackend() {
+    return backend;
+  }
 
   private static class SharedRateLimitRules {
     final int maxConnectionsPerMinute;
@@ -157,10 +188,12 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       reloaderExecutor = null;
     }
     ipCounts.clear();
+    backend.clear();
   }
 
   public static void clearState() {
     ipCounts.clear();
+    backend.clear();
   }
 
   public static synchronized void ensureReloaderStarted() {
@@ -252,36 +285,21 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         }
 
         long nowMinute = System.currentTimeMillis() / 60000;
-        if (nowMinute != currentMinute) {
-          if (clearing.compareAndSet(false, true)) {
-            try {
-              ipCounts.clear();
-              currentMinute = nowMinute;
-            } finally {
-              clearing.set(false);
-            }
-          }
-        }
-
         int effectiveMax = maxConnectionsPerMinute;
         Integer overrideMax = overridesEngine.match((InetSocketAddress) remoteSocketAddress);
         if (overrideMax != null) {
           effectiveMax = overrideMax;
         }
 
-        ConnectionCount count = ipCounts.get(ip);
-        if (count == null) {
-          if (ipCounts.size() >= maxTrackedIps) {
-            logger.warn(
-                "❌ Rate Limiter State Table Full ({} entries). Dropping connection from IP: {}.",
-                maxTrackedIps,
-                ip);
-            ctx.close();
-            return;
-          }
-          count = ipCounts.computeIfAbsent(ip, k -> new ConnectionCount());
+        int current = backend.incrementAndGet(ip, nowMinute, maxTrackedIps);
+        if (current == Integer.MAX_VALUE) {
+          logger.warn(
+              "❌ Rate Limiter State Table Full ({} entries). Dropping connection from IP: {}.",
+              maxTrackedIps,
+              ip);
+          ctx.close();
+          return;
         }
-        int current = count.incrementAndGet();
 
         if (current > effectiveMax) {
           logger.warn(
