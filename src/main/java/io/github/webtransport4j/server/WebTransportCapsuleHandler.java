@@ -18,12 +18,9 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
   @Override
   protected void channelRead0(
       @NonNull ChannelHandlerContext ctx, @NonNull WebTransportCapsule capsule) throws Exception {
-    logger.info("ℹ️ CAPSULE_RECEIVED: type=0x" + Long.toHexString(capsule.capsuleType()) 
-        + ", sessionId=" + capsule.sessionId());
     if (logger.isDebugEnabled()) {
-      logger.debug(
-          "🚷 Received protocol capsule on EventLoop: 0x{}",
-          Long.toHexString(capsule.capsuleType()));
+      logger.debug("💊 CAPSULE_RECEIVED: type=0x{}, sessionId={}",
+          Long.toHexString(capsule.capsuleType()), capsule.sessionId());
     }
     if (capsule.capsuleType() == 0x2843L) {
       // Read 32-bit error code if payload is present
