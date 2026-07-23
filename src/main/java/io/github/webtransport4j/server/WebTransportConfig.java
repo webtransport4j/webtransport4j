@@ -67,7 +67,7 @@ public class WebTransportConfig {
         WebTransportConfig.class.getClassLoader().getResourceAsStream("webtransport-dynamic.properties")) {
       if (in != null) {
         target.load(in);
-        logger.info("📡 Loaded default dynamic configuration from classpath resources");
+        logger.debug("📡 Loaded default dynamic configuration from classpath resources");
         return;
       }
     } catch (Exception e) {

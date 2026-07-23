@@ -22,6 +22,8 @@ final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleDecoder.class);
 
+  private long cachedSessionId = -1L;
+
   @Override
   protected void decode(
       @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf in, @NonNull List<Object> out) {
@@ -38,13 +40,15 @@ final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
         return;
       }
       ByteBuf capVal = in.readRetainedSlice((int) capLen);
-      Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
-      long sessionId = (sessId != null) ? sessId : ((QuicStreamChannel) ctx.channel()).streamId();
+      if (cachedSessionId == -1L) {
+        Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+        cachedSessionId = (sessId != null) ? sessId : ((QuicStreamChannel) ctx.channel()).streamId();
+      }
       if (logger.isTraceEnabled()) {
         logger.trace("💊 Received Capsule | Type: 0x{} | Length: {} | Hex: {}",
                 capType, capLen, ByteBufUtil.hexDump(capVal));
       }
-      out.add(new WebTransportCapsule(sessionId, capType, capVal));
+      out.add(new WebTransportCapsule(cachedSessionId, capType, capVal));
     }
   }
 }

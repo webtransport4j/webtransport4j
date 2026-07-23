@@ -35,15 +35,16 @@ public class WebTransportUniStreamHeaderDecoder extends ByteToMessageDecoder {
         in.resetReaderIndex();
         return;
       }
+      // Write all stream-invariant attributes exactly once
       ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
+      ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(this.streamType);
+      String savedPath = ctx.channel().parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
+      ctx.channel().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(savedPath);
       sessionHeaderRead = true;
     }
     if (!in.isReadable()) {
       return;
     }
-    String savedPath = ctx.channel().parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
-    ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(this.streamType);
-    ctx.channel().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(savedPath);
     out.add(in.readRetainedSlice(in.readableBytes()));
   }
 }
