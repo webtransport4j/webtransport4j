@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +36,7 @@ import org.slf4j.LoggerFactory;
 public class WebTransportClientTestSuite {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportClientTestSuite.class);
-    private static final Set<String> pendingVerifications = ObjectSets.synchronize(new ObjectOpenHashSet<>());
+    private static final Set<String> pendingVerifications = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final List<Consumer<String>> uniStreamListeners = new CopyOnWriteArrayList<>();
 
     private static class Session {

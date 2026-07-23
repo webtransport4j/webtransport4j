@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -33,7 +34,7 @@ public class WebTransportChatHandler implements WebTransportHandler {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportChatHandler.class);
 
   // In-memory registry of active users: Session -> ChatUser
-  private final Map<WebTransportSession, ChatUser> users = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
+  private final Map<WebTransportSession, ChatUser> users = new ConcurrentHashMap<>();
 
   // Demultiplexing headers
   private static final byte STREAM_TYPE_CONTROL = 0x01;

@@ -41,6 +41,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -76,7 +77,7 @@ public class WebTransportServer {
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
 
-  private final Map<String, WebTransportHandler> handlers = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
+  private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private WebTransportHandler defaultHandler;
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);

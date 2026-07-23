@@ -11,9 +11,7 @@ import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -28,7 +26,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
 
   // Simplified token bucket / sliding window per minute (retained for backward compatibility)
-  private static final Map<String, ConnectionCount> ipCounts = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
+  private static final Map<String, ConnectionCount> ipCounts = new ConcurrentHashMap<>();
   private static volatile RateLimitBackend backend = createBackend();
 
   private static RateLimitBackend createBackend() {

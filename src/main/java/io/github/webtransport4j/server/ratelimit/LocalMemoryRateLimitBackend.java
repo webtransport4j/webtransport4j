@@ -3,6 +3,7 @@ package io.github.webtransport4j.server.ratelimit;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
@@ -12,7 +13,7 @@ import org.jspecify.annotations.NonNull;
  */
 public class LocalMemoryRateLimitBackend implements RateLimitBackend {
 
-  private final Map<String, ConnectionCount> ipCounts = Object2ObjectMaps.synchronize(new Object2ObjectOpenHashMap<>());
+  private final Map<String, ConnectionCount> ipCounts = new ConcurrentHashMap<>();
   private final AtomicBoolean clearing = new AtomicBoolean(false);
   private volatile long currentMinute = System.currentTimeMillis() / 60000;
 

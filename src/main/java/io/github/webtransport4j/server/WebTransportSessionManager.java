@@ -10,6 +10,8 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.Collection;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -33,7 +35,7 @@ public class WebTransportSessionManager {
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
-  private final Long2ObjectMap<WebTransportSession> sessions = Long2ObjectMaps.synchronize(new Long2ObjectOpenHashMap<>());
+  private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
