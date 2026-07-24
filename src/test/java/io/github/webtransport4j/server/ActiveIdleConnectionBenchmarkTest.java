@@ -288,8 +288,11 @@ public class ActiveIdleConnectionBenchmarkTest {
         for (java.util.concurrent.ScheduledFuture<?> task : slicePingTasks) {
           task.cancel(false);
         }
-        // Allow in-flight responses to drain before closing sockets
-        TimeUnit.MILLISECONDS.sleep(2000);
+        // Allow in-flight responses to drain before checking final accuracy count
+        long drainDeadline = System.currentTimeMillis() + 10000;
+        while (totalRecvMsgs.get() < totalSentMsgs.get() && System.currentTimeMillis() < drainDeadline) {
+          TimeUnit.MILLISECONDS.sleep(200);
+        }
 
         // Assert health of all connections
         assertAllSessionsHealthy(allSessions, totalConnections);
