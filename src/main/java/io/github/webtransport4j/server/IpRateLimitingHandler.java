@@ -13,7 +13,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -187,12 +189,12 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     clearState();
   }
 
-  private static ScheduledExecutorService reloaderExecutor;
+  private static final AtomicReference<ScheduledExecutorService> reloaderExecutor = new AtomicReference<>();
 
-  public static synchronized void stopReloader() {
-    if (reloaderExecutor != null) {
-      reloaderExecutor.shutdownNow();
-      reloaderExecutor = null;
+  public static void stopReloader() {
+    ScheduledExecutorService executor = reloaderExecutor.getAndSet(null);
+    if (executor != null) {
+      executor.shutdownNow();
     }
     ipCounts.clear();
     backend.clear();
@@ -203,28 +205,32 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     backend.clear();
   }
 
-  public static synchronized void ensureReloaderStarted() {
-    if (reloaderExecutor == null || reloaderExecutor.isShutdown()) {
+  public static void ensureReloaderStarted() {
+    if (reloaderExecutor.get() == null) {
       boolean reloadEnabled =
           WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
       if (reloadEnabled) {
         int reloadInterval =
             WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
         if (reloadInterval > 0) {
-          reloaderExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+          ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "wt-rate-limit-reloader");
             t.setDaemon(true);
             return t;
           });
-          reloaderExecutor.scheduleAtFixedRate(() -> {
-            try {
-              if (WebTransportConfig.reload()) {
-                reloadSharedConfig();
+          if (reloaderExecutor.compareAndSet(null, executor)) {
+            executor.scheduleAtFixedRate(() -> {
+              try {
+                if (WebTransportConfig.reload()) {
+                  reloadSharedConfig();
+                }
+              } catch (Exception e) {
+                logger.error("Error reloading configuration in background", e);
               }
-            } catch (Exception e) {
-              logger.error("Error reloading configuration in background", e);
-            }
-          }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
+            }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
+          } else {
+            executor.shutdownNow();
+          }
         }
       }
     }
