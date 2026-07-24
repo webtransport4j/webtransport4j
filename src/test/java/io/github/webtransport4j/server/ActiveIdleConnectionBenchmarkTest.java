@@ -9,8 +9,10 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import java.lang.reflect.Method;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
@@ -137,12 +139,14 @@ public class ActiveIdleConnectionBenchmarkTest {
   private void runActiveIdleTier(int totalConnections, int activeConnections, long durationSeconds)
       throws Exception {
     int channelCount = Math.min(totalConnections, MAX_CLIENT_UDP_CHANNELS);
-    NioEventLoopGroup eventLoopGroup =
-        new NioEventLoopGroup(Math.min(channelCount, MAX_CLIENT_THREADS));
-    ExecutorService connectWorkers =
-        Executors.newFixedThreadPool(Math.min(channelCount, MAX_CLIENT_THREADS));
-    ScheduledExecutorService activeMessageScheduler =
-        Executors.newScheduledThreadPool(Math.min(activeConnections, MAX_CLIENT_THREADS));
+    int cpus = Math.max(2, Runtime.getRuntime().availableProcessors());
+    int ioThreadCount = positiveProperty("benchmark.client.threads", Math.min(channelCount, cpus * 2));
+    int workerThreadCount = positiveProperty("benchmark.worker.threads", Math.min(channelCount, cpus * 4));
+
+    ClientTransport transport = ClientTransport.create(ioThreadCount);
+    EventLoopGroup eventLoopGroup = transport.group;
+    ExecutorService connectWorkers = Executors.newFixedThreadPool(workerThreadCount);
+    ScheduledExecutorService activeMessageScheduler = Executors.newScheduledThreadPool(workerThreadCount);
 
     List<Throwable> failures = Collections.synchronizedList(new ArrayList<Throwable>());
     AtomicInteger successfulConnections = new AtomicInteger();
@@ -161,7 +165,7 @@ public class ActiveIdleConnectionBenchmarkTest {
     try {
       // 1. Bind UDP channel pool
       for (int i = 0; i < channelCount; i++) {
-        udpChannels.add(bindClientChannel(eventLoopGroup));
+        udpChannels.add(bindClientChannel(transport));
       }
 
       // 2. Open N total WebTransport connections asynchronously
@@ -324,13 +328,13 @@ public class ActiveIdleConnectionBenchmarkTest {
     }
   }
 
-  private ClientDatagramChannel bindClientChannel(NioEventLoopGroup eventLoopGroup)
+  private ClientDatagramChannel bindClientChannel(ClientTransport transport)
       throws InterruptedException {
     QuicSslContext sslContext = createClientSslContext();
     Channel channel =
         new Bootstrap()
-            .group(eventLoopGroup)
-            .channel(NioDatagramChannel.class)
+            .group(transport.group)
+            .channel(transport.channelClass)
             .option(ChannelOption.SO_RCVBUF, 16 * 1024 * 1024)
             .option(ChannelOption.SO_SNDBUF, 16 * 1024 * 1024)
             .handler(newClientCodec(sslContext))
@@ -338,6 +342,51 @@ public class ActiveIdleConnectionBenchmarkTest {
             .sync()
             .channel();
     return new ClientDatagramChannel(channel, sslContext);
+  }
+
+  private static final class ClientTransport {
+    final EventLoopGroup group;
+    final Class<? extends Channel> channelClass;
+
+    ClientTransport(EventLoopGroup group, Class<? extends Channel> channelClass) {
+      this.group = group;
+      this.channelClass = channelClass;
+    }
+
+    static ClientTransport create(int threadCount) {
+      try {
+        Class<?> epollClass = Class.forName("io.netty.channel.epoll.Epoll");
+        Method isAvailable = epollClass.getMethod("isAvailable");
+        if ((Boolean) isAvailable.invoke(null)) {
+          Class<?> groupClass = Class.forName("io.netty.channel.epoll.EpollEventLoopGroup");
+          Class<?> channelClass = Class.forName("io.netty.channel.epoll.EpollDatagramChannel");
+          EventLoopGroup group = (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
+          @SuppressWarnings("unchecked")
+          Class<? extends Channel> castChannel = (Class<? extends Channel>) channelClass;
+          logger.info("⚡ Client using Linux Epoll native transport");
+          return new ClientTransport(group, castChannel);
+        }
+      } catch (Throwable ignored) {
+      }
+
+      try {
+        Class<?> kqueueClass = Class.forName("io.netty.channel.kqueue.KQueue");
+        Method isAvailable = kqueueClass.getMethod("isAvailable");
+        if ((Boolean) isAvailable.invoke(null)) {
+          Class<?> groupClass = Class.forName("io.netty.channel.kqueue.KQueueEventLoopGroup");
+          Class<?> channelClass = Class.forName("io.netty.channel.kqueue.KQueueDatagramChannel");
+          EventLoopGroup group = (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
+          @SuppressWarnings("unchecked")
+          Class<? extends Channel> castChannel = (Class<? extends Channel>) channelClass;
+          logger.info("⚡ Client using macOS KQueue native transport");
+          return new ClientTransport(group, castChannel);
+        }
+      } catch (Throwable ignored) {
+      }
+
+      logger.info("⚡ Client using Java NIO transport");
+      return new ClientTransport(new NioEventLoopGroup(threadCount), NioDatagramChannel.class);
+    }
   }
 
   private ChannelHandler newClientCodec(QuicSslContext sslContext) {
