@@ -53,6 +53,7 @@ public class BenchmarkServerRunner {
     System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "1000000");
     System.setProperty("webtransport4j.allowed.origins", "*");
     System.setProperty("webtransport4j.server.allowed_origins", "*");
+    System.setProperty("webtransport4j.quic.token.handler", "insecure");
 
     WebTransportServer server = new WebTransportServer();
     server.registerHandler("/bench", new EchoHandler());

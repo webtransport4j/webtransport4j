@@ -174,9 +174,17 @@ public class ActiveIdleConnectionBenchmarkTest {
         final int firstConnection = channelIndex;
         connectWorkers.execute(
             () -> {
+              long connectPacingMs = Long.getLong("benchmark.connect.pacing.ms", 1L);
               for (int connection = firstConnection;
                   connection < totalConnections;
                   connection += channelCount) {
+                if (connectPacingMs > 0 && (connection / channelCount) % 5 == 0) {
+                  try {
+                    TimeUnit.MILLISECONDS.sleep(connectPacingMs);
+                  } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                  }
+                }
                 try {
                   BenchmarkSession session = openSession(channel.channel, connection, totalRecvMsgs);
                   allSessions.add(session);
