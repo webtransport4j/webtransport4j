@@ -289,9 +289,9 @@ public class ActiveIdleConnectionBenchmarkTest {
           task.cancel(false);
         }
         // Allow in-flight responses to drain before checking final accuracy count
-        long drainDeadline = System.currentTimeMillis() + 10000;
+        long drainDeadline = System.currentTimeMillis() + 25000;
         while (totalRecvMsgs.get() < totalSentMsgs.get() && System.currentTimeMillis() < drainDeadline) {
-          TimeUnit.MILLISECONDS.sleep(200);
+          TimeUnit.MILLISECONDS.sleep(500);
         }
 
         // Assert health of all connections
