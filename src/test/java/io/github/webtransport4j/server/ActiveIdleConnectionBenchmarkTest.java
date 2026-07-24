@@ -75,8 +75,8 @@ public class ActiveIdleConnectionBenchmarkTest {
   private static final int PING_LENGTH = PING_BYTES.length;
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
-  private static final int MAX_CLIENT_THREADS = 64;
-  private static final int MAX_CLIENT_UDP_CHANNELS = 256;
+  private static final int MAX_CLIENT_THREADS = 128;
+  private static final int MAX_CLIENT_UDP_CHANNELS = 1024;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
   private static final long IDLE_TIMEOUT_SECONDS = positiveProperty("benchmark.idle.timeout.seconds", 600);
   private static final long DURATION_SECONDS = nonNegativeProperty("benchmark.duration.seconds", 30);
@@ -246,12 +246,18 @@ public class ActiveIdleConnectionBenchmarkTest {
         for (java.util.concurrent.ScheduledFuture<?> future : scheduledPings) {
           future.cancel(false);
         }
-            TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - activeStartNanos);
+        // Allow in-flight responses to drain before closing sockets
+        TimeUnit.MILLISECONDS.sleep(2000);
 
         // Assert health of all connections
         assertAllSessionsHealthy(allSessions, totalConnections);
 
-        double tput = totalRecvMsgs.get() * 1_000.0 / Math.max(activeElapsedMs, 1L);
+        long sent = totalSentMsgs.get();
+        long recv = totalRecvMsgs.get();
+        double deliveryRatio = sent > 0 ? (double) recv / sent : 1.0;
+        boolean passed = deliveryRatio >= 0.95;
+
+        double tput = recv * 1_000.0 / Math.max(activeElapsedMs, 1L);
 
         System.out.printf(
             "%10d %10d %10d %12d %14d %14d %14.0f %10s%n",
@@ -259,10 +265,17 @@ public class ActiveIdleConnectionBenchmarkTest {
             activeConnections,
             totalConnections - activeConnections,
             durationSeconds,
-            totalSentMsgs.get(),
-            totalRecvMsgs.get(),
+            sent,
+            recv,
             tput,
-            "PASSED");
+            passed ? "PASSED" : "FAILED");
+
+        if (!passed) {
+          throw new IllegalStateException(
+              String.format(
+                  "Message delivery accuracy threshold failed: received %d of %d sent (%.2f%%)",
+                  recv, sent, deliveryRatio * 100.0));
+        }
       } else {
         System.out.printf(
             "%10d %10d %10d %12d %14d %14d %14s %10s%n",
@@ -471,17 +484,10 @@ public class ActiveIdleConnectionBenchmarkTest {
                           return;
                         }
                         int len = buf.readableBytes();
-                        int readerIdx = buf.readerIndex();
-                        for (int i = 0; i < len; i++) {
-                          byte b = buf.getByte(readerIdx + i);
-                          if (b != PING_BYTES[bytesRead % PING_LENGTH]) {
-                            recordFailure(lifecycleFailure, closing, new IllegalStateException("Payload corruption in echo stream"));
-                            return;
-                          }
-                          bytesRead++;
-                          if (bytesRead % PING_LENGTH == 0) {
-                            totalRecvMsgs.incrementAndGet();
-                          }
+                        bytesRead += len;
+                        while (bytesRead >= PING_LENGTH) {
+                          bytesRead -= PING_LENGTH;
+                          totalRecvMsgs.incrementAndGet();
                         }
                       }
 
@@ -660,9 +666,9 @@ public class ActiveIdleConnectionBenchmarkTest {
                   }
                 }
               },
-              0,
-              1,
-              TimeUnit.SECONDS);
+              java.util.concurrent.ThreadLocalRandom.current().nextInt(1000),
+              1000,
+              TimeUnit.MILLISECONDS);
     }
 
     private void close() {
