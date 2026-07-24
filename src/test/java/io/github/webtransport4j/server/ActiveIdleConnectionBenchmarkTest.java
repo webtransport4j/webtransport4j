@@ -81,7 +81,7 @@ public class ActiveIdleConnectionBenchmarkTest {
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
   private static final int MAX_CLIENT_THREADS = 128;
-  private static final int MAX_CLIENT_UDP_CHANNELS = 64;
+  private static final int MAX_CLIENT_UDP_CHANNELS = 4096*2;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
   private static final long IDLE_TIMEOUT_SECONDS = positiveProperty("benchmark.idle.timeout.seconds", 600);
   private static final long DURATION_SECONDS = nonNegativeProperty("benchmark.duration.seconds", 30);
