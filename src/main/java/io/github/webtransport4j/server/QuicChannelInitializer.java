@@ -136,7 +136,12 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
             });
 
     InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
-    String ip = Objects.requireNonNull(remote).getAddress().getHostAddress();
+    if (remote == null || remote.getAddress() == null) {
+      logger.debug("⚠️ Remote socket address is null during channel initialization");
+      ch.close();
+      return;
+    }
+    String ip = remote.getAddress().getHostAddress();
     int port = remote.getPort();
     String nettyId = ch.id().asShortText();
     if (logger.isDebugEnabled()) {
