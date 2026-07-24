@@ -265,12 +265,15 @@ public class ActiveIdleConnectionBenchmarkTest {
                       if (activeSession.isHealthy()) {
                         try {
                           totalSentMsgs.incrementAndGet();
-                          activeSession.sendPing();
+                          activeSession.sendPingNoFlush();
                         } catch (Throwable t) {
                           activeFailures.incrementAndGet();
                           activeSession.recordFailure(t);
                         }
                       }
+                    }
+                    for (BenchmarkSession activeSession : sliceList) {
+                      activeSession.flush();
                     }
                   },
                   s * 100L,
@@ -728,6 +731,18 @@ public class ActiveIdleConnectionBenchmarkTest {
 
     private boolean isHealthy() {
       return lifecycleFailure.get() == null && quicChannel.isActive();
+    }
+
+    private void sendPingNoFlush() {
+      if (isHealthy()) {
+        bidiStream.write(PING_BUF.duplicate());
+      }
+    }
+
+    private void flush() {
+      if (isHealthy()) {
+        bidiStream.flush();
+      }
     }
 
     private void sendPing() {
