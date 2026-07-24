@@ -269,18 +269,10 @@ public class ActiveIdleConnectionBenchmarkTest {
                         if (activeSession.isHealthy()) {
                           try {
                             totalSentMsgs.incrementAndGet();
-                            activeSession.sendPingNoFlush();
+                            activeSession.sendPing();
                           } catch (Throwable t) {
                             activeFailures.incrementAndGet();
                             activeSession.recordFailure(t);
-                          }
-                        }
-                      }
-                      for (BenchmarkSession activeSession : sliceList) {
-                        if (activeSession.isHealthy()) {
-                          try {
-                            activeSession.flush();
-                          } catch (Throwable ignored) {
                           }
                         }
                       }
