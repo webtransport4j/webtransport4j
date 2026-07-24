@@ -7,6 +7,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,14 +20,21 @@ public class BenchmarkServerRunner {
 
   private static final Logger logger = LoggerFactory.getLogger(BenchmarkServerRunner.class);
 
+  public static final AtomicLong serverReceivedMsgs = new AtomicLong();
+  public static final AtomicLong serverSentMsgs = new AtomicLong();
+
   public static class EchoHandler implements WebTransportHandler {
     @Override
     public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
       if (stream.isBidirectional()) {
-        stream.onData(stream::write);
+        stream.onData(
+            data -> {
+              serverReceivedMsgs.incrementAndGet();
+              stream.write(data);
+              serverSentMsgs.incrementAndGet();
+            });
       }
     }
-
   }
 
   public static void main(String[] args) throws Exception {
@@ -106,10 +114,12 @@ public class BenchmarkServerRunner {
           int peakSessions = peakSessionCount.accumulateAndGet(activeSessionCount, Math::max);
 
           logger.info(
-              "📊 SERVER STATS | Sessions: {} (peak {}) | Heap: {} MB | GC Count Δ (5s): {}"
+              "📊 SERVER STATS | Sessions: {} (peak {}) | Server Recv: {} | Server Sent: {} | Heap: {} MB | GC Count Δ (5s): {}"
                   + " | GC Time Δ (5s): {} ms",
               activeSessionCount,
               peakSessions,
+              serverReceivedMsgs.get(),
+              serverSentMsgs.get(),
               heapMb,
               dCount,
               dTime);
