@@ -8,7 +8,12 @@ import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.channel.ChannelHandler;
+
+@ChannelHandler.Sharable
 class QuicGlobalSniffer extends ChannelInboundHandlerAdapter {
+
+  public static final QuicGlobalSniffer GLOBAL = new QuicGlobalSniffer("GLOBAL-CONN");
 
   private static final Logger logger = LoggerFactory.getLogger(QuicGlobalSniffer.class);
 

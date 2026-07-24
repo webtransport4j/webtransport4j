@@ -54,6 +54,7 @@ public class BenchmarkServerRunner {
     System.setProperty("webtransport4j.allowed.origins", "*");
     System.setProperty("webtransport4j.server.allowed_origins", "*");
     System.setProperty("webtransport4j.quic.token.handler", "insecure");
+    System.setProperty("webtransport4j.dev_mode", "true");
 
     WebTransportServer server = new WebTransportServer();
     server.registerHandler("/bench", new EchoHandler());

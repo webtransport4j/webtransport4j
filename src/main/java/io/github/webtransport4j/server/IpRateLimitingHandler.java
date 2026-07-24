@@ -25,6 +25,8 @@ import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 /** Handler for rate-limiting connections per IP. */
 @ChannelHandler.Sharable
 public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
+  public static final IpRateLimitingHandler INSTANCE = new IpRateLimitingHandler();
+
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
 
   // Simplified token bucket / sliding window per minute (retained for backward compatibility)

@@ -94,8 +94,10 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       ch.closeFuture().addListener(f -> connShaper.release());
     }
 
-    ch.pipeline().addFirst(new IpRateLimitingHandler());
-    ch.pipeline().addFirst(new QuicGlobalSniffer("GLOBAL-CONN"));
+    ch.pipeline().addFirst(IpRateLimitingHandler.INSTANCE);
+    if (logger.isDebugEnabled() || logger.isTraceEnabled()) {
+      ch.pipeline().addFirst(QuicGlobalSniffer.GLOBAL);
+    }
 
     // Intercept connection migration events to fire metrics
     ch.pipeline()

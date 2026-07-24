@@ -28,6 +28,7 @@ import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -555,29 +556,31 @@ public class WebTransportServer {
     String certPath = this.sslCertPath != null ? this.sslCertPath
         : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
 
-    File keyFile = keyPath != null ? new File(keyPath) : null;
-    File certFile = certPath != null ? new File(certPath) : null;
+    boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
 
-    if (keyFile == null || !keyFile.exists() || certFile == null || !certFile.exists()) {
-      File userHomeKey = new File(System.getProperty("user.home") + "/Documents/localhost-key.pem");
-      File userHomeCert = new File(System.getProperty("user.home") + "/Documents/localhost.pem");
-      File localKey = new File("localhost-key.pem");
-      File localCert = new File("localhost.pem");
+    File keyFile;
+    File certFile;
 
-      if (userHomeKey.exists() && userHomeCert.exists()) {
-        keyFile = userHomeKey;
-        certFile = userHomeCert;
-      } else if (localKey.exists() && localCert.exists()) {
-        keyFile = localKey;
-        certFile = localCert;
-      } else if (keyFile != null && certFile != null && keyFile.exists() && certFile.exists()) {
-        // use configured
-      } else {
-        logger.info("🔑 Certificate files not found at configured paths. Generating self-signed TLS 1.3 certificate...");
-        io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate("localhost");
-        keyFile = ssc.privateKey();
-        certFile = ssc.certificate();
+    if (keyPath != null && certPath != null) {
+      keyFile = new File(keyPath);
+      certFile = new File(certPath);
+      if (!keyFile.exists() || !certFile.exists()) {
+        throw new IllegalStateException(
+            "Configured SSL certificate files do not exist or are unreadable: key="
+                + keyFile.getAbsolutePath()
+                + ", cert="
+                + certFile.getAbsolutePath());
       }
+    } else if (devMode) {
+      logger.info("🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
+      SelfSignedCertificate ssc = new SelfSignedCertificate("localhost");
+      keyFile = ssc.privateKey();
+      certFile = ssc.certificate();
+    } else {
+      throw new IllegalStateException(
+          "SSL key path and certificate path must be configured for production. "
+              + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path in configuration, "
+              + "or set webtransport4j.dev_mode=true for local development.");
     }
 
     long sessionTimeout = WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
