@@ -262,19 +262,28 @@ public class ActiveIdleConnectionBenchmarkTest {
           slicePingTasks.add(
               activeMessageScheduler.scheduleAtFixedRate(
                   () -> {
-                    for (BenchmarkSession activeSession : sliceList) {
-                      if (activeSession.isHealthy()) {
-                        try {
-                          totalSentMsgs.incrementAndGet();
-                          activeSession.sendPingNoFlush();
-                        } catch (Throwable t) {
-                          activeFailures.incrementAndGet();
-                          activeSession.recordFailure(t);
+                    try {
+                      for (BenchmarkSession activeSession : sliceList) {
+                        if (activeSession.isHealthy()) {
+                          try {
+                            totalSentMsgs.incrementAndGet();
+                            activeSession.sendPingNoFlush();
+                          } catch (Throwable t) {
+                            activeFailures.incrementAndGet();
+                            activeSession.recordFailure(t);
+                          }
                         }
                       }
-                    }
-                    for (BenchmarkSession activeSession : sliceList) {
-                      activeSession.flush();
+                      for (BenchmarkSession activeSession : sliceList) {
+                        if (activeSession.isHealthy()) {
+                          try {
+                            activeSession.flush();
+                          } catch (Throwable ignored) {
+                          }
+                        }
+                      }
+                    } catch (Throwable outer) {
+                      logger.debug("⚠️ Exception in ticker slice ping task: {}", outer.getMessage());
                     }
                   },
                   s * 100L,
