@@ -73,6 +73,8 @@ public class ActiveIdleConnectionBenchmarkTest {
   private static final String PING_PAYLOAD = "BENCH-ACTIVE-PING-1234567890";
   private static final byte[] PING_BYTES = PING_PAYLOAD.getBytes(StandardCharsets.UTF_8);
   private static final int PING_LENGTH = PING_BYTES.length;
+  private static final ByteBuf PING_BUF = Unpooled.unreleasableBuffer(
+      Unpooled.directBuffer(PING_BYTES.length).writeBytes(PING_BYTES));
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
   private static final int MAX_CLIENT_THREADS = 128;
@@ -667,7 +669,7 @@ public class ActiveIdleConnectionBenchmarkTest {
                 if (isHealthy()) {
                   try {
                     totalSentMsgs.incrementAndGet();
-                    bidiStream.writeAndFlush(Unpooled.copiedBuffer(PING_BYTES));
+                    bidiStream.writeAndFlush(PING_BUF.duplicate());
                   } catch (Throwable t) {
                     activeFailures.incrementAndGet();
                     recordFailure(t);
