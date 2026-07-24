@@ -25,6 +25,7 @@ import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 /** Handler for rate-limiting connections per IP. */
 @ChannelHandler.Sharable
 public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
+  private static volatile SharedRateLimitRules sharedRules = new SharedRateLimitRules();
   public static final IpRateLimitingHandler INSTANCE = new IpRateLimitingHandler();
 
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
@@ -174,8 +175,6 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       }
     }
   }
-
-  private static volatile SharedRateLimitRules sharedRules = new SharedRateLimitRules();
 
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
