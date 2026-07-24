@@ -73,8 +73,10 @@ public class ActiveIdleConnectionBenchmarkTest {
   private static final Logger logger =
       LoggerFactory.getLogger(ActiveIdleConnectionBenchmarkTest.class);
 
-  private static final String PING_PAYLOAD = "BENCH-ACTIVE-PING-1234567890";
-  private static final byte[] PING_BYTES = PING_PAYLOAD.getBytes(StandardCharsets.UTF_8);
+  private static final byte[] PING_BYTES = new byte[1024];
+  static {
+    java.util.Arrays.fill(PING_BYTES, (byte) 'A');
+  }
   private static final int PING_LENGTH = PING_BYTES.length;
   private static final ByteBuf PING_BUF = Unpooled.unreleasableBuffer(
       Unpooled.directBuffer(PING_BYTES.length).writeBytes(PING_BYTES));
