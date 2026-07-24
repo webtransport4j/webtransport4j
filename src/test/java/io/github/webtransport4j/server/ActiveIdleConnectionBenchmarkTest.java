@@ -244,22 +244,31 @@ public class ActiveIdleConnectionBenchmarkTest {
 
         long activeStartNanos = System.nanoTime();
 
-        // Schedule 1 msg/sec periodic ping directly on each channel's NioEventLoop
-        List<java.util.concurrent.ScheduledFuture<?>> scheduledPings =
-            new ArrayList<java.util.concurrent.ScheduledFuture<?>>();
-
-        for (BenchmarkSession activeSession : activeSessions) {
-          scheduledPings.add(activeSession.schedulePeriodicPing(totalSentMsgs, activeFailures));
-        }
+        // Launch 1 high-efficiency batch ticker loop (10,000 pings/sec with 0 PriorityQueue timer overhead)
+        java.util.concurrent.ScheduledFuture<?> batchPingTask =
+            activeMessageScheduler.scheduleAtFixedRate(
+                () -> {
+                  for (BenchmarkSession activeSession : activeSessions) {
+                    if (activeSession.isHealthy()) {
+                      try {
+                        totalSentMsgs.incrementAndGet();
+                        activeSession.sendPing();
+                      } catch (Throwable t) {
+                        activeFailures.incrementAndGet();
+                        activeSession.recordFailure(t);
+                      }
+                    }
+                  }
+                },
+                0,
+                1000,
+                TimeUnit.MILLISECONDS);
 
         TimeUnit.SECONDS.sleep(durationSeconds);
         long activeElapsedMs =
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - activeStartNanos);
 
-        // Cancel scheduled ping tasks
-        for (java.util.concurrent.ScheduledFuture<?> future : scheduledPings) {
-          future.cancel(false);
-        }
+        batchPingTask.cancel(false);
         // Allow in-flight responses to drain before closing sockets
         TimeUnit.MILLISECONDS.sleep(2000);
 
@@ -703,6 +712,12 @@ public class ActiveIdleConnectionBenchmarkTest {
 
     private boolean isHealthy() {
       return lifecycleFailure.get() == null && quicChannel.isActive();
+    }
+
+    private void sendPing() {
+      if (isHealthy()) {
+        bidiStream.writeAndFlush(PING_BUF.duplicate());
+      }
     }
 
     private void recordFailure(Throwable cause) {
