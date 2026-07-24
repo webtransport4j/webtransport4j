@@ -244,31 +244,47 @@ public class ActiveIdleConnectionBenchmarkTest {
 
         long activeStartNanos = System.nanoTime();
 
-        // Launch 1 high-efficiency batch ticker loop (10,000 pings/sec with 0 PriorityQueue timer overhead)
-        java.util.concurrent.ScheduledFuture<?> batchPingTask =
-            activeMessageScheduler.scheduleAtFixedRate(
-                () -> {
-                  for (BenchmarkSession activeSession : activeSessions) {
-                    if (activeSession.isHealthy()) {
-                      try {
-                        totalSentMsgs.incrementAndGet();
-                        activeSession.sendPing();
-                      } catch (Throwable t) {
-                        activeFailures.incrementAndGet();
-                        activeSession.recordFailure(t);
+        // Divide active sessions into 10 micro-slice buckets (100ms intervals) to smooth UDP NIC traffic bursts
+        int sliceCount = 10;
+        int sliceSize = (int) Math.ceil((double) activeSessions.size() / sliceCount);
+        List<java.util.concurrent.ScheduledFuture<?>> slicePingTasks =
+            new ArrayList<java.util.concurrent.ScheduledFuture<?>>();
+
+        for (int s = 0; s < sliceCount; s++) {
+          final int startIdx = s * sliceSize;
+          final int endIdx = Math.min(startIdx + sliceSize, activeSessions.size());
+          if (startIdx >= activeSessions.size()) {
+            break;
+          }
+          final List<BenchmarkSession> sliceList = activeSessions.subList(startIdx, endIdx);
+
+          slicePingTasks.add(
+              activeMessageScheduler.scheduleAtFixedRate(
+                  () -> {
+                    for (BenchmarkSession activeSession : sliceList) {
+                      if (activeSession.isHealthy()) {
+                        try {
+                          totalSentMsgs.incrementAndGet();
+                          activeSession.sendPing();
+                        } catch (Throwable t) {
+                          activeFailures.incrementAndGet();
+                          activeSession.recordFailure(t);
+                        }
                       }
                     }
-                  }
-                },
-                0,
-                1000,
-                TimeUnit.MILLISECONDS);
+                  },
+                  s * 100L,
+                  1000L,
+                  TimeUnit.MILLISECONDS));
+        }
 
         TimeUnit.SECONDS.sleep(durationSeconds);
         long activeElapsedMs =
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - activeStartNanos);
 
-        batchPingTask.cancel(false);
+        for (java.util.concurrent.ScheduledFuture<?> task : slicePingTasks) {
+          task.cancel(false);
+        }
         // Allow in-flight responses to drain before closing sockets
         TimeUnit.MILLISECONDS.sleep(2000);
 
