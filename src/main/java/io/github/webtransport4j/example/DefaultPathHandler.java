@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import java.nio.charset.StandardCharsets;
+
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,19 +43,10 @@ public class DefaultPathHandler implements WebTransportHandler {
     stream.onError(
         err -> logger.error("❌ [DEFAULT HANDLER] Stream {} error", stream.streamId(), err));
 
-    LengthPrefixedCodec codec = new LengthPrefixedCodec();
     stream.onData(
-        codec,
-        message -> {
-          System.out.println(
-              "      ["
-                  + stream.streamId()
-                  + "] Received data: "
-                  + new String(message, StandardCharsets.UTF_8));
-
-          byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
-
-          stream.write(codec.encode(payload));
+        buffer -> {
+          logger.debug("📨 [DEFAULT HANDLER] Stream [{}] received {} bytes", stream.streamId(), buffer.readableBytes());
+          stream.write(buffer);
         });
   }
 

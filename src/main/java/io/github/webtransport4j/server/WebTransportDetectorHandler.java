@@ -57,9 +57,6 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
       }
       detected = true;
       hijackPipeline(ctx);
-      if (in.isReadable()) {
-        out.add(in.readRetainedSlice(in.readableBytes()));
-      }
       return;
     }
     if (logger.isDebugEnabled()) {
@@ -69,9 +66,6 @@ final class WebTransportDetectorHandler extends ByteToMessageDecoder {
     }
     detected = true;
     ctx.pipeline().remove(this);
-    if (in.isReadable()) {
-      out.add(in.readRetainedSlice(in.readableBytes()));
-    }
   }
 
   /**

@@ -87,7 +87,7 @@ public class WebTransportServer {
    */
   private volatile WebTransportMetricsListener metricsListener = NoOpWebTransportMetricsListener.INSTANCE;
 
-  private Supplier<MessageDispatcher> messageDispatcherSupplier = DefaultMessageDispatcher::new;
+  private Supplier<MessageDispatcher> messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
   private final ExecutorService businessExecutor;
 
   public static GlobalTrafficShapingHandler globalTrafficShaper;
@@ -231,6 +231,10 @@ public class WebTransportServer {
     return metricsListener;
   }
 
+  public void setMessageDispatcher(@NonNull MessageDispatcher dispatcher) {
+    this.messageDispatcherSupplier = () -> dispatcher;
+  }
+
   public void setMessageDispatcherSupplier(@NonNull Supplier<MessageDispatcher> supplier) {
     this.messageDispatcherSupplier = supplier;
   }
@@ -259,6 +263,11 @@ public class WebTransportServer {
 
   public ExecutorService getBusinessExecutor() {
     return businessExecutor;
+  }
+
+  /** Returns the number of active WebTransport sessions across all QUIC connections. */
+  public int getActiveSessionCount() {
+    return globalActiveSessions.get();
   }
 
   /** Returns the current lifecycle state of the server. */

@@ -86,6 +86,7 @@ public class TlsHotReloadIntegrationTest {
 
   @Test
   public void testUnmockedRealLifeTlsHotReloadIntegration() throws Exception {
+    IpRateLimitingHandler.resetForTest();
     // Step 1: Generate initial certificate 1
     SelfSignedCertificate cert1 = new SelfSignedCertificate("localhost");
     File keyFile = tempFolder.newFile("key.pem");

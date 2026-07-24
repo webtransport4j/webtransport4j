@@ -8,10 +8,15 @@ import org.jspecify.annotations.NonNull;
 /** Internal implementation of {@link WebTransportBuffer} that wraps a Netty {@link ByteBuf}. */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
-  private final @NonNull ByteBuf delegate;
+  private @NonNull ByteBuf delegate;
 
   public DefaultNettyWebTransportBuffer(@NonNull ByteBuf delegate) {
     this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
+  }
+
+  public @NonNull DefaultNettyWebTransportBuffer wrap(@NonNull ByteBuf delegate) {
+    this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
+    return this;
   }
 
   @NonNull ByteBuf retainedReadableBuffer() {
@@ -42,8 +47,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
   @Override
   public WebTransportBuffer retain() {
-    delegate.retain();
-    return this;
+    return new DefaultNettyWebTransportBuffer(delegate.retainedSlice());
   }
 
   @Override

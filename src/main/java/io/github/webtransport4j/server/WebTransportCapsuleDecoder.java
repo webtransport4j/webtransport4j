@@ -25,6 +25,16 @@ final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
   private long cachedSessionId = -1L;
 
   @Override
+  public void handlerAdded(@NonNull ChannelHandlerContext ctx) {
+    Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+    if (sessId != null) {
+      this.cachedSessionId = sessId;
+    } else if (ctx.channel() instanceof QuicStreamChannel) {
+      this.cachedSessionId = ((QuicStreamChannel) ctx.channel()).streamId();
+    }
+  }
+
+  @Override
   protected void decode(
       @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf in, @NonNull List<Object> out) {
     while (true) {

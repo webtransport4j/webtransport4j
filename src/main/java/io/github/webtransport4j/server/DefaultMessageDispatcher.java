@@ -6,12 +6,15 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
+import io.netty.util.concurrent.FastThreadLocal;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -20,10 +23,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Default dispatcher routing WebTransport frames to handlers. */
+@ChannelHandler.Sharable
 public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame>
     implements MessageDispatcher {
 
+  public static final DefaultMessageDispatcher INSTANCE = new DefaultMessageDispatcher();
+
   private static final Logger logger = LoggerFactory.getLogger(DefaultMessageDispatcher.class);
+
+  private static final WebTransportHandler NOOP_HANDLER = new WebTransportHandler() {};
+
+  private static final FastThreadLocal<DefaultNettyWebTransportBuffer> REUSABLE_BUFFER =
+      new FastThreadLocal<DefaultNettyWebTransportBuffer>() {
+        @Override
+        protected DefaultNettyWebTransportBuffer initialValue() {
+          return new DefaultNettyWebTransportBuffer(Unpooled.EMPTY_BUFFER);
+        }
+      };
 
   @Override
   protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
@@ -163,7 +179,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
     }
     server = attr != null ? attr.get() : null;
     WebTransportHandler handler =
-        (server != null) ? server.getHandler(session.path()) : new WebTransportHandler() {};
+        (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
     try {
       if (frame instanceof WebTransportStreamFrame) {
         if (!(channel instanceof QuicStreamChannel)) {
@@ -203,10 +219,11 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
             }
           }
         }
+
         // Dispatch data
         if (stream.getDataConsumer() != null) {
           try {
-            stream.getDataConsumer().accept(new DefaultNettyWebTransportBuffer(frame.content()));
+            stream.getDataConsumer().accept(REUSABLE_BUFFER.get().wrap(frame.content()));
           } catch (Exception e) {
             logger.error("Error in stream onData callback", e);
           }
@@ -218,7 +235,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
           metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
         }
         try {
-          handler.onDatagramReceived(session, new DefaultNettyWebTransportBuffer(frame.content()));
+          handler.onDatagramReceived(session, REUSABLE_BUFFER.get().wrap(frame.content()));
         } catch (Exception e) {
           logger.error("Error in onDatagramReceived callback", e);
         }

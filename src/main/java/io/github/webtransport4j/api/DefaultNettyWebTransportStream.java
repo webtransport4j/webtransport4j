@@ -39,8 +39,20 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private @Nullable Map<String, Object> attributes;
 
+  private static final CompletableFuture<Void> COMPLETED_FUTURE =
+      CompletableFuture.completedFuture(null);
+
   private static @NonNull CompletableFuture<Void> toCompletableFuture(
       @NonNull Future<?> nettyFuture) {
+    if (nettyFuture.isDone()) {
+      if (nettyFuture.isSuccess()) {
+        return COMPLETED_FUTURE;
+      } else {
+        CompletableFuture<Void> cf = new CompletableFuture<>();
+        cf.completeExceptionally(nettyFuture.cause());
+        return cf;
+      }
+    }
     CompletableFuture<Void> cf = new CompletableFuture<>();
     nettyFuture.addListener(
         f -> {
@@ -123,6 +135,17 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   public @Nullable Consumer<Throwable> getErrorHandler() {
     return errorHandler;
+  }
+
+  /**
+   * Writes and flushes a Netty {@link ByteBuf} directly to the stream.
+   *
+   * @param buf the Netty ByteBuf to write and flush
+   * @return a future that completes when the write operation is done
+   */
+  @Override
+  public @NonNull CompletableFuture<Void> write(@NonNull ByteBuf buf) {
+    return toCompletableFuture(streamChannel().writeAndFlush(buf));
   }
 
   /**

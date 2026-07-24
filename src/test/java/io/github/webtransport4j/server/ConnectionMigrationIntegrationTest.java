@@ -237,6 +237,9 @@ public class ConnectionMigrationIntegrationTest {
     if (serverChannel != null) {
       serverChannel.close().sync();
     }
+    if (webTransportServer != null) {
+      webTransportServer.stop();
+    }
     if (serverGroup != null) {
       serverGroup.shutdownGracefully();
     }

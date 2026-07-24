@@ -269,6 +269,11 @@ public class WebTransportSessionManager {
 
   /** Closes all managed sessions. */
   public void closeAll() {
+    closeAll(null);
+  }
+
+  /** Closes all managed sessions associated with a QUIC channel. */
+  public void closeAll(@Nullable QuicChannel quicChannel) {
     if (keepAliveFuture != null) {
       keepAliveFuture.cancel(false);
       keepAliveFuture = null;
@@ -277,8 +282,13 @@ public class WebTransportSessionManager {
 
     if (!sessions.isEmpty()) {
       int count = sessions.size();
-      WebTransportSession first = sessions.values().iterator().next();
-      QuicChannel quic = first.getConnectStream().parent();
+      QuicChannel quic = quicChannel;
+      if (quic == null) {
+        WebTransportSession first = sessions.values().iterator().next();
+        if (first != null && first.getConnectStream() != null) {
+          quic = first.getConnectStream().parent();
+        }
+      }
       if (quic != null) {
         Attribute<AtomicInteger> globalAttr =
             quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);

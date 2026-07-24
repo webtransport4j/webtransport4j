@@ -456,14 +456,14 @@ public class WebTransportSession {
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
           ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
-          ch.pipeline().addLast(new WebTransportStreamFrameDecoder());
-          ch.pipeline().addLast(new WebTransportCapsuleHandler());
+          ch.pipeline().addLast(WebTransportStreamFrameDecoder.INSTANCE);
+          ch.pipeline().addLast(WebTransportCapsuleHandler.INSTANCE);
           Supplier<MessageDispatcher> supplier =
               ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
           if (supplier != null) {
             ch.pipeline().addLast(supplier.get());
           } else {
-            ch.pipeline().addLast(new DefaultMessageDispatcher());
+            ch.pipeline().addLast(DefaultMessageDispatcher.INSTANCE);
           }
         }
       };

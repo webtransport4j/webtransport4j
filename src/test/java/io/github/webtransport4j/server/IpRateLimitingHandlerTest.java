@@ -60,7 +60,7 @@ public class IpRateLimitingHandlerTest {
     System.clearProperty("webtransport4j.server.ratelimit.overrides");
     System.clearProperty("webtransport4j.server.ratelimit.blocklist");
     WebTransportConfig.reload();
-    IpRateLimitingHandler.reloadSharedConfig();
+    IpRateLimitingHandler.resetForTest();
   }
 
   private void simulateConnection(String ip) throws Exception {

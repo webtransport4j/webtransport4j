@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
@@ -152,7 +153,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
     WebTransportSessionManager sessionManager = new WebTransportSessionManager();
     ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(sessionManager);
-    ch.closeFuture().addListener(f -> sessionManager.closeAll());
+    ch.closeFuture().addListener(f -> sessionManager.closeAll(ch));
     ch.attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER)
         .set(this.server.getMessageDispatcherSupplier());
     ch.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(this.server.getMetricsListener());
@@ -168,7 +169,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       }
     }
     ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
-    ch.pipeline().addLast(new WebTransportDatagramDecoder());
+    ch.pipeline().addLast(WebTransportDatagramDecoder.INSTANCE);
     if (logger.isDebugEnabled()) {
       logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
     }

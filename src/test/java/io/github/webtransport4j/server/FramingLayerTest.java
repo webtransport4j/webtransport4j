@@ -1123,14 +1123,24 @@ public class FramingLayerTest {
 
   @Test
   public void testStreamMailboxBackpressureThrottling() throws Exception {
-    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    System.setProperty("webtransport4j.mailbox.high_water_mark", "16");
+    System.setProperty("webtransport4j.mailbox.low_water_mark", "4");
+    WebTransportConfig.reload();
+    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
     EventLoop mockEventLoop = mock(EventLoop.class);
-    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.inEventLoop()).thenReturn(true);
-    QuicStreamChannelConfig mockConfig =
-        mock(QuicStreamChannelConfig.class);
-    when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
+
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class, invocation -> {
+      String name = invocation.getMethod().getName();
+      if ("config".equals(name)) {
+        return mockConfig;
+      }
+      if ("eventLoop".equals(name)) {
+        return mockEventLoop;
+      }
+      return org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation);
+    });
 
     final List<Runnable> tasks = new ArrayList<>();
     ExecutorService mockExecutor = mock(ExecutorService.class);
@@ -1153,19 +1163,19 @@ public class FramingLayerTest {
       frames.add(f);
       mailbox.enqueue(f);
     }
-    verify(mockConfig, times(0)).setAutoRead(false);
+    verify((io.netty.channel.ChannelConfig) mockConfig, times(0)).setAutoRead(false);
 
     ByteBuf data = Unpooled.buffer(0);
     WebTransportStreamFrame seventeenthFrame = new WebTransportStreamFrame(1L, 1L, true, data);
     frames.add(seventeenthFrame);
     mailbox.enqueue(seventeenthFrame);
-    verify(mockConfig, times(1)).setAutoRead(false);
+    verify((io.netty.channel.ChannelConfig) mockConfig, times(1)).setAutoRead(false);
 
     assertEquals(1, tasks.size());
     Runnable mailboxTask = tasks.get(0);
     mailboxTask.run();
 
-    verify(mockConfig, times(1)).setAutoRead(true);
+    verify((io.netty.channel.ChannelConfig) mockConfig, times(1)).setAutoRead(true);
 
     // Simulate Netty auto-release that occurs when channelRead0 finishes
     for (WebTransportStreamFrame f : frames) {

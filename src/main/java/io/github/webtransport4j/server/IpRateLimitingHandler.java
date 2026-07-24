@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -22,6 +23,7 @@ import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 
 /** Handler for rate-limiting connections per IP. */
+@ChannelHandler.Sharable
 public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
 
@@ -177,6 +179,11 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     sharedRules = new SharedRateLimitRules(sharedRules);
     clearState();
     ensureReloaderStarted();
+  }
+
+  public static void resetForTest() {
+    sharedRules = new SharedRateLimitRules(null);
+    clearState();
   }
 
   private static ScheduledExecutorService reloaderExecutor;

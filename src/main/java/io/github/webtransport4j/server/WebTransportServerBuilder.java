@@ -154,6 +154,13 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /** Sets a custom {@link MessageDispatcher} instance. */
+  public @NonNull WebTransportServerBuilder messageDispatcher(
+      @NonNull MessageDispatcher dispatcher) {
+    this.messageDispatcherSupplier = () -> dispatcher;
+    return this;
+  }
+
   /** Sets a custom {@link MessageDispatcher} supplier. */
   public @NonNull WebTransportServerBuilder messageDispatcherSupplier(
       @NonNull Supplier<MessageDispatcher> supplier) {

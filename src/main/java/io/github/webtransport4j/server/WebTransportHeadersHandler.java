@@ -1,6 +1,9 @@
 package io.github.webtransport4j.server;
 
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
@@ -26,7 +29,10 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+@ChannelHandler.Sharable
 class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
+
+  public static final WebTransportHeadersHandler INSTANCE = new WebTransportHeadersHandler();
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
@@ -68,13 +74,15 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
     if ("CONNECT".contentEquals(method)
         && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
+      // Validate scheme: MUST be "https" as per draft-15 section 4.4
       if (!"https".contentEquals(scheme)) {
         logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        ctx.close();
-        ReferenceCountUtil.release(frame);
+        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+        if (f != null) {
+          f.addListener(ChannelFutureListener.CLOSE);
+        }
         return;
       }
       // Validate authority: MUST be present as per draft-15 section 4.4
@@ -82,9 +90,10 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         logger.warn("❌ Rejecting connection due to missing :authority");
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        ctx.close();
-        ReferenceCountUtil.release(frame);
+        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+        if (f != null) {
+          f.addListener(ChannelFutureListener.CLOSE);
+        }
         return;
       }
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
@@ -102,7 +111,6 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                               + " Treating incoming session CONNECT stream as malformed and resetting with"
                               + " H3_MESSAGE_ERROR (0x010e).");
               connectStream.shutdown(0x010e, connectStream.newPromise());
-              ReferenceCountUtil.release(frame);
               return;
           }
           long sessionId = connectStream.streamId();
@@ -113,7 +121,6 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
               logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
               quic.close(
                       true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
-              ReferenceCountUtil.release(frame);
               return;
           }
           // Validate CORS allowed origins and authority host
@@ -125,9 +132,10 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                       authority);
               Http3Headers responseHeaders = new DefaultHttp3Headers();
               responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
-              ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              ctx.close();
-              ReferenceCountUtil.release(frame);
+              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+              if (f != null) {
+                f.addListener(ChannelFutureListener.CLOSE);
+              }
               return;
           }
           WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
@@ -139,9 +147,10 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
                       maxSessions);
               Http3Headers responseHeaders = new DefaultHttp3Headers();
               responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
-              ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              ctx.close();
-              ReferenceCountUtil.release(frame);
+              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+              if (f != null) {
+                f.addListener(ChannelFutureListener.CLOSE);
+              }
               return;
           }
 
@@ -152,15 +161,19 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           int globalMaxSessions =
                   WebTransportConfig.getInt(
                           "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
+          if (globalMaxSessions <=0 ) {
+              globalMaxSessions = Integer.MAX_VALUE;
+          }
           if (globalCount != null && globalCount.get() >= globalMaxSessions) {
               logger.warn(
                       "❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})",
                       globalMaxSessions);
               Http3Headers responseHeaders = new DefaultHttp3Headers();
               responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
-              ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              ctx.close();
-              ReferenceCountUtil.release(frame);
+              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+              if (f != null) {
+                f.addListener(ChannelFutureListener.CLOSE);
+              }
               return;
           }
           String pathStr = path.toString();
@@ -211,7 +224,6 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           }
       }
     }
-    ReferenceCountUtil.release(frame);
   }
 
   @Override

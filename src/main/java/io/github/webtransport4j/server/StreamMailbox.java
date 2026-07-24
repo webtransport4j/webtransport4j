@@ -20,9 +20,6 @@ import org.jspecify.annotations.NonNull;
 public final class StreamMailbox implements Runnable {
   private static final Logger logger = LoggerFactory.getLogger(StreamMailbox.class);
 
-  private static final int HIGH_WATER_MARK = 16;
-  private static final int LOW_WATER_MARK = 4;
-
   @FunctionalInterface
   interface FrameDispatcher {
     void dispatch(@NonNull Channel channel, long sessionId, @NonNull WebTransportFrame frame) throws Exception;
@@ -34,6 +31,8 @@ public final class StreamMailbox implements Runnable {
   private final ExecutorService executor;
   private final FrameDispatcher dispatcher;
   private final long sessionId;
+  private final int highWaterMark;
+  private final int lowWaterMark;
 
   private volatile boolean paused = false;
 
@@ -44,6 +43,8 @@ public final class StreamMailbox implements Runnable {
     this.executor = Objects.requireNonNull(executor, "executor must not be null");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
     this.sessionId = sessionId;
+    this.highWaterMark = WebTransportConfig.getInt("webtransport4j.mailbox.high_water_mark", 16);
+    this.lowWaterMark = WebTransportConfig.getInt("webtransport4j.mailbox.low_water_mark", 4);
   }
 
   private void setAutoRead(boolean value) {
@@ -58,7 +59,7 @@ public final class StreamMailbox implements Runnable {
     frame.retain();
     queue.add(frame);
 
-    if (queue.size() > HIGH_WATER_MARK && !paused) {
+    if (queue.size() > highWaterMark && !paused) {
       paused = true;
       setAutoRead(false);
     }
@@ -90,7 +91,7 @@ public final class StreamMailbox implements Runnable {
           continue;
         }
 
-        if (paused && queue.size() < LOW_WATER_MARK) {
+        if (paused && queue.size() < lowWaterMark) {
           paused = false;
           setAutoRead(true);
         }

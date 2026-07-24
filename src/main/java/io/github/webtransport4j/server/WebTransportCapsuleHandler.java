@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -11,7 +12,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Channel handler for WebTransport capsules. */
+@ChannelHandler.Sharable
 public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebTransportCapsule> {
+
+  public static final WebTransportCapsuleHandler INSTANCE = new WebTransportCapsuleHandler();
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleHandler.class);
 
