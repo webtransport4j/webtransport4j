@@ -747,15 +747,17 @@ public class WebTransportServer {
   private void bindServer(
       Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, int targetPort)
       throws Exception {
-    int defaultRecvBufSize = transportConfig.epollGroEnabled ? 65536 : 2048;
+    int defaultRecvBufSize = 65536;
     int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(Integer.MAX_VALUE);
-    int sndBuf = WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", 0);
+
+    int defaultBufSize = 16 * 1024 * 1024; // 16 MB default
+    int sndBuf = WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", defaultBufSize);
     if (sndBuf > 0) {
       bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
     }
-    int rcvBuf = WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", 0);
+    int rcvBuf = WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", defaultBufSize);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
