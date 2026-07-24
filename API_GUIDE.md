@@ -425,3 +425,30 @@ public void onDatagramReceived(WebTransportSession session, WebTransportBuffer d
    ```java
    builder.metricsListener(new CustomMetricsListener());
    ```
+
+---
+
+## ⚠️ Critical Production Deployment Warnings
+
+> [!WARNING]
+> **1. Production TLS Certificates**
+> Never rely on developer fallback paths or in-memory self-signed certificates in production deployments. Always specify valid CA-signed certificate paths (e.g., Let's Encrypt) via system properties or configuration:
+> ```properties
+> webtransport4j.ssl.cert.path=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
+> webtransport4j.ssl.key.path=/etc/letsencrypt/live/yourdomain.com/privkey.pem
+> ```
+
+> [!IMPORTANT]
+> **2. Linux OS Socket Buffer & File Descriptor Tuning**
+> Operating at scale ($10,000+$ concurrent sessions) on Linux requires raising file descriptor limits and kernel UDP socket buffer sizes to prevent OS-level packet drops:
+> ```bash
+> # File descriptor limit:
+> ulimit -n 1048576
+> 
+> # Expand Linux Kernel UDP Socket Buffer Limits (16 MB):
+> sudo sysctl -w net.core.rmem_max=16777216
+> sudo sysctl -w net.core.wmem_max=16777216
+> sudo sysctl -w net.core.rmem_default=8388608
+> sudo sysctl -w net.core.wmem_default=8388608
+> ```
+

@@ -178,3 +178,30 @@ network.http.http3.disable_when_third_party_roots_found	false
 network.http.http3.enable_localhost	true		
 network.http.http3.enabled	true
 ```
+
+---
+
+## ⚠️ Production Deployment Warnings
+
+> [!WARNING]
+> **1. TLS Certificate Configuration in Production**
+> Never rely on hardcoded developer paths or auto-generated self-signed certificates in production deployments. Always specify valid CA-signed certificate paths (e.g., Let's Encrypt) via system properties or environment variables:
+> ```bash
+> -Dwebtransport4j.ssl.cert.path=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
+> -Dwebtransport4j.ssl.key.path=/etc/letsencrypt/live/yourdomain.com/privkey.pem
+> ```
+
+> [!IMPORTANT]
+> **2. Linux OS File Descriptor & Kernel UDP Buffer Tuning**
+> For high-concurrency workloads ($10,000+$ concurrent sessions), you MUST increase the Linux kernel open file limits and UDP socket buffer sizes to prevent packet drops:
+> ```bash
+> # 1. Increase file descriptors to 1 Million
+> ulimit -n 1048576
+> 
+> # 2. Expand Linux Kernel UDP Socket Buffer Limits (16 MB)
+> sudo sysctl -w net.core.rmem_max=16777216
+> sudo sysctl -w net.core.wmem_max=16777216
+> sudo sysctl -w net.core.rmem_default=8388608
+> sudo sysctl -w net.core.wmem_default=8388608
+> ```
+

@@ -551,32 +551,44 @@ public class WebTransportServer {
         : WebTransportConfig.get("webtransport4j.ssl.key.path", null);
     String certPath = this.sslCertPath != null ? this.sslCertPath
         : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
-    if (keyPath == null && certPath == null) {
-      File keyFile = new File("localhost-key.pem");
-      File certFile = new File("localhost.pem");
-      if (keyFile.exists() && certFile.exists()) {
-        keyPath = keyFile.getAbsolutePath();
-        certPath = certFile.getAbsolutePath();
+
+    File keyFile = keyPath != null ? new File(keyPath) : null;
+    File certFile = certPath != null ? new File(certPath) : null;
+
+    if (keyFile == null || !keyFile.exists() || certFile == null || !certFile.exists()) {
+      File userHomeKey = new File(System.getProperty("user.home") + "/Documents/localhost-key.pem");
+      File userHomeCert = new File(System.getProperty("user.home") + "/Documents/localhost.pem");
+      File localKey = new File("localhost-key.pem");
+      File localCert = new File("localhost.pem");
+
+      if (userHomeKey.exists() && userHomeCert.exists()) {
+        keyFile = userHomeKey;
+        certFile = userHomeCert;
+      } else if (localKey.exists() && localCert.exists()) {
+        keyFile = localKey;
+        certFile = localCert;
+      } else if (keyFile != null && certFile != null && keyFile.exists() && certFile.exists()) {
+        // use configured
+      } else {
+        logger.info("🔑 Certificate files not found at configured paths. Generating self-signed TLS 1.3 certificate...");
+        io.netty.handler.ssl.util.SelfSignedCertificate ssc = new io.netty.handler.ssl.util.SelfSignedCertificate("localhost");
+        keyFile = ssc.privateKey();
+        certFile = ssc.certificate();
       }
     }
+
     long sessionTimeout = WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
     long sessionCacheSize = WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
     QuicSslContext resolvedSslCtx;
-    if (keyPath != null && certPath != null) {
-      QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(new File(keyPath), null, new File(certPath))
-          .applicationProtocols(Http3.supportedApplicationProtocols());
-      if (sessionTimeout > 0) {
-        builder.sessionTimeout(sessionTimeout);
-      }
-      if (sessionCacheSize > 0) {
-        builder.sessionCacheSize(sessionCacheSize);
-      }
-      resolvedSslCtx = builder.build();
-    } else {
-      throw new IllegalStateException(
-          "SSL key path and certificate path must be configured. Set webtransport4j.ssl.key.path"
-              + " and webtransport4j.ssl.cert.path in configuration or builder.");
+    QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(keyFile, null, certFile)
+        .applicationProtocols(Http3.supportedApplicationProtocols());
+    if (sessionTimeout > 0) {
+      builder.sessionTimeout(sessionTimeout);
     }
+    if (sessionCacheSize > 0) {
+      builder.sessionCacheSize(sessionCacheSize);
+    }
+    resolvedSslCtx = builder.build();
     String ticketKeysStr = WebTransportConfig.get("webtransport4j.ssl.session.ticket.keys", null);
     if (ticketKeysStr != null && !ticketKeysStr.trim().isEmpty()) {
       try {
