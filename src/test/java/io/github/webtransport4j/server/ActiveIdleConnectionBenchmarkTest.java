@@ -8,6 +8,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -80,7 +81,7 @@ public class ActiveIdleConnectionBenchmarkTest {
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
   private static final int MAX_CLIENT_THREADS = 128;
-  private static final int MAX_CLIENT_UDP_CHANNELS = 1024;
+  private static final int MAX_CLIENT_UDP_CHANNELS = 4096;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
   private static final long IDLE_TIMEOUT_SECONDS = positiveProperty("benchmark.idle.timeout.seconds", 600);
   private static final long DURATION_SECONDS = nonNegativeProperty("benchmark.duration.seconds", 30);
@@ -368,6 +369,7 @@ public class ActiveIdleConnectionBenchmarkTest {
             .channel(transport.channelClass)
             .option(ChannelOption.SO_RCVBUF, 16 * 1024 * 1024)
             .option(ChannelOption.SO_SNDBUF, 16 * 1024 * 1024)
+            .option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(65536))
             .handler(newClientCodec(sslContext))
             .bind(0)
             .sync()
