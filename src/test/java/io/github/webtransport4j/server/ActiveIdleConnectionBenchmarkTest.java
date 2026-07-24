@@ -292,9 +292,17 @@ public class ActiveIdleConnectionBenchmarkTest {
         for (java.util.concurrent.ScheduledFuture<?> task : slicePingTasks) {
           task.cancel(false);
         }
-        // Allow in-flight responses to drain before checking final accuracy count
-        long drainDeadline = System.currentTimeMillis() + 25000;
-        while (totalRecvMsgs.get() < totalSentMsgs.get() && System.currentTimeMillis() < drainDeadline) {
+        // Allow in-flight responses to drain while traffic is actively arriving
+        long lastRecv = -1;
+        long lastAdvanceTime = System.currentTimeMillis();
+        while (totalRecvMsgs.get() < totalSentMsgs.get()) {
+          long currentRecv = totalRecvMsgs.get();
+          if (currentRecv > lastRecv) {
+            lastRecv = currentRecv;
+            lastAdvanceTime = System.currentTimeMillis();
+          } else if (System.currentTimeMillis() - lastAdvanceTime > 15000) {
+            break; // Stop draining when no new messages arrive for 15 seconds
+          }
           TimeUnit.MILLISECONDS.sleep(500);
         }
 
