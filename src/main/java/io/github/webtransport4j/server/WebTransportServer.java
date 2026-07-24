@@ -309,7 +309,10 @@ public class WebTransportServer {
 
       List<String> resolvedOrigins = this.allowedOrigins;
       if (resolvedOrigins == null) {
-        String originsProp = WebTransportConfig.getNonNull("webtransport4j.allowed.origins", "*");
+        String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", null);
+        if (originsProp == null || originsProp.trim().isEmpty()) {
+          originsProp = WebTransportConfig.get("webtransport4j.server.allowed_origins", "*");
+        }
         resolvedOrigins = Arrays.asList(originsProp.split(","));
       }
 

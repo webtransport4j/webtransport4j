@@ -51,6 +51,7 @@ public class BenchmarkServerRunner {
     System.setProperty("webtransport4j.quic.idle.timeout.seconds", String.valueOf(idleTimeoutSeconds));
     System.setProperty("webtransport4j.server.max_concurrent_sessions", "100000");
     System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "1000000");
+    System.setProperty("webtransport4j.allowed.origins", "*");
     System.setProperty("webtransport4j.server.allowed_origins", "*");
 
     WebTransportServer server = new WebTransportServer();
