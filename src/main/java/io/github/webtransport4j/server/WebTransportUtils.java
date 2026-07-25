@@ -18,6 +18,10 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.Attribute;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.List;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -524,5 +528,97 @@ public class WebTransportUtils {
         logger.debug("🔧 Added stream traffic shaper to stream {}", stream.streamId());
       }
     }
+  }
+
+  public static boolean isLinuxUdpGsoSupported() {
+    try {
+      File netDir = new File("/sys/class/net");
+      if (!netDir.exists() || !netDir.isDirectory()) {
+        return true; // Non-Linux or sysfs unmounted; default to user setting
+      }
+      File[] interfaces = netDir.listFiles();
+      if (interfaces == null) {
+        return true;
+      }
+      for (File iface : interfaces) {
+        String name = iface.getName();
+        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth") || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+          continue; // Ignore loopback and container virtual bridges
+        }
+        File operStateFile = new File(iface, "operstate");
+        if (operStateFile.exists() && operStateFile.canRead()) {
+          String operState = new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
+          if ("down".equalsIgnoreCase(operState)) {
+            continue; // Ignore inactive network adapters
+          }
+        }
+        File featuresFile = new File(iface, "features");
+        if (featuresFile.exists() && featuresFile.canRead()) {
+          List<String> lines = Files.readAllLines(featuresFile.toPath());
+          for (String line : lines) {
+            String[] parts = line.split(":", 2);
+            if (parts.length == 2) {
+              String featureName = parts[0].trim().toLowerCase();
+              String featureStatus = parts[1].trim().toLowerCase();
+              if ("tx-udp-segmentation".equals(featureName) || "tx_udp_segmentation".equals(featureName)) {
+                if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
+                  logger.warn("⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active network interface '{}' has 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.", name);
+                  return false;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (Throwable t) {
+      logger.debug("Could not inspect Linux sysfs for UDP GSO support: {}", t.getMessage());
+    }
+    return true;
+  }
+
+  public static boolean isLinuxUdpGroSupported() {
+    try {
+      File netDir = new File("/sys/class/net");
+      if (!netDir.exists() || !netDir.isDirectory()) {
+        return true; // Non-Linux or sysfs unmounted; default to user setting
+      }
+      File[] interfaces = netDir.listFiles();
+      if (interfaces == null) {
+        return true;
+      }
+      for (File iface : interfaces) {
+        String name = iface.getName();
+        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth") || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+          continue; // Ignore loopback and container virtual bridges
+        }
+        File operStateFile = new File(iface, "operstate");
+        if (operStateFile.exists() && operStateFile.canRead()) {
+          String operState = new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
+          if ("down".equalsIgnoreCase(operState)) {
+            continue; // Ignore inactive network adapters
+          }
+        }
+        File featuresFile = new File(iface, "features");
+        if (featuresFile.exists() && featuresFile.canRead()) {
+          List<String> lines = Files.readAllLines(featuresFile.toPath());
+          for (String line : lines) {
+            String[] parts = line.split(":", 2);
+            if (parts.length == 2) {
+              String featureName = parts[0].trim().toLowerCase();
+              String featureStatus = parts[1].trim().toLowerCase();
+              if ("rx-udp-gro-forwarding".equals(featureName) || "rx-gro-receive".equals(featureName)) {
+                if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
+                  logger.warn("⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active network interface '{}' has GRO offload disabled ('{}'). Disabling UDP GRO.", name, line.trim());
+                  return false;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (Throwable t) {
+      logger.debug("Could not inspect Linux sysfs for UDP GRO support: {}", t.getMessage());
+    }
+    return true;
   }
 }

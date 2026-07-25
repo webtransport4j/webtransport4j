@@ -5,7 +5,6 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;

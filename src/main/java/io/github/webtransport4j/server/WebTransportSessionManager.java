@@ -6,14 +6,9 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -23,15 +18,12 @@ import org.slf4j.LoggerFactory;
 /**
  * Manages WebTransport session lifecycle and state.
  *
- * @author https://github.com/sanjomo
+ * @author <a href="https://github.com/sanjomo">...</a>
  * @date 24/12/25 1:20 am
  */
 public class WebTransportSessionManager {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
-
-  private final AtomicBoolean keepAliveStarted = new AtomicBoolean(false);
-  private ScheduledFuture<?> keepAliveFuture = null;
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
@@ -39,7 +31,7 @@ public class WebTransportSessionManager {
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
-    logger.debug("Registering started,connectstreamid : {}", connectStream.streamId());
+    logger.debug("Registering started,connect-stream-id : {}", connectStream.streamId());
     long sessionStreamId = connectStream.streamId();
     if (connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
       connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
@@ -274,12 +266,6 @@ public class WebTransportSessionManager {
 
   /** Closes all managed sessions associated with a QUIC channel. */
   public void closeAll(@Nullable QuicChannel quicChannel) {
-    if (keepAliveFuture != null) {
-      keepAliveFuture.cancel(false);
-      keepAliveFuture = null;
-    }
-    keepAliveStarted.set(false);
-
     if (!sessions.isEmpty()) {
       int count = sessions.size();
       QuicChannel quic = quicChannel;

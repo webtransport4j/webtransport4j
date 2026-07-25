@@ -23,6 +23,7 @@ import org.jspecify.annotations.Nullable;
 public class WebTransportServerBuilder {
 
   private Integer port;
+  private String host;
   private String sslKeyPath;
   private String sslCertPath;
   private QuicSslContext sslContext;
@@ -44,6 +45,12 @@ public class WebTransportServerBuilder {
   /** Sets the server listening port. */
   public @NonNull WebTransportServerBuilder port(int port) {
     this.port = port;
+    return this;
+  }
+
+  /** Sets the server bind host IP or address (e.g., "0.0.0.0" or "127.0.0.1"). */
+  public @NonNull WebTransportServerBuilder host(@Nullable String host) {
+    this.host = host;
     return this;
   }
 
@@ -170,6 +177,7 @@ public class WebTransportServerBuilder {
 
   // Getters for WebTransportServer initialization
   public Integer getPort() { return port; }
+  public String getHost() { return host; }
   public String getSslKeyPath() { return sslKeyPath; }
   public String getSslCertPath() { return sslCertPath; }
   public QuicSslContext getSslContext() { return sslContext; }

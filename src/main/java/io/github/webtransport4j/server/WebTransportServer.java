@@ -32,8 +32,6 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
@@ -41,7 +39,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +64,7 @@ public class WebTransportServer {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportServer.class);
 
   private Integer configuredPort;
+  private String configuredHost;
   private String sslKeyPath;
   private String sslCertPath;
   private QuicSslContext sslContext;
@@ -156,6 +154,7 @@ public class WebTransportServer {
    */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     this.configuredPort = builder.getPort();
+    this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
     this.sslCertPath = builder.getSslCertPath();
     this.sslContext = builder.getSslContext();
@@ -262,6 +261,17 @@ public class WebTransportServer {
     return WebTransportConfig.getInt("webtransport4j.server.port", 4433);
   }
 
+  /** Returns the bound server host address, or configured host if not started. */
+  public String getHost() {
+    if (channel != null && channel.isActive() && channel.localAddress() instanceof InetSocketAddress) {
+      return ((InetSocketAddress) channel.localAddress()).getHostString();
+    }
+    if (configuredHost != null) {
+      return configuredHost;
+    }
+    return WebTransportConfig.get("webtransport4j.server.host", "0.0.0.0");
+  }
+
   public ExecutorService getBusinessExecutor() {
     return businessExecutor;
   }
@@ -307,6 +317,8 @@ public class WebTransportServer {
       }
       int targetPort = configuredPort != null ? configuredPort
           : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
+      String targetHost = configuredHost != null ? configuredHost
+          : WebTransportConfig.get("webtransport4j.server.host", "0.0.0.0");
 
       List<String> resolvedOrigins = this.allowedOrigins;
       if (resolvedOrigins == null) {
@@ -387,7 +399,7 @@ public class WebTransportServer {
       configureOptionalQuicParams(builder);
 
       ChannelHandler serverCodec = builder.build();
-      bindServer(bootstrap, transportConfig, serverCodec, targetPort);
+      bindServer(bootstrap, transportConfig, serverCodec, targetHost, targetPort);
       state.set(ServerState.STARTED);
     } catch (Exception e) {
       state.set(ServerState.STOPPED);
@@ -471,12 +483,21 @@ public class WebTransportServer {
           Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
           boolean udpGro = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgro", true);
+          if (udpGro && !WebTransportUtils.isLinuxUdpGroSupported()) {
+            udpGro = false;
+          }
           epollGroEnabled = udpGro;
-          @SuppressWarnings("unchecked")
-          ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
-          bootstrap.option(udpGroOption, udpGro);
+          if (udpGro) {
+            @SuppressWarnings("unchecked")
+            ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+            bootstrap.option(udpGroOption, udpGro);
+          }
 
           boolean udpGso = WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true);
+          if (udpGso && !WebTransportUtils.isLinuxUdpGsoSupported()) {
+            udpGso = false;
+          }
+
           if (udpGso) {
             int gsoSize = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
             if (gsoSize < 1 || gsoSize > 64) {
@@ -492,7 +513,7 @@ public class WebTransportServer {
               .forName("io.netty.channel.epoll.EpollDatagramChannel");
           channelClass = clazz;
 
-          logger.info("Using Epoll native transport");
+          logger.info("Using Epoll native transport (GRO: {}, GSO: {})", udpGro, udpGso);
         }
       } catch (Throwable t) {
         if ("epoll".equalsIgnoreCase(transportType)) {
@@ -538,6 +559,8 @@ public class WebTransportServer {
 
     return new TransportConfig(ioHandlerFactory, channelClass, epollGroEnabled);
   }
+
+
 
   private void setupTrafficShaping() {
     long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
@@ -745,7 +768,7 @@ public class WebTransportServer {
   }
 
   private void bindServer(
-      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, int targetPort)
+      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, String targetHost, int targetPort)
       throws Exception {
     int defaultRecvBufSize = 65536;
     int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
@@ -762,19 +785,25 @@ public class WebTransportServer {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
 
+    InetSocketAddress bindAddress;
+    if (targetHost == null || targetHost.trim().isEmpty() || "0.0.0.0".equals(targetHost) || "::".equals(targetHost)) {
+      bindAddress = new InetSocketAddress(targetPort);
+    } else {
+      bindAddress = new InetSocketAddress(targetHost, targetPort);
+    }
+
     ChannelFuture bindFuture = bootstrap
         .group(group)
         .channel(transportConfig.channelClass)
         .handler(serverCodec)
         .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
-        .bind(new InetSocketAddress(targetPort));
+        .bind(bindAddress);
 
     bindFuture.sync();
     this.channel = bindFuture.channel();
     this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
 
-    int boundPort = getPort();
-    logger.info("✅ WebTransport server started on port {}", boundPort);
+    logger.info("✅ WebTransport server started on {}:{}", getHost(), getPort());
   }
 
   /** Stops the server gracefully. */

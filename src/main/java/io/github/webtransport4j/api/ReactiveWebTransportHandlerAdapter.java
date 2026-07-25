@@ -1,15 +1,12 @@
 package io.github.webtransport4j.api;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMaps;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement
  * the standard {@link WebTransportHandler} interface.

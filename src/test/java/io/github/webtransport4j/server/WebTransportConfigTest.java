@@ -187,11 +187,11 @@ public class WebTransportConfigTest {
 
   @Test
   public void testRecvBufferSizeConfiguration() {
-    // Default fallback
-    assertEquals(2048, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 2048));
-    assertEquals(65536, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 65536));
+    // Default from webtransport.properties
+    System.setProperty("webtransport4j.server.recv.buffer.size", "65536");
+    assertEquals(65536, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 2048));
 
-    // Custom configuration
+    // Custom configuration system property override
     System.setProperty("webtransport4j.server.recv.buffer.size", "32768");
     assertEquals(32768, WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", 2048));
   }

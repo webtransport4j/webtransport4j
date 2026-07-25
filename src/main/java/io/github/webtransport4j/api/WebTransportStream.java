@@ -1,8 +1,6 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.example.StreamCodec;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelPromise;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Map;

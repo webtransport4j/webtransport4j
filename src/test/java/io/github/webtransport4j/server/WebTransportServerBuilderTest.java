@@ -20,6 +20,7 @@ public class WebTransportServerBuilderTest {
     WebTransportServer server =
         WebTransportServer.builder()
             .port(8443)
+            .host("127.0.0.1")
             .ssl("key.pem", "cert.pem")
             .allowedOrigins("https://example.com", "https://localhost")
             .transportType("nio")
@@ -35,6 +36,7 @@ public class WebTransportServerBuilderTest {
 
     Assert.assertNotNull(server);
     Assert.assertEquals(8443, server.getPort());
+    Assert.assertEquals("127.0.0.1", server.getHost());
     Assert.assertFalse(server.isStarted());
     Assert.assertNotNull(server.getHandler("/"));
     Assert.assertNotNull(server.getHandler("/chat"));

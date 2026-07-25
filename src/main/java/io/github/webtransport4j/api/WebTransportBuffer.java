@@ -1,7 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
-
 import java.nio.ByteBuffer;
 
 /**

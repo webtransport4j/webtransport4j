@@ -105,6 +105,7 @@ public class WebTransportClientTestSuiteTest {
     public void setUp() throws Exception {
         System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
         System.setProperty("webtransport4j.server.port", "0");
+        System.setProperty("webtransport4j.dispatch.execution.mode","VIRTUAL_THREADS");
         server = new WebTransportServer();
         server.registerHandler("/test", new CleanWebTransportTestHandler());
         serverThread = new Thread(() -> {
