@@ -85,8 +85,7 @@ public class WebTransportConfig {
 
   private static boolean isDynamicKey(String key) {
     return key.startsWith("webtransport4j.server.ratelimit.")
-        || key.startsWith("webtransport4j.webtransport.flowcontrol.")
-        || key.startsWith("webtransport4j.session.resumption.");
+        || key.startsWith("webtransport4j.webtransport.flowcontrol.");
   }
 
   /**
@@ -175,6 +174,26 @@ public class WebTransportConfig {
 
   public static boolean getBoolean(@NonNull String key, boolean defaultValue) {
     return Boolean.parseBoolean(get(key, String.valueOf(defaultValue)));
+  }
+
+  /**
+   * Programmatically sets a configuration property at runtime.
+   * Properties set via this method override file defaults.
+   *
+   * @param key the property key (non-null)
+   * @param value the property value (non-null)
+   */
+  public static void setProperty(@NonNull String key, @NonNull String value) {
+    dynamicProperties.setProperty(key, value);
+  }
+
+  /**
+   * Programmatically removes a configuration property at runtime.
+   *
+   * @param key the property key to remove (non-null)
+   */
+  public static void removeProperty(@NonNull String key) {
+    dynamicProperties.remove(key);
   }
 
   /**

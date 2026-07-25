@@ -243,7 +243,6 @@ public class WebTransportClientTestSuite {
 
     public static void main(String... args) throws Exception {
         String url = args.length > 0 ? args[0] : "https://localhost:4433/test";
-        System.setProperty("webtransport4j.dispatch.execution.mode","VIRTUAL_THREADS");
         logger.info("=========================================");
         logger.info("🚀 WebTransport Java Client Test Suite 🚀");
         logger.info("=========================================");

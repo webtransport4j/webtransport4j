@@ -180,7 +180,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
     clearState();
-    ensureReloaderStarted();
+    updateReloaderState();
   }
 
   public static void resetForTest() {
@@ -189,49 +189,66 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   }
 
   private static final AtomicReference<ScheduledExecutorService> reloaderExecutor = new AtomicReference<>();
-
-  public static void stopReloader() {
-    ScheduledExecutorService executor = reloaderExecutor.getAndSet(null);
-    if (executor != null) {
-      executor.shutdownNow();
-    }
-    ipCounts.clear();
-    backend.clear();
-  }
+  private static volatile int currentIntervalSecs = -1;
 
   public static void clearState() {
     ipCounts.clear();
     backend.clear();
   }
 
+  public static void stopReloader() {
+    ScheduledExecutorService executor = reloaderExecutor.getAndSet(null);
+    if (executor != null) {
+      executor.shutdownNow();
+    }
+    currentIntervalSecs = -1;
+    clearState();
+  }
+
+  public static void updateReloaderState() {
+    boolean reloadEnabled =
+        WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
+    int reloadInterval =
+        WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
+
+    if (!reloadEnabled || reloadInterval <= 0) {
+      stopReloader();
+      return;
+    }
+
+    ScheduledExecutorService current = reloaderExecutor.get();
+    if (current == null || current.isShutdown() || currentIntervalSecs != reloadInterval) {
+      stopReloader();
+      startReloader(reloadInterval);
+    }
+  }
+
   public static void ensureReloaderStarted() {
-    if (reloaderExecutor.get() == null) {
-      boolean reloadEnabled =
-          WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
-      if (reloadEnabled) {
-        int reloadInterval =
-            WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
-        if (reloadInterval > 0) {
-          ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "wt-rate-limit-reloader");
-            t.setDaemon(true);
-            return t;
-          });
-          if (reloaderExecutor.compareAndSet(null, executor)) {
-            executor.scheduleAtFixedRate(() -> {
-              try {
-                if (WebTransportConfig.reload()) {
-                  reloadSharedConfig();
-                }
-              } catch (Exception e) {
-                logger.error("Error reloading configuration in background", e);
-              }
-            }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
-          } else {
-            executor.shutdownNow();
+    updateReloaderState();
+  }
+
+  private static synchronized void startReloader(int reloadInterval) {
+    if (reloaderExecutor.get() != null) {
+      return;
+    }
+    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
+      Thread t = new Thread(r, "wt-rate-limit-reloader");
+      t.setDaemon(true);
+      return t;
+    });
+    if (reloaderExecutor.compareAndSet(null, executor)) {
+      currentIntervalSecs = reloadInterval;
+      executor.scheduleAtFixedRate(() -> {
+        try {
+          if (WebTransportConfig.reload()) {
+            reloadSharedConfig();
           }
+        } catch (Exception e) {
+          logger.error("Error reloading configuration in background", e);
         }
-      }
+      }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
+    } else {
+      executor.shutdownNow();
     }
   }
 
@@ -239,28 +256,14 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     ensureReloaderStarted();
   }
 
-  private final SharedRateLimitRules rules;
-  private final int maxConnectionsPerMinute;
-  private final int maxTrackedIps;
-  private final IpFilterEngine<Boolean> whitelistEngine;
-  private final IpFilterEngine<Integer> overridesEngine;
-  private final IpBloomFilter blocklistFilter;
-  private final Set<String> exactBlocklist;
-
-  /** Ip Rate Limiting Handler. */
-  public IpRateLimitingHandler() {
-    this.rules = sharedRules;
-    this.maxConnectionsPerMinute = rules.maxConnectionsPerMinute;
-    this.maxTrackedIps = rules.maxTrackedIps;
-    this.whitelistEngine = rules.whitelistEngine;
-    this.overridesEngine = rules.overridesEngine;
-    this.blocklistFilter = rules.blocklistFilter;
-    this.exactBlocklist = rules.exactBlocklist;
+  public Set<String> getExactBlocklist() {
+    return sharedRules.exactBlocklist;
   }
 
   @Override
   public void channelActive(ChannelHandlerContext ctx) throws Exception {
-    if (maxConnectionsPerMinute <= 0) {
+    SharedRateLimitRules currentRules = sharedRules;
+    if (currentRules.maxConnectionsPerMinute <= 0) {
       super.channelActive(ctx);
       return;
     }
@@ -279,7 +282,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           ip = ip.substring(7);
         }
 
-        if (Boolean.TRUE.equals(whitelistEngine.match((InetSocketAddress) remoteSocketAddress))) {
+        if (Boolean.TRUE.equals(currentRules.whitelistEngine.match((InetSocketAddress) remoteSocketAddress))) {
           if (logger.isDebugEnabled()) {
             logger.debug("✅ IP {} is whitelisted. Bypassing rate limit and blocklist.", ip);
           }
@@ -287,8 +290,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           return;
         }
 
-        if (blocklistFilter.isEnabled() && blocklistFilter.mightContain(ip)) {
-          if (exactBlocklist.contains(ip)) {
+        if (currentRules.blocklistFilter.isEnabled() && currentRules.blocklistFilter.mightContain(ip)) {
+          if (currentRules.exactBlocklist.contains(ip)) {
             logger.warn(
                 "❌ IP {} is in the BloomFilter Blocklist. Dropping connection immediately.", ip);
             ctx.close();
@@ -297,17 +300,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         }
 
         long nowMinute = System.currentTimeMillis() / 60000;
-        int effectiveMax = maxConnectionsPerMinute;
-        Integer overrideMax = overridesEngine.match((InetSocketAddress) remoteSocketAddress);
+        int effectiveMax = currentRules.maxConnectionsPerMinute;
+        Integer overrideMax = currentRules.overridesEngine.match((InetSocketAddress) remoteSocketAddress);
         if (overrideMax != null) {
           effectiveMax = overrideMax;
         }
 
-        int current = backend.incrementAndGet(ip, nowMinute, maxTrackedIps);
+        int current = backend.incrementAndGet(ip, nowMinute, currentRules.maxTrackedIps);
         if (current == Integer.MAX_VALUE) {
           logger.warn(
               "❌ Rate Limiter State Table Full ({} entries). Dropping connection from IP: {}.",
-              maxTrackedIps,
+              currentRules.maxTrackedIps,
               ip);
           ctx.close();
           return;

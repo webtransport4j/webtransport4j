@@ -168,10 +168,8 @@ public class IpRateLimitingHandlerTest {
   }
 
   @Test
-  public void testExactBlocklistContents() throws Exception {
-    Field field = IpRateLimitingHandler.class.getDeclaredField("exactBlocklist");
-    field.setAccessible(true);
-    Set<String> exactBlocklist = (Set<String>) field.get(handler);
+  public void testExactBlocklistContents() {
+    Set<String> exactBlocklist = handler.getExactBlocklist();
 
     assertTrue(exactBlocklist.contains("9.9.9.9"));
     assertTrue(exactBlocklist.contains("1.2.3.4"));

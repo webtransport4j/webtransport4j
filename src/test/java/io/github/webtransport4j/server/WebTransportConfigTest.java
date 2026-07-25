@@ -240,4 +240,13 @@ public class WebTransportConfigTest {
       WebTransportConfig.reload();
     }
   }
+
+  @Test
+  public void testSetPropertyAndRemoveProperty() {
+    WebTransportConfig.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
+    assertEquals("VIRTUAL_THREADS", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", null));
+
+    WebTransportConfig.removeProperty("webtransport4j.dispatch.execution.mode");
+    assertEquals("NETTY_EVENT_LOOP", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL"));
+  }
 }
