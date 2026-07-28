@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
@@ -620,7 +621,8 @@ public class FramingLayerTest {
     when(mockNewStream.attr(any(AttributeKey.class)))
         .thenReturn(mock(Attribute.class));
     when(mockNewStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
-
+      when(mockConnectStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
+      when(mockNewStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
     Future<QuicStreamChannel> successFuture =
         mock(Future.class);
     when(successFuture.isSuccess()).thenReturn(true);

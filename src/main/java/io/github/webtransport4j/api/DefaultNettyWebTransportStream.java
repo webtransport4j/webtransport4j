@@ -3,6 +3,7 @@ package io.github.webtransport4j.api;
 import io.github.webtransport4j.example.StreamCodec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
@@ -11,6 +12,8 @@ import io.netty.util.concurrent.Future;
 
 import java.nio.ByteBuffer;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import java.nio.CharBuffer;
+import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
@@ -249,9 +252,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param charset the character encoding to use
    * @return a future that completes when the write operation is done
    */
+  @Override
   public @NonNull CompletableFuture<Void> writeText(
-      @NonNull String text, java.nio.charset.@NonNull Charset charset) {
-    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.copiedBuffer(text, charset)));
+          @NonNull String text,
+          @NonNull Charset charset) {
+
+      return toCompletableFuture(streamChannel().writeAndFlush(ByteBufUtil.encodeString(
+              streamChannel().alloc(),
+              CharBuffer.wrap(text),
+              charset)));
   }
 
   public void close() {

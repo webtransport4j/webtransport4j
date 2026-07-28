@@ -179,7 +179,7 @@ public class WebTransportUtils {
                           : UNI_STREAM_TYPE);
               stream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
               // 2. Write the Mandatory Header: [0x41] [SessionID]
-              ByteBuf header = Unpooled.buffer(16);
+              ByteBuf header = stream.alloc().buffer(16);
               try {
                 writeVarInt(
                     header,
