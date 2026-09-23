@@ -192,6 +192,7 @@
         <profile>
             <id>mrjar-java25</id>
             <activation>
+                <jdk>[25,)</jdk>
                 <!-- Active everywhere EXCEPT inside IntelliJ IDEA -->
                 <property>
                     <name>!idea.version</name>
