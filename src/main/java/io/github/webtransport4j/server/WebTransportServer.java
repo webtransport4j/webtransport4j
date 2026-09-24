@@ -80,6 +80,7 @@ public class WebTransportServer {
   private WebTransportHandler defaultHandler;
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
+  private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
 
   /**
    * The observability metrics listener. Defaults to a no-op implementation.
@@ -394,7 +395,8 @@ public class WebTransportServer {
           .tokenHandler(resolveTokenHandler())
           .handler(
               new QuicChannelInitializer(
-                  this, settings, businessExecutor, resolvedOrigins, globalActiveSessions));
+                  this, settings, businessExecutor, resolvedOrigins, globalActiveSessions,
+                  globalSessionSlots));
 
       configureOptionalQuicParams(builder);
 

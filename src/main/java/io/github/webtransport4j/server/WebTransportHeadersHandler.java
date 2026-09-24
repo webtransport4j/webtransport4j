@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.net.ssl.SSLEngine;
 
@@ -78,9 +79,11 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       body.writeCharSequence("Hello HTTP/3", StandardCharsets.UTF_8);
 
       ctx.writeAndFlush(new DefaultHttp3DataFrame(body)).addListener(f -> {
-        ;
-        if (!f.isSuccess()) {
-          logger.error("❌ Failed to send response body: {}", f.cause().getMessage());
+        if (f.isSuccess()) {
+          ((QuicStreamChannel) ctx.channel()).shutdownOutput();
+        } else {
+          logger.error("❌ Failed to send response body", f.cause());
+          ctx.close();
         }
       });
 
@@ -153,7 +156,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         }
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
-        if (mgr != null && mgr.sessionsSize() >= maxSessions) {
+        if (mgr == null || !mgr.reserveSession(maxSessions)) {
           logger.warn(
               "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
               maxSessions);
@@ -166,14 +169,15 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           return;
         }
 
-        Attribute<AtomicInteger> globalCountAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
-        AtomicInteger globalCount = globalCountAttr != null ? globalCountAttr.get() : null;
+        Attribute<AtomicInteger> slotsAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
+        AtomicInteger globalSlots = slotsAttr != null ? slotsAttr.get() : null;
         int globalMaxSessions = WebTransportConfig.getInt(
             "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
         if (globalMaxSessions <= 0) {
           globalMaxSessions = Integer.MAX_VALUE;
         }
-        if (globalCount != null && globalCount.get() >= globalMaxSessions) {
+        if (globalSlots != null && !reserveGlobalSlot(globalSlots, globalMaxSessions)) {
+          mgr.releaseReservation();
           logger.warn(
               "❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})",
               globalMaxSessions);
@@ -186,6 +190,17 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           return;
         }
         String pathStr = path.toString();
+        AtomicBoolean pending = new AtomicBoolean(true);
+        connectStream.closeFuture().addListener(f -> {
+          if (pending.compareAndSet(true, false)) {
+            mgr.releaseReservation();
+            if (globalSlots != null) {
+              globalSlots.decrementAndGet();
+            }
+          } else {
+            mgr.unregister(connectStream);
+          }
+        });
         quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
 
         String cipherSuite = "TLS_AES_128_GCM_SHA256";
@@ -213,16 +228,14 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         responseHeaders.status(HttpResponseStatus.OK.codeAsText());
 
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {
-          if (f.isSuccess()) {
-            if (mgr != null && ctx.channel() instanceof QuicStreamChannel) {
-              mgr.register(connectStream);
-              connectStream
-                  .closeFuture()
-                  .addListener(
-                      f1 -> {
-                        mgr.unregister(connectStream);
-                      });
+          if (f.isSuccess() && pending.compareAndSet(true, false)) {
+            mgr.registerReserved(connectStream);
+          } else if (!f.isSuccess() && pending.compareAndSet(true, false)) {
+            mgr.releaseReservation();
+            if (globalSlots != null) {
+              globalSlots.decrementAndGet();
             }
+            connectStream.close();
           }
         });
         if (logger.isDebugEnabled()) {
@@ -233,6 +246,18 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         }
       }
       return;
+    }
+  }
+
+  private static boolean reserveGlobalSlot(AtomicInteger slots, int limit) {
+    for (;;) {
+      int current = slots.get();
+      if (current >= limit || current == Integer.MAX_VALUE) {
+        return false;
+      }
+      if (slots.compareAndSet(current, current + 1)) {
+        return true;
+      }
     }
   }
 

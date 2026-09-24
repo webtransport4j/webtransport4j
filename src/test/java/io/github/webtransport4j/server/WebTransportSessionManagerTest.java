@@ -8,6 +8,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.when;
 
 /**
@@ -95,6 +97,44 @@ public class WebTransportSessionManagerTest {
 
     // Duplicate unregister call for same stream ID
     sessionManager.unregister(mockStream);
+    assertEquals(0, globalActiveSessions.get());
+  }
+
+  @Test
+  public void testReservationsTransferIntoActiveCapacityAndReleaseOnClose() {
+    AtomicInteger globalSlots = new AtomicInteger(1);
+    io.netty.util.Attribute<AtomicInteger> slotsAttr = Mockito.mock(io.netty.util.Attribute.class);
+    when(slotsAttr.get()).thenReturn(globalSlots);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+
+    assertTrue(sessionManager.reserveSession(1));
+    assertFalse(sessionManager.reserveSession(1));
+    assertEquals(0, globalActiveSessions.get());
+
+    QuicStreamChannel stream = Mockito.mock(QuicStreamChannel.class);
+    when(stream.streamId()).thenReturn(4L);
+    when(stream.parent()).thenReturn(mockQuicChannel);
+    sessionManager.registerReserved(stream);
+
+    assertEquals(1, globalActiveSessions.get());
+    assertEquals(1, globalSlots.get());
+    assertFalse(sessionManager.reserveSession(1));
+
+    sessionManager.unregister(stream);
+    assertEquals(0, globalActiveSessions.get());
+    assertEquals(0, globalSlots.get());
+    assertTrue(sessionManager.reserveSession(1));
+    sessionManager.releaseReservation();
+  }
+
+  @Test
+  public void testPendingReservationReleasedWithoutRegistration() {
+    assertTrue(sessionManager.reserveSession(1));
+    assertFalse(sessionManager.reserveSession(1));
+    sessionManager.releaseReservation();
+    assertTrue(sessionManager.reserveSession(1));
+    sessionManager.releaseReservation();
+    assertEquals(0, sessionManager.sessionsSize());
     assertEquals(0, globalActiveSessions.get());
   }
 }

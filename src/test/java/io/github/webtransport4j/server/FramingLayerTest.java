@@ -423,6 +423,10 @@ public class FramingLayerTest {
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
 
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+
     Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(10L);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
@@ -499,6 +503,10 @@ public class FramingLayerTest {
     when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
     when(mockStreamChannel.config())
         .thenReturn(mock(QuicStreamChannelConfig.class));
+
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
 
     // Attributes on Parent (QuicChannel)
     Attribute<List<String>> allowedOriginsAttr =
@@ -719,6 +727,10 @@ public class FramingLayerTest {
     when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
 
     // Configure allowed origins: [google.com, localhost]
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+
     Attribute<List<String>> allowedOriginsAttr =
         mock(Attribute.class);
     when(allowedOriginsAttr.get()).thenReturn(Arrays.asList("google.com", "localhost"));

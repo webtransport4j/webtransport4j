@@ -28,9 +28,34 @@ public class WebTransportSessionManager {
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
   private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
+  private final AtomicInteger occupiedSlots = new AtomicInteger();
+
+  boolean reserveSession(int limit) {
+    for (;;) {
+      int current = occupiedSlots.get();
+      if (current >= limit || current == Integer.MAX_VALUE) {
+        return false;
+      }
+      if (occupiedSlots.compareAndSet(current, current + 1)) {
+        return true;
+      }
+    }
+  }
+
+  void releaseReservation() {
+    occupiedSlots.decrementAndGet();
+  }
 
   /** Called when a CONNECT webtransport request is accepted (200 OK). */
   public void register(@NonNull QuicStreamChannel connectStream) {
+    register(connectStream, false);
+  }
+
+  void registerReserved(@NonNull QuicStreamChannel connectStream) {
+    register(connectStream, true);
+  }
+
+  private void register(@NonNull QuicStreamChannel connectStream, boolean reserved) {
     logger.debug("Registering started,connect-stream-id : {}", connectStream.streamId());
     long sessionStreamId = connectStream.streamId();
     if (connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
@@ -125,11 +150,21 @@ public class WebTransportSessionManager {
     session.setOnClosedCallback(() -> unregister(connectStream));
     sessions.put(sessionStreamId, session);
 
+    if (!reserved) {
+      occupiedSlots.incrementAndGet();
+    }
+
     if (quic != null) {
       Attribute<AtomicInteger> globalAttr =
           quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
       if (globalAttr != null && globalAttr.get() != null) {
         globalAttr.get().incrementAndGet();
+      }
+      if (!reserved) {
+        Attribute<AtomicInteger> slots = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
+        if (slots != null && slots.get() != null) {
+          slots.get().incrementAndGet();
+        }
       }
     }
 
@@ -178,6 +213,7 @@ public class WebTransportSessionManager {
     long sessionStreamId = connecStreamChannel.streamId();
     WebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed != null) {
+      occupiedSlots.decrementAndGet();
       int closeCode = removed.getCloseCode();
       for (QuicStreamChannel activeStream : removed.getAllActiveWebTransportStreams()) {
         if (closeCode != 0) {
@@ -209,6 +245,10 @@ public class WebTransportSessionManager {
             quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
         if (globalAttr != null && globalAttr.get() != null) {
           globalAttr.get().decrementAndGet();
+        }
+        Attribute<AtomicInteger> slots = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
+        if (slots != null && slots.get() != null) {
+          slots.get().decrementAndGet();
         }
         // Fire metrics: session closed using the code set on the session
         WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
@@ -281,7 +321,13 @@ public class WebTransportSessionManager {
         if (globalAttr != null && globalAttr.get() != null) {
           globalAttr.get().addAndGet(-count);
         }
+        Attribute<AtomicInteger> slots = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
+        if (slots != null && slots.get() != null) {
+          slots.get().addAndGet(-count);
+        }
       }
+
+      occupiedSlots.addAndGet(-count);
 
       if (logger.isDebugEnabled()) {
         logger.debug(

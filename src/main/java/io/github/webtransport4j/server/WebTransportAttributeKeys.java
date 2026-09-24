@@ -42,6 +42,9 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<AtomicInteger> GLOBAL_SESSION_COUNT =
       AttributeKey.valueOf("wt.global.session.count");
 
+  public static final AttributeKey<AtomicInteger> GLOBAL_SESSION_SLOTS =
+      AttributeKey.valueOf("wt.global.session.slots");
+
   // Stream-related Attribute Keys
   public static final AttributeKey<Long> STREAM_TYPE_KEY =
           AttributeKey.valueOf("wt.stream.type");
