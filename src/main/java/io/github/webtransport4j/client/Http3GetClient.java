@@ -30,7 +30,6 @@ public final class Http3GetClient {
             QuicSslContext context = QuicSslContextBuilder.forClient()
                     .trustManager(InsecureTrustManagerFactory.INSTANCE)
                     .applicationProtocols(Http3.supportedApplicationProtocols())
-                    .earlyData(true) // Enables early-data capability
                     .build();
 
             ChannelHandler codec = Http3.newQuicClientCodecBuilder()

@@ -612,7 +612,6 @@ public class WebTransportServer {
     long sessionCacheSize = WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
     QuicSslContext resolvedSslCtx;
     QuicSslContextBuilder builder = QuicSslContextBuilder.forServer(keyFile, null, certFile)
-            .earlyData(WebTransportConfig.getBoolean("webtransport4j.ssl.experimental.0rtt.early.data.enabled", false))
         .applicationProtocols(Http3.supportedApplicationProtocols());
     if (sessionTimeout > 0) {
       builder.sessionTimeout(sessionTimeout);
