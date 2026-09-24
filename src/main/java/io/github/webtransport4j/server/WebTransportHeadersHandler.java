@@ -71,21 +71,18 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
     // TEST the server GET request
     if ("GET".contentEquals(method)) {
-        
       Http3Headers responseHeaders = new DefaultHttp3Headers();
       responseHeaders.status(HttpResponseStatus.OK.codeAsText());
       ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+      ByteBuf body = ctx.alloc().buffer();
+      body.writeCharSequence("Hello HTTP/3", StandardCharsets.UTF_8);
 
-        ByteBuf body = ctx.alloc().buffer();
-        body.writeCharSequence("Hello HTTP/3", StandardCharsets.UTF_8);
-
-        ctx.writeAndFlush(new DefaultHttp3DataFrame(body)).addListener(f -> {;
-            if (f.isSuccess()) {
-                logger.info("✅ Sent response body successfully.");
-            } else {
-                logger.error("❌ Failed to send response body: {}", f.cause().getMessage());
-            }
-        });
+      ctx.writeAndFlush(new DefaultHttp3DataFrame(body)).addListener(f -> {
+        ;
+        if (!f.isSuccess()) {
+          logger.error("❌ Failed to send response body: {}", f.cause().getMessage());
+        }
+      });
 
       return;
     }
@@ -117,130 +114,123 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
       if (quic != null) {
-          Attribute<Boolean> receivedAttr =
-                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
-          Attribute<Boolean> validAttr =
-                  quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);
-          Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
-          Boolean settingsValid = validAttr != null ? validAttr.get() : null;
-          if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
-              logger.warn(
-                      "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
-                              + " Treating incoming session CONNECT stream as malformed and resetting with"
-                              + " H3_MESSAGE_ERROR (0x010e).");
-              connectStream.shutdown(0x010e, connectStream.newPromise());
-              return;
-          }
-          long sessionId = connectStream.streamId();
-          // verify it is client-iniated bi directional stream as per below RFC
-          // https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
-          // Client-Initiated Bi-Directional: 0x0, 0x4, 0x8, ... → type=0 mod 4
-          if (sessionId % 4L != 0L) {
-              logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
-              quic.close(
-                      true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
-              return;
-          }
-          // Validate CORS allowed origins and authority host
-          List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
-          if (!isAllowed(allowed, origin, authority)) {
-              logger.warn(
-                      "❌ Rejecting connection from unauthorized origin: {} (authority: {})",
-                      origin,
-                      authority);
-              Http3Headers responseHeaders = new DefaultHttp3Headers();
-              responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
-              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              if (f != null) {
-                f.addListener(ChannelFutureListener.CLOSE);
-              }
-              return;
-          }
-          WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-          int maxSessions =
-                  WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
-          if (mgr != null && mgr.sessionsSize() >= maxSessions) {
-              logger.warn(
-                      "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
-                      maxSessions);
-              Http3Headers responseHeaders = new DefaultHttp3Headers();
-              responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
-              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              if (f != null) {
-                f.addListener(ChannelFutureListener.CLOSE);
-              }
-              return;
-          }
-
-          Attribute<AtomicInteger> globalCountAttr =
-                  quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
-          AtomicInteger globalCount =
-                  globalCountAttr != null ? globalCountAttr.get() : null;
-          int globalMaxSessions =
-                  WebTransportConfig.getInt(
-                          "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
-          if (globalMaxSessions <=0 ) {
-              globalMaxSessions = Integer.MAX_VALUE;
-          }
-          if (globalCount != null && globalCount.get() >= globalMaxSessions) {
-              logger.warn(
-                      "❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})",
-                      globalMaxSessions);
-              Http3Headers responseHeaders = new DefaultHttp3Headers();
-              responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
-              ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-              if (f != null) {
-                f.addListener(ChannelFutureListener.CLOSE);
-              }
-              return;
-          }
-          String pathStr = path.toString();
-          quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
-
-          String cipherSuite = "TLS_AES_128_GCM_SHA256";
-          String tlsVersion = "TLSv1.3";
-          try {
-            SSLEngine sslEngine = quic.sslEngine();
-            if (sslEngine != null && sslEngine.getSession() != null) {
-              String c = sslEngine.getSession().getCipherSuite();
-              if (c != null && !c.isEmpty() && !"SSL_NULL_WITH_NULL_NULL".equals(c)) {
-                cipherSuite = c;
-              }
-              String p = sslEngine.getSession().getProtocol();
-              if (p != null && !p.isEmpty()) {
-                tlsVersion = p;
-              }
-            }
-          } catch (Exception ignored) {
-          }
-
-          if (logger.isDebugEnabled()) {
-              logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
-                      quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
-          }
+        Attribute<Boolean> receivedAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
+        Attribute<Boolean> validAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);
+        Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
+        Boolean settingsValid = validAttr != null ? validAttr.get() : null;
+        if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
+          logger.warn(
+              "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
+                  + " Treating incoming session CONNECT stream as malformed and resetting with"
+                  + " H3_MESSAGE_ERROR (0x010e).");
+          connectStream.shutdown(0x010e, connectStream.newPromise());
+          return;
+        }
+        long sessionId = connectStream.streamId();
+        // verify it is client-iniated bi directional stream as per below RFC
+        // https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
+        // Client-Initiated Bi-Directional: 0x0, 0x4, 0x8, ... → type=0 mod 4
+        if (sessionId % 4L != 0L) {
+          logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
+          quic.close(
+              true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
+          return;
+        }
+        // Validate CORS allowed origins and authority host
+        List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
+        if (!isAllowed(allowed, origin, authority)) {
+          logger.warn(
+              "❌ Rejecting connection from unauthorized origin: {} (authority: {})",
+              origin,
+              authority);
           Http3Headers responseHeaders = new DefaultHttp3Headers();
-          responseHeaders.status(HttpResponseStatus.OK.codeAsText());
-
-
-          ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {
-              if (f.isSuccess()) {
-                  if (mgr != null) {
-                      mgr.register(connectStream);
-                      connectStream
-                              .closeFuture()
-                              .addListener(
-                                      f1 -> {
-                                          mgr.unregister(connectStream);
-                                      });
-                  }
-              }
-          });
-          if (logger.isDebugEnabled()) {
-              logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
+          responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
+          ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+          if (f != null) {
+            f.addListener(ChannelFutureListener.CLOSE);
           }
-          if (logger.isDebugEnabled()) {
-              logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
+          return;
+        }
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
+        if (mgr != null && mgr.sessionsSize() >= maxSessions) {
+          logger.warn(
+              "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
+              maxSessions);
+          Http3Headers responseHeaders = new DefaultHttp3Headers();
+          responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
+          ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+          if (f != null) {
+            f.addListener(ChannelFutureListener.CLOSE);
           }
+          return;
+        }
+
+        Attribute<AtomicInteger> globalCountAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+        AtomicInteger globalCount = globalCountAttr != null ? globalCountAttr.get() : null;
+        int globalMaxSessions = WebTransportConfig.getInt(
+            "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
+        if (globalMaxSessions <= 0) {
+          globalMaxSessions = Integer.MAX_VALUE;
+        }
+        if (globalCount != null && globalCount.get() >= globalMaxSessions) {
+          logger.warn(
+              "❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})",
+              globalMaxSessions);
+          Http3Headers responseHeaders = new DefaultHttp3Headers();
+          responseHeaders.status(HttpResponseStatus.TOO_MANY_REQUESTS.codeAsText());
+          ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+          if (f != null) {
+            f.addListener(ChannelFutureListener.CLOSE);
+          }
+          return;
+        }
+        String pathStr = path.toString();
+        quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
+
+        String cipherSuite = "TLS_AES_128_GCM_SHA256";
+        String tlsVersion = "TLSv1.3";
+        try {
+          SSLEngine sslEngine = quic.sslEngine();
+          if (sslEngine != null && sslEngine.getSession() != null) {
+            String c = sslEngine.getSession().getCipherSuite();
+            if (c != null && !c.isEmpty() && !"SSL_NULL_WITH_NULL_NULL".equals(c)) {
+              cipherSuite = c;
+            }
+            String p = sslEngine.getSession().getProtocol();
+            if (p != null && !p.isEmpty()) {
+              tlsVersion = p;
+            }
+          }
+        } catch (Exception ignored) {
+        }
+
+        if (logger.isDebugEnabled()) {
+          logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
+              quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
+        }
+        Http3Headers responseHeaders = new DefaultHttp3Headers();
+        responseHeaders.status(HttpResponseStatus.OK.codeAsText());
+
+        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {
+          if (f.isSuccess()) {
+            if (mgr != null && ctx.channel() instanceof QuicStreamChannel) {
+              mgr.register(connectStream);
+              connectStream
+                  .closeFuture()
+                  .addListener(
+                      f1 -> {
+                        mgr.unregister(connectStream);
+                      });
+            }
+          }
+        });
+        if (logger.isDebugEnabled()) {
+          logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
+        }
+        if (logger.isDebugEnabled()) {
+          logger.debug("🌊 Stream 0 Pipeline post-handshake: {}", ctx.pipeline().names());
+        }
       }
       return;
     }

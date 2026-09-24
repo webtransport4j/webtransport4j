@@ -19,6 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -37,6 +38,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamChannelConfig;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.Promise;
@@ -58,6 +60,24 @@ import org.slf4j.LoggerFactory;
 /** Test cases for framing layer. */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
+
+  private static ChannelFuture mockWriteFuture() {
+    return mockWriteFuture(mock(Channel.class));
+  }
+
+  private static ChannelFuture mockWriteFuture(Channel channel) {
+    ChannelFuture future = mock(ChannelFuture.class);
+    when(future.channel()).thenReturn(channel != null ? channel : mock(Channel.class));
+    when(future.isSuccess()).thenReturn(true);
+    when(future.addListener(any()))
+        .thenAnswer(
+            inv -> {
+              GenericFutureListener listener = inv.getArgument(0);
+              listener.operationComplete(future);
+              return future;
+            });
+    return future;
+  }
   private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
 
   @Test
@@ -386,6 +406,7 @@ public class FramingLayerTest {
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
     when(mockPipeline.names()).thenReturn(Collections.emptyList());
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
 
     // Attributes on Parent (QuicChannel)
     Attribute<List<String>> allowedOriginsAttr =
@@ -475,6 +496,7 @@ public class FramingLayerTest {
     when(mockStreamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     when(mockCtx.pipeline()).thenReturn(mock(ChannelPipeline.class));
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
     when(mockStreamChannel.config())
         .thenReturn(mock(QuicStreamChannelConfig.class));
 
@@ -623,6 +645,18 @@ public class FramingLayerTest {
     when(mockNewStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
       when(mockConnectStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
       when(mockNewStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
+      when(mockConnectStream.writeAndFlush(any()))
+          .thenAnswer(
+              inv -> {
+                ReferenceCountUtil.release(inv.getArgument(0));
+                return null;
+              });
+      when(mockNewStream.writeAndFlush(any()))
+          .thenAnswer(
+              inv -> {
+                ReferenceCountUtil.release(inv.getArgument(0));
+                return null;
+              });
     Future<QuicStreamChannel> successFuture =
         mock(Future.class);
     when(successFuture.isSuccess()).thenReturn(true);
@@ -682,6 +716,7 @@ public class FramingLayerTest {
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
     when(mockPipeline.names()).thenReturn(Collections.emptyList());
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
 
     // Configure allowed origins: [google.com, localhost]
     Attribute<List<String>> allowedOriginsAttr =

@@ -10,6 +10,7 @@ import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicPathEvent;
+import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.EventExecutorGroup;
 import java.net.InetSocketAddress;
@@ -130,6 +131,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                   }
                   currentRemoteAddress = newRemoteAddress;
                 }
+                  if (evt instanceof SslHandshakeCompletionEvent) {
+                      SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+                      if (event.isSuccess()) {
+                            logger.info("Handshake successful");
+                      } else {
+                          logger.warn("Handshake failed", event.cause());
+                      }
+                  }
                 super.userEventTriggered(ctx, evt);
               }
             });
