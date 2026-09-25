@@ -237,6 +237,11 @@ public class WebTransportSessionManager {
         peerMaxDataNegotiated,
         flowControlEnabled);
     session.setOnClosedCallback(() -> unregister(connectStream));
+    Attribute<String> subprotocolAttr =
+        connectStream.attr(WebTransportAttributeKeys.SELECTED_SUBPROTOCOL);
+    if (subprotocolAttr != null && subprotocolAttr.get() != null) {
+      session.setSubprotocol(subprotocolAttr.get());
+    }
     sessions.put(sessionStreamId, session);
 
     if (!reserved) {

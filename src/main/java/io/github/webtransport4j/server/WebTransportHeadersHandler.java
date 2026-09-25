@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -223,8 +224,28 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
               quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
         }
+
+        CharSequence availableProtocolsHeader = frame.headers().get("wt-available-protocols");
+        String selectedProtocol = null;
+        if (availableProtocolsHeader != null) {
+          List<String> availableProtocols =
+              WebTransportUtils.parseAvailableProtocols(availableProtocolsHeader);
+          WebTransportServer server = quic.attr(WebTransportAttributeKeys.SERVER_KEY).get();
+          WebTransportHandler handler = (server != null) ? server.getHandler(pathStr) : null;
+          if (handler != null && !availableProtocols.isEmpty()) {
+            selectedProtocol = handler.selectSubprotocol(availableProtocols);
+          }
+        }
+        if (selectedProtocol != null) {
+          connectStream.attr(WebTransportAttributeKeys.SELECTED_SUBPROTOCOL).set(selectedProtocol);
+        }
+
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.OK.codeAsText());
+        if (selectedProtocol != null) {
+          responseHeaders.add(
+              "wt-protocol", WebTransportUtils.formatProtocolHeader(selectedProtocol));
+        }
 
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {
           if (f.isSuccess() && pending.compareAndSet(true, false)) {

@@ -24,6 +24,9 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<String> SESSION_PATH_KEY =
       AttributeKey.valueOf("wt.session.path.key");
 
+  public static final AttributeKey<String> SELECTED_SUBPROTOCOL =
+      AttributeKey.valueOf("wt.session.selected_subprotocol");
+
   public static final AttributeKey<WebTransportSessionManager> WT_SESSION_MGR =
       AttributeKey.valueOf("wt.session.manager");
 

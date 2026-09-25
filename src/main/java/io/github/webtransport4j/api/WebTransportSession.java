@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Represents a WebTransport session and manages its streams.
@@ -41,6 +42,8 @@ public class WebTransportSession {
   private final long sessionStreamId;
 
   private final String path;
+
+  private volatile String subprotocol;
 
   private volatile QuicStreamChannel connectStream;
 
@@ -280,6 +283,14 @@ public class WebTransportSession {
 
   public void setSettingsMaxStreamsUni(long value) {
     this.settingsMaxStreamsUni.set(value);
+  }
+
+  public @Nullable String getSubprotocol() {
+    return subprotocol;
+  }
+
+  public void setSubprotocol(@Nullable String subprotocol) {
+    this.subprotocol = subprotocol;
   }
 
   public void setSettingsMaxStreamsBidi(long value) {
