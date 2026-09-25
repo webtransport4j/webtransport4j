@@ -381,37 +381,61 @@ public class WebTransportSessionManager {
       } catch (Exception e) {
         logger.error("Error in metrics onSessionClosed for session {}", sessionStreamId, e);
       }
+if (logger.isDebugEnabled()) {
+  logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
+}
+
     }
 
-    if (logger.isDebugEnabled()) {
-      logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
-    }
-  }
+if (logger.isDebugEnabled()) {
+  logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
+}
 
-  /** Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487). */
-  public void closeSessionWithFlowControlError(long sessionId) {
-    WebTransportSession session = sessions.get(sessionId);
-    if (session != null) {
-      session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
-      logger.info(
-          "❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)",
-          sessionId);
-      try {
-        session
-            .getConnectStream()
-            .shutdown(
-                WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
-      } catch (Exception e) {
-        logger.warn("Error sending shutdown on session {}", sessionId, e);
-      }
-      session.close();
     }
   }
 
   /**
-   * Cleanup: Called when the main QUIC Connection is lost/closed with a flow
-   * control error.
-   */
+/*
+ * Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487).
+ *
+ * @param sessionId the session stream ID
+ * @return true if the session was found and closed, false otherwise
+ */
+public boolean closeSessionWithFlowControlError(long sessionId) {
+  WebTransportSession session = sessions.get(sessionId);
+  if (session != null) {
+    closeSessionWithFlowControlError(session);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487).
+ *
+ * @param session the session to close
+ */
+public void closeSessionWithFlowControlError(@NonNull WebTransportSession session) {
+  session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
+  logger.info(
+      "❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)",
+      session.getSessionStreamId());
+  try {
+    session
+        .getConnectStream()
+        .shutdown(
+            WebTransportUtils.WT_FLOW_CONTROL_ERROR, session.getConnectStream().newPromise());
+  } catch (Exception e) {
+    logger.warn("Error sending shutdown on session {}", session.getSessionStreamId(), e);
+  }
+  session.close();
+}
+
+/**
+ * Cleanup: Called when the main QUIC Connection is lost/closed with a flow
+ * control error.
+ */
+
   public void closeAllWithFlowControlError() {
     QuicChannel quic = null;
     for (WebTransportSession session : sessions.values()) {

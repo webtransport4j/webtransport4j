@@ -108,6 +108,18 @@ public class WebTransportSession {
 
   private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
 
+  private final AtomicBoolean draining = new AtomicBoolean(false);
+
+  /** Returns true if this session has received a WT_DRAIN_SESSION capsule. */
+  public boolean isDraining() {
+    return draining.get();
+  }
+
+  /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
+  public void markDraining() {
+    draining.set(true);
+  }
+
   /** Web Transport Session. */
   public WebTransportSession(
       long sessionStreamId,

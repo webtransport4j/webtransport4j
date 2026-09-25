@@ -126,7 +126,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                             + " ({}). Closing session.",
                         newCumulativeReceived,
                         localLimit);
-                    mgr.closeSessionWithFlowControlError(sessionId);
+                    mgr.closeSessionWithFlowControlError(session);
                     data.release();
                     ((QuicStreamChannel) ctx.channel())
                         .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
@@ -306,7 +306,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
           sessionId,
           value,
           maxAllowed);
-      mgr.closeSessionWithFlowControlError(sessionId);
+      mgr.closeSessionWithFlowControlError(session);
       if (ctx.channel() instanceof QuicStreamChannel) {
         ((QuicStreamChannel) ctx.channel())
             .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
