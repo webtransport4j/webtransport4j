@@ -37,7 +37,6 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -5346,10 +5345,11 @@ clientSetting.put(0x2b61L, 100000L);
 
   @Test
   public void testIpRateLimitingAndBlocklistIntegration() throws Exception {
-    Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
-    field.setAccessible(true);
-    Map<?, ?> ipCounts = (Map<?, ?>) field.get(null);
-    ipCounts.clear();
+    File tempFile = new File("webtransport-dynamic.properties");
+    if (tempFile.exists()) {
+      tempFile.delete();
+    }
+    IpRateLimitingHandler.clearState();
 
     System.setProperty("webtransport4j.server.ratelimit.whitelist", "");
     System.setProperty("webtransport4j.server.ratelimit.blocklist", "127.0.0.1");
@@ -5363,28 +5363,28 @@ clientSetting.put(0x2b61L, 100000L);
       System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "2");
       WebTransportConfig.reload();
       IpRateLimitingHandler.reloadSharedConfig();
-      ipCounts.clear();
+      IpRateLimitingHandler.clearState();
 
       assertTrue("First connection should be accepted", tryConnectAndVerifyActive(port));
       assertTrue("Second connection should be accepted", tryConnectAndVerifyActive(port));
       assertFalse("Third connection exceeding limit should be rejected", tryConnectAndVerifyActive(port));
 
     } finally {
+      if (tempFile.exists()) {
+        tempFile.delete();
+      }
       System.clearProperty("webtransport4j.server.ratelimit.whitelist");
       System.clearProperty("webtransport4j.server.ratelimit.blocklist");
       System.clearProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
       WebTransportConfig.reload();
       IpRateLimitingHandler.reloadSharedConfig();
-      ipCounts.clear();
+      IpRateLimitingHandler.clearState();
     }
   }
 
   @Test
   public void testBackgroundConfigReloaderIntegration() throws Exception {
-    Field field = IpRateLimitingHandler.class.getDeclaredField("ipCounts");
-    field.setAccessible(true);
-    Map<?, ?> ipCounts = (Map<?, ?>) field.get(null);
-    ipCounts.clear();
+    IpRateLimitingHandler.clearState();
 
     // Verify localhost is normally accepted
     File tempFile = new File("webtransport-dynamic.properties");
@@ -5419,7 +5419,7 @@ clientSetting.put(0x2b61L, 100000L);
       System.clearProperty("webtransport4j.server.ratelimit.blocklist");
       WebTransportConfig.reload();
       IpRateLimitingHandler.reloadSharedConfig();
-      ipCounts.clear();
+      IpRateLimitingHandler.clearState();
     }
   }
 

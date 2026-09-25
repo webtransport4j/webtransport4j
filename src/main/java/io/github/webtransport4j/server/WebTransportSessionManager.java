@@ -79,13 +79,33 @@ public class WebTransportSessionManager {
         ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
         : null;
 
-    // Flow control is enabled if any of the settings are explicitly set to non-zero
-    // values.
-    // Zero values are treated as "use fallback default", not as "unlimited".
-    // This allows per-deployment configuration of flow control defaults.
-    boolean flowControlEnabled = (uniMax != null && uniMax > 0L)
+    Long peerUni = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null
+        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get()
+        : null;
+    Long peerBidi = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
+        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
+        : null;
+    Long peerData = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null
+        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get()
+        : null;
+
+    Boolean peerSettingsReceived = quic != null
+        && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED) != null
+        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()
+        : null;
+
+    // Per draft-ietf-webtrans-http3-16 Section 5.1:
+    // Flow control is enabled when BOTH endpoints declare their intent to use flow control
+    // by sending any of the initial stream or data limits with a value other than "0".
+    boolean localFlowControlDeclared = (uniMax != null && uniMax > 0L)
         || (biMax != null && biMax > 0L)
         || (dataMax != null && dataMax > 0L);
+    boolean peerFlowControlDeclared = (peerUni != null && peerUni > 0L)
+        || (peerBidi != null && peerBidi > 0L)
+        || (peerData != null && peerData > 0L);
+    boolean flowControlEnabled = Boolean.TRUE.equals(peerSettingsReceived)
+        ? (localFlowControlDeclared && peerFlowControlDeclared)
+        : localFlowControlDeclared;
 
     // Apply fallback defaults for any zero-valued settings when flow control is
     // enabled.
@@ -120,15 +140,6 @@ public class WebTransportSessionManager {
     long uniMaxVal = uniMax != null ? uniMax : 0L;
     long biMaxVal = biMax != null ? biMax : 0L;
     long dataMaxVal = dataMax != null ? dataMax : 0L;
-    Long peerUni = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get()
-        : null;
-    Long peerBidi = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
-        : null;
-    Long peerData = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get()
-        : null;
     long peerUniVal = peerUni != null ? peerUni : 0L;
     long peerBidiVal = peerBidi != null ? peerBidi : 0L;
     long peerDataVal = peerData != null ? peerData : 0L;

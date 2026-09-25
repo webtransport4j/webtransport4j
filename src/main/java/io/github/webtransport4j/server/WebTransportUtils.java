@@ -125,7 +125,7 @@ public class WebTransportUtils {
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
       return promise;
     }
-    if (!byPassLimit) {
+    if (!byPassLimit && session.isFlowControlEnabled()) {
       long current =
           QuicStreamType.BIDIRECTIONAL == quicStreamType
               ? session.getServerInitiatedStreamsBidi()
@@ -151,7 +151,7 @@ public class WebTransportUtils {
         );
         return promise;
       }
-      if (QuicStreamType.BIDIRECTIONAL == quicStreamType){
+      if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
           session.incrementAndGetServerInitiatedStreamsBidi();
       } else {
           session.incrementAndGetServerInitiatedStreamsUni();
@@ -530,6 +530,11 @@ public class WebTransportUtils {
     }
   }
 
+  /**
+   * Checks whether Linux UDP Generic Segmentation Offload (GSO) is supported by active adapters.
+   *
+   * @return true if GSO is supported or cannot be determined, false if explicitly unsupported
+   */
   public static boolean isLinuxUdpGsoSupported() {
     try {
       File netDir = new File("/sys/class/net");
@@ -542,12 +547,14 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth") || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
+            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
         if (operStateFile.exists() && operStateFile.canRead()) {
-          String operState = new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
+          String operState =
+              new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
           if ("down".equalsIgnoreCase(operState)) {
             continue; // Ignore inactive network adapters
           }
@@ -562,7 +569,10 @@ public class WebTransportUtils {
               String featureStatus = parts[1].trim().toLowerCase();
               if ("tx-udp-segmentation".equals(featureName) || "tx_udp_segmentation".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
-                  logger.warn("⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active network interface '{}' has 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.", name);
+                  logger.warn(
+                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active network interface '{}'"
+                          + " has 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.",
+                      name);
                   return false;
                 }
               }
@@ -576,6 +586,11 @@ public class WebTransportUtils {
     return true;
   }
 
+  /**
+   * Checks whether Linux UDP Generic Receive Offload (GRO) is supported by active adapters.
+   *
+   * @return true if GRO is supported or cannot be determined, false if explicitly unsupported
+   */
   public static boolean isLinuxUdpGroSupported() {
     try {
       File netDir = new File("/sys/class/net");
@@ -588,12 +603,14 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth") || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
+            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
         if (operStateFile.exists() && operStateFile.canRead()) {
-          String operState = new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
+          String operState =
+              new String(Files.readAllBytes(operStateFile.toPath()), StandardCharsets.UTF_8).trim();
           if ("down".equalsIgnoreCase(operState)) {
             continue; // Ignore inactive network adapters
           }
@@ -608,7 +625,11 @@ public class WebTransportUtils {
               String featureStatus = parts[1].trim().toLowerCase();
               if ("rx-udp-gro-forwarding".equals(featureName) || "rx-gro-receive".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
-                  logger.warn("⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active network interface '{}' has GRO offload disabled ('{}'). Disabling UDP GRO.", name, line.trim());
+                  logger.warn(
+                      "⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active network interface '{}'"
+                          + " has GRO offload disabled ('{}'). Disabling UDP GRO.",
+                      name,
+                      line.trim());
                   return false;
                 }
               }
