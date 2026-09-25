@@ -80,6 +80,7 @@ public class WebTransportServer {
   private WebTransportHandler defaultHandler;
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
+  private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
 
   /**
    * The observability metrics listener. Defaults to a no-op implementation.
@@ -394,7 +395,8 @@ public class WebTransportServer {
           .tokenHandler(resolveTokenHandler())
           .handler(
               new QuicChannelInitializer(
-                  this, settings, businessExecutor, resolvedOrigins, globalActiveSessions));
+                  this, settings, businessExecutor, resolvedOrigins, globalActiveSessions,
+                  globalSessionSlots));
 
       configureOptionalQuicParams(builder);
 
@@ -652,7 +654,8 @@ public class WebTransportServer {
     return resolvedSslCtx;
   }
 
-  private @NonNull Http3Settings buildHttp3Settings() {
+  /** Builds the HTTP/3 settings frame for this WebTransport server instance. */
+  public @NonNull Http3Settings buildHttp3Settings() {
     String allowedProp = WebTransportConfig.getNonNull(
         "webtransport4j.webtransport.settings.nonstandardallowed",
         "0x2c7cf000,0x2b64,0x2b65,0x2b61");

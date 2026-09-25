@@ -80,14 +80,14 @@ public class WebTransportSession {
 
   private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
 
-  // Flow control fields — only allocated when flowControlEnabled is true
-  private final AtomicLong cumulativeBytesSent;
+  // Flow control fields
+  private final AtomicLong cumulativeBytesSent = new AtomicLong(0L);
 
-  private final AtomicLong cumulativeBytesReceived;
+  private final AtomicLong cumulativeBytesReceived = new AtomicLong(0L);
 
-  private final AtomicLong lastSentDataBlockedLimit;
+  private final AtomicLong lastSentDataBlockedLimit = new AtomicLong(-1L);
 
-  private final boolean flowControlEnabled;
+  private final AtomicBoolean flowControlEnabled;
 
   // Initial allowed concurrent limits set at the start of the session
   private final long initialMaxStreamsUni;
@@ -106,6 +106,18 @@ public class WebTransportSession {
 
   private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
 
+  private final AtomicBoolean draining = new AtomicBoolean(false);
+
+  /** Returns true if this session has received a WT_DRAIN_SESSION capsule. */
+  public boolean isDraining() {
+    return draining.get();
+  }
+
+  /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
+  public void markDraining() {
+    draining.set(true);
+  }
+
   /** Web Transport Session. */
   public WebTransportSession(
       long sessionStreamId,
@@ -123,7 +135,7 @@ public class WebTransportSession {
     this.path = path;
     this.connectStream = connectStream;
     this.resumptionToken = UUID.randomUUID().toString();
-    this.flowControlEnabled = flowControlEnabled;
+    this.flowControlEnabled = new AtomicBoolean(flowControlEnabled);
     this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
     // Stream limits — always needed
     this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
@@ -140,16 +152,6 @@ public class WebTransportSession {
     this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
     this.activeClientInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
     this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
-    // Flow control objects — skip allocation when disabled
-    if (flowControlEnabled) {
-      this.cumulativeBytesSent = new AtomicLong(0L);
-      this.cumulativeBytesReceived = new AtomicLong(0L);
-      this.lastSentDataBlockedLimit = new AtomicLong(-1L);
-    } else {
-      this.cumulativeBytesSent = null;
-      this.cumulativeBytesReceived = null;
-      this.lastSentDataBlockedLimit = null;
-    }
   }
 
   public long getLastReadTime() {
@@ -176,6 +178,11 @@ public class WebTransportSession {
     return activeServerInitiatedBi;
   }
 
+  /**
+   * Returns all active unidirectional and bidirectional WebTransport streams for this session.
+   *
+   * @return set of all active QuicStreamChannel instances
+   */
   public @NonNull Set<QuicStreamChannel> getAllActiveWebTransportStreams() {
     Set<QuicStreamChannel> webTransportStreams = new ObjectOpenHashSet<>();
     webTransportStreams.addAll(getActiveClientInitiatedUni());
@@ -184,8 +191,23 @@ public class WebTransportSession {
     webTransportStreams.addAll(getActiveServerInitiatedBi());
     return webTransportStreams;
   }
+
+  /**
+   * Checks whether session-level flow control is enabled.
+   *
+   * @return true if flow control was negotiated by both endpoints
+   */
   public boolean isFlowControlEnabled() {
-    return flowControlEnabled;
+    return flowControlEnabled.get();
+  }
+
+  /**
+   * Sets whether session-level flow control is enabled.
+   *
+   * @param enabled true to enable flow control, false otherwise
+   */
+  public void setFlowControlEnabled(boolean enabled) {
+    this.flowControlEnabled.set(enabled);
   }
 
   public long getSessionStreamId() {

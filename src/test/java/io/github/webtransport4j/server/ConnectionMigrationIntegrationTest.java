@@ -211,7 +211,7 @@ public class ConnectionMigrationIntegrationTest {
                                     stream.pipeline().addLast(new DefaultMessageDispatcher());
                                   }
                                 },
-                                new ChannelInboundHandlerAdapter() {},
+                                new Http3InboundControlStreamHandler(),
                                 (streamType) -> null,
                                 new DefaultHttp3SettingsFrame(serverSettings),
                                 true,

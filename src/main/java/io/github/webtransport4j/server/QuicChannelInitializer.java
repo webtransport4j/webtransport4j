@@ -10,6 +10,7 @@ import io.netty.handler.codec.http3.Http3ServerConnectionHandler;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicPathEvent;
+import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.EventExecutorGroup;
 import java.net.InetSocketAddress;
@@ -40,6 +41,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
   private final List<String> allowedOrigins;
 
   private final AtomicInteger globalActiveSessions;
+  private final AtomicInteger globalSessionSlots;
 
   /** Quic Channel Initializer. */
   public QuicChannelInitializer(
@@ -47,12 +49,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       Http3Settings settings,
       ExecutorService businessExecutor,
       List<String> allowedOrigins,
-      AtomicInteger globalActiveSessions) {
+      AtomicInteger globalActiveSessions,
+      AtomicInteger globalSessionSlots) {
     this.server = server;
     this.settings = settings;
     this.businessExecutor = businessExecutor;
     this.allowedOrigins = allowedOrigins;
     this.globalActiveSessions = globalActiveSessions;
+    this.globalSessionSlots = globalSessionSlots;
   }
 
   @Override
@@ -130,6 +134,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                   }
                   currentRemoteAddress = newRemoteAddress;
                 }
+                  if (evt instanceof SslHandshakeCompletionEvent) {
+                      SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+                      if (event.isSuccess()) {
+                            logger.info("Handshake successful");
+                      } else {
+                          logger.warn("Handshake failed", event.cause());
+                      }
+                  }
                 super.userEventTriggered(ctx, evt);
               }
             });
@@ -157,6 +169,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     }
     ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
+    ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS).set(this.globalSessionSlots);
     WebTransportSessionManager sessionManager = new WebTransportSessionManager();
     ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(sessionManager);
     ch.closeFuture().addListener(f -> sessionManager.closeAll(ch));
@@ -191,6 +204,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                 new UnknownStreamHandlerFactory(),
                 new DefaultHttp3SettingsFrame(settings),
                 WebTransportConfig.getBoolean(
-                    "webtransport4j.http3.qpack.dynamic.table.disabled", true)));
+                    "webtransport4j.http3.qpack.dynamic.table.disabled", true),
+                (id, value) -> true));
   }
 }

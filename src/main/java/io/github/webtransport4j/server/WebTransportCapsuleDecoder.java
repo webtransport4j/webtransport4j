@@ -18,9 +18,11 @@ import org.slf4j.LoggerFactory;
  * @author https://github.com/sanjomo
  * @date 24/06/26 1:08 pm
  */
-final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
+public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleDecoder.class);
+
+  public WebTransportCapsuleDecoder() {}
 
   private long cachedSessionId = -1L;
 
