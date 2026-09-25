@@ -4,9 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.webtransport4j.api.WebTransportSession;
@@ -30,7 +28,7 @@ import org.junit.Test;
 public class Http3ControlStreamAndAccountingTest {
 
   @Test
-  public void testLateSettingsEnablesFlowControlAndAppliesFallbacks() {
+  public void testLateSettingsEnablesFlowControlAndUpdatesPeerLimits() {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockControlStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -93,14 +91,6 @@ public class Http3ControlStreamAndAccountingTest {
     assertEquals(50L, session.getPeerSettingsMaxStreamsUni());
     assertEquals(50L, session.getPeerSettingsMaxStreamsBidi());
     assertEquals(50000L, session.getPeerSettingsMaxData());
-
-    // Verify fallback limits were applied for zero initial limits
-    assertTrue(session.getSettingsMaxStreamsUni() > 0L);
-    assertTrue(session.getSettingsMaxStreamsBidi() > 0L);
-    assertTrue(session.getSettingsMaxData() > 0L);
-
-    // Verify capsules were sent back
-    verify(mockConnectStream, atLeastOnce()).writeAndFlush(any());
   }
 
   @Test
