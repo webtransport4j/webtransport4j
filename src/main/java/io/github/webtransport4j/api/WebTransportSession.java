@@ -4,6 +4,7 @@ import io.github.webtransport4j.server.DefaultMessageDispatcher;
 import io.github.webtransport4j.server.MessageDispatcher;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;
+import io.github.webtransport4j.server.WebTransportKeyExporter;
 import io.github.webtransport4j.server.WebTransportStreamFrameDecoder;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
@@ -24,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Represents a WebTransport session and manages its streams.
@@ -332,6 +334,31 @@ public class WebTransportSession {
    */
   public @NonNull AtomicLong getLastSentDataBlockedLimit() {
     return lastSentDataBlockedLimit;
+  }
+
+  /**
+   * Exports keying material for this WebTransport session using the TLS Exporter mechanism
+   * defined in draft-16 Section 4.8.
+   *
+   * @param label the application-supplied exporter label
+   * @param context optional application-supplied exporter context (can be null)
+   * @param length the desired length of exported keying material in bytes
+   * @return the exported keying material bytes
+   */
+  public byte[] exportKeyingMaterial(
+      @NonNull String label,
+      byte @Nullable [] context,
+      int length) {
+    if (length <= 0) {
+      throw new IllegalArgumentException("Key length must be positive: " + length);
+    }
+    byte[] serializedContext =
+        WebTransportKeyExporter.serializeExporterContext(sessionStreamId, label, context);
+    return WebTransportKeyExporter.exportKeyingMaterial(
+        connectStream != null ? connectStream.parent() : null,
+        WebTransportKeyExporter.TLS_EXPORTER_LABEL,
+        serializedContext,
+        length);
   }
 
   /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
