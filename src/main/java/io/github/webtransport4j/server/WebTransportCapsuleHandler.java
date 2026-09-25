@@ -365,6 +365,50 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           }
         }
       }
+    } else if (capsule.capsuleType() == 0x78aeL) {
+      ByteBuf content = capsule.content();
+      if (content != null && content.isReadable()) {
+        logger.warn(
+            "❌ WT_DRAIN_SESSION payload is not empty ({} bytes)."
+                + " Resetting connect stream with H3_MESSAGE_ERROR.",
+            content.readableBytes());
+        resetConnectStreamWithMessageError(ctx);
+        return;
+      }
+      logger.info(
+          "🌊 WT_DRAIN_SESSION received for session {}. Marking session as draining.",
+          capsule.sessionId());
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          WebTransportSession session = mgr.get(capsule.sessionId());
+          if (session != null) {
+            session.markDraining();
+          }
+        }
+      }
+    } else if (capsule.capsuleType() == 0x190b4d3eL || capsule.capsuleType() == 0x190b4d42L) {
+      logger.warn(
+          "❌ Prohibited capsule 0x{} received on CONNECT stream."
+              + " Resetting session with WT_FLOW_CONTROL_ERROR.",
+          Long.toHexString(capsule.capsuleType()));
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          mgr.closeSessionWithFlowControlError(capsule.sessionId());
+          return;
+        }
+      }
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) ctx.channel())
+            .shutdown(0x045d4487, ((QuicStreamChannel) ctx.channel()).newPromise());
+      } else {
+        ctx.close();
+      }
     } else {
       logger.warn(
           "⚠️ Received unhandled protocol capsule: 0x{}", Long.toHexString(capsule.capsuleType()));
@@ -375,7 +419,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
     if (ctx.channel() instanceof QuicStreamChannel) {
       QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
       QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
-      if (quic != null) {
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {

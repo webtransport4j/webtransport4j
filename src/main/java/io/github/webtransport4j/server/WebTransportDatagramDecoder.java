@@ -9,8 +9,9 @@ import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** Decodes HTTP/3 datagrams into WebTransport datagram frames. */
 @ChannelHandler.Sharable
-class WebTransportDatagramDecoder extends MessageToMessageDecoder<ByteBuf> {
+public class WebTransportDatagramDecoder extends MessageToMessageDecoder<ByteBuf> {
 
   public static final WebTransportDatagramDecoder INSTANCE = new WebTransportDatagramDecoder();
 
@@ -27,6 +28,6 @@ class WebTransportDatagramDecoder extends MessageToMessageDecoder<ByteBuf> {
       return;
     }
     ByteBuf payload = msg.readRetainedSlice(msg.readableBytes());
-    out.add(new WebTransportDatagramFrame(quarterSessionId<<2, payload));
+    out.add(new WebTransportDatagramFrame(quarterSessionId << 2, payload));
   }
 }

@@ -38,10 +38,26 @@ public class Http3InboundControlStreamHandler
       } else if (ctx.channel() instanceof QuicChannel) {
         quic = (QuicChannel) ctx.channel();
       }
+      Long wtEnabled = settings.get(0x2c7cf000L);
+      if (wtEnabled != null && wtEnabled != 0L && wtEnabled != 1L) {
+        logger.warn(
+            "❌ Invalid SETTINGS_WT_ENABLED value: {}. Closing connection with H3_SETTINGS_ERROR.",
+            wtEnabled);
+        if (quic != null) {
+          quic.close(true, 0x0119, io.netty.buffer.Unpooled.EMPTY_BUFFER);
+        } else {
+          ctx.close();
+        }
+        return;
+      }
+
       boolean valid = Boolean.TRUE.equals(settings.h3DatagramEnabled());
       if (quic != null) {
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
+        if (wtEnabled != null) {
+          quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(wtEnabled == 1L);
+        }
       }
       // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
       // (0x33) is

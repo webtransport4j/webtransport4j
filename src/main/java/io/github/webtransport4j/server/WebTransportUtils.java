@@ -640,4 +640,26 @@ public class WebTransportUtils {
     }
     return true;
   }
+
+  /**
+   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section 4.8.
+   *
+   * @param sessionId the WebTransport session ID
+   * @param applicationContext the application context bytes, or null
+   * @return serialized exporter context bytes
+   */
+  public static byte[] serializeExporterContext(long sessionId, byte[] applicationContext) {
+    ByteBuf buf = io.netty.buffer.Unpooled.buffer();
+    try {
+      writeVarInt(buf, sessionId);
+      if (applicationContext != null && applicationContext.length > 0) {
+        buf.writeBytes(applicationContext);
+      }
+      byte[] bytes = new byte[buf.readableBytes()];
+      buf.readBytes(bytes);
+      return bytes;
+    } finally {
+      buf.release();
+    }
+  }
 }
