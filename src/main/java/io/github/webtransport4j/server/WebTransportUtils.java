@@ -144,17 +144,15 @@ public class WebTransportUtils {
         sendStreamsBlockedCapsule(
             session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
-                new IllegalStateException(
-                        (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional") 
-                        + " stream limit exceeded"
-                )
-        );
+            new IllegalStateException(
+                (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional")
+                    + " stream limit exceeded"));
         return promise;
       }
       if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
-          session.incrementAndGetServerInitiatedStreamsBidi();
+        session.incrementAndGetServerInitiatedStreamsBidi();
       } else {
-          session.incrementAndGetServerInitiatedStreamsUni();
+        session.incrementAndGetServerInitiatedStreamsUni();
       }
     }
     return connectStreamChannel
@@ -641,5 +639,27 @@ public class WebTransportUtils {
       logger.debug("Could not inspect Linux sysfs for UDP GRO support: {}", t.getMessage());
     }
     return true;
+  }
+
+  /**
+   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section 4.8.
+   *
+   * @param sessionId the WebTransport session ID
+   * @param applicationContext the application context bytes, or null
+   * @return serialized exporter context bytes
+   */
+  public static byte[] serializeExporterContext(long sessionId, byte[] applicationContext) {
+    ByteBuf buf = io.netty.buffer.Unpooled.buffer();
+    try {
+      writeVarInt(buf, sessionId);
+      if (applicationContext != null && applicationContext.length > 0) {
+        buf.writeBytes(applicationContext);
+      }
+      byte[] bytes = new byte[buf.readableBytes()];
+      buf.readBytes(bytes);
+      return bytes;
+    } finally {
+      buf.release();
+    }
   }
 }
