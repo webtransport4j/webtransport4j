@@ -154,7 +154,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     isBidi ? "Bidirectional" : "Unidirectional",
                     maxStreams,
                     currentLimit);
-                mgr.closeSessionWithFlowControlError(capsule.sessionId());
+                mgr.closeSessionWithFlowControlError(session);
               } else {
                 // The new limit is the absolute cumulative value. No math is needed.
                 if (isBidi) {
@@ -230,7 +230,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     "❌ Received WT_MAX_DATA ({}) less than previous limit ({}). Closing session.",
                     maxData,
                     currentPeerLimit);
-                mgr.closeSessionWithFlowControlError(capsule.sessionId());
+                mgr.closeSessionWithFlowControlError(session);
               } else {
                 session.setPeerSettingsMaxData(maxData);
                 logger.info(
@@ -398,8 +398,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-        if (mgr != null) {
-          mgr.closeSessionWithFlowControlError(capsule.sessionId());
+        if (mgr != null && mgr.closeSessionWithFlowControlError(capsule.sessionId())) {
           return;
         }
       }
