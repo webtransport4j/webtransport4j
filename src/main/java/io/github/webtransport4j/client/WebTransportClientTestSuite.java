@@ -194,6 +194,9 @@ public class WebTransportClientTestSuite {
         Http3Settings settings = new Http3Settings((id, value) -> true);
         settings.enableConnectProtocol(true);
         settings.enableH3Datagram(true);
+        settings.put(0x2b64L, 1000L);
+        settings.put(0x2b65L, 1000L);
+        settings.put(0x2b61L, 10737418240L);
 
         QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
                 .handler(new WebTransportTestClientConnectionHandler(new DefaultHttp3SettingsFrame(settings),

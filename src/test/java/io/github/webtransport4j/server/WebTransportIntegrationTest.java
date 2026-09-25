@@ -5145,6 +5145,10 @@ clientSettings.enableH3Datagram(true);
 Http3Settings clientSetting = new Http3Settings((id, value) -> true);
 clientSetting.enableH3Datagram(true);
 clientSetting.enableConnectProtocol(true);
+clientSetting.put(0x2c7cf000L, 1L);
+clientSetting.put(0x2b64L, 10L);
+clientSetting.put(0x2b65L, 10L);
+clientSetting.put(0x2b61L, 100000L);
       QuicChannelBootstrap bootstrap =
           QuicChannel.newBootstrap(clientChannel)
               .handler(

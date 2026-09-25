@@ -76,11 +76,28 @@ public class Http3InboundControlStreamHandler
         return;
       }
       if (quic != null) {
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
-            .set(settings.get(0x2b64L));
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
-            .set(settings.get(0x2b65L));
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
+        Long peerUni = settings.get(0x2b64L);
+        Long peerBidi = settings.get(0x2b65L);
+        Long peerData = settings.get(0x2b61L);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(peerUni);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(peerBidi);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(peerData);
+
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          for (WebTransportSession session : mgr.getSessions()) {
+            if (peerUni != null) {
+              session.setPeerSettingsMaxStreamsUni(peerUni);
+            }
+            if (peerBidi != null) {
+              session.setPeerSettingsMaxStreamsBidi(peerBidi);
+            }
+            if (peerData != null) {
+              session.setPeerSettingsMaxData(peerData);
+            }
+          }
+        }
       }
     }
   }

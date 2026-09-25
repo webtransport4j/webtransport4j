@@ -204,6 +204,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                 new UnknownStreamHandlerFactory(),
                 new DefaultHttp3SettingsFrame(settings),
                 WebTransportConfig.getBoolean(
-                    "webtransport4j.http3.qpack.dynamic.table.disabled", true)));
+                    "webtransport4j.http3.qpack.dynamic.table.disabled", true),
+                (id, value) -> true));
   }
 }
