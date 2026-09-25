@@ -331,6 +331,21 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           }
         }
       }
+    } else if (capsule.capsuleType() == 0x190B4D3EL || capsule.capsuleType() == 0x190B4D42L) {
+      logger.warn(
+          "❌ Received prohibited capsule 0x{} in WebTransport over HTTP/3 (draft-16 § 5.4)."
+              + " Closing session with WT_FLOW_CONTROL_ERROR.",
+          Long.toHexString(capsule.capsuleType()));
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          mgr.closeSessionWithFlowControlError(capsule.sessionId());
+          return;
+        }
+      }
+      ctx.close();
     } else {
       logger.warn(
           "⚠️ Received unhandled protocol capsule: 0x{}", Long.toHexString(capsule.capsuleType()));
