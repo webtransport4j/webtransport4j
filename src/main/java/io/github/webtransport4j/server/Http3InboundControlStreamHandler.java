@@ -89,6 +89,7 @@ public class Http3InboundControlStreamHandler
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
           for (WebTransportSession session : mgr.getSessions()) {
+            final boolean wasFlowControlEnabled = session.isFlowControlEnabled();
             if (peerUni != null) {
               session.setPeerSettingsMaxStreamsUni(peerUni);
             }
@@ -99,6 +100,30 @@ public class Http3InboundControlStreamHandler
               session.setPeerSettingsMaxData(peerData);
             }
             session.setFlowControlEnabled(flowControlEnabled);
+
+            if (!wasFlowControlEnabled && flowControlEnabled) {
+              QuicStreamChannel connectStream = session.getConnectStream();
+              if (connectStream != null) {
+                if (session.getSettingsMaxStreamsUni() == 0L) {
+                  long fallbackUni = WebTransportConfig.getLong(
+                      "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+                  session.setSettingsMaxStreamsUni(fallbackUni);
+                  WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, fallbackUni);
+                }
+                if (session.getSettingsMaxStreamsBidi() == 0L) {
+                  long fallbackBidi = WebTransportConfig.getLong(
+                      "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+                  session.setSettingsMaxStreamsBidi(fallbackBidi);
+                  WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, fallbackBidi);
+                }
+                if (session.getSettingsMaxData() == 0L) {
+                  long fallbackData = WebTransportConfig.getLong(
+                      "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+                  session.setSettingsMaxData(fallbackData);
+                  WebTransportUtils.sendMaxDataCapsule(connectStream, fallbackData);
+                }
+              }
+            }
           }
         }
       }

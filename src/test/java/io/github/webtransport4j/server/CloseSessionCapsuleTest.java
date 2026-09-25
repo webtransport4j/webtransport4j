@@ -98,4 +98,33 @@ public class CloseSessionCapsuleTest {
     verify(mockCtx, never()).close();
     payload.release();
   }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testUnregistersSessionBeforeShutdownOnMessageError() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    io.netty.handler.codec.quic.QuicChannel mockParent =
+        mock(io.netty.handler.codec.quic.QuicChannel.class);
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+
+    WebTransportSessionManager mockMgr = mock(WebTransportSessionManager.class);
+    io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
+        mock(io.netty.util.Attribute.class);
+    when(mgrAttr.get()).thenReturn(mockMgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    ByteBuf payload = Unpooled.buffer();
+    payload.writeBytes(new byte[] {0, 1}); // truncated < 4 bytes triggers message error
+
+    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
+
+    org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(mockMgr, mockStream);
+    inOrder.verify(mockMgr).unregister(mockStream);
+    inOrder.verify(mockStream).shutdown(eq(0x010e), any());
+    payload.release();
+  }
 }

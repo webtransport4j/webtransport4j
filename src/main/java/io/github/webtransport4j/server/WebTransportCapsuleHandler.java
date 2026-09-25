@@ -374,6 +374,14 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
   private static void resetConnectStreamWithMessageError(@NonNull ChannelHandlerContext ctx) {
     if (ctx.channel() instanceof QuicStreamChannel) {
       QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          mgr.unregister(streamChannel);
+        }
+      }
       streamChannel.shutdown(0x010e, streamChannel.newPromise());
     } else {
       ctx.close();
