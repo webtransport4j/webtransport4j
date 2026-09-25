@@ -149,12 +149,11 @@ public class WebTransportUtils {
                     + " stream limit exceeded"));
         return promise;
       }
-if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
-  session.incrementAndGetServerInitiatedStreamsBidi();
-} else {
-  session.incrementAndGetServerInitiatedStreamsUni();
-}
-
+      if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
+        session.incrementAndGetServerInitiatedStreamsBidi();
+      } else {
+        session.incrementAndGetServerInitiatedStreamsUni();
+      }
     }
     return connectStreamChannel
         .parent()
