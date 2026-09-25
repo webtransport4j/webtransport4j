@@ -938,6 +938,98 @@ public class FramingLayerTest {
   }
 
   @Test
+  public void testMaxSessionsPerConnectionCappedToOneWithoutFlowControl() throws Exception {
+    System.setProperty("webtransport4j.webtransport.max_sessions_per_connection", "2");
+    try {
+      final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+      ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+      QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+      QuicChannel mockParent = mock(QuicChannel.class);
+
+      when(mockCtx.channel()).thenReturn(mockStream);
+      when(mockStream.parent()).thenReturn(mockParent);
+      when(mockStream.streamId()).thenReturn(100L);
+      ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+      when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+      Attribute<Long> sessIdAttr = mock(Attribute.class);
+      when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+      QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
+      when(mockStream.config()).thenReturn(mockConfig);
+      when(mockConfig.isAutoRead()).thenReturn(true);
+
+      ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
+      when(mockCtx.pipeline()).thenReturn(mockPipeline);
+      when(mockPipeline.names()).thenReturn(Collections.emptyList());
+
+      // Mock ALLOWED_ORIGINS to allow everything
+      Attribute<List<String>> allowedOriginsAttr = mock(Attribute.class);
+      when(allowedOriginsAttr.get()).thenReturn(null);
+      when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS))
+          .thenReturn(allowedOriginsAttr);
+
+      Attribute<String> pathAttr = mock(Attribute.class);
+      when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
+
+      // Flow control is NOT negotiated (peer settings not received)
+      Attribute<Boolean> peerReceivedAttr = mock(Attribute.class);
+      when(peerReceivedAttr.get()).thenReturn(false);
+      when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED))
+          .thenReturn(peerReceivedAttr);
+
+      // Setup session manager with 1 active session registered
+      QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
+      when(existingStream.streamId()).thenReturn(40L);
+      when(existingStream.parent()).thenReturn(mockParent);
+      when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
+          .thenReturn(mock(Attribute.class));
+      WebTransportSessionManager mgr = new WebTransportSessionManager();
+      mgr.register(existingStream);
+
+      Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+      when(mgrAttr.get()).thenReturn(mgr);
+      when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+      Attribute<Long> defaultBidiAttr = mock(Attribute.class);
+      when(defaultBidiAttr.get()).thenReturn(10L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+          .thenReturn(defaultBidiAttr);
+
+      Attribute<Long> defaultUniAttr = mock(Attribute.class);
+      when(defaultUniAttr.get()).thenReturn(10L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+          .thenReturn(defaultUniAttr);
+
+      Attribute<Long> defaultDataAttr = mock(Attribute.class);
+      when(defaultDataAttr.get()).thenReturn(10000L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+          .thenReturn(defaultDataAttr);
+
+      // Setup 2nd CONNECT request
+      Http3Headers mockHeaders = new DefaultHttp3Headers();
+      mockHeaders.method("CONNECT");
+      mockHeaders.scheme("https");
+      mockHeaders.authority("localhost:4433");
+      mockHeaders.path("/webtransport-test");
+      mockHeaders.set(":protocol", "webtransport-h3");
+      Http3HeadersFrame mockHeadersFrame = mock(Http3HeadersFrame.class);
+      when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+      // Execute channelRead — despite configured limit being 2, because flow control is not
+      // negotiated, effective limit is 1, so the 2nd session must be rejected with 429
+      handler.channelRead(mockCtx, mockHeadersFrame);
+
+      // Verify status 429 Too Many Requests response is sent
+      ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+      verify(mockCtx).writeAndFlush(captor.capture());
+      Http3HeadersFrame respFrame = (Http3HeadersFrame) captor.getValue();
+      assertEquals("429", respFrame.headers().status().toString());
+    } finally {
+      System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");
+    }
+  }
+
+  @Test
   public void testApplicationErrorCodeMapping() {
     // Spec requirements check:
     // 0x00000000 corresponds to 0x52e4a40fa8db

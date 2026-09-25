@@ -5004,9 +5004,12 @@ public class WebTransportIntegrationTest {
               .bind(0)
               .sync()
               .channel();
-Http3Settings clientSettings = new Http3Settings((id, value) -> true);
-clientSettings.enableConnectProtocol(true);
-clientSettings.enableH3Datagram(true);
+      Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+      clientSettings.enableConnectProtocol(true);
+      clientSettings.enableH3Datagram(true);
+      clientSettings.put(0x2b64L, 100L);
+      clientSettings.put(0x2b65L, 100L);
+      clientSettings.put(0x2b61L, 10000L);
       QuicChannelBootstrap bootstrap =
           QuicChannel.newBootstrap(clientChannel)
               .handler(
@@ -5047,7 +5050,8 @@ clientSettings.enableH3Datagram(true);
       }).addListener((Future<QuicStreamChannel> f) -> {
         if (f.isSuccess()) {
           Http3Headers headers = new DefaultHttp3Headers();
-          headers.method("CONNECT").scheme("https").path("/test-integration").authority("localhost").set(":protocol", "webtransport");
+          headers.method("CONNECT").scheme("https").path("/test-integration")
+              .authority("localhost").set(":protocol", "webtransport");
           f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
         }
       });
@@ -5070,7 +5074,8 @@ clientSettings.enableH3Datagram(true);
       }).addListener((Future<QuicStreamChannel> f) -> {
         if (f.isSuccess()) {
           Http3Headers headers = new DefaultHttp3Headers();
-          headers.method("CONNECT").scheme("https").path("/test-integration").authority("localhost").set(":protocol", "webtransport");
+          headers.method("CONNECT").scheme("https").path("/test-integration")
+              .authority("localhost").set(":protocol", "webtransport");
           f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
         }
       });
@@ -5093,12 +5098,138 @@ clientSettings.enableH3Datagram(true);
       }).addListener((Future<QuicStreamChannel> f) -> {
         if (f.isSuccess()) {
           Http3Headers headers = new DefaultHttp3Headers();
-          headers.method("CONNECT").scheme("https").path("/test-integration").authority("localhost").set(":protocol", "webtransport");
+          headers.method("CONNECT").scheme("https").path("/test-integration")
+              .authority("localhost").set(":protocol", "webtransport");
           f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
         }
       });
       assertTrue(handshakeLatch3.await(5, TimeUnit.SECONDS));
       assertEquals("429", status3[0]);
+
+      quicClient.close().sync();
+
+    } finally {
+      if (tempFile.exists()) {
+        tempFile.delete();
+      }
+      WebTransportConfig.reload();
+      tearDown();
+      setUp();
+    }
+  }
+
+  @Test
+  public void testMaxSessionsPerConnectionWithoutFlowControlCappedToOneIntegration() throws Exception {
+    File tempFile = new File("webtransport-dynamic.properties");
+    try {
+      Files.write(tempFile.toPath(), Arrays.asList(
+          "webtransport4j.webtransport.max_sessions_per_connection=2"
+      ));
+      WebTransportConfig.reload();
+
+      tearDown();
+      setUp();
+
+      ChannelHandler clientCodec =
+          Http3.newQuicClientCodecBuilder()
+              .sslContext(clientSslContext)
+              .maxIdleTimeout(5000, TimeUnit.MILLISECONDS)
+              .initialMaxData(10000000)
+              .initialMaxStreamDataBidirectionalLocal(1000000)
+              .initialMaxStreamDataBidirectionalRemote(1000000)
+              .initialMaxStreamsBidirectional(100)
+              .initialMaxStreamsUnidirectional(100)
+              .datagram(10000, 10000)
+              .build();
+
+      Channel clientChannel =
+          new Bootstrap()
+              .group(clientGroup)
+              .channel(NioDatagramChannel.class)
+              .handler(clientCodec)
+              .bind(0)
+              .sync()
+              .channel();
+
+      // Client enables H3 datagram and connect, but does NOT declare WebTransport flow control limits
+      Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+      clientSettings.enableConnectProtocol(true);
+      clientSettings.enableH3Datagram(true);
+
+      QuicChannelBootstrap bootstrap =
+          QuicChannel.newBootstrap(clientChannel)
+              .handler(
+                  new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {
+                      ch.pipeline()
+                          .addLast(
+                              new Http3ClientConnectionHandler(
+                                  new ChannelInitializer<QuicStreamChannel>() {
+                                    @Override
+                                    protected void initChannel(QuicStreamChannel stream) {}
+                                  },
+                                  (streamType) -> null,
+                                  (streamType) -> null,
+                                  new DefaultHttp3SettingsFrame(clientSettings),
+                                  false,
+                                  (id, value) -> true));
+                    }
+                  })
+              .remoteAddress(new InetSocketAddress("127.0.0.1", port));
+
+      QuicChannel quicClient = bootstrap.connect().sync().getNow();
+
+      // Session 1: should succeed (200)
+      CountDownLatch handshakeLatch1 = new CountDownLatch(1);
+      final String[] status1 = new String[1];
+      Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+        @Override protected void initChannel(QuicStreamChannel ch) {
+          ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+            @Override protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+              if (msg instanceof Http3HeadersFrame) {
+                status1[0] = ((Http3HeadersFrame) msg).headers().status().toString();
+                handshakeLatch1.countDown();
+              }
+            }
+          });
+        }
+      }).addListener((Future<QuicStreamChannel> f) -> {
+        if (f.isSuccess()) {
+          Http3Headers headers = new DefaultHttp3Headers();
+          headers.method("CONNECT").scheme("https").path("/test-integration")
+              .authority("localhost").set(":protocol", "webtransport");
+          f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+        }
+      });
+      assertTrue(handshakeLatch1.await(5, TimeUnit.SECONDS));
+      assertEquals("200", status1[0]);
+
+      // Session 2: despite max_sessions_per_connection=2, without flow control the limit is capped to 1 per draft-16.
+      // Therefore, Session 2 must be rejected with 429 Too Many Requests.
+      CountDownLatch handshakeLatch2 = new CountDownLatch(1);
+      final String[] status2 = new String[1];
+      Http3.newRequestStream(quicClient, new ChannelInitializer<QuicStreamChannel>() {
+        @Override protected void initChannel(QuicStreamChannel ch) {
+          ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+            @Override protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+              if (msg instanceof Http3HeadersFrame) {
+                status2[0] = ((Http3HeadersFrame) msg).headers().status().toString();
+                handshakeLatch2.countDown();
+              }
+            }
+          });
+        }
+      }).addListener((Future<QuicStreamChannel> f) -> {
+        if (f.isSuccess()) {
+          Http3Headers headers = new DefaultHttp3Headers();
+          headers.method("CONNECT").scheme("https").path("/test-integration")
+              .authority("localhost").set(":protocol", "webtransport");
+          f.getNow().writeAndFlush(new DefaultHttp3HeadersFrame(headers));
+        }
+      });
+      assertTrue(handshakeLatch2.await(5, TimeUnit.SECONDS));
+      assertEquals("429", status2[0]);
 
       quicClient.close().sync();
 

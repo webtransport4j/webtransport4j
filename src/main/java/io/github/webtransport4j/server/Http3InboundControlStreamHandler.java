@@ -83,25 +83,7 @@ public class Http3InboundControlStreamHandler
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(peerBidi);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(peerData);
 
-        boolean peerFlowControlDeclared = (peerUni != null && peerUni > 0L)
-            || (peerBidi != null && peerBidi > 0L)
-            || (peerData != null && peerData > 0L);
-        Long localUni =
-            quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
-                ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
-                : null;
-        Long localBidi =
-            quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
-                ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
-                : null;
-        Long localData =
-            quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
-                ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
-                : null;
-        boolean localFlowControlDeclared = (localUni != null && localUni > 0L)
-            || (localBidi != null && localBidi > 0L)
-            || (localData != null && localData > 0L);
-        boolean flowControlEnabled = localFlowControlDeclared && peerFlowControlDeclared;
+        boolean flowControlEnabled = WebTransportSessionManager.isFlowControlNegotiated(quic);
 
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();

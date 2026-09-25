@@ -45,6 +45,77 @@ public class WebTransportSessionManager {
     }
   }
 
+  /**
+   * Attempts to reserve a session slot on the connection, taking into account whether
+   * flow control has been negotiated. Per draft-ietf-webtrans-http3-16 Section 3 and 5,
+   * if flow control is not established (or peer settings have not yet arrived),
+   * at most 1 session is permitted per connection regardless of configured limits.
+   *
+   * @param quic the underlying QuicChannel, or null
+   * @param configuredLimit the configured max sessions per connection
+   * @return true if reservation was successful, false if limit reached
+   */
+  public boolean reserveSession(@Nullable QuicChannel quic, int configuredLimit) {
+    int effectiveLimit = configuredLimit;
+    if (effectiveLimit > 1 && !isFlowControlNegotiated(quic)) {
+      effectiveLimit = 1;
+    }
+    return reserveSession(effectiveLimit);
+  }
+
+  /**
+   * Checks whether WebTransport session flow control is negotiated on the underlying QUIC
+   * connection.
+   *
+   * <p>Per draft-ietf-webtrans-http3-16 Section 5.1, flow control is enabled only when both
+   * endpoints declare their intent to use flow control by sending non-zero initial stream or data
+   * limits in their HTTP/3 SETTINGS frame.
+   *
+   * @param quic the underlying QuicChannel, or null
+   * @return true if flow control is enabled and peer settings have been received; false otherwise
+   */
+  public static boolean isFlowControlNegotiated(@Nullable QuicChannel quic) {
+    if (quic == null) {
+      return false;
+    }
+    Attribute<Boolean> peerReceivedAttr =
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
+    if (peerReceivedAttr == null || !Boolean.TRUE.equals(peerReceivedAttr.get())) {
+      return false;
+    }
+
+    Attribute<Long> localUniAttr =
+        quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI);
+    Attribute<Long> localBidiAttr =
+        quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI);
+    Attribute<Long> localDataAttr =
+        quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA);
+
+    Attribute<Long> peerUniAttr =
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI);
+    Attribute<Long> peerBidiAttr =
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI);
+    Attribute<Long> peerDataAttr =
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA);
+
+    Long localUni = localUniAttr != null ? localUniAttr.get() : null;
+    Long localBidi = localBidiAttr != null ? localBidiAttr.get() : null;
+    Long localData = localDataAttr != null ? localDataAttr.get() : null;
+
+    Long peerUni = peerUniAttr != null ? peerUniAttr.get() : null;
+    Long peerBidi = peerBidiAttr != null ? peerBidiAttr.get() : null;
+    Long peerData = peerDataAttr != null ? peerDataAttr.get() : null;
+
+    boolean localFlowControlDeclared = (localUni != null && localUni > 0L)
+        || (localBidi != null && localBidi > 0L)
+        || (localData != null && localData > 0L);
+    boolean peerFlowControlDeclared = (peerUni != null && peerUni > 0L)
+        || (peerBidi != null && peerBidi > 0L)
+        || (peerData != null && peerData > 0L);
+
+    return localFlowControlDeclared && peerFlowControlDeclared;
+  }
+
   void releaseReservation() {
     occupiedSlots.updateAndGet(c -> Math.max(0, c - 1));
   }
@@ -105,7 +176,7 @@ public class WebTransportSessionManager {
         || (peerData != null && peerData > 0L);
     boolean flowControlEnabled = Boolean.TRUE.equals(peerSettingsReceived)
         ? (localFlowControlDeclared && peerFlowControlDeclared)
-        : localFlowControlDeclared;
+        : (peerSettingsReceived == null ? localFlowControlDeclared : false);
 
     // Apply fallback defaults for any zero-valued settings when flow control is
     // enabled.

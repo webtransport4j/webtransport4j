@@ -23,11 +23,9 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
-
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLEngine;
-
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -156,7 +154,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         }
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
-        if (mgr == null || !mgr.reserveSession(maxSessions)) {
+        if (mgr == null || !mgr.reserveSession(quic, maxSessions)) {
           logger.warn(
               "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
               maxSessions);
@@ -218,6 +216,7 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
             }
           }
         } catch (Exception ignored) {
+          // Ignored.
         }
 
         if (logger.isDebugEnabled()) {
@@ -249,6 +248,11 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
     }
   }
 
+  @Override
+  protected void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Http3DataFrame frame) {
+    ctx.fireChannelRead(frame);
+  }
+
   private static boolean reserveGlobalSlot(AtomicInteger slots, int limit) {
     for (;;) {
       int current = slots.get();
@@ -259,11 +263,6 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
         return true;
       }
     }
-  }
-
-  @Override
-  protected void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Http3DataFrame frame) {
-    ctx.fireChannelRead(frame);
   }
 
   private boolean isAllowed(
