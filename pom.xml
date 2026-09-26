@@ -12,6 +12,25 @@
     <name>WebTransport4J</name>
     <description>WebTransport4Jproject</description>
 
+    <licenses>
+        <license>
+            <name>Apache v2</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.html</url>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>sanjomo</id>
+            <name>Santhosh Mohan</name>
+            <roles>
+                <role>Project Lead</role>
+                <role>Maintainer</role>
+                <role>Developer</role>
+            </roles>
+        </developer>
+    </developers>
+
     <properties>
         <maven.compiler.release>8</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

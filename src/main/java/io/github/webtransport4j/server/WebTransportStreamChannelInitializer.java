@@ -20,6 +20,7 @@ public final class WebTransportStreamChannelInitializer
 
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
+    stream.config().setAllowHalfClosure(true);
     int lowWaterMark = WebTransportConfig.getInt("webtransport4j.netty.write_buffer.low_water_mark", 32768);
     int highWaterMark = WebTransportConfig.getInt("webtransport4j.netty.write_buffer.high_water_mark", 65536);
     stream.config().setWriteBufferWaterMark(new WriteBufferWaterMark(lowWaterMark, highWaterMark));

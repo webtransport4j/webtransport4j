@@ -38,10 +38,26 @@ public class Http3InboundControlStreamHandler
       } else if (ctx.channel() instanceof QuicChannel) {
         quic = (QuicChannel) ctx.channel();
       }
+      Long wtEnabled = settings.get(0x2c7cf000L);
+      if (wtEnabled != null && wtEnabled != 0L && wtEnabled != 1L) {
+        logger.warn(
+            "❌ Invalid SETTINGS_WT_ENABLED value: {}. Closing connection with H3_SETTINGS_ERROR.",
+            wtEnabled);
+        if (quic != null) {
+          quic.close(true, 0x0119, io.netty.buffer.Unpooled.EMPTY_BUFFER);
+        } else {
+          ctx.close();
+        }
+        return;
+      }
+
       boolean valid = Boolean.TRUE.equals(settings.h3DatagramEnabled());
       if (quic != null) {
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
+        if (wtEnabled != null) {
+          quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(wtEnabled == 1L);
+        }
       }
       // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
       // (0x33) is
@@ -76,11 +92,31 @@ public class Http3InboundControlStreamHandler
         return;
       }
       if (quic != null) {
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
-            .set(settings.get(0x2b64L));
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
-            .set(settings.get(0x2b65L));
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(settings.get(0x2b61L));
+        Long peerUni = settings.get(0x2b64L);
+        Long peerBidi = settings.get(0x2b65L);
+        Long peerData = settings.get(0x2b61L);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(peerUni);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(peerBidi);
+        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(peerData);
+
+        boolean flowControlEnabled = WebTransportSessionManager.isFlowControlNegotiated(quic);
+
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          for (WebTransportSession session : mgr.getSessions()) {
+            if (peerUni != null) {
+              session.setPeerSettingsMaxStreamsUni(peerUni);
+            }
+            if (peerBidi != null) {
+              session.setPeerSettingsMaxStreamsBidi(peerBidi);
+            }
+            if (peerData != null) {
+              session.setPeerSettingsMaxData(peerData);
+            }
+            session.setFlowControlEnabled(flowControlEnabled);
+          }
+        }
       }
     }
   }
