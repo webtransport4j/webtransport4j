@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -16,6 +17,7 @@ import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3ClientConnectionHandler;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3DataFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
@@ -23,9 +25,11 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
@@ -86,6 +90,85 @@ public class SessionManagerTeardownIntegrationTest {
     }
     if (server != null) {
       server.stop();
+    }
+  }
+
+  @Test
+  public void testGetResponseFinAfterRequestFin() throws Exception {
+    CountDownLatch responseFin = new CountDownLatch(1);
+    AtomicReference<String> status = new AtomicReference<>();
+    StringBuilder body = new StringBuilder();
+
+    Channel udpChannel = new Bootstrap()
+        .group(clientGroup)
+        .channel(NioDatagramChannel.class)
+        .handler(Http3.newQuicClientCodecBuilder()
+            .sslContext(clientSslContext)
+            .maxIdleTimeout(5, TimeUnit.SECONDS)
+            .initialMaxData(10000000)
+            .initialMaxStreamDataBidirectionalLocal(1000000)
+            .initialMaxStreamDataBidirectionalRemote(1000000)
+            .initialMaxStreamsBidirectional(100)
+            .initialMaxStreamsUnidirectional(100)
+            .build())
+        .bind(0).sync().channel();
+
+    try {
+      Http3Settings settings = new Http3Settings((id, value) -> true);
+      settings.enableConnectProtocol(true);
+      settings.enableH3Datagram(true);
+      QuicChannel quicChannel = QuicChannel.newBootstrap(udpChannel)
+          .handler(new ChannelInitializer<QuicChannel>() {
+            @Override
+            protected void initChannel(QuicChannel channel) {
+              channel.pipeline().addLast(new Http3ClientConnectionHandler(
+                  null, null, new UnknownStreamHandlerFactory(),
+                  new DefaultHttp3SettingsFrame(settings), false, (id, value) -> true));
+            }
+          })
+          .remoteAddress(new InetSocketAddress("127.0.0.1", port))
+          .connect().get(5, TimeUnit.SECONDS);
+      try {
+        QuicStreamChannel stream = Http3.newRequestStream(quicChannel,
+            new ChannelInitializer<QuicStreamChannel>() {
+              @Override
+              protected void initChannel(QuicStreamChannel channel) {
+                channel.config().setAllowHalfClosure(true);
+                channel.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
+                  @Override
+                  protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                    if (msg instanceof Http3HeadersFrame) {
+                      status.set(((Http3HeadersFrame) msg).headers().status().toString());
+                    } else if (msg instanceof Http3DataFrame) {
+                      body.append(((Http3DataFrame) msg).content().toString(StandardCharsets.UTF_8));
+                    }
+                  }
+
+                  @Override
+                  public void userEventTriggered(ChannelHandlerContext ctx, Object event) {
+                    if (event instanceof ChannelInputShutdownEvent) {
+                      responseFin.countDown();
+                    }
+                  }
+                });
+              }
+            }).get(5, TimeUnit.SECONDS);
+        try {
+          Http3Headers headers = new DefaultHttp3Headers();
+          headers.method("GET").scheme("https").authority("127.0.0.1:" + port).path("/");
+          stream.writeAndFlush(new DefaultHttp3HeadersFrame(headers))
+              .addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();
+          assertTrue("GET response FIN must arrive after request FIN", responseFin.await(5, TimeUnit.SECONDS));
+          assertEquals("200", status.get());
+          assertEquals("Hello HTTP/3", body.toString());
+        } finally {
+          stream.close().sync();
+        }
+      } finally {
+        quicChannel.close().sync();
+      }
+    } finally {
+      udpChannel.close().sync();
     }
   }
 

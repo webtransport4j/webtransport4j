@@ -19,6 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -37,6 +38,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamChannelConfig;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.Promise;
@@ -58,6 +60,24 @@ import org.slf4j.LoggerFactory;
 /** Test cases for framing layer. */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
+
+  private static ChannelFuture mockWriteFuture() {
+    return mockWriteFuture(mock(Channel.class));
+  }
+
+  private static ChannelFuture mockWriteFuture(Channel channel) {
+    ChannelFuture future = mock(ChannelFuture.class);
+    when(future.channel()).thenReturn(channel != null ? channel : mock(Channel.class));
+    when(future.isSuccess()).thenReturn(true);
+    when(future.addListener(any()))
+        .thenAnswer(
+            inv -> {
+              GenericFutureListener listener = inv.getArgument(0);
+              listener.operationComplete(future);
+              return future;
+            });
+    return future;
+  }
   private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
 
   @Test
@@ -352,7 +372,8 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
 
-    ByteBuf data = Unpooled.buffer(0);
+    ByteBuf data = Unpooled.buffer(4);
+    data.writeInt(0);
     WebTransportCapsule closeCapsule = new WebTransportCapsule(101L, 0x2843L, data);
 
     handler.channelRead(mockCtx, closeCapsule);
@@ -386,6 +407,7 @@ public class FramingLayerTest {
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
     when(mockPipeline.names()).thenReturn(Collections.emptyList());
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
 
     // Attributes on Parent (QuicChannel)
     Attribute<List<String>> allowedOriginsAttr =
@@ -401,6 +423,10 @@ public class FramingLayerTest {
         mock(Attribute.class);
     when(mgrAttr.get()).thenReturn(mgr);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
 
     Attribute<Long> defaultBidiAttr = mock(Attribute.class);
     when(defaultBidiAttr.get()).thenReturn(10L);
@@ -475,8 +501,13 @@ public class FramingLayerTest {
     when(mockStreamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     when(mockCtx.pipeline()).thenReturn(mock(ChannelPipeline.class));
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
     when(mockStreamChannel.config())
         .thenReturn(mock(QuicStreamChannelConfig.class));
+
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
 
     // Attributes on Parent (QuicChannel)
     Attribute<List<String>> allowedOriginsAttr =
@@ -623,6 +654,18 @@ public class FramingLayerTest {
     when(mockNewStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
       when(mockConnectStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
       when(mockNewStream.alloc()).thenReturn(PooledByteBufAllocator.DEFAULT);
+      when(mockConnectStream.writeAndFlush(any()))
+          .thenAnswer(
+              inv -> {
+                ReferenceCountUtil.release(inv.getArgument(0));
+                return null;
+              });
+      when(mockNewStream.writeAndFlush(any()))
+          .thenAnswer(
+              inv -> {
+                ReferenceCountUtil.release(inv.getArgument(0));
+                return null;
+              });
     Future<QuicStreamChannel> successFuture =
         mock(Future.class);
     when(successFuture.isSuccess()).thenReturn(true);
@@ -682,8 +725,13 @@ public class FramingLayerTest {
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockCtx.pipeline()).thenReturn(mockPipeline);
     when(mockPipeline.names()).thenReturn(Collections.emptyList());
+    when(mockCtx.writeAndFlush(any())).thenAnswer(inv -> mockWriteFuture());
 
     // Configure allowed origins: [google.com, localhost]
+    Attribute<java.util.concurrent.atomic.AtomicInteger> slotsAttr = mock(Attribute.class);
+    when(slotsAttr.get()).thenReturn(new java.util.concurrent.atomic.AtomicInteger());
+    when(mockParent.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+
     Attribute<List<String>> allowedOriginsAttr =
         mock(Attribute.class);
     when(allowedOriginsAttr.get()).thenReturn(Arrays.asList("google.com", "localhost"));
@@ -884,6 +932,98 @@ public class FramingLayerTest {
       verify(mockCtx).writeAndFlush(captor.capture());
       Http3HeadersFrame respFrame =
           (Http3HeadersFrame) captor.getValue();
+      assertEquals("429", respFrame.headers().status().toString());
+    } finally {
+      System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");
+    }
+  }
+
+  @Test
+  public void testMaxSessionsPerConnectionCappedToOneWithoutFlowControl() throws Exception {
+    System.setProperty("webtransport4j.webtransport.max_sessions_per_connection", "2");
+    try {
+      final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+      ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+      QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+      QuicChannel mockParent = mock(QuicChannel.class);
+
+      when(mockCtx.channel()).thenReturn(mockStream);
+      when(mockStream.parent()).thenReturn(mockParent);
+      when(mockStream.streamId()).thenReturn(100L);
+      ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+      when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+      Attribute<Long> sessIdAttr = mock(Attribute.class);
+      when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+      QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
+      when(mockStream.config()).thenReturn(mockConfig);
+      when(mockConfig.isAutoRead()).thenReturn(true);
+
+      ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
+      when(mockCtx.pipeline()).thenReturn(mockPipeline);
+      when(mockPipeline.names()).thenReturn(Collections.emptyList());
+
+      // Mock ALLOWED_ORIGINS to allow everything
+      Attribute<List<String>> allowedOriginsAttr = mock(Attribute.class);
+      when(allowedOriginsAttr.get()).thenReturn(null);
+      when(mockParent.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS))
+          .thenReturn(allowedOriginsAttr);
+
+      Attribute<String> pathAttr = mock(Attribute.class);
+      when(mockParent.attr(WebTransportAttributeKeys.SESSION_PATH_KEY)).thenReturn(pathAttr);
+
+      // Flow control is NOT negotiated (peer settings not received)
+      Attribute<Boolean> peerReceivedAttr = mock(Attribute.class);
+      when(peerReceivedAttr.get()).thenReturn(false);
+      when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED))
+          .thenReturn(peerReceivedAttr);
+
+      // Setup session manager with 1 active session registered
+      QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
+      when(existingStream.streamId()).thenReturn(40L);
+      when(existingStream.parent()).thenReturn(mockParent);
+      when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
+          .thenReturn(mock(Attribute.class));
+      WebTransportSessionManager mgr = new WebTransportSessionManager();
+      mgr.register(existingStream);
+
+      Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+      when(mgrAttr.get()).thenReturn(mgr);
+      when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+      Attribute<Long> defaultBidiAttr = mock(Attribute.class);
+      when(defaultBidiAttr.get()).thenReturn(10L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+          .thenReturn(defaultBidiAttr);
+
+      Attribute<Long> defaultUniAttr = mock(Attribute.class);
+      when(defaultUniAttr.get()).thenReturn(10L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+          .thenReturn(defaultUniAttr);
+
+      Attribute<Long> defaultDataAttr = mock(Attribute.class);
+      when(defaultDataAttr.get()).thenReturn(10000L);
+      when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+          .thenReturn(defaultDataAttr);
+
+      // Setup 2nd CONNECT request
+      Http3Headers mockHeaders = new DefaultHttp3Headers();
+      mockHeaders.method("CONNECT");
+      mockHeaders.scheme("https");
+      mockHeaders.authority("localhost:4433");
+      mockHeaders.path("/webtransport-test");
+      mockHeaders.set(":protocol", "webtransport-h3");
+      Http3HeadersFrame mockHeadersFrame = mock(Http3HeadersFrame.class);
+      when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+      // Execute channelRead — despite configured limit being 2, because flow control is not
+      // negotiated, effective limit is 1, so the 2nd session must be rejected with 429
+      handler.channelRead(mockCtx, mockHeadersFrame);
+
+      // Verify status 429 Too Many Requests response is sent
+      ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+      verify(mockCtx).writeAndFlush(captor.capture());
+      Http3HeadersFrame respFrame = (Http3HeadersFrame) captor.getValue();
       assertEquals("429", respFrame.headers().status().toString());
     } finally {
       System.clearProperty("webtransport4j.webtransport.max_sessions_per_connection");

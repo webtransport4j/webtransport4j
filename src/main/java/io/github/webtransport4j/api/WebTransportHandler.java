@@ -1,12 +1,25 @@
 package io.github.webtransport4j.api;
 
+import java.util.List;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Handler interface for WebTransport events. */
 public interface WebTransportHandler {
   Logger logger = LoggerFactory.getLogger(WebTransportHandler.class);
+
+  /**
+   * Selects an application subprotocol from the list provided by the client
+   * via the WT-Available-Protocols header as per draft-16 Section 3.3.
+   *
+   * @param availableProtocols list of protocols advertised by the client
+   * @return the selected protocol, or null if no subprotocol is selected
+   */
+  default @Nullable String selectSubprotocol(@NonNull List<String> availableProtocols) {
+    return null;
+  }
 
   /** On Session Ready. */
   default void onSessionReady(@NonNull WebTransportSession session) {
