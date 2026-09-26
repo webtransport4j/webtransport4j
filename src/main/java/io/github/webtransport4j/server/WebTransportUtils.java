@@ -53,6 +53,17 @@ public class WebTransportUtils {
   public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
 
   /**
+   * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream
+   * as defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
+   *
+   * @param streamId stream identifier
+   * @return true if non-negative and streamId % 4 == 0
+   */
+  public static boolean isClientInitiatedBidirectionalStream(long streamId) {
+    return streamId >= 0 && (streamId % 4L == 0L);
+  }
+
+  /**
    * Safely retrieves the {@link WebTransportMetricsListener} from a QUIC channel attribute. Returns
    * {@code null} if the attribute or its value is null (e.g., in unit test mocks).
    */

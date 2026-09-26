@@ -105,7 +105,10 @@ public class WebTransportClientTestSuiteTest {
     public void setUp() throws Exception {
         System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
         System.setProperty("webtransport4j.server.port", "0");
-        System.setProperty("webtransport4j.dispatch.execution.mode","VIRTUAL_THREADS");
+        System.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
+        System.setProperty("webtransport4j.quic.max.streams.bidi", "50");
+        System.setProperty("webtransport4j.webtransport.initial.max.streams.bidi", "50");
+        System.setProperty("webtransport4j.test.require_flow_control_exhaustion", "true");
         server = new WebTransportServer();
         server.registerHandler("/test", new CleanWebTransportTestHandler());
         serverThread = new Thread(() -> {
@@ -133,6 +136,9 @@ public class WebTransportClientTestSuiteTest {
         if (serverThread != null) {
             serverThread.join(2000);
         }
+        System.clearProperty("webtransport4j.quic.max.streams.bidi");
+        System.clearProperty("webtransport4j.webtransport.initial.max.streams.bidi");
+        System.clearProperty("webtransport4j.test.require_flow_control_exhaustion");
     }
 
     @Test
