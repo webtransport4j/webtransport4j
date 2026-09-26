@@ -21,6 +21,8 @@ import io.netty.util.concurrent.Promise;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -639,6 +641,43 @@ public class WebTransportUtils {
       logger.debug("Could not inspect Linux sysfs for UDP GRO support: {}", t.getMessage());
     }
     return true;
+  }
+
+  /**
+   * Parses the WT-Available-Protocols header field as an RFC 8941 Structured Fields List of Strings.
+   *
+   * @param headerValue the raw header value
+   * @return a list of advertised subprotocol names
+   */
+  public static @NonNull List<String> parseAvailableProtocols(@Nullable CharSequence headerValue) {
+    if (headerValue == null || headerValue.length() == 0) {
+      return Collections.emptyList();
+    }
+    String val = headerValue.toString().trim();
+    if (val.isEmpty()) {
+      return Collections.emptyList();
+    }
+    List<String> list = new ArrayList<>();
+    for (String token : val.split(",")) {
+      String item = token.trim();
+      if (item.startsWith("\"") && item.endsWith("\"") && item.length() >= 2) {
+        item = item.substring(1, item.length() - 1).replace("\\\"", "\"").replace("\\\\", "\\");
+      }
+      if (!item.isEmpty()) {
+        list.add(item);
+      }
+    }
+    return list;
+  }
+
+  /**
+   * Formats a selected subprotocol as an RFC 8941 Structured Fields String (draft-16 § 3.3).
+   *
+   * @param protocol the protocol name
+   * @return formatted String suitable for WT-Protocol header
+   */
+  public static @NonNull String formatProtocolHeader(@NonNull String protocol) {
+    return "\"" + protocol.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
   }
 
   /**

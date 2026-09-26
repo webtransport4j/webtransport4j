@@ -44,6 +44,8 @@ public class WebTransportSession {
 
   private final String path;
 
+  private volatile String subprotocol;
+
   private volatile QuicStreamChannel connectStream;
 
   private volatile String resumptionToken;
@@ -294,6 +296,14 @@ public class WebTransportSession {
 
   public void setSettingsMaxStreamsUni(long value) {
     this.settingsMaxStreamsUni.set(value);
+  }
+
+  public @Nullable String getSubprotocol() {
+    return subprotocol;
+  }
+
+  public void setSubprotocol(@Nullable String subprotocol) {
+    this.subprotocol = subprotocol;
   }
 
   public void setSettingsMaxStreamsBidi(long value) {
