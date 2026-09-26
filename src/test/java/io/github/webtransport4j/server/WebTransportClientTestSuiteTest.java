@@ -1,12 +1,10 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.BinarySources;
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientTestSuite;
-import io.netty.util.concurrent.Future;
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
@@ -15,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
 
 public class WebTransportClientTestSuiteTest {
 
@@ -105,7 +102,10 @@ public class WebTransportClientTestSuiteTest {
     public void setUp() throws Exception {
         System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
         System.setProperty("webtransport4j.server.port", "0");
-        System.setProperty("webtransport4j.dispatch.execution.mode","VIRTUAL_THREADS");
+        System.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
+        System.setProperty("webtransport4j.quic.max.streams.bidi", "50");
+        System.setProperty("webtransport4j.webtransport.initial.max.streams.bidi", "50");
+        System.setProperty("webtransport4j.test.require_flow_control_exhaustion", "true");
         server = new WebTransportServer();
         server.registerHandler("/test", new CleanWebTransportTestHandler());
         serverThread = new Thread(() -> {
@@ -133,6 +133,9 @@ public class WebTransportClientTestSuiteTest {
         if (serverThread != null) {
             serverThread.join(2000);
         }
+        System.clearProperty("webtransport4j.quic.max.streams.bidi");
+        System.clearProperty("webtransport4j.webtransport.initial.max.streams.bidi");
+        System.clearProperty("webtransport4j.test.require_flow_control_exhaustion");
     }
 
     @Test

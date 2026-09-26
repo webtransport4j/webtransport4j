@@ -677,7 +677,11 @@ public class WebTransportClientTestSuite {
         }
 
         if (!blocked) {
-            logger.warn("⚠️ Flow control test aborted: server limit is > 150.");
+            if (Boolean.getBoolean("webtransport4j.test.require_flow_control_exhaustion")) {
+                throw new Exception("Flow control test failed: server limit was not reached within 150 streams!");
+            } else {
+                logger.warn("⚠️ Flow control test aborted: server limit is > 150.");
+            }
         }
 
         // Cleanup streams

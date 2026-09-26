@@ -36,6 +36,7 @@ import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamChannelConfig;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
@@ -1092,24 +1093,32 @@ public class FramingLayerTest {
   }
 
   @Test
-  public void testReflectionQuicStreamChannel() {
-    log.info("=== REFLECTION: io.netty.handler.codec.quic.QuicStreamChannel ===");
-    try {
-      Class<?> clazz = Class.forName("io.netty.handler.codec.quic.QuicStreamChannel");
-      for (Method method : clazz.getMethods()) {
-        log.info(
-            "Method: "
-                + method.getReturnType().getSimpleName()
-                + " "
-                + method.getName()
-                + " ("
-                + Arrays.toString(method.getParameterTypes())
-                + ")");
-      }
-    } catch (Exception e) {
-      log.error("Exception caught", e);
-    }
-    log.info("==============================================================");
+  public void testReflectionQuicStreamChannel() throws Exception {
+    Class<?> clazz = QuicStreamChannel.class;
+
+    Method streamIdMethod = clazz.getMethod("streamId");
+    assertNotNull("QuicStreamChannel must define streamId()", streamIdMethod);
+    assertEquals(long.class, streamIdMethod.getReturnType());
+
+    Method typeMethod = clazz.getMethod("type");
+    assertNotNull("QuicStreamChannel must define type()", typeMethod);
+    assertEquals(QuicStreamType.class, typeMethod.getReturnType());
+
+    Method shutdownMethod = clazz.getMethod("shutdown", int.class, ChannelPromise.class);
+    assertNotNull("QuicStreamChannel must define shutdown(int, ChannelPromise)", shutdownMethod);
+    assertEquals(ChannelFuture.class, shutdownMethod.getReturnType());
+
+    Method shutdownOutputMethod = clazz.getMethod("shutdownOutput");
+    assertNotNull("QuicStreamChannel must define shutdownOutput()", shutdownOutputMethod);
+    assertEquals(ChannelFuture.class, shutdownOutputMethod.getReturnType());
+
+    Method isLocalCreatedMethod = clazz.getMethod("isLocalCreated");
+    assertNotNull("QuicStreamChannel must define isLocalCreated()", isLocalCreatedMethod);
+    assertEquals(boolean.class, isLocalCreatedMethod.getReturnType());
+
+    Method parentMethod = clazz.getMethod("parent");
+    assertNotNull("QuicStreamChannel must define parent()", parentMethod);
+    assertEquals(QuicChannel.class, parentMethod.getReturnType());
   }
 
   @Test

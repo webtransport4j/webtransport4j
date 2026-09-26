@@ -164,8 +164,22 @@ public class Draft16Section4WebTransportFeaturesTest {
   @Test
   public void testSection4_3_ClientInitiatedBidiFormulaValidation() {
     for (long id = 0; id <= 100; id += 4) {
-      assertEquals("Client-initiated bidi stream IDs must satisfy id % 4 == 0", 0L, id % 4L);
+      assertTrue(
+          "Client-initiated bidi stream IDs must be recognized",
+          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
+      assertFalse(
+          "Server-initiated bidi stream (id + 1) must be rejected",
+          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 1));
+      assertFalse(
+          "Client-initiated uni stream (id + 2) must be rejected",
+          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 2));
+      assertFalse(
+          "Server-initiated uni stream (id + 3) must be rejected",
+          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 3));
     }
+    assertFalse(
+        "Negative stream ID must be rejected",
+        WebTransportUtils.isClientInitiatedBidirectionalStream(-1L));
   }
 
   /**

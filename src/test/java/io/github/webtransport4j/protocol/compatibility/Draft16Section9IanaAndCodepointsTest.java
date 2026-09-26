@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
 import io.github.webtransport4j.server.WebTransportCapsuleDecoder;
+import io.github.webtransport4j.server.WebTransportHeadersHandler;
 import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.server.WebTransportServerBuilder;
 import io.github.webtransport4j.server.WebTransportUtils;
@@ -30,8 +31,10 @@ public class Draft16Section9IanaAndCodepointsTest {
    */
   @Test
   public void testSection9_1_UpgradeTokenRegistration() {
-    String upgradeToken = "webtransport-h3";
-    assertEquals("Upgrade token MUST be webtransport-h3", "webtransport-h3", upgradeToken);
+    assertEquals(
+        "Upgrade token MUST be webtransport-h3",
+        "webtransport-h3",
+        WebTransportHeadersHandler.UPGRADE_TOKEN_H3);
   }
 
   /**
