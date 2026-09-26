@@ -36,6 +36,9 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<Boolean> PEER_SETTINGS_VALID =
       AttributeKey.valueOf("wt.peer.settings.valid");
 
+  public static final AttributeKey<Boolean> WT_ENABLED =
+      AttributeKey.valueOf("wt.enabled");
+
   public static final AttributeKey<ExecutorService> BUSINESS_EXECUTOR =
       AttributeKey.valueOf("wt.business.executor");
 

@@ -32,12 +32,15 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** Inbound handler for HTTP/3 request streams and WebTransport extended CONNECT requests. */
 @ChannelHandler.Sharable
-class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
+public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
 
   public static final WebTransportHeadersHandler INSTANCE = new WebTransportHeadersHandler();
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
+
+  public WebTransportHeadersHandler() {}
 
   @Override
   protected void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Http3HeadersFrame frame) {
@@ -224,7 +227,6 @@ class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler {
           logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
               quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
         }
-
         CharSequence availableProtocolsHeader = frame.headers().get("wt-available-protocols");
         String selectedProtocol = null;
         if (availableProtocolsHeader != null) {

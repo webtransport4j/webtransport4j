@@ -146,18 +146,16 @@ public class WebTransportUtils {
         sendStreamsBlockedCapsule(
             session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
-                new IllegalStateException(
-                        (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional") 
-                        + " stream limit exceeded"
-                )
-        );
+            new IllegalStateException(
+                (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional")
+                    + " stream limit exceeded"));
         return promise;
       }
-      if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
-          session.incrementAndGetServerInitiatedStreamsBidi();
-      } else {
-          session.incrementAndGetServerInitiatedStreamsUni();
-      }
+    }
+    if (QuicStreamType.BIDIRECTIONAL == quicStreamType) {
+      session.incrementAndGetServerInitiatedStreamsBidi();
+    } else {
+      session.incrementAndGetServerInitiatedStreamsUni();
     }
     return connectStreamChannel
         .parent()
@@ -680,5 +678,27 @@ public class WebTransportUtils {
    */
   public static @NonNull String formatProtocolHeader(@NonNull String protocol) {
     return "\"" + protocol.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+  }
+
+  /**
+   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section 4.8.
+   *
+   * @param sessionId the WebTransport session ID
+   * @param applicationContext the application context bytes, or null
+   * @return serialized exporter context bytes
+   */
+  public static byte[] serializeExporterContext(long sessionId, byte[] applicationContext) {
+    ByteBuf buf = io.netty.buffer.Unpooled.buffer();
+    try {
+      writeVarInt(buf, sessionId);
+      if (applicationContext != null && applicationContext.length > 0) {
+        buf.writeBytes(applicationContext);
+      }
+      byte[] bytes = new byte[buf.readableBytes()];
+      buf.readBytes(bytes);
+      return bytes;
+    } finally {
+      buf.release();
+    }
   }
 }

@@ -23,9 +23,11 @@ import org.slf4j.LoggerFactory;
  * fragmented packets correctly - Uses QUIC varint decoding instead of raw byte matching - Does not
  * consume bytes during detection
  */
-final class WebTransportDetectorHandler extends ByteToMessageDecoder {
+public final class WebTransportDetectorHandler extends ByteToMessageDecoder {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportDetectorHandler.class);
+
+  public WebTransportDetectorHandler() {}
 
   private boolean detected;
 

@@ -654,7 +654,8 @@ public class WebTransportServer {
     return resolvedSslCtx;
   }
 
-  private @NonNull Http3Settings buildHttp3Settings() {
+  /** Builds the HTTP/3 settings frame for this WebTransport server instance. */
+  public @NonNull Http3Settings buildHttp3Settings() {
     String allowedProp = WebTransportConfig.getNonNull(
         "webtransport4j.webtransport.settings.nonstandardallowed",
         "0x2c7cf000,0x2b64,0x2b65,0x2b61");

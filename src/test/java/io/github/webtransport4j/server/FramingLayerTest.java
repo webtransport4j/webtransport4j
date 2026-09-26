@@ -372,7 +372,8 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
 
-    ByteBuf data = Unpooled.buffer(0);
+    ByteBuf data = Unpooled.buffer(4);
+    data.writeInt(0);
     WebTransportCapsule closeCapsule = new WebTransportCapsule(101L, 0x2843L, data);
 
     handler.channelRead(mockCtx, closeCapsule);
