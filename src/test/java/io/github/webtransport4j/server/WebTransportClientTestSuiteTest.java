@@ -1,12 +1,10 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.BinarySources;
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientTestSuite;
-import io.netty.util.concurrent.Future;
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
@@ -15,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CountDownLatch;
 
 public class WebTransportClientTestSuiteTest {
 

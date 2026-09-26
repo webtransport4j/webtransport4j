@@ -6,7 +6,7 @@ async def test():
         session = await client.connect(url="https://127.0.0.1:4433/test")
         print("CONNECTED OK")
         stream = await session.create_bidirectional_stream()
-        await stream.write_all(data=b"hello", end_stream=False)
+        await stream.write_all(data=b"hello")
         resp = await asyncio.wait_for(stream.read(), timeout=3.0)
         print(f"GOT: {resp}")
         await session.close()

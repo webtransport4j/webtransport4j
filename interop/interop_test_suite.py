@@ -236,6 +236,7 @@ async def test_stream_flow_control(session):
     for s in streams:
         try:
             await s.write_all(data=b"", end_stream=True)
+            await session.stream_manager.remove_stream(s.stream_id)
         except Exception:
             pass
 
@@ -268,8 +269,14 @@ async def test_heartbeat_timeout_negative(client, url):
     logger.info("Awake! Attempting to use the session. This should FAIL because the server dropped us.")
     dropped = False
     try:
-        stream = await asyncio.wait_for(session.create_unidirectional_stream(), timeout=3.0)
-        await stream.write_all(data=b"Should not reach here", end_stream=True)
+        if session.is_closed or not session.connection or not session.connection.is_connected:
+            dropped = True
+        else:
+            stream = await asyncio.wait_for(session.create_bidirectional_stream(), timeout=2.0)
+            await stream.write_all(data=b"PingTimeoutNegative", end_stream=False)
+            response = await asyncio.wait_for(stream.read(), timeout=2.0)
+            if not response:
+                dropped = True
     except Exception as e:
         logger.info(f"✅ Connection was correctly dropped by server! (Caught Exception: {type(e).__name__})")
         dropped = True
@@ -283,7 +290,7 @@ async def main():
 
 
     )
-    url = "https://localhost:4433/test"
+    url = "https://127.0.0.1:4433/test"
 
     logger.info("=========================================")
     logger.info("🚀 WebTransport Integration Test Suite 🚀")
@@ -298,8 +305,8 @@ async def main():
             # Start background listener for server streams
             server_stream_task = asyncio.create_task(handle_server_streams(session))
             
-            # Wait a moment for server to send its greeting streams
-            await asyncio.sleep(1.0)
+            # Await server streams greeting handling
+            await server_stream_task
             
             # Run sequential tests
             await test_datagrams(session)

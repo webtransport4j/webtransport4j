@@ -7,6 +7,7 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,49 +144,57 @@ public class WebTransportTestHandler implements WebTransportHandler {
 
           String prefixCheck =
               new String(bytes, 0, Math.min(bytes.length, 20), StandardCharsets.UTF_8);
-          if (prefixCheck.startsWith("SleepServer_")) {
-            logger.info(
-                "😴 Server received Sleep command on stream {}. Simulating heavy blocking task...",
-                stream.streamId());
-            try {
-              Thread.sleep(3000);
-            } catch (InterruptedException e) {
-              Thread.currentThread().interrupt();
+          Runnable process = () -> {
+            if (prefixCheck.startsWith("SleepServer_")) {
+              logger.info(
+                  "😴 Server received Sleep command on stream {}. Simulating heavy blocking task...",
+                  stream.streamId());
+              try {
+                Thread.sleep(3000);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              logger.info("⏰ Server woke up on stream {} after sleeping.", stream.streamId());
             }
-            logger.info("⏰ Server woke up on stream {} after sleeping.", stream.streamId());
-          }
 
-          if (isBidi) {
-            if (!stream.hasAttribute("prefixed")) {
-              stream.setAttribute("prefixed", true);
-              byte[] prefixBytes = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
-              byte[] outBytes = new byte[prefixBytes.length + bytes.length];
-              System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
-              System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-              stream
-                  .write(outBytes)
-                  .whenComplete((res, err) -> {
-                    if (err == null) {
-                      logger.info("✅ Echoed response to client on bidi stream {}", stream.streamId());
-                    } else {
-                      logger.error("❌ Failed to echo to client on bidi stream {}", stream.streamId(), err);
-                    }
-                  });
+            if (isBidi) {
+              if (!stream.hasAttribute("prefixed")) {
+                stream.setAttribute("prefixed", true);
+                byte[] prefixBytes = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
+                byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+                stream
+                    .write(outBytes)
+                    .whenComplete((res, err) -> {
+                      if (err == null) {
+                        logger.info("✅ Echoed response to client on bidi stream {}", stream.streamId());
+                      } else {
+                        logger.error("❌ Failed to echo to client on bidi stream {}", stream.streamId(), err);
+                      }
+                    });
+              } else {
+                // Already prefixed this stream, just echo the raw chunk
+                stream.write(bytes);
+              }
             } else {
-              // Already prefixed this stream, just echo the raw chunk
-              stream.write(bytes);
+              // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
+              session
+                  .createUniStream()
+                  .thenAccept(ackStream -> {
+                    byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                    byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                    System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                    System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+                    ackStream.write(outBytes).thenRun(ackStream::close);
+                  });
             }
+          };
+
+          if (prefixCheck.startsWith("SleepServer_")) {
+            CompletableFuture.runAsync(process);
           } else {
-            // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
-            session
-                .createUniStream()
-                .thenAccept(ackStream -> {
-                  byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
-                  byte[] outBytes = new byte[prefixBytes.length + bytes.length];
-                  System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
-                  System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-                  ackStream.write(outBytes).thenRun(ackStream::close);
-                });
+            process.run();
           }
         });
   }
