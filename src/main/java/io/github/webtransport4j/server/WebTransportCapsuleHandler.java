@@ -6,7 +6,13 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
-import io.netty.util.CharsetUtil;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,14 +33,42 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           Long.toHexString(capsule.capsuleType()), capsule.sessionId());
     }
     if (capsule.capsuleType() == 0x2843L) {
-      // Read 32-bit error code if payload is present
-      long errorCode = 0;
-      String errorMessage = "";
       ByteBuf content = capsule.content();
-      if (content.readableBytes() >= 4) {
-        errorCode = content.readUnsignedInt();
-        if (content.isReadable()) {
-          errorMessage = content.toString(CharsetUtil.UTF_8);
+      if (content.readableBytes() < 4) {
+        logger.warn(
+            "❌ CLOSE_WEBTRANSPORT_SESSION payload is less than 4 bytes ({} bytes)."
+                + " Resetting connect stream with H3_MESSAGE_ERROR.",
+            content.readableBytes());
+        resetConnectStreamWithMessageError(ctx);
+        return;
+      }
+      long errorCode = content.readUnsignedInt();
+      int messageLen = content.readableBytes();
+      if (messageLen > 1024) {
+        logger.warn(
+            "❌ CLOSE_WEBTRANSPORT_SESSION message exceeds 1024 bytes ({} bytes)."
+                + " Resetting connect stream with H3_MESSAGE_ERROR.",
+            messageLen);
+        resetConnectStreamWithMessageError(ctx);
+        return;
+      }
+      String errorMessage = "";
+      if (messageLen > 0) {
+        try {
+          CharsetDecoder decoder =
+              StandardCharsets.UTF_8
+                  .newDecoder()
+                  .onMalformedInput(CodingErrorAction.REPORT)
+                  .onUnmappableCharacter(CodingErrorAction.REPORT);
+          ByteBuffer nioBuffer = content.nioBuffer();
+          CharBuffer charBuffer = decoder.decode(nioBuffer);
+          errorMessage = charBuffer.toString();
+        } catch (CharacterCodingException e) {
+          logger.warn(
+              "❌ CLOSE_WEBTRANSPORT_SESSION message is not valid UTF-8."
+                  + " Resetting connect stream with H3_MESSAGE_ERROR.");
+          resetConnectStreamWithMessageError(ctx);
+          return;
         }
       }
       logger.info(
@@ -120,7 +154,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     isBidi ? "Bidirectional" : "Unidirectional",
                     maxStreams,
                     currentLimit);
-                mgr.closeSessionWithFlowControlError(capsule.sessionId());
+                mgr.closeSessionWithFlowControlError(session);
               } else {
                 // The new limit is the absolute cumulative value. No math is needed.
                 if (isBidi) {
@@ -196,7 +230,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     "❌ Received WT_MAX_DATA ({}) less than previous limit ({}). Closing session.",
                     maxData,
                     currentPeerLimit);
-                mgr.closeSessionWithFlowControlError(capsule.sessionId());
+                mgr.closeSessionWithFlowControlError(session);
               } else {
                 session.setPeerSettingsMaxData(maxData);
                 logger.info(
@@ -331,24 +365,69 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           }
         }
       }
-    } else if (capsule.capsuleType() == 0x190B4D3EL || capsule.capsuleType() == 0x190B4D42L) {
-      logger.warn(
-          "❌ Received prohibited capsule 0x{} in WebTransport over HTTP/3 (draft-16 § 5.4)."
-              + " Closing session with WT_FLOW_CONTROL_ERROR.",
-          Long.toHexString(capsule.capsuleType()));
+    } else if (capsule.capsuleType() == 0x78aeL) {
+      ByteBuf content = capsule.content();
+      if (content != null && content.isReadable()) {
+        logger.warn(
+            "❌ WT_DRAIN_SESSION payload is not empty ({} bytes)."
+                + " Resetting connect stream with H3_MESSAGE_ERROR.",
+            content.readableBytes());
+        resetConnectStreamWithMessageError(ctx);
+        return;
+      }
+      logger.info(
+          "🌊 WT_DRAIN_SESSION received for session {}. Marking session as draining.",
+          capsule.sessionId());
       QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
-      if (quic != null) {
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
-          mgr.closeSessionWithFlowControlError(capsule.sessionId());
+          WebTransportSession session = mgr.get(capsule.sessionId());
+          if (session != null) {
+            session.markDraining();
+          }
+        }
+      }
+    } else if (capsule.capsuleType() == 0x190b4d3eL || capsule.capsuleType() == 0x190b4d42L) {
+      logger.warn(
+          "❌ Prohibited capsule 0x{} received on CONNECT stream."
+              + " Resetting session with WT_FLOW_CONTROL_ERROR.",
+          Long.toHexString(capsule.capsuleType()));
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null && mgr.closeSessionWithFlowControlError(capsule.sessionId())) {
           return;
         }
       }
-      ctx.close();
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) ctx.channel())
+            .shutdown(0x045d4487, ((QuicStreamChannel) ctx.channel()).newPromise());
+      } else {
+        ctx.close();
+      }
     } else {
       logger.warn(
           "⚠️ Received unhandled protocol capsule: 0x{}", Long.toHexString(capsule.capsuleType()));
+    }
+  }
+
+  private static void resetConnectStreamWithMessageError(@NonNull ChannelHandlerContext ctx) {
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+      QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+      if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
+        WebTransportSessionManager mgr =
+            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          mgr.unregister(streamChannel);
+        }
+      }
+      streamChannel.shutdown(0x010e, streamChannel.newPromise());
+    } else {
+      ctx.close();
     }
   }
 }
