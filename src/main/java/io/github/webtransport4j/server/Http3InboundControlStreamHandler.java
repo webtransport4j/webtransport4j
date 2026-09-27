@@ -81,7 +81,7 @@ public class Http3InboundControlStreamHandler
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            for (WebTransportSession session : new ObjectArrayList<>(mgr.getSessions())) {
+            for (NettyWebTransportSession session : new ObjectArrayList<>(mgr.getSessions())) {
               logger.warn(
                   "⚡️ Resetting established session ID {} with H3_MESSAGE_ERROR",
                   session.getSessionStreamId());
@@ -104,7 +104,7 @@ public class Http3InboundControlStreamHandler
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
-          for (WebTransportSession session : mgr.getSessions()) {
+          for (NettyWebTransportSession session : mgr.getSessions()) {
             if (peerUni != null) {
               session.setPeerSettingsMaxStreamsUni(peerUni);
             }

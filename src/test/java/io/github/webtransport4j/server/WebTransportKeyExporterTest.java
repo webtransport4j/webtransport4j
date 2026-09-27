@@ -133,7 +133,7 @@ public class WebTransportKeyExporterTest {
     SSLEngine mockEngine = mock(SSLEngine.class);
     when(mockQuic.sslEngine()).thenReturn(mockEngine);
 
-    WebTransportSession session = new WebTransportSession(
+    WebTransportSession session = new DefaultWebTransportSession(
         100L, mockStream, "/test", 10L, 10L, 1000L, 10L, 10L, 1000L, true, true);
 
     // Underlying Mockito SSLEngine does not implement exportKeyingMaterial, so expect UnsupportedOperationException

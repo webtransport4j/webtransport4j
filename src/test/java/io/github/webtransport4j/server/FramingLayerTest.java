@@ -569,7 +569,7 @@ public class FramingLayerTest {
 
     // Verify registration
     assertTrue(mgr.hasSession(200L));
-    WebTransportSession session = mgr.get(200L);
+    NettyWebTransportSession session = mgr.get(200L);
     assertNotNull(session);
 
     // Verify that settings overrode the connection-level limits
@@ -641,7 +641,7 @@ public class FramingLayerTest {
         .thenReturn(mock(Attribute.class));
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
 
     // peerSettingsMaxStreamsUni = 2, peerSettingsMaxStreamsBidi = 1

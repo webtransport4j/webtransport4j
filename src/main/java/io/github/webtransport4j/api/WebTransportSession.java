@@ -1,366 +1,129 @@
 package io.github.webtransport4j.api;
 
-import io.github.webtransport4j.server.DefaultMessageDispatcher;
-import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
-import io.github.webtransport4j.server.DefaultNettyWebTransportStream;
-import io.github.webtransport4j.server.MessageDispatcher;
-import io.github.webtransport4j.server.WebTransportAttributeKeys;
-import io.github.webtransport4j.server.WebTransportCapsuleHandler;
-import io.github.webtransport4j.server.WebTransportChunkedWriteHandler;
-import io.github.webtransport4j.server.WebTransportKeyExporter;
-import io.github.webtransport4j.server.WebTransportStreamFrameDecoder;
-import io.github.webtransport4j.server.WebTransportUtils;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.CompositeByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
-import io.netty.channel.ChannelInitializer;
-import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.codec.quic.QuicStreamType;
-import io.netty.util.concurrent.Future;
-import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Represents a WebTransport session and manages its streams.
+ * Represents a WebTransport session and manages its streams and datagrams.
+ *
+ * <p>A WebTransport session is established over an HTTP/3 extended CONNECT stream.
+ * It allows multiplexing bidirectional and unidirectional reliable streams alongside
+ * unreliable datagrams within the same secure session.
  *
  * @author https://github.com/sanjomo
- * @date 24/12/25 1:21 am
  */
-public class WebTransportSession {
-
-  // Default initial capacity for stream tracking sets.
-  // Most sessions have few concurrent streams; avoids 16-bucket default of
-  // ConcurrentHashMap.
-  private static final int STREAM_SET_INITIAL_CAPACITY = 4;
-
-  private final long sessionStreamId;
-
-  private final String path;
-
-  private volatile String subprotocol;
-
-  private volatile QuicStreamChannel connectStream;
-
-  private volatile String resumptionToken;
-
-  private final Set<QuicStreamChannel> activeClientInitiatedUni;
-
-  private final Set<QuicStreamChannel> activeServerInitiatedUni;
-
-  private final Set<QuicStreamChannel> activeClientInitiatedBi;
-
-  private final Set<QuicStreamChannel> activeServerInitiatedBi;
-
-  // Local stream limits (how many streams we allow the client to initiate)
-  private final AtomicLong settingsMaxStreamsUni;
-
-  private final AtomicLong settingsMaxStreamsBidi;
-
-  private final AtomicLong settingsMaxData;
-
-  // Peer stream limits (how many streams the client allows the server to
-  // initiate)
-  private final AtomicLong peerSettingsMaxStreamsUni;
-
-  private final AtomicLong peerSettingsMaxStreamsBidi;
-
-  private final AtomicLong peerSettingsMaxData;
-
-  // Cumulative stream counters for streams initiated by the Client
-  private final AtomicLong clientInitiatedStreamsUni = new AtomicLong(0L);
-
-  private final AtomicLong clientInitiatedStreamsBidi = new AtomicLong(0L);
-
-  // Cumulative stream counters for streams initiated by the Server
-  private volatile int closeCode = 0; // 0 = graceful by default
-  private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
-
-  private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
-
-  // Flow control fields
-  private final AtomicLong cumulativeBytesSent = new AtomicLong(0L);
-
-  private final AtomicLong cumulativeBytesReceived = new AtomicLong(0L);
-
-  private final AtomicLong lastSentDataBlockedLimit = new AtomicLong(-1L);
-
-  private final AtomicBoolean flowControlEnabled;
-
-  // Initial allowed concurrent limits set at the start of the session
-  private final long initialMaxStreamsUni;
-
-  private final long initialMaxStreamsBidi;
-
-  private final long initialMaxData;
-
-  private final AtomicLong lastReadTime = new AtomicLong(System.currentTimeMillis());
-
-  private OnCloseListener onClosedCallback;
-
-  public void setOnClosedCallback(OnCloseListener onClosedCallback) {
-    this.onClosedCallback = onClosedCallback;
-  }
-
-  private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
-
-  private final AtomicBoolean draining = new AtomicBoolean(false);
-
-  /** Returns true if this session has received a WT_DRAIN_SESSION capsule. */
-  public boolean isDraining() {
-    return draining.get();
-  }
-
-  /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
-  public void markDraining() {
-    draining.set(true);
-  }
-
-  /** Web Transport Session. */
-  public WebTransportSession(
-      long sessionStreamId,
-      @NonNull QuicStreamChannel connectStream,
-      @NonNull String path,
-      long maxStreamsUni,
-      long maxStreamsBidi,
-      long maxData,
-      long peerMaxStreamsUni,
-      long peerMaxStreamsBidi,
-      long peerMaxData,
-      boolean peerMaxDataNegotiated,
-      boolean flowControlEnabled) {
-    this.sessionStreamId = sessionStreamId;
-    this.path = path;
-    this.connectStream = connectStream;
-    this.resumptionToken = UUID.randomUUID().toString();
-    this.flowControlEnabled = new AtomicBoolean(flowControlEnabled);
-    this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
-    // Stream limits — always needed
-    this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
-    this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
-    this.settingsMaxData = new AtomicLong(maxData);
-    this.initialMaxStreamsUni = maxStreamsUni;
-    this.initialMaxStreamsBidi = maxStreamsBidi;
-    this.initialMaxData = maxData;
-    this.peerSettingsMaxStreamsUni = new AtomicLong(peerMaxStreamsUni);
-    this.peerSettingsMaxStreamsBidi = new AtomicLong(peerMaxStreamsBidi);
-    this.peerSettingsMaxData = new AtomicLong(peerMaxData);
-    // Active stream sets — use small initial capacity to reduce memory footprint
-    this.activeClientInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
-    this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
-    this.activeClientInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
-    this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
-  }
-
-  public long getLastReadTime() {
-    return lastReadTime.get();
-  }
-
-  public void updateLastReadTime() {
-    lastReadTime.set(System.currentTimeMillis());
-  }
-
-  public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
-    return activeClientInitiatedUni;
-  }
-
-  public Set<QuicStreamChannel> getActiveServerInitiatedUni() {
-    return activeServerInitiatedUni;
-  }
-
-  public Set<QuicStreamChannel> getActiveClientInitiatedBi() {
-    return activeClientInitiatedBi;
-  }
-
-  public Set<QuicStreamChannel> getActiveServerInitiatedBi() {
-    return activeServerInitiatedBi;
-  }
+public interface WebTransportSession {
 
   /**
-   * Returns all active unidirectional and bidirectional WebTransport streams for this session.
+   * Returns the session stream ID (the HTTP/3 CONNECT stream ID that established the session).
    *
-   * @return set of all active QuicStreamChannel instances
+   * @return the unique session stream ID
    */
-  public @NonNull Set<QuicStreamChannel> getAllActiveWebTransportStreams() {
-    Set<QuicStreamChannel> webTransportStreams = new ObjectOpenHashSet<>();
-    webTransportStreams.addAll(getActiveClientInitiatedUni());
-    webTransportStreams.addAll(getActiveServerInitiatedUni());
-    webTransportStreams.addAll(getActiveClientInitiatedBi());
-    webTransportStreams.addAll(getActiveServerInitiatedBi());
-    return webTransportStreams;
-  }
+  long getSessionStreamId();
 
   /**
-   * Checks whether session-level flow control is enabled.
+   * Alias for {@link #getSessionStreamId()}.
    *
-   * @return true if flow control was negotiated by both endpoints
+   * @return the session ID
    */
-  public boolean isFlowControlEnabled() {
-    return flowControlEnabled.get();
+  default long sessionId() {
+    return getSessionStreamId();
   }
 
   /**
-   * Sets whether session-level flow control is enabled.
+   * Returns the URI path associated with this session.
    *
-   * @param enabled true to enable flow control, false otherwise
+   * @return the URI request path
    */
-  public void setFlowControlEnabled(boolean enabled) {
-    this.flowControlEnabled.set(enabled);
-  }
+  @NonNull String path();
 
-  public long getSessionStreamId() {
-    return sessionStreamId;
-  }
+  /**
+   * Returns the negotiated application subprotocol, or {@code null} if no subprotocol was selected.
+   *
+   * @return the selected subprotocol name, or null
+   */
+  @Nullable String getSubprotocol();
 
-  public @NonNull QuicStreamChannel getConnectStream() {
-    return connectStream;
-  }
+  /**
+   * Returns the session resumption token.
+   *
+   * @return the session resumption token
+   */
+  @NonNull String getResumptionToken();
 
-  public long getSettingsMaxStreamsUni() {
-    return settingsMaxStreamsUni.get();
-  }
+  /**
+   * Returns true if this session has received a {@code WT_DRAIN_SESSION} capsule and is draining.
+   *
+   * @return true if the session is draining
+   */
+  boolean isDraining();
 
-  public long getSettingsMaxStreamsBidi() {
-    return settingsMaxStreamsBidi.get();
-  }
+  /**
+   * Creates an outbound unidirectional stream with the default pipeline.
+   *
+   * @return a future that completes with the opened stream
+   */
+  @NonNull CompletableFuture<WebTransportStream> createUniStream();
 
-  public long getSettingsMaxData() {
-    return settingsMaxData.get();
-  }
+  /**
+   * Creates an outbound unidirectional stream with the given priority per RFC 9218.
+   *
+   * @param priority the stream priority
+   * @return a future that completes with the opened stream
+   */
+  @NonNull CompletableFuture<WebTransportStream> createUniStream(@NonNull StreamPriority priority);
 
-  public long getPeerSettingsMaxStreamsUni() {
-    return peerSettingsMaxStreamsUni.get();
-  }
-
-  public void setPeerSettingsMaxStreamsUni(long value) {
-    this.peerSettingsMaxStreamsUni.set(value);
-  }
-
-  public long getPeerSettingsMaxStreamsBidi() {
-    return peerSettingsMaxStreamsBidi.get();
-  }
-
-  public void setPeerSettingsMaxStreamsBidi(long value) {
-    this.peerSettingsMaxStreamsBidi.set(value);
-  }
-
-  public long getPeerSettingsMaxData() {
-    return peerSettingsMaxData.get();
-  }
-
-  public void setPeerSettingsMaxData(long value) {
-    this.peerSettingsMaxData.set(value);
-  }
-
-  public boolean markPeerMaxDataCapsuleReceived() {
-    return hasReceivedPeerMaxDataCapsule.compareAndSet(false, true);
-  }
-
-  public long getClientInitiatedStreamsUni() {
-    return clientInitiatedStreamsUni.get();
-  }
-
-  public long getClientInitiatedStreamsBidi() {
-    return clientInitiatedStreamsBidi.get();
-  }
-
-  public long incrementAndGetClientInitiatedStreamsBidi() {
-    return clientInitiatedStreamsBidi.incrementAndGet();
-  }
-
-  public long incrementAndGetClientInitiatedStreamsUni() {
-    return clientInitiatedStreamsUni.incrementAndGet();
-  }
-
-  public void setClientInitiatedStreamsUni(long clientInitiatedStreamsUni) {
-    this.clientInitiatedStreamsUni.set(clientInitiatedStreamsUni);
-  }
-
-  public void setClientInitiatedStreamsBidi(long clientInitiatedStreamsBidi) {
-    this.clientInitiatedStreamsBidi.set(clientInitiatedStreamsBidi);
-  }
-
-  public long getInitialMaxStreamsUni() {
-    return initialMaxStreamsUni;
-  }
-
-  public long getInitialMaxStreamsBidi() {
-    return initialMaxStreamsBidi;
-  }
-
-  public void setSettingsMaxStreamsUni(long value) {
-    this.settingsMaxStreamsUni.set(value);
-  }
-
-  public @Nullable String getSubprotocol() {
-    return subprotocol;
-  }
-
-  public void setSubprotocol(@Nullable String subprotocol) {
-    this.subprotocol = subprotocol;
-  }
-
-  public void setSettingsMaxStreamsBidi(long value) {
-    this.settingsMaxStreamsBidi.set(value);
-  }
-
-  public long getServerInitiatedStreamsUni() {
-    return serverInitiatedStreamsUni.get();
-  }
-
-  public long getServerInitiatedStreamsBidi() {
-    return serverInitiatedStreamsBidi.get();
-  }
-
-  public long incrementAndGetServerInitiatedStreamsUni() {
-    return serverInitiatedStreamsUni.incrementAndGet();
-  }
-
-  public long incrementAndGetServerInitiatedStreamsBidi() {
-    return serverInitiatedStreamsBidi.incrementAndGet();
-  }
-
-  public long getInitialMaxData() {
-    return initialMaxData;
-  }
-
-  public void setSettingsMaxData(long value) {
-    this.settingsMaxData.set(value);
-  }
-
-  public long getCumulativeBytesSent() {
-    return cumulativeBytesSent.get();
-  }
-
-  public long getCumulativeBytesReceived() {
-    return cumulativeBytesReceived.get();
-  }
-
-  public long incrementCumulativeBytesSent(long value) {
-    return this.cumulativeBytesSent.addAndGet(value);
-  }
-
-  public long incrementCumulativeBytesReceived(long value) {
-    return this.cumulativeBytesReceived.addAndGet(value);
+  /**
+   * Creates an outbound unidirectional stream with the given urgency and incremental flag per RFC 9218.
+   *
+   * @param urgency urgency level between 0 (highest) and 7 (lowest)
+   * @param incremental true if incremental/interleaved scheduling is enabled
+   * @return a future that completes with the opened stream
+   */
+  default @NonNull CompletableFuture<WebTransportStream> createUniStream(int urgency, boolean incremental) {
+    return createUniStream(StreamPriority.of(urgency, incremental));
   }
 
   /**
-   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
-   * sent. Callers use CAS operations on this.
+   * Creates an outbound bidirectional stream with the default pipeline.
+   *
+   * @return a future that completes with the opened stream
    */
-  public @NonNull AtomicLong getLastSentDataBlockedLimit() {
-    return lastSentDataBlockedLimit;
+  @NonNull CompletableFuture<WebTransportStream> createBiStream();
+
+  /**
+   * Creates an outbound bidirectional stream with the given priority per RFC 9218.
+   *
+   * @param priority the stream priority
+   * @return a future that completes with the opened stream
+   */
+  @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull StreamPriority priority);
+
+  /**
+   * Creates an outbound bidirectional stream with the given urgency and incremental flag per RFC 9218.
+   *
+   * @param urgency urgency level between 0 (highest) and 7 (lowest)
+   * @param incremental true if incremental/interleaved scheduling is enabled
+   * @return a future that completes with the opened stream
+   */
+  default @NonNull CompletableFuture<WebTransportStream> createBiStream(int urgency, boolean incremental) {
+    return createBiStream(StreamPriority.of(urgency, incremental));
   }
+
+  /**
+   * Sends a datagram packet over the WebTransport session.
+   *
+   * @param data the datagram payload buffer
+   */
+  void sendDatagram(@NonNull WebTransportBuffer data);
+
+  /**
+   * Sends a datagram packet over the WebTransport session.
+   *
+   * @param data the datagram payload byte array
+   */
+  void sendDatagram(byte @NonNull [] data);
 
   /**
    * Exports keying material for this WebTransport session using the TLS Exporter mechanism
@@ -371,335 +134,37 @@ public class WebTransportSession {
    * @param length the desired length of exported keying material in bytes
    * @return the exported keying material bytes
    */
-  public byte[] exportKeyingMaterial(
+  byte[] exportKeyingMaterial(
       @NonNull String label,
       byte @Nullable [] context,
-      int length) {
-    if (length <= 0) {
-      throw new IllegalArgumentException("Key length must be positive: " + length);
-    }
-    byte[] serializedContext =
-        WebTransportKeyExporter.serializeExporterContext(sessionStreamId, label, context);
-    return WebTransportKeyExporter.exportKeyingMaterial(
-        connectStream != null ? connectStream.parent() : null,
-        WebTransportKeyExporter.TLS_EXPORTER_LABEL,
-        serializedContext,
-        length);
-  }
+      int length);
 
-  /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
-  public void close() {
-    for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
-      activeStream.close();
-    }
-    for (QuicStreamChannel activeStream : activeServerInitiatedBi) {
-      activeStream.close();
-    }
-    for (QuicStreamChannel activeStream : activeClientInitiatedUni) {
-      activeStream.close();
-    }
-    for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
-      activeStream.close();
-    }
-    if (onClosedCallback != null) {
-      onClosedCallback.onClose();
-    }
-    connectStream.close();
-  }
+  /**
+   * Gracefully closes the WebTransport session by closing the CONNECT stream and all active streams.
+   */
+  void close();
 
   /**
    * Abruptly closes the WebTransport session by resetting the CONNECT stream with the specified
    * HTTP/3 error code and resetting all active data streams.
-   */
-  public void abort(long httpErrorCode) {
-    int code = (int) httpErrorCode;
-    if (code < 0) {
-      // fallback to safe code to prevent native JVM crash
-      code = 0;
-    }
-
-    // Reset all associated data streams
-    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
-      activeStream.shutdown(code, activeStream.newPromise());
-    }
-    if (onClosedCallback != null) {
-      onClosedCallback.onClose();
-    }
-    connectStream.shutdown(code, connectStream.newPromise());
-  }
-
-  /**
-   * Resets a WebTransport data stream with a WebTransport application error code (automatically
-   * mapped to the HTTP/3 error range as per Section 4.4).
-   */
-  public void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode) {
-    WebTransportUtils.resetStream(dataStream, appErrorCode);
-  }
-
-  /**
-   * Sends a datagram package over the WebTransport session.
    *
-   * @param data The datagram payload.
+   * @param httpErrorCode the HTTP/3 error code
    */
-  public void sendDatagram(@NonNull WebTransportBuffer data) {
-    Channel parentChannel = connectStream.parent();
-    int dataBytes = data.readableBytes();
-    ByteBuf payload =
-        data instanceof DefaultNettyWebTransportBuffer
-            ? ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer()
-            : Unpooled.wrappedBuffer(data.nioBuffer());
-    writeDatagram(parentChannel, payload);
-    // Fire metrics: datagram sent
-    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
-    if (metrics != null) {
-      metrics.onDatagramSent(sessionStreamId, dataBytes);
-    }
-  }
+  void abort(long httpErrorCode);
 
   /**
-   * Sends a datagram package over the WebTransport session.
+   * Registers a listener to be invoked when the session is closed.
    *
-   * @param data The datagram payload byte array.
-   *     The array is wrapped without copying. Do not modify it until Netty completes the write.
+   * @param onClosedCallback the callback listener
    */
-  public void sendDatagram(byte @NonNull [] data) {
-    Channel parentChannel = connectStream.parent();
-    writeDatagram(parentChannel, Unpooled.wrappedBuffer(data));
-    // Fire metrics: datagram sent
-    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
-    if (metrics != null) {
-      metrics.onDatagramSent(sessionStreamId, data.length);
-    }
-  }
-
-  private void writeDatagram(@NonNull Channel parentChannel, @NonNull ByteBuf payload) {
-    ByteBuf header = null;
-    CompositeByteBuf composite = null;
-    try {
-      final long quarterSessionId = sessionStreamId >> 2;
-      header = parentChannel.alloc().directBuffer(WebTransportUtils.varIntLength(quarterSessionId));
-      WebTransportUtils.writeVarInt(header, quarterSessionId);
-      composite = parentChannel.alloc().compositeBuffer(2);
-      composite.addComponent(true, header);
-      header = null;
-      composite.addComponent(true, payload);
-      payload = null;
-      parentChannel.writeAndFlush(composite);
-      composite = null;
-    } finally {
-      if (header != null) {
-        header.release();
-      }
-      if (payload != null) {
-        payload.release();
-      }
-      if (composite != null) {
-        composite.release();
-      }
-    }
-  }
-
-  public @NonNull String path() {
-    return path;
-  }
-
-  public static final ChannelHandler DEFAULT_UNI_INITIALIZER =
-      new ChannelInitializer<QuicStreamChannel>() {
-
-        @Override
-        protected void initChannel(@NonNull QuicStreamChannel ch) {
-          // Unidirectional write-only stream, no read pipeline handlers needed
-          // write pipeline
-          ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
-        }
-      };
-
-  public static final ChannelHandler DEFAULT_BI_INITIALIZER =
-      new ChannelInitializer<QuicStreamChannel>() {
-
-        @Override
-        protected void initChannel(@NonNull QuicStreamChannel ch) {
-          ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
-          ch.pipeline().addLast(WebTransportStreamFrameDecoder.INSTANCE);
-          ch.pipeline().addLast(WebTransportCapsuleHandler.INSTANCE);
-          Supplier<MessageDispatcher> supplier =
-              ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
-          if (supplier != null) {
-            ch.pipeline().addLast(supplier.get());
-          } else {
-            ch.pipeline().addLast(DefaultMessageDispatcher.INSTANCE);
-          }
-        }
-      };
+  void setOnClosedCallback(@Nullable OnCloseListener onClosedCallback);
 
   /**
-   * Creates an outbound unidirectional stream with the default channel pipeline.
+   * Returns the close code for this session (0 = graceful by default).
    *
-   * @return a future that completes with the opened stream
+   * @return the session close code
    */
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream() {
-    return createUniStream(DEFAULT_UNI_INITIALIZER);
-  }
-
-  /**
-   * Creates an outbound unidirectional stream with the given custom channel handler.
-   *
-   * @param streamHandler channel handler to add to the stream pipeline
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
-      @NonNull ChannelHandler streamHandler) {
-    return wrapStreamFuture(WebTransportUtils.createUniStream(connectStream, false, streamHandler));
-  }
-
-  /**
-   * Creates an outbound unidirectional stream with the given priority.
-   *
-   * @param priority the stream priority per RFC 9218
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(@NonNull StreamPriority priority) {
-    return createUniStream(DEFAULT_UNI_INITIALIZER, priority);
-  }
-
-  /**
-   * Creates an outbound unidirectional stream with the given urgency and incremental flag.
-   *
-   * @param urgency urgency level between 0 and 7
-   * @param incremental true if incremental/interleaved scheduling is enabled
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(int urgency, boolean incremental) {
-    return createUniStream(DEFAULT_UNI_INITIALIZER, StreamPriority.of(urgency, incremental));
-  }
-
-  /**
-   * Creates an outbound unidirectional stream with the given custom handler and priority.
-   *
-   * @param streamHandler channel handler to add to the stream pipeline
-   * @param priority the stream priority per RFC 9218
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
-      @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority) {
-    Objects.requireNonNull(priority, "priority cannot be null");
-    return wrapStreamFuture(
-        WebTransportUtils.createUniStream(connectStream, false, streamHandler), priority);
-  }
-
-  /**
-   * Creates an outbound bidirectional stream with the default channel pipeline.
-   *
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream() {
-    return createBiStream(DEFAULT_BI_INITIALIZER);
-  }
-
-  /**
-   * Creates an outbound bidirectional stream with the given custom channel handler.
-   *
-   * @param streamHandler channel handler to add to the stream pipeline
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull ChannelHandler streamHandler) {
-    return wrapStreamFuture(WebTransportUtils.createBiStream(connectStream, false, streamHandler));
-  }
-
-  /**
-   * Creates an outbound bidirectional stream with the given priority.
-   *
-   * @param priority the stream priority per RFC 9218
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull StreamPriority priority) {
-    return createBiStream(DEFAULT_BI_INITIALIZER, priority);
-  }
-
-  /**
-   * Creates an outbound bidirectional stream with the given urgency and incremental flag.
-   *
-   * @param urgency urgency level between 0 and 7
-   * @param incremental true if incremental/interleaved scheduling is enabled
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(int urgency, boolean incremental) {
-    return createBiStream(DEFAULT_BI_INITIALIZER, StreamPriority.of(urgency, incremental));
-  }
-
-  /**
-   * Creates an outbound bidirectional stream with the given custom handler and priority.
-   *
-   * @param streamHandler channel handler to add to the stream pipeline
-   * @param priority the stream priority per RFC 9218
-   * @return a future that completes with the opened stream
-   */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(
-      @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority) {
-    Objects.requireNonNull(priority, "priority cannot be null");
-    return wrapStreamFuture(
-        WebTransportUtils.createBiStream(connectStream, false, streamHandler), priority);
-  }
-
-  private @NonNull CompletableFuture<WebTransportStream> wrapStreamFuture(
-      @NonNull Future<QuicStreamChannel> streamFuture) {
-    return wrapStreamFuture(streamFuture, null);
-  }
-
-  private @NonNull CompletableFuture<WebTransportStream> wrapStreamFuture(
-      @NonNull Future<QuicStreamChannel> streamFuture, @Nullable StreamPriority priority) {
-    CompletableFuture<WebTransportStream> cf = new CompletableFuture<>();
-    streamFuture.addListener(
-        (Future<QuicStreamChannel> f) -> {
-          if (f.isSuccess()) {
-            QuicStreamChannel ch = f.getNow();
-            WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId);
-            ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            // Fire metrics: server-initiated stream opened
-            WebTransportMetricsListener metrics =
-                WebTransportUtils.getMetrics(connectStream.parent());
-            if (metrics != null) {
-              boolean isBidi =
-                  ch.type() == QuicStreamType.BIDIRECTIONAL;
-              metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
-              ch.closeFuture()
-                  .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
-            }
-            if (priority != null) {
-              stream.setPriority(priority).whenComplete((v, ex) -> {
-                if (ex != null) {
-                  cf.completeExceptionally(ex);
-                } else {
-                  cf.complete(stream);
-                }
-              });
-            } else {
-              cf.complete(stream);
-            }
-          } else {
-            cf.completeExceptionally(f.cause());
-          }
-        });
-    return cf;
-  }
-
-  public void setCloseCode(int closeCode) {
-    this.closeCode = closeCode;
-  }
-
-  public int getCloseCode() {
-    return closeCode;
-  }
-
-  public @NonNull String getResumptionToken() {
-    return resumptionToken;
-  }
-
-  public void rotateResumptionToken() {
-    this.resumptionToken = UUID.randomUUID().toString();
-  }
-
-  public void updateConnectStream(@NonNull QuicStreamChannel newConnectStream) {
-    this.connectStream = newConnectStream;
+  default int getCloseCode() {
+    return 0;
   }
 }

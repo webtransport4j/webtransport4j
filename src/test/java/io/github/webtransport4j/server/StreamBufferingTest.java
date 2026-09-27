@@ -107,7 +107,7 @@ public class StreamBufferingTest {
     mgr.register(mockConnectStream);
 
     // Setup current stream count = 1 (already at limit before incrementing)
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     session.setClientInitiatedStreamsBidi(1L);
 
     // New incoming stream

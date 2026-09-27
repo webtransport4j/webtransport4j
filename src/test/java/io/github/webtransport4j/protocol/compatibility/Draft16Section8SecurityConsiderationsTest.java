@@ -6,7 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.server.DefaultWebTransportSession;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -59,7 +59,7 @@ public class Draft16Section8SecurityConsiderationsTest {
     // Verify session stream budget tracking prevents exhaustion
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.streamId()).thenReturn(0L);
-    WebTransportSession session = new WebTransportSession(
+    DefaultWebTransportSession session = new DefaultWebTransportSession(
         0L, mockStream, "/wt", 0L, 0L, 100L, 0L, 0L, 100L, true, true);
 
     assertEqualsLimit(0L, session.getSettingsMaxStreamsBidi());

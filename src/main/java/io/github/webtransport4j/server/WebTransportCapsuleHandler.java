@@ -134,7 +134,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            WebTransportSession session = mgr.get(capsule.sessionId());
+            NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
               // Note: Assuming you have getters/setters for the *current* limit,
               // not just the "initial" limit. The current limit tracks the highest
@@ -221,7 +221,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            WebTransportSession session = mgr.get(capsule.sessionId());
+            NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
               long currentPeerLimit = session.getPeerSettingsMaxData();
               boolean isFirstUpdate = session.markPeerMaxDataCapsuleReceived();
@@ -267,7 +267,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            WebTransportSession session = mgr.get(capsule.sessionId());
+            NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null && session.isFlowControlEnabled()) {
               long extendAmount =
                   WebTransportConfig.getLong(
@@ -309,7 +309,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           WebTransportSessionManager mgr =
               quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            WebTransportSession session = mgr.get(capsule.sessionId());
+            NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
               // Calculate remaining allowed active slots
               long activeCount =
@@ -383,7 +383,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         WebTransportSessionManager mgr =
             quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
-          WebTransportSession session = mgr.get(capsule.sessionId());
+          NettyWebTransportSession session = mgr.get(capsule.sessionId());
           if (session != null) {
             session.markDraining();
           }

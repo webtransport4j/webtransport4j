@@ -132,7 +132,7 @@ public class WebTransportUtils {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
         connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+    NettyWebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));

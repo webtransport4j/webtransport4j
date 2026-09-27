@@ -68,7 +68,7 @@ public class Http3ControlStreamAndAccountingTest {
 
     // Register session before peer settings arrive (flowControlEnabled will be false)
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(0L);
+    NettyWebTransportSession session = mgr.get(0L);
     org.junit.Assert.assertNotNull(session);
     session.setSettingsMaxStreamsUni(0L);
     session.setSettingsMaxStreamsBidi(0L);
@@ -128,7 +128,7 @@ public class Http3ControlStreamAndAccountingTest {
     when(mockParent.createStream(any(), any())).thenReturn(futureChannel);
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(0L);
+    NettyWebTransportSession session = mgr.get(0L);
     org.junit.Assert.assertNotNull(session);
     session.setFlowControlEnabled(false);
 

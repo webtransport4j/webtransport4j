@@ -415,7 +415,7 @@ public class WebTransportIntegrationTest {
                                                 quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)
                                                     .get();
                                             if (mgr != null) {
-                                              for (WebTransportSession session :
+                                              for (NettyWebTransportSession session :
                                                   new ArrayList<>(mgr.getSessions())) {
                                                 log.info(
                                                     "SERVER: Resetting established session ID "
@@ -1634,7 +1634,7 @@ public class WebTransportIntegrationTest {
     WebTransportSessionManager serverMgr =
         serverConnectionChannel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     assertNotNull(serverMgr);
-    WebTransportSession serverSession = serverMgr.get(sessionId);
+    NettyWebTransportSession serverSession = serverMgr.get(sessionId);
     assertNotNull(serverSession);
 
     // Find the server-side stream

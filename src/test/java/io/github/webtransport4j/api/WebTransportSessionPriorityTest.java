@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.server.DefaultWebTransportSession;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.netty.buffer.UnpooledByteBufAllocator;
@@ -37,7 +38,7 @@ public class WebTransportSessionPriorityTest {
   private QuicStreamChannel mockConnectStream;
   private QuicChannel mockQuicChannel;
   private EventLoop mockEventLoop;
-  private WebTransportSession session;
+  private DefaultWebTransportSession session;
   private QuicStreamChannel mockCreatedStream;
   private ChannelFuture mockPriorityFuture;
 
@@ -58,7 +59,7 @@ public class WebTransportSessionPriorityTest {
     when(mockEventLoop.newPromise()).thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
     session =
-        new WebTransportSession(
+        new DefaultWebTransportSession(
             0L,
             mockConnectStream,
             "/test",
