@@ -8,7 +8,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
+import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.server.DefaultNettyWebTransportStream;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;

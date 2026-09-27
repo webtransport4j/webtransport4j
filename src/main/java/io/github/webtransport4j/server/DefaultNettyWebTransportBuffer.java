@@ -1,4 +1,6 @@
-package io.github.webtransport4j.api;
+package io.github.webtransport4j.server;
+
+import io.github.webtransport4j.api.WebTransportBuffer;
 
 import io.netty.buffer.ByteBuf;
 import java.nio.ByteBuffer;
@@ -19,7 +21,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
     return this;
   }
 
-  @NonNull ByteBuf retainedReadableBuffer() {
+  public @NonNull ByteBuf retainedReadableBuffer() {
     return delegate.retainedSlice(delegate.readerIndex(), delegate.readableBytes());
   }
 

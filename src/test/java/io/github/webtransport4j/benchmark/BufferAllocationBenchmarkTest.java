@@ -3,7 +3,7 @@ package io.github.webtransport4j.benchmark;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;

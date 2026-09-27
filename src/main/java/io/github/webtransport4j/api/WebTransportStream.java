@@ -1,6 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.github.webtransport4j.example.StreamCodec;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Map;

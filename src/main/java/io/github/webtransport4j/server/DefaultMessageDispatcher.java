@@ -1,7 +1,5 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
-import io.github.webtransport4j.api.DefaultNettyWebTransportStream;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;

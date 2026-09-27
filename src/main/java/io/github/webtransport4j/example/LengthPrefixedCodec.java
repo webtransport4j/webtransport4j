@@ -1,7 +1,8 @@
 package io.github.webtransport4j.example;
 
-import io.github.webtransport4j.api.DefaultNettyWebTransportBuffer;
+import io.github.webtransport4j.api.StreamCodec;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
