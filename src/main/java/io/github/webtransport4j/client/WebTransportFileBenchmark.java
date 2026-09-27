@@ -25,19 +25,26 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Aggressive Bulk Throughput Benchmark for WebTransport File Transfer
  */
 public final class WebTransportFileBenchmark {
 
+    private static final Logger logger = LoggerFactory.getLogger(WebTransportFileBenchmark.class);
+
     // Aggressive Chunking: 256 KB per write
     private static final int CHUNK_SIZE = 256 * 1024;
 
     public static void main(String... args) throws Exception {
 
-        // Define the file to stream (Pass via args or hardcode here)
-        String filePath = args.length > 0 ? args[0] : "/Users/sam/Downloads/1GB.bin";
+        String filePath = args.length > 0 ? args[0] : System.getProperty("webtransport4j.benchmark.file");
+        if (filePath == null || filePath.trim().isEmpty()) {
+            System.err.println("Usage: WebTransportFileBenchmark <file-path>");
+            return;
+        }
         File file = new File(filePath);
 
         if (!file.exists() || !file.isFile()) {
@@ -190,6 +197,7 @@ public final class WebTransportFileBenchmark {
  * Monitors incoming byte stream to count payload progress without keeping data in memory.
  */
 class BulkThroughputHandler1 extends ChannelDuplexHandler {
+    private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler1.class);
     private long bytesReceived = 0;
     private long bytesExpected = 0;
     private CountDownLatch currentLatch;
@@ -226,7 +234,7 @@ class BulkThroughputHandler1 extends ChannelDuplexHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
+        logger.error("Exception in benchmark channel", cause);
         ctx.close();
     }
 }

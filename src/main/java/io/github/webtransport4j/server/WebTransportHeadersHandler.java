@@ -204,7 +204,12 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             mgr.unregister(connectStream);
           }
         });
-        quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
+        if (quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+          quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
+        }
+        if (connectStream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+          connectStream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
+        }
 
         String cipherSuite = "TLS_AES_128_GCM_SHA256";
         String tlsVersion = "TLSv1.3";

@@ -1,10 +1,5 @@
 package io.github.webtransport4j.client;
 
-/**
- * @author https://github.com/sanjomo
- * @date 03/07/26 4:53 pm
- */
-
 import io.github.webtransport4j.server.UnknownStreamHandlerFactory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -19,10 +14,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Webtransport client implementation
+ * WebTransport client connection handler.
+ *
+ * @author https://github.com/sanjomo
+ * @date 03/07/26 4:53 pm
  */
 public class WebTransportClientHandler extends Http3ClientConnectionHandler {
-    private Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
+    private static final Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
 
     public WebTransportClientHandler() {
         this(null, true, null);
@@ -49,11 +47,11 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
         channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                if (msg instanceof ByteBuf) {
+                if (msg instanceof ByteBuf && logger.isDebugEnabled()) {
                     ByteBuf buf = (ByteBuf) msg;
-                    System.out.println("=== BIDI STREAM " + channel.streamId() + " ===");
-                    System.out.println(ByteBufUtil.prettyHexDump(buf));
-                    System.out.println("ASCII: " +
+                    logger.debug("=== BIDI STREAM {} ===", channel.streamId());
+                    logger.debug(ByteBufUtil.prettyHexDump(buf));
+                    logger.debug("ASCII: {}",
                             buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
 
@@ -70,11 +68,11 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
         streamChannel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
             @Override
             public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                if (msg instanceof ByteBuf) {
+                if (msg instanceof ByteBuf && logger.isDebugEnabled()) {
                     ByteBuf buf = (ByteBuf) msg;
-                    System.out.println("=== UNI STREAM " + streamChannel.streamId() + " ===");
-                    System.out.println(ByteBufUtil.prettyHexDump(buf));
-                    System.out.println("ASCII: " +
+                    logger.debug("=== UNI STREAM {} ===", streamChannel.streamId());
+                    logger.debug(ByteBufUtil.prettyHexDump(buf));
+                    logger.debug("ASCII: {}",
                             buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
 

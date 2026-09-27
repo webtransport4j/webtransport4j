@@ -70,7 +70,10 @@ func sendFile(host string, port int, filename string) error {
 func main() {
 	host := "127.0.0.1"
 	port := 4242
-	filename := "/Users/sam/Documents/GitHub/webtransport4j/interop/large-file.bin"
+	filename := "../large-file.bin"
+	if len(os.Args) > 1 {
+		filename = os.Args[1]
+	}
 
 	if err := sendFile(host, port, filename); err != nil {
 		log.Fatalf("Fatal error: %v\n", err)

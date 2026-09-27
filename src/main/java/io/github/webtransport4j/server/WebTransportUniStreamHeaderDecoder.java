@@ -38,10 +38,23 @@ public class WebTransportUniStreamHeaderDecoder extends ByteToMessageDecoder {
       // Write all stream-invariant attributes exactly once
       ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
       ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(this.streamType);
-      String savedPath = ctx.channel().parent() != null
-          && ctx.channel().parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null
-          ? ctx.channel().parent().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get()
-          : null;
+      String savedPath = null;
+      if (ctx.channel().parent() != null) {
+        io.netty.handler.codec.quic.QuicChannel parentQuic =
+            (io.netty.handler.codec.quic.QuicChannel) ctx.channel().parent();
+        io.netty.util.Attribute<WebTransportSessionManager> mgrAttr =
+            parentQuic.attr(WebTransportAttributeKeys.WT_SESSION_MGR);
+        WebTransportSessionManager mgr = mgrAttr != null ? mgrAttr.get() : null;
+        if (mgr != null) {
+          io.github.webtransport4j.api.WebTransportSession session = mgr.get(sessionId);
+          if (session != null) {
+            savedPath = session.path();
+          }
+        }
+        if (savedPath == null && parentQuic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+          savedPath = parentQuic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
+        }
+      }
       ctx.channel().attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(savedPath);
       sessionHeaderRead = true;
     }

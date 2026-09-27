@@ -217,7 +217,10 @@ public class WebTransportSessionManager {
     boolean peerMaxDataNegotiated = peerData != null;
 
     String pathStr = "/";
-    if (quic != null && quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+    if (connectStream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null
+        && connectStream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get() != null) {
+      pathStr = connectStream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
+    } else if (quic != null && quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
       String resolved = quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
       if (resolved != null) {
         pathStr = resolved;

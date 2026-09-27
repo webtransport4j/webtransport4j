@@ -16,10 +16,9 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Aggressive Bulk Throughput Benchmark for 1GB WebTransport Transfer
- */
 public final class WebTransportBytesBenchmark {
 
     // 1 GB total data = 1,073,741,824 bytes
@@ -168,6 +167,7 @@ public final class WebTransportBytesBenchmark {
  * Monitors incoming byte stream to count payload progress without keeping data in memory.
  */
 class BulkThroughputHandler extends ChannelDuplexHandler {
+    private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler.class);
     private long bytesReceived = 0;
     private long bytesExpected = 0;
     private CountDownLatch currentLatch;
@@ -209,7 +209,7 @@ class BulkThroughputHandler extends ChannelDuplexHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
+        logger.error("Exception in benchmark stream handler", cause);
         ctx.close();
     }
 }

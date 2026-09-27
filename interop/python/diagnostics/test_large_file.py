@@ -50,11 +50,16 @@ async def send_file(host, port, filename):
         await asyncio.sleep(1)
 
 
+import os
+import sys
+
 if __name__ == "__main__":
+    default_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "large-file.bin"))
+    file_path = sys.argv[1] if len(sys.argv) > 1 else default_path
     asyncio.run(
         send_file(
             "127.0.0.1",
             4242,
-            "/Users/sam/Documents/GitHub/webtransport4j/interop/large-file.bin",
+            file_path,
         )
     )

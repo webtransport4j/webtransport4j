@@ -1,12 +1,10 @@
 package io.github.webtransport4j.example;
 
-import io.github.webtransport4j.api.BinarySources;
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.server.WebTransportConfig;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -84,22 +82,6 @@ public class WebTransportTestHandler implements WebTransportHandler {
                     logger.error("   ❌ Failed to write to server uni stream", writeErr);
                   }
                 });
-            File sampleFile = new File("/Users/sam/Downloads/images.zip");
-            if (sampleFile.exists()) {
-              try {
-                stream
-                    .write(BinarySources.fromFile(sampleFile))
-                    .whenComplete((res, writeErr) -> {
-                      if (writeErr == null) {
-                        logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
-                      } else {
-                        logger.error("   ❌ Failed to send file data on server bidi stream", writeErr);
-                      }
-                    });
-              } catch (Exception e) {
-                logger.error("Error reading file", e);
-              }
-            }
           } else {
             logger.error("   ❌ Failed to create server-initiated unidirectional stream", err);
           }
@@ -138,22 +120,6 @@ public class WebTransportTestHandler implements WebTransportHandler {
                     logger.error("   ❌ Failed to send greeting on server bidi stream", writeErr);
                   }
                 });
-            File sampleFile = new File("/Users/sam/Downloads/images.zip");
-            if (sampleFile.exists()) {
-              try {
-                stream
-                    .write(BinarySources.fromFile(sampleFile))
-                    .whenComplete((res, writeErr) -> {
-                      if (writeErr == null) {
-                        logger.info("   ✅ Sent file data on server bidi stream {}", stream.streamId());
-                      } else {
-                        logger.error("   ❌ Failed to send file data on server bidi stream", writeErr);
-                      }
-                    });
-              } catch (Exception e) {
-                logger.error("Error reading file", e);
-              }
-            }
           } else {
             logger.error("   ❌ Failed to create server-initiated bidirectional stream", err);
           }

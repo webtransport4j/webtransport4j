@@ -22,10 +22,16 @@ public class LocalMemoryRateLimitBackend implements RateLimitBackend {
     if (nowMinute != currentMinute) {
       if (clearing.compareAndSet(false, true)) {
         try {
-          ipCounts.clear();
-          currentMinute = nowMinute;
+          if (nowMinute != currentMinute) {
+            ipCounts.clear();
+            currentMinute = nowMinute;
+          }
         } finally {
           clearing.set(false);
+        }
+      } else {
+        while (clearing.get() && nowMinute != currentMinute) {
+          Thread.yield();
         }
       }
     }

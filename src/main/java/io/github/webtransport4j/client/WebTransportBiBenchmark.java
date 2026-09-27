@@ -16,10 +16,9 @@ import io.netty.util.ReferenceCountUtil;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Bidirectional Throughput Benchmark for WebTransport Client
- */
 public final class WebTransportBiBenchmark {
 
     // Benchmark configuration
@@ -156,6 +155,7 @@ public final class WebTransportBiBenchmark {
  * Custom handler to track incoming bytes and release the latch when the expected amount is received.
  */
 class BenchmarkBiHandler extends ChannelDuplexHandler {
+    private static final Logger logger = LoggerFactory.getLogger(BenchmarkBiHandler.class);
     private long bytesReceived = 0;
     private long bytesExpected = 0;
     private CountDownLatch currentLatch;
@@ -183,7 +183,7 @@ class BenchmarkBiHandler extends ChannelDuplexHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        cause.printStackTrace();
+        logger.error("Exception in bidirectional benchmark stream handler", cause);
         ctx.close();
     }
 }

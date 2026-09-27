@@ -16,9 +16,12 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class Http3GetClient {
 
+    private static final Logger logger = LoggerFactory.getLogger(Http3GetClient.class);
     private static final long RESPONSE_TIMEOUT_MILLIS =
             Long.getLong("webtransport4j.client.http3.get.timeout.millis", 5000L);
 
@@ -91,7 +94,7 @@ public final class Http3GetClient {
                         @Override
                         public void exceptionCaught(ChannelHandlerContext ctx,
                                                     Throwable cause) {
-                            cause.printStackTrace();
+                            logger.error("Exception in request stream handler", cause);
                             responseComplete.completeExceptionally(cause);
                             ctx.close();
                         }
@@ -143,7 +146,7 @@ public final class Http3GetClient {
                     }
             );
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Exception in Http3GetClient execution", e);
         } finally {
             group.shutdownGracefully().sync();
         }

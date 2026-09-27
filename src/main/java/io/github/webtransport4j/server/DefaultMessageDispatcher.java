@@ -6,7 +6,6 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -14,8 +13,6 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
-import io.netty.util.concurrent.FastThreadLocal;
-
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import org.jspecify.annotations.NonNull;
@@ -32,14 +29,6 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   private static final Logger logger = LoggerFactory.getLogger(DefaultMessageDispatcher.class);
 
   private static final WebTransportHandler NOOP_HANDLER = new WebTransportHandler() {};
-
-  private static final FastThreadLocal<DefaultNettyWebTransportBuffer> REUSABLE_BUFFER =
-      new FastThreadLocal<DefaultNettyWebTransportBuffer>() {
-        @Override
-        protected DefaultNettyWebTransportBuffer initialValue() {
-          return new DefaultNettyWebTransportBuffer(Unpooled.EMPTY_BUFFER);
-        }
-      };
 
   @Override
   protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
@@ -71,7 +60,8 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         StreamMailbox mailbox = streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).get();
         if (mailbox == null) {
           mailbox = new StreamMailbox(streamChannel, executor, this::tryDispatchToHandler, finalSessionId);
-          StreamMailbox oldMailbox = streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).setIfAbsent(mailbox);
+          StreamMailbox oldMailbox =
+              streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).setIfAbsent(mailbox);
           if (oldMailbox != null) {
             mailbox = oldMailbox;
           }
@@ -223,7 +213,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         // Dispatch data
         if (stream.getDataConsumer() != null) {
           try {
-            stream.getDataConsumer().accept(REUSABLE_BUFFER.get().wrap(frame.content()));
+            stream.getDataConsumer().accept(new DefaultNettyWebTransportBuffer(frame.content()));
           } catch (Exception e) {
             logger.error("Error in stream onData callback", e);
           }
@@ -235,7 +225,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
           metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
         }
         try {
-          handler.onDatagramReceived(session, REUSABLE_BUFFER.get().wrap(frame.content()));
+          handler.onDatagramReceived(session, new DefaultNettyWebTransportBuffer(frame.content()));
         } catch (Exception e) {
           logger.error("Error in onDatagramReceived callback", e);
         }

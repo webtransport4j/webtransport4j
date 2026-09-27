@@ -2,9 +2,6 @@ package io.github.webtransport4j.server;
 
 import io.netty.channel.Channel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -12,6 +9,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Mailbox implementation for WebTransport streams to guarantee sequential processing
@@ -33,9 +32,18 @@ public final class StreamMailbox implements Runnable {
   private final long sessionId;
   private final int highWaterMark;
   private final int lowWaterMark;
+  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   private volatile boolean paused = false;
 
+  /**
+   * Constructs a new StreamMailbox.
+   *
+   * @param channel the stream channel
+   * @param executor the business logic executor
+   * @param dispatcher the frame dispatcher
+   * @param sessionId the session identifier
+   */
   public StreamMailbox(@NonNull QuicStreamChannel channel, @NonNull ExecutorService executor,
                        @NonNull FrameDispatcher dispatcher,
                        long sessionId) {
@@ -45,19 +53,37 @@ public final class StreamMailbox implements Runnable {
     this.sessionId = sessionId;
     this.highWaterMark = WebTransportConfig.getInt("webtransport4j.mailbox.high_water_mark", 16);
     this.lowWaterMark = WebTransportConfig.getInt("webtransport4j.mailbox.low_water_mark", 4);
-  }
-
-  private void setAutoRead(boolean value) {
-    if (channel.eventLoop().inEventLoop()) {
-      channel.config().setAutoRead(value);
-    } else {
-      channel.eventLoop().execute(() -> channel.config().setAutoRead(value));
+    if (this.channel.closeFuture() != null) {
+      this.channel.closeFuture().addListener(f -> drainAndRelease());
     }
   }
 
+  private void setAutoRead(boolean value) {
+    if (channel.eventLoop() != null) {
+      if (channel.eventLoop().inEventLoop()) {
+        channel.config().setAutoRead(value);
+      } else {
+        channel.eventLoop().execute(() -> channel.config().setAutoRead(value));
+      }
+    }
+  }
+
+  /**
+   * Enqueues a frame for sequential processing.
+   *
+   * @param frame the frame to enqueue
+   */
   public void enqueue(@NonNull WebTransportFrame frame) {
+    if (closed.get()) {
+      return;
+    }
     frame.retain();
     queue.add(frame);
+
+    if (closed.get()) {
+      drainAndRelease();
+      return;
+    }
 
     if (queue.size() > highWaterMark && !paused) {
       paused = true;
@@ -78,10 +104,26 @@ public final class StreamMailbox implements Runnable {
     }
   }
 
+  /**
+   * Drains and releases all queued frames upon stream closure to prevent memory leaks.
+   */
+  public void drainAndRelease() {
+    if (closed.compareAndSet(false, true)) {
+      WebTransportFrame f;
+      while ((f = queue.poll()) != null) {
+        try {
+          f.release();
+        } catch (Throwable t) {
+          logger.trace("Error releasing frame on stream close", t);
+        }
+      }
+    }
+  }
+
   @Override
   public void run() {
     try {
-      while (true) {
+      while (!closed.get()) {
         WebTransportFrame frame = queue.poll();
         if (frame == null) {
           processing.set(false);
@@ -105,8 +147,12 @@ public final class StreamMailbox implements Runnable {
         }
       }
     } catch (Throwable t) {
-      processing.set(false);
       logger.error("Error in StreamMailbox run loop", t);
+    } finally {
+      processing.set(false);
+      if (closed.get()) {
+        drainAndRelease();
+      }
     }
   }
 }

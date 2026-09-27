@@ -22,6 +22,9 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleDecoder.class);
 
+  private static final int MAX_CAPSULE_LENGTH =
+      WebTransportConfig.getInt("webtransport4j.capsule.max_length", 65536);
+
   public WebTransportCapsuleDecoder() {}
 
   private long cachedSessionId = -1L;
@@ -47,7 +50,23 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
         return;
       }
       long capLen = readVariableLengthInt(in);
-      if (capLen == -1 || in.readableBytes() < capLen) {
+      if (capLen == -1) {
+        in.resetReaderIndex();
+        return;
+      }
+      if (capLen > MAX_CAPSULE_LENGTH || capLen < 0) {
+        logger.warn(
+            "❌ WebTransport capsule length {} exceeds maximum allowed ({}). Closing stream.",
+            capLen,
+            MAX_CAPSULE_LENGTH);
+        in.skipBytes(in.readableBytes());
+        if (ctx.channel() instanceof QuicStreamChannel) {
+          ((QuicStreamChannel) ctx.channel()).shutdown(0x010e, ctx.newPromise());
+        }
+        ctx.close();
+        return;
+      }
+      if (in.readableBytes() < capLen) {
         in.resetReaderIndex();
         return;
       }

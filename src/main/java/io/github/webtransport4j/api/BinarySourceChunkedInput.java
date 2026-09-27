@@ -144,16 +144,22 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
       chunk.release();
       return null;
     }
-    progress += totalRead;
-    if (source.hasKnownSize() && progress >= source.size()) {
-      eof = true;
+    try {
+      progress += totalRead;
+      if (source.hasKnownSize() && progress >= source.size()) {
+        eof = true;
+        close();
+      }
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "Read zero-copy chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
+      }
+      return chunk;
+    } catch (Throwable t) {
+      chunk.release();
       close();
+      throw t;
     }
-    if (logger.isDebugEnabled()) {
-      logger.debug(
-          "Read zero-copy chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
-    }
-    return chunk;
   }
 
   @Override
