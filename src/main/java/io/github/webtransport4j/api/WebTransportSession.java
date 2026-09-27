@@ -472,8 +472,9 @@ public class WebTransportSession {
     ByteBuf header = null;
     CompositeByteBuf composite = null;
     try {
-      header = parentChannel.alloc().directBuffer(WebTransportUtils.varIntLength(sessionStreamId));
-      WebTransportUtils.writeVarInt(header, sessionStreamId);
+      final long quarterSessionId = sessionStreamId >> 2;
+      header = parentChannel.alloc().directBuffer(WebTransportUtils.varIntLength(quarterSessionId));
+      WebTransportUtils.writeVarInt(header, quarterSessionId);
       composite = parentChannel.alloc().compositeBuffer(2);
       composite.addComponent(true, header);
       header = null;

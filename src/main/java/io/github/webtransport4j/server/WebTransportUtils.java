@@ -199,7 +199,11 @@ public class WebTransportUtils {
                         : UNI_STREAM_TYPE);
                 writeVarInt(header, connectStreamChannel.streamId());
                 stream.writeAndFlush(header);
-                session.getActiveServerInitiatedBi().add(stream);
+                if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
+                  session.getActiveServerInitiatedBi().add(stream);
+                } else {
+                  session.getActiveServerInitiatedUni().add(stream);
+                }
                 stream
                     .closeFuture()
                     .addListener(

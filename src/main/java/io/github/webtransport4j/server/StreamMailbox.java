@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,7 @@ public final class StreamMailbox implements Runnable {
   private final int highWaterMark;
   private final int lowWaterMark;
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final AtomicInteger pendingFrames = new AtomicInteger(0);
 
   private volatile boolean paused = false;
 
@@ -79,13 +81,14 @@ public final class StreamMailbox implements Runnable {
     }
     frame.retain();
     queue.add(frame);
+    final int count = pendingFrames.incrementAndGet();
 
     if (closed.get()) {
       drainAndRelease();
       return;
     }
 
-    if (queue.size() > highWaterMark && !paused) {
+    if (count > highWaterMark && !paused) {
       paused = true;
       setAutoRead(false);
     }
@@ -97,6 +100,7 @@ public final class StreamMailbox implements Runnable {
         processing.set(false);
         WebTransportFrame f;
         while ((f = queue.poll()) != null) {
+          pendingFrames.decrementAndGet();
           f.release();
         }
         channel.shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
@@ -111,6 +115,7 @@ public final class StreamMailbox implements Runnable {
     if (closed.compareAndSet(false, true)) {
       WebTransportFrame f;
       while ((f = queue.poll()) != null) {
+        pendingFrames.decrementAndGet();
         try {
           f.release();
         } catch (Throwable t) {
@@ -133,7 +138,8 @@ public final class StreamMailbox implements Runnable {
           continue;
         }
 
-        if (paused && queue.size() < lowWaterMark) {
+        final int remaining = pendingFrames.decrementAndGet();
+        if (paused && remaining < lowWaterMark) {
           paused = false;
           setAutoRead(true);
         }

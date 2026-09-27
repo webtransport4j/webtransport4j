@@ -9,9 +9,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
-
 import java.nio.ByteBuffer;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.nio.CharBuffer;
 import java.nio.charset.Charset;
 import java.util.Collections;
@@ -19,6 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -34,13 +34,18 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private final boolean bidirectional;
 
-  private @Nullable Consumer<WebTransportBuffer> dataConsumer;
+  private volatile @Nullable Consumer<WebTransportBuffer> dataConsumer;
 
-  private @Nullable OnCloseListener closeHandler;
+  private volatile @Nullable OnCloseListener closeHandler;
 
-  private @Nullable Consumer<Throwable> errorHandler;
+  private volatile @Nullable Consumer<Throwable> errorHandler;
 
-  private @Nullable Map<String, Object> attributes;
+  volatile @Nullable Map<String, Object> attributes;
+
+  @SuppressWarnings("rawtypes")
+  private static final AtomicReferenceFieldUpdater<DefaultNettyWebTransportStream, Map> ATTRIBUTES_UPDATER =
+      AtomicReferenceFieldUpdater.newUpdater(
+          DefaultNettyWebTransportStream.class, Map.class, "attributes");
 
   private static final CompletableFuture<Void> COMPLETED_FUTURE =
       CompletableFuture.completedFuture(null);
@@ -281,12 +286,19 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     if (value == null) {
       return attributes == null ? null : attributes.remove(key);
     }
-    if (attributes == null) {
-      attributes = new Object2ObjectOpenHashMap<>();
+    Map<String, Object> attrs = attributes;
+    if (attrs == null) {
+      Map<String, Object> newMap = new ConcurrentHashMap<>();
+      if (ATTRIBUTES_UPDATER.compareAndSet(this, null, newMap)) {
+        attrs = newMap;
+      } else {
+        attrs = attributes;
+      }
     }
-    return attributes.put(key, value);
+    return attrs.put(key, value);
   }
 
+  /** Returns the attribute cast to the given type, or null. */
   public <T> @Nullable T getAttribute(@NonNull String key, @NonNull Class<T> type) {
     if (attributes == null) {
       return null;
@@ -295,6 +307,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return value == null ? null : type.cast(value);
   }
 
+  /** Returns the attribute cast to the given type, or the default value. */
   public <T> @Nullable T getAttributeOrDefault(
       @NonNull String key, @NonNull Class<T> type, @NonNull T defaultValue) {
     if (attributes == null) {
@@ -308,6 +321,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return attributes == null ? null : attributes.remove(key);
   }
 
+  /** Clears all attributes. */
   public void clearAttributes() {
     if (attributes != null) {
       attributes.clear();
