@@ -38,13 +38,33 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
       @Override
       public void cancel() {
         cancelled.set(true);
-        queue.clear();
+        drainAndCloseQueue();
       }
     });
   }
 
+  private void drainAndCloseQueue() {
+    T item;
+    while ((item = queue.poll()) != null) {
+      if (item instanceof AutoCloseable) {
+        try {
+          ((AutoCloseable) item).close();
+        } catch (Exception ignored) {
+        }
+      }
+    }
+  }
+
   public void emitNext(T item) {
-    if (cancelled.get() || completed.get()) return;
+    if (cancelled.get() || completed.get()) {
+      if (item instanceof AutoCloseable) {
+        try {
+          ((AutoCloseable) item).close();
+        } catch (Exception ignored) {
+        }
+      }
+      return;
+    }
     queue.offer(item);
       
     drain();
@@ -73,16 +93,24 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
         try {
           subscriber.onNext(item);
         } catch (Throwable t) {
-          subscriber.onError(t);
+          if (item instanceof AutoCloseable) {
+            try {
+              ((AutoCloseable) item).close();
+            } catch (Exception ignored) {
+            }
+          }
           cancelled.set(true);
+          drainAndCloseQueue();
+          subscriber.onError(t);
           return;
         }
       }
     }
-    if (completed.get() && queue.isEmpty() && !cancelled.get()) {
+    if (completed.get() && !cancelled.get()) {
       if (error != null) {
+        drainAndCloseQueue();
         subscriber.onError(error);
-      } else {
+      } else if (queue.isEmpty()) {
         subscriber.onComplete();
       }
     }

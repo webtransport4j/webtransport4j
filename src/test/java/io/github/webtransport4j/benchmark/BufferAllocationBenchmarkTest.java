@@ -26,11 +26,64 @@ public class BufferAllocationBenchmarkTest {
 
   private static final Logger logger = LoggerFactory.getLogger(BufferAllocationBenchmarkTest.class);
 
-  private static final FastThreadLocal<DefaultNettyWebTransportBuffer> REUSABLE_BUFFER =
-      new FastThreadLocal<DefaultNettyWebTransportBuffer>() {
+  private static final class MutableTestBuffer implements WebTransportBuffer {
+    private ByteBuf delegate;
+
+    MutableTestBuffer(ByteBuf delegate) {
+      this.delegate = delegate;
+    }
+
+    MutableTestBuffer wrap(ByteBuf delegate) {
+      this.delegate = delegate;
+      return this;
+    }
+
+    @Override
+    public int readableBytes() {
+      return delegate.readableBytes();
+    }
+
+    @Override
+    public java.nio.ByteBuffer nioBuffer() {
+      return delegate.nioBuffer();
+    }
+
+    @Override
+    public java.nio.ByteBuffer skipBytes(int bytes) {
+      return delegate.skipBytes(bytes).nioBuffer();
+    }
+
+    @Override
+    public byte[] readBytes() {
+      byte[] bytes = new byte[delegate.readableBytes()];
+      delegate.readBytes(bytes);
+      return bytes;
+    }
+
+    @Override
+    public WebTransportBuffer retain() {
+      delegate.retain();
+      return this;
+    }
+
+    @Override
+    public void release() {
+      if (delegate != null && delegate.refCnt() > 0) {
+        delegate.release();
+      }
+    }
+
+    @Override
+    public void close() {
+      release();
+    }
+  }
+
+  private static final FastThreadLocal<MutableTestBuffer> REUSABLE_BUFFER =
+      new FastThreadLocal<MutableTestBuffer>() {
         @Override
-        protected DefaultNettyWebTransportBuffer initialValue() {
-          return new DefaultNettyWebTransportBuffer(Unpooled.EMPTY_BUFFER);
+        protected MutableTestBuffer initialValue() {
+          return new MutableTestBuffer(Unpooled.EMPTY_BUFFER);
         }
       };
 
@@ -229,7 +282,7 @@ public class BufferAllocationBenchmarkTest {
 
   private static void warmup(ByteBuf buf) {
     for (int i = 0; i < WARMUP_ITERATIONS; i++) {
-      DefaultNettyWebTransportBuffer b1 = REUSABLE_BUFFER.get().wrap(buf);
+      MutableTestBuffer b1 = REUSABLE_BUFFER.get().wrap(buf);
       int r1 = b1.readableBytes();
       DefaultNettyWebTransportBuffer b2 = new DefaultNettyWebTransportBuffer(buf);
       int r2 = b2.readableBytes();
@@ -242,7 +295,7 @@ public class BufferAllocationBenchmarkTest {
   private static long runFastThreadLocalBenchmark(ByteBuf buf, int iterations) {
     long sum = 0;
     for (int i = 0; i < iterations; i++) {
-      DefaultNettyWebTransportBuffer b = REUSABLE_BUFFER.get().wrap(buf);
+      MutableTestBuffer b = REUSABLE_BUFFER.get().wrap(buf);
       sum += b.readableBytes();
     }
     return sum;

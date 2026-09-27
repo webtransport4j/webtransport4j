@@ -84,6 +84,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
     ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
     if (reactiveSession != null) {
+      data.retain();
       reactiveSession.emitIncomingDatagram(data);
       subscribeAndIgnore(delegate.onDatagramReceived(reactiveSession, data));
     }

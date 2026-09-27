@@ -210,10 +210,14 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
 
         // Dispatch data
         if (stream.getDataConsumer() != null) {
+          DefaultNettyWebTransportBuffer buffer =
+              new DefaultNettyWebTransportBuffer(frame.content().retainedSlice());
           try {
-            stream.getDataConsumer().accept(new DefaultNettyWebTransportBuffer(frame.content()));
+            stream.getDataConsumer().accept(buffer);
           } catch (Exception e) {
             logger.error("Error in stream onData callback", e);
+          } finally {
+            buffer.release();
           }
         }
       } else if (frame instanceof WebTransportDatagramFrame) {
@@ -222,10 +226,14 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         if (metrics != null) {
           metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
         }
+        DefaultNettyWebTransportBuffer buffer =
+            new DefaultNettyWebTransportBuffer(frame.content().retainedSlice());
         try {
-          handler.onDatagramReceived(session, new DefaultNettyWebTransportBuffer(frame.content()));
+          handler.onDatagramReceived(session, buffer);
         } catch (Exception e) {
           logger.error("Error in onDatagramReceived callback", e);
+        } finally {
+          buffer.release();
         }
       }
     } catch (Exception e) {

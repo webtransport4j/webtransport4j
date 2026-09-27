@@ -78,6 +78,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
     private final Subscriber<? super WebTransportBuffer> subscriber;
     private final AtomicLong demand = new AtomicLong(0L);
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AtomicBoolean streamClosed = new AtomicBoolean(false);
     private final Queue<WebTransportBuffer> pendingQueue = new ConcurrentLinkedQueue<>();
 
     SubscriptionImpl(Subscriber<? super WebTransportBuffer> subscriber) {
@@ -93,23 +94,33 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
           if (demand.get() > 0) {
             demand.decrementAndGet();
             try {
+              buf.retain();
               subscriber.onNext(buf);
             } catch (Throwable t) {
+              try {
+                buf.release();
+              } catch (Throwable ignored) {
+              }
               subscriber.onError(t);
               cancel();
             }
           } else {
+            buf.retain();
             pendingQueue.offer(buf);
           }
         } else {
+          buf.retain();
           pendingQueue.offer(buf);
         }
       });
 
       stream.onClose(() -> {
+        streamClosed.set(true);
         if (!cancelled.get()) {
           drainQueue();
-          subscriber.onComplete();
+          if (pendingQueue.isEmpty()) {
+            subscriber.onComplete();
+          }
         }
       });
 
@@ -128,6 +139,10 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
           try {
             subscriber.onNext(buf);
           } catch (Throwable t) {
+            try {
+              buf.release();
+            } catch (Throwable ignored) {
+            }
             subscriber.onError(t);
             cancel();
             break;
@@ -144,13 +159,22 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       }
       demand.addAndGet(n);
       drainQueue();
+      if (streamClosed.get() && pendingQueue.isEmpty() && !cancelled.get()) {
+        subscriber.onComplete();
+      }
     }
 
     @Override
     public void cancel() {
       cancelled.set(true);
       stream.close();
-      pendingQueue.clear();
+      WebTransportBuffer b;
+      while ((b = pendingQueue.poll()) != null) {
+        try {
+          b.release();
+        } catch (Throwable ignored) {
+        }
+      }
     }
   }
 
