@@ -4,8 +4,8 @@ import io.github.webtransport4j.api.WebTransportChunkedWriteHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
-import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.channel.WriteBufferWaterMark;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -21,8 +21,10 @@ public final class WebTransportStreamChannelInitializer
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
     stream.config().setAllowHalfClosure(true);
-    int lowWaterMark = WebTransportConfig.getInt("webtransport4j.netty.write_buffer.low_water_mark", 32768);
-    int highWaterMark = WebTransportConfig.getInt("webtransport4j.netty.write_buffer.high_water_mark", 65536);
+    int lowWaterMark = WebTransportConfig.getInt(
+        "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024);
+    int highWaterMark = WebTransportConfig.getInt(
+        "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024);
     stream.config().setWriteBufferWaterMark(new WriteBufferWaterMark(lowWaterMark, highWaterMark));
 
     WebTransportUtils.addTrafficShapers(stream);

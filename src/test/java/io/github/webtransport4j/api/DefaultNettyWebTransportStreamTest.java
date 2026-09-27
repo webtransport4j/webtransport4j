@@ -3,6 +3,7 @@ package io.github.webtransport4j.api;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -15,7 +16,9 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.GenericFutureListener;
+import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -29,6 +32,8 @@ public class DefaultNettyWebTransportStreamTest {
     ChannelFuture future = mock(ChannelFuture.class);
     when(channel.streamId()).thenReturn(4L);
     when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(true);
+    when(channel.isWritable()).thenReturn(true);
     when(channel.writeAndFlush(any())).thenReturn(future);
     Mockito.doAnswer(invocation -> {
       GenericFutureListener listener = invocation.getArgument(0);
@@ -110,5 +115,134 @@ public class DefaultNettyWebTransportStreamTest {
     verify(channel).updatePriority(captor.capture());
     assertEquals(5, captor.getValue().urgency());
     assertFalse(captor.getValue().isIncremental());
+  }
+
+  @Test
+  public void testIsWritableDelegatesToChannel() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isWritable()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    assertTrue(stream.isWritable());
+
+    when(channel.isWritable()).thenReturn(false);
+    assertFalse(stream.isWritable());
+  }
+
+  @Test
+  public void testWaitForWritableCompletesWhenChannelBecomesWritable() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(true);
+    when(channel.isWritable()).thenReturn(false);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+
+    CompletableFuture<Void> writableFuture = stream.waitForWritable();
+    assertFalse(writableFuture.isDone());
+
+    // Simulate Netty firing channelWritabilityChanged
+    when(channel.isWritable()).thenReturn(true);
+    stream.notifyWritabilityChanged(true);
+
+    assertTrue(writableFuture.isDone());
+    assertFalse(writableFuture.isCompletedExceptionally());
+
+    // When already writable, should return completed future immediately
+    CompletableFuture<Void> immediate = stream.waitForWritable();
+    assertTrue(immediate.isDone());
+    assertFalse(immediate.isCompletedExceptionally());
+  }
+
+  @Test
+  public void testWaitForWritableFailsOnChannelClose() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(true);
+    when(channel.isWritable()).thenReturn(false);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+
+    CompletableFuture<Void> waiterFuture = stream.waitForWritable();
+    assertFalse(waiterFuture.isDone());
+
+    stream.notifyClosed();
+
+    assertTrue(waiterFuture.isCompletedExceptionally());
+    try {
+      waiterFuture.get();
+      fail("Expected ClosedChannelException");
+    } catch (Exception e) {
+      assertTrue(e.getCause() instanceof ClosedChannelException);
+    }
+  }
+
+  @Test
+  public void testWritabilityListenerNotified() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(true);
+    when(channel.isWritable()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+
+    AtomicBoolean listenerValue = new AtomicBoolean(true);
+    stream.onWritabilityChanged(listenerValue::set);
+
+    // Simulate congestion
+    when(channel.isWritable()).thenReturn(false);
+    stream.notifyWritabilityChanged(false);
+    assertFalse(listenerValue.get());
+
+    // Simulate recovery
+    when(channel.isWritable()).thenReturn(true);
+    stream.notifyWritabilityChanged(true);
+    assertTrue(listenerValue.get());
+  }
+
+  @Test
+  public void testWriteToClosedChannelFailsWithClosedChannelException() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(false);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    ByteBuf buf = Unpooled.buffer(10).writeZero(10);
+
+    CompletableFuture<Void> writeFuture = stream.write(buf);
+    assertTrue(writeFuture.isCompletedExceptionally());
+    assertEquals(0, buf.refCnt()); // Buffer must be released
+
+    try {
+      writeFuture.get();
+      fail("Expected ClosedChannelException");
+    } catch (Exception e) {
+      assertTrue(e.getCause() instanceof ClosedChannelException);
+    }
+  }
+
+  @Test
+  public void testReactiveStreamDelegatesWritability() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    when(channel.isActive()).thenReturn(true);
+    when(channel.isWritable()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    ReactiveWebTransportStream reactive = new ReactiveWebTransportStream(stream);
+
+    assertTrue(reactive.isWritable());
+    CompletableFuture<Void> waitFuture = reactive.waitForWritable();
+    assertTrue(waitFuture.isDone());
+
+    when(channel.isWritable()).thenReturn(false);
+    assertFalse(reactive.isWritable());
   }
 }

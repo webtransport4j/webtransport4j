@@ -124,4 +124,29 @@ public interface WebTransportStream {
    * @return the stream priority, or {@link StreamPriority#DEFAULT} if not explicitly configured
    */
   @NonNull StreamPriority getPriority();
+
+  /* ---------- Backpressure & Writability ---------- */
+
+  /**
+   * Returns true if the stream's outbound buffer is below the high watermark and can accept writes.
+   *
+   * @return true if the stream is writable, false if backpressure is exerted
+   */
+  boolean isWritable();
+
+  /**
+   * Returns a future that completes when the stream becomes writable again.
+   *
+   * <p>If the stream is currently writable, the returned future is already completed.
+   *
+   * @return a future that completes when the stream can accept writes
+   */
+  @NonNull CompletableFuture<Void> waitForWritable();
+
+  /**
+   * Registers a listener to be notified when the stream's writability state changes.
+   *
+   * @param listener consumer receiving true when writable, false when congested
+   */
+  void onWritabilityChanged(@NonNull Consumer<Boolean> listener);
 }

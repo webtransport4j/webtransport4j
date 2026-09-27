@@ -9,20 +9,26 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.Charset;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Default Netty-based WebTransport stream implementation. */
 public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
@@ -74,12 +80,22 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return cf;
   }
 
+  private static final Logger logger = LoggerFactory.getLogger(DefaultNettyWebTransportStream.class);
+
+  private final Queue<CompletableFuture<Void>> writableWaiters = new ConcurrentLinkedQueue<>();
+  private volatile @Nullable Consumer<Boolean> writabilityListener;
+  private volatile boolean lastNotifiedWritable = true;
+
   /** Default Netty Web Transport Stream. */
   public DefaultNettyWebTransportStream(@NonNull QuicStreamChannel channel, long sessionId) {
     this.streamChannel = Objects.requireNonNull(channel, "channel must not be null");
     this.sessionId = sessionId;
     this.streamId = channel.streamId();
     this.bidirectional = (channel.type() == QuicStreamType.BIDIRECTIONAL);
+    this.lastNotifiedWritable = channel.isWritable();
+    if (channel.closeFuture() != null) {
+      channel.closeFuture().addListener(f -> notifyClosed());
+    }
   }
 
   public long sessionId() {
@@ -146,6 +162,91 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return errorHandler;
   }
 
+  private @NonNull CompletableFuture<Void> writeOutbound(@NonNull Object msg) {
+    if (!streamChannel.isActive()) {
+      ReferenceCountUtil.release(msg);
+      CompletableFuture<Void> cf = new CompletableFuture<>();
+      cf.completeExceptionally(new ClosedChannelException());
+      return cf;
+    }
+    return toCompletableFuture(streamChannel.writeAndFlush(msg));
+  }
+
+  /**
+   * Notifies the stream that the channel's writability state has changed. Called by
+   * {@link WebTransportChunkedWriteHandler} when Netty's {@code channelWritabilityChanged} fires.
+   *
+   * @param writable true if the channel has become writable
+   */
+  public void notifyWritabilityChanged(boolean writable) {
+    if (writable) {
+      drainWritableWaiters();
+    }
+    notifyWritabilityListener();
+  }
+
+  /**
+   * Notifies the stream that the channel has closed, failing pending waiters.
+   */
+  public void notifyClosed() {
+    CompletableFuture<Void> waiter;
+    while ((waiter = writableWaiters.poll()) != null) {
+      waiter.completeExceptionally(new ClosedChannelException());
+    }
+    notifyWritabilityListener();
+  }
+
+  private void drainWritableWaiters() {
+    CompletableFuture<Void> waiter;
+    while ((waiter = writableWaiters.poll()) != null) {
+      waiter.complete(null);
+    }
+  }
+
+  private void notifyWritabilityListener() {
+    Consumer<Boolean> listener = this.writabilityListener;
+    if (listener != null) {
+      boolean current = isWritable();
+      if (current != lastNotifiedWritable) {
+        lastNotifiedWritable = current;
+        try {
+          listener.accept(current);
+        } catch (Throwable t) {
+          logger.error("Error in writability listener for stream {}", streamId, t);
+        }
+      }
+    }
+  }
+
+  @Override
+  public boolean isWritable() {
+    return streamChannel.isWritable();
+  }
+
+  @Override
+  public @NonNull CompletableFuture<Void> waitForWritable() {
+    if (isWritable()) {
+      return COMPLETED_FUTURE;
+    }
+    if (!streamChannel.isActive()) {
+      CompletableFuture<Void> cf = new CompletableFuture<>();
+      cf.completeExceptionally(new ClosedChannelException());
+      return cf;
+    }
+    CompletableFuture<Void> cf = new CompletableFuture<>();
+    writableWaiters.add(cf);
+    // Double-check after enqueue to avoid race
+    if (isWritable()) {
+      drainWritableWaiters();
+    }
+    return cf;
+  }
+
+  @Override
+  public void onWritabilityChanged(@NonNull Consumer<Boolean> listener) {
+    this.writabilityListener = Objects.requireNonNull(listener, "listener cannot be null");
+  }
+
   /**
    * Writes and flushes a Netty {@link ByteBuf} directly to the stream.
    *
@@ -154,7 +255,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    */
   @Override
   public @NonNull CompletableFuture<Void> write(@NonNull ByteBuf buf) {
-    return toCompletableFuture(streamChannel().writeAndFlush(buf));
+    return writeOutbound(buf);
   }
 
   /**
@@ -167,13 +268,13 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     if (data instanceof DefaultNettyWebTransportBuffer) {
       ByteBuf retained = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
       try {
-        return toCompletableFuture(streamChannel().writeAndFlush(retained));
+        return writeOutbound(retained);
       } catch (RuntimeException | Error e) {
         retained.release();
         throw e;
       }
     }
-    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data.nioBuffer())));
+    return writeOutbound(Unpooled.wrappedBuffer(data.nioBuffer()));
   }
 
   /**
@@ -208,7 +309,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public @NonNull CompletableFuture<Void> write(byte @NonNull [] data) {
-    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data)));
+    return writeOutbound(Unpooled.wrappedBuffer(data));
   }
 
   /**
@@ -224,7 +325,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public @NonNull CompletableFuture<Void> write(byte @NonNull [] data, int offset, int length) {
-    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data, offset, length)));
+    return writeOutbound(Unpooled.wrappedBuffer(data, offset, length));
   }
 
   /**
@@ -238,7 +339,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   public @NonNull CompletableFuture<Void> write(@NonNull ByteBuffer data) {
-    return toCompletableFuture(streamChannel().writeAndFlush(Unpooled.wrappedBuffer(data)));
+    return writeOutbound(Unpooled.wrappedBuffer(data));
   }
 
   /**
@@ -259,14 +360,9 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   @Override
-  public @NonNull CompletableFuture<Void> writeText(
-          @NonNull String text,
-          @NonNull Charset charset) {
-
-      return toCompletableFuture(streamChannel().writeAndFlush(ByteBufUtil.encodeString(
-              streamChannel().alloc(),
-              CharBuffer.wrap(text),
-              charset)));
+  public @NonNull CompletableFuture<Void> writeText(@NonNull String text, @NonNull Charset charset) {
+    ByteBuf buf = ByteBufUtil.encodeString(streamChannel.alloc(), CharBuffer.wrap(text), charset);
+    return writeOutbound(buf);
   }
 
   public void close() {

@@ -5,6 +5,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -37,6 +38,33 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
   public @NonNull StreamPriority getPriority() {
     return stream.getPriority();
+  }
+
+  /**
+   * Returns true if the underlying stream is writable.
+   *
+   * @return true if writes can be accepted without exceeding backpressure thresholds
+   */
+  public boolean isWritable() {
+    return stream.isWritable();
+  }
+
+  /**
+   * Returns a future that completes when the stream becomes writable again.
+   *
+   * @return future that completes when writable
+   */
+  public @NonNull CompletableFuture<Void> waitForWritable() {
+    return stream.waitForWritable();
+  }
+
+  /**
+   * Registers a listener to be notified when the stream's writability state changes.
+   *
+   * @param listener consumer receiving true when writable, false when congested
+   */
+  public void onWritabilityChanged(@NonNull Consumer<Boolean> listener) {
+    stream.onWritabilityChanged(listener);
   }
 
   // --- Publisher Implementation ---
