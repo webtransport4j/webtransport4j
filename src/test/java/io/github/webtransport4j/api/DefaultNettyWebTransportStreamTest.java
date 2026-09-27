@@ -13,7 +13,9 @@ import io.github.webtransport4j.server.DefaultNettyWebTransportStream;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.EventLoop;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamChannelConfig;
 import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.GenericFutureListener;
@@ -245,5 +247,30 @@ public class DefaultNettyWebTransportStreamTest {
 
     when(channel.isWritable()).thenReturn(false);
     assertFalse(reactive.isWritable());
+  }
+
+  @Test
+  public void testAutoReadAndReadDelegation() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(4L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    QuicStreamChannelConfig config = mock(QuicStreamChannelConfig.class);
+    when(channel.config()).thenReturn(config);
+    when(config.isAutoRead()).thenReturn(true);
+
+    EventLoop loop = mock(EventLoop.class);
+    when(channel.eventLoop()).thenReturn(loop);
+    when(loop.inEventLoop()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+
+    assertTrue(stream.isAutoRead());
+    verify(config).isAutoRead();
+
+    stream.setAutoRead(false);
+    verify(config).setAutoRead(false);
+
+    stream.read();
+    verify(channel).read();
   }
 }

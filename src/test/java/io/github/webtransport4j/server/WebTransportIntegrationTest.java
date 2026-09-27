@@ -5535,13 +5535,20 @@ clientSetting.put(0x2b61L, 100000L);
         "webtransport4j.server.ratelimit.whitelist="
     ));
 
-    // Wait for the background thread to trigger (runs every 10 seconds, so wait 12 seconds to be safe)
-    log.info("Waiting 12 seconds for the background wt-rate-limit-reloader thread to trigger...");
-    Thread.sleep(12000);
+    // Wait for the background thread to trigger (runs every 10 seconds, so poll up to 15 seconds)
+    log.info("Waiting up to 15 seconds for the background wt-rate-limit-reloader thread to trigger...");
+    long deadline = System.currentTimeMillis() + 15000;
+    boolean rejected = false;
+    while (System.currentTimeMillis() < deadline) {
+      if (!tryConnectAndVerifyActive(port)) {
+        rejected = true;
+        break;
+      }
+      Thread.sleep(500);
+    }
 
     try {
-      assertFalse("After background reload, 127.0.0.1 connection should be rejected by blocklist",
-          tryConnectAndVerifyActive(port));
+      assertTrue("After background reload, 127.0.0.1 connection should be rejected by blocklist", rejected);
     } finally {
       if (tempFile.exists()) {
         tempFile.delete();

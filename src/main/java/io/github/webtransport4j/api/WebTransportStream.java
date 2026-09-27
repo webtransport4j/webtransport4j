@@ -148,4 +148,29 @@ public interface WebTransportStream {
    * @param listener consumer receiving true when writable, false when congested
    */
   void onWritabilityChanged(@NonNull Consumer<Boolean> listener);
+
+  /**
+   * Configures whether data from this stream is read automatically from the network.
+   *
+   * <p>When auto-read is disabled (false), incoming bytes will remain in the QUIC transport
+   * receive window on the wire, exerting flow control backpressure against the remote peer.
+   *
+   * @param autoRead true to enable automatic reading, false to disable
+   */
+  default void setAutoRead(boolean autoRead) {}
+
+  /**
+   * Returns whether auto-read is enabled for this stream.
+   *
+   * @return true if auto-read is enabled, default true
+   */
+  default boolean isAutoRead() {
+    return true;
+  }
+
+  /**
+   * Requests an explicit read of incoming data from the underlying transport.
+   * Used when {@link #isAutoRead()} is false to read the next chunk of data from the wire.
+   */
+  default void read() {}
 }

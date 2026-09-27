@@ -117,6 +117,37 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return streamChannel;
   }
 
+  @Override
+  public void setAutoRead(boolean autoRead) {
+    if (streamChannel.eventLoop() != null) {
+      if (streamChannel.eventLoop().inEventLoop()) {
+        streamChannel.config().setAutoRead(autoRead);
+      } else {
+        streamChannel.eventLoop().execute(() -> streamChannel.config().setAutoRead(autoRead));
+      }
+    } else {
+      streamChannel.config().setAutoRead(autoRead);
+    }
+  }
+
+  @Override
+  public boolean isAutoRead() {
+    return streamChannel.config().isAutoRead();
+  }
+
+  @Override
+  public void read() {
+    if (streamChannel.eventLoop() != null) {
+      if (streamChannel.eventLoop().inEventLoop()) {
+        streamChannel.read();
+      } else {
+        streamChannel.eventLoop().execute(streamChannel::read);
+      }
+    } else {
+      streamChannel.read();
+    }
+  }
+
   /**
    * Registers a callback to be invoked when stream payload data is received.
    *

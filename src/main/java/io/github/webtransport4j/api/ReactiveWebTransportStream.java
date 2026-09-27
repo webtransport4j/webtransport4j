@@ -83,16 +83,24 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
     SubscriptionImpl(Subscriber<? super WebTransportBuffer> subscriber) {
       this.subscriber = subscriber;
+      // Start with auto-read disabled to enforce reactive backpressure at the wire level
+      stream.setAutoRead(false);
 
       // Wire callbacks from the WebTransportStream
       stream.onData(buf -> {
         if (cancelled.get()) {
+          try {
+            buf.release();
+          } catch (Throwable ignored) {
+          }
           return;
         }
         if (demand.get() > 0) {
           drainQueue();
           if (demand.get() > 0) {
-            demand.decrementAndGet();
+            if (demand.get() != Long.MAX_VALUE) {
+              demand.decrementAndGet();
+            }
             try {
               buf.retain();
               subscriber.onNext(buf);
@@ -103,6 +111,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
               }
               subscriber.onError(t);
               cancel();
+              return;
             }
           } else {
             buf.retain();
@@ -112,6 +121,8 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
           buf.retain();
           pendingQueue.offer(buf);
         }
+
+        checkAndTriggerRead();
       });
 
       stream.onClose(() -> {
@@ -135,7 +146,9 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       while (demand.get() > 0 && !pendingQueue.isEmpty()) {
         WebTransportBuffer buf = pendingQueue.poll();
         if (buf != null) {
-          demand.decrementAndGet();
+          if (demand.get() != Long.MAX_VALUE) {
+            demand.decrementAndGet();
+          }
           try {
             subscriber.onNext(buf);
           } catch (Throwable t) {
@@ -151,22 +164,58 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       }
     }
 
+    private void addDemand(long n) {
+      for (;;) {
+        long current = demand.get();
+        if (current == Long.MAX_VALUE) {
+          return;
+        }
+        long next = current + n;
+        if (next < 0) {
+          next = Long.MAX_VALUE;
+        }
+        if (demand.compareAndSet(current, next)) {
+          return;
+        }
+      }
+    }
+
+    private void checkAndTriggerRead() {
+      if (cancelled.get() || streamClosed.get()) {
+        return;
+      }
+      long currentDemand = demand.get();
+      if (currentDemand > 0 && pendingQueue.isEmpty()) {
+        if (currentDemand == Long.MAX_VALUE) {
+          stream.setAutoRead(true);
+        } else {
+          stream.setAutoRead(false);
+          stream.read();
+        }
+      } else if (currentDemand == 0) {
+        stream.setAutoRead(false);
+      }
+    }
+
     @Override
     public void request(long n) {
       if (n <= 0) {
         subscriber.onError(new IllegalArgumentException("Demand must be positive"));
         return;
       }
-      demand.addAndGet(n);
+      addDemand(n);
       drainQueue();
       if (streamClosed.get() && pendingQueue.isEmpty() && !cancelled.get()) {
         subscriber.onComplete();
+        return;
       }
+      checkAndTriggerRead();
     }
 
     @Override
     public void cancel() {
       cancelled.set(true);
+      stream.setAutoRead(false);
       stream.close();
       WebTransportBuffer b;
       while ((b = pendingQueue.poll()) != null) {
