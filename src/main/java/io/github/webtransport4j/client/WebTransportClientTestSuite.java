@@ -640,56 +640,97 @@ public class WebTransportClientTestSuite {
         logger.info("✅ Hog stream finally completed successfully.");
     }
 
-    private static void testStreamFlowControl(QuicChannel quicChannel, long sessionId) throws Exception {
+    static boolean isStreamLimitError(Throwable cause) {
+        Throwable t = cause;
+        while (t != null) {
+            if (t instanceof QuicException) {
+                QuicException qe = (QuicException) t;
+                if (qe.error() == QuicTransportError.STREAM_LIMIT_ERROR) {
+                    return true;
+                }
+            }
+            String msg = t.getMessage();
+            if (msg != null) {
+                String upper = msg.toUpperCase();
+                if (upper.contains("STREAM_LIMIT") || upper.contains("STREAM LIMIT")) {
+                    return true;
+                }
+            }
+            t = t.getCause();
+        }
+        return false;
+    }
+
+    static void testStreamFlowControl(QuicChannel quicChannel, long sessionId) throws Exception {
         logger.info("🧪 --- Running Stream Limit Exhaustion Test ---");
         List<QuicStreamChannel> streams = new ObjectArrayList<>();
         boolean blocked = false;
 
         try {
-            for (int i = 1; i <= 150; i++) {
-                Future<QuicStreamChannel> f = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-                        new ChannelInitializer<QuicStreamChannel>() {
-                            @Override
-                            protected void initChannel(QuicStreamChannel ch) {
-                                cleanPipeline(ch);
-                            }
-                        });
-                if (!f.await(1000, TimeUnit.MILLISECONDS)) {
-                    logger.info("✅ Flow control working! Stream creation blocked after opening {} streams.",
-                            streams.size());
-                    blocked = true;
-                    break;
-                }
-                if (f.isSuccess()) {
-                    streams.add(f.getNow());
-                    if (i % 50 == 0) {
-                        logger.info("Successfully opened {} streams...", i);
-                    }
-                } else {
-                    logger.info("✅ Flow control working! Stream creation failed after opening {} streams.",
-                            streams.size());
-                    blocked = true;
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            blocked = true;
-        }
-
-        if (!blocked) {
-            if (Boolean.getBoolean("webtransport4j.test.require_flow_control_exhaustion")) {
-                throw new Exception("Flow control test failed: server limit was not reached within 150 streams!");
-            } else {
-                logger.warn("⚠️ Flow control test aborted: server limit is > 150.");
-            }
-        }
-
-        // Cleanup streams
-        logger.info("Cleaning up streams...");
-        for (QuicStreamChannel s : streams) {
             try {
-                s.close();
+                for (int i = 1; i <= 150; i++) {
+                    Future<QuicStreamChannel> f = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
+                            new ChannelInitializer<QuicStreamChannel>() {
+                                @Override
+                                protected void initChannel(QuicStreamChannel ch) {
+                                    cleanPipeline(ch);
+                                }
+                            });
+                    if (!f.await(1000, TimeUnit.MILLISECONDS)) {
+                        logger.info("✅ Flow control working! Stream creation blocked after opening {} streams.",
+                                streams.size());
+                        blocked = true;
+                        break;
+                    }
+                    if (f.isSuccess()) {
+                        streams.add(f.getNow());
+                        if (i % 50 == 0) {
+                            logger.info("Successfully opened {} streams...", i);
+                        }
+                    } else {
+                        Throwable cause = f.cause();
+                        if (cause != null && isStreamLimitError(cause)) {
+                            logger.info("✅ Flow control working! Stream creation rejected by stream limit after opening {} streams: {}",
+                                    streams.size(), cause.getMessage());
+                            blocked = true;
+                            break;
+                        } else if (cause instanceof Exception) {
+                            throw (Exception) cause;
+                        } else if (cause != null) {
+                            throw new RuntimeException("Stream creation failed unexpectedly", cause);
+                        } else {
+                            throw new Exception("Stream creation failed without cause after opening " + streams.size() + " streams");
+                        }
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
             } catch (Exception e) {
+                if (isStreamLimitError(e)) {
+                    logger.info("✅ Flow control working! Stream creation rejected by stream limit: {}", e.getMessage());
+                    blocked = true;
+                } else {
+                    throw e;
+                }
+            }
+
+            if (!blocked) {
+                if (Boolean.getBoolean("webtransport4j.test.require_flow_control_exhaustion")) {
+                    throw new Exception("Flow control test failed: server limit was not reached within 150 streams!");
+                } else {
+                    logger.warn("⚠️ Flow control test aborted: server limit is > 150.");
+                }
+            }
+        } finally {
+            // Cleanup streams
+            logger.info("Cleaning up streams...");
+            for (QuicStreamChannel s : streams) {
+                try {
+                    s.close();
+                } catch (Exception ignored) {
+                    // ignore
+                }
             }
         }
     }

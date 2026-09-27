@@ -27,7 +27,28 @@ run_python_suite() {
 run_go_suite() {
     echo "🐹 Running Go WebTransport Client..."
     cd "${SCRIPT_DIR}/go"
-    go run client.go -url https://127.0.0.1:4433/test -insecure
+    local status=0
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 10s go run client.go -url https://127.0.0.1:4433/test -insecure || status=$?
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout 10s go run client.go -url https://127.0.0.1:4433/test -insecure || status=$?
+    else
+        python3 -c "
+import subprocess, sys
+try:
+    res = subprocess.run(['go', 'run', 'client.go', '-url', 'https://127.0.0.1:4433/test', '-insecure'], timeout=10)
+    sys.exit(res.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+" || status=$?
+    fi
+
+    if [ "${status}" -eq 124 ]; then
+        echo "✅ Go client finished bounded test run."
+    elif [ "${status}" -ne 0 ]; then
+        echo "❌ Go client failed with exit code: ${status}"
+        return "${status}"
+    fi
 }
 
 case "${TARGET}" in

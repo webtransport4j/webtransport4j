@@ -52,6 +52,8 @@ async def _patched_proto_emit(self, event_type, data=None, source=None):
 
 WebTransportProtocolHandler.emit = _patched_proto_emit
 
+_background_tasks = set()
+
 _orig_proto_on = WebTransportProtocolHandler.on
 def _patched_proto_on(self, event_type, handler):
     _orig_proto_on(self, event_type, handler)
@@ -59,7 +61,13 @@ def _patched_proto_on(self, event_type, handler):
         buffered = self._buffered_events.pop(event_type)
         for ev in buffered:
             if asyncio.iscoroutinefunction(handler):
-                asyncio.create_task(handler(ev))
+                task = asyncio.create_task(handler(ev))
+                _background_tasks.add(task)
+                def _on_task_done(t):
+                    _background_tasks.discard(t)
+                    if not t.cancelled():
+                        t.exception()
+                task.add_done_callback(_on_task_done)
             else:
                 handler(ev)
 

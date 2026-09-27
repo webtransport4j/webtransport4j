@@ -95,6 +95,6 @@ The Python test suite (`interop/python/interop_test_suite.py`) verifies both **p
 | **§ 4.5** | WebTransport Datagrams | Quarter Stream ID encoding & Uni ACK, unknown session ID datagram drop |
 | **§ 4.7 & 9.6** | Capsule Protocol (Drain) | Valid `WT_DRAIN_SESSION` (`len=0`), malformed drain rejection (`len>0`) |
 | **§ 5.4** | Capsule Protocol (Prohibited) | Prohibited `WT_MAX_STREAM_DATA` (`0x190b4d3e`) & `WT_STREAM_DATA_BLOCKED` (`0x190b4d42`) rejection |
-| **§ 6.1 & 9.6** | Capsule Protocol (Close) | Truncated close capsule, oversized reason (>1024B), invalid UTF-8 close, graceful close (`0x2843`) |
+| **§ 6 & 9.6** | Capsule Protocol (Close) | Truncated close capsule, oversized reason (>1024B), invalid UTF-8 close, graceful close (`0x2843`) |
 | **§ 5.1 & 5.3** | Flow Control & Stream Limits | Concurrency exhaustion boundary & permit recovery |
-| **§ 6.0** | Inactivity / Heartbeat Timeout | 15s idle survival (< 30s timeout), 36s inactivity drop (> 30s timeout) |
+| **RFC 9000 § 10.1** | QUIC Idle Timeout | 15s idle survival (< 30s timeout), 36s inactivity drop (> 30s timeout) |

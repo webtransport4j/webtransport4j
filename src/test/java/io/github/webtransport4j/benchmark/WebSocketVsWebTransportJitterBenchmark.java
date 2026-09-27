@@ -378,7 +378,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
           });
 
       Channel ch = b.connect(HOST, wsPort).sync().channel();
-      handshakeLatch.await(5, TimeUnit.SECONDS);
+      if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Handshake timed out");
+      }
 
       // Warmup
       for (int i = 0; i < WARMUP_ITERATIONS; i++) {
@@ -479,7 +481,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
       headers.authority(HOST + ":" + wtPort);
       headers.set(":protocol", "webtransport");
       connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-      handshakeLatch.await(5, TimeUnit.SECONDS);
+      if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Handshake timed out");
+      }
       long sessionId = sessionIdHolder[0];
 
       // Open a Bidirectional WebTransport Stream for moves
@@ -747,7 +751,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
             });
 
         Channel ch = b.connect(HOST, wsPort).sync().channel();
-        handshakeLatch.await(5, TimeUnit.SECONDS);
+        if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("Handshake timed out");
+        }
         long end = System.nanoTime();
         latenciesMs.add((end - start) / 1_000_000.0);
         ch.close().sync();
@@ -829,7 +835,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
         headers.authority(HOST + ":" + wtPort);
         headers.set(":protocol", "webtransport");
         connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-        handshakeLatch.await(5, TimeUnit.SECONDS);
+        if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Handshake timed out");
+      }
         long end = System.nanoTime();
         latenciesMs.add((end - start) / 1_000_000.0);
 

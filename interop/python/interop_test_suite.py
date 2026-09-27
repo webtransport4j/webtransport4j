@@ -168,15 +168,6 @@ async def test_04_invalid_scheme_negative(client):
   test_num = 4
   try:
     await client.connect(url="http://127.0.0.1:4433/test")
-    record_result(
-        test_num,
-        "NEGATIVE",
-        "§ 3.2",
-        "Invalid Scheme (http://) Rejection",
-        "FAILED",
-        "Expected rejection",
-    )
-    raise AssertionError("Server or client accepted non-https scheme!")
   except Exception as e:
     record_result(
         test_num,
@@ -186,6 +177,17 @@ async def test_04_invalid_scheme_negative(client):
         "PASSED",
         f"Correctly rejected ({type(e).__name__})",
     )
+    return
+
+  record_result(
+      test_num,
+      "NEGATIVE",
+      "§ 3.2",
+      "Invalid Scheme (http://) Rejection",
+      "FAILED",
+      "Expected rejection",
+  )
+  raise AssertionError("Server or client accepted non-https scheme!")
 
 
 # ==============================================================================
@@ -1141,22 +1143,41 @@ async def test_28_flow_control_exhaustion_positive(client, url: str):
   blocked = False
   try:
     s = await client.connect(url=url)
-    for i in range(1, 150):
-      try:
-        st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=0.8)
-        streams.append(st)
-      except asyncio.TimeoutError:
-        blocked = True
-        break
+    try:
+      for i in range(1, 150):
+        try:
+          st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=0.8)
+          streams.append(st)
+        except asyncio.TimeoutError:
+          blocked = True
+          break
 
-    # Clean up opened streams to recover permits
-    for st in streams:
-      try:
-        await st.write_all(data=b"", end_stream=True)
-        await s.stream_manager.remove_stream(st.stream_id)
-      except Exception:
-        pass
-    await s.close()
+      assert blocked, (
+          f"Flow control exhaustion failed: server stream limit was not reached within 150 streams (opened {len(streams)})"
+      )
+
+      # Clean up opened streams to recover permits
+      for st in streams:
+        try:
+          await st.write_all(data=b"", end_stream=True)
+          await s.stream_manager.remove_stream(st.stream_id)
+        except Exception:
+          pass
+      num_opened = len(streams)
+      streams.clear()
+
+      # Verify permit recovery by opening and closing one more stream
+      recovered_st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=2.0)
+      await recovered_st.write_all(data=b"", end_stream=True)
+      await s.stream_manager.remove_stream(recovered_st.stream_id)
+    finally:
+      for st in streams:
+        try:
+          await st.write_all(data=b"", end_stream=True)
+          await s.stream_manager.remove_stream(st.stream_id)
+        except Exception:
+          pass
+      await s.close()
 
     record_result(
         test_num,
@@ -1164,8 +1185,8 @@ async def test_28_flow_control_exhaustion_positive(client, url: str):
         "§ 5.1",
         "Stream Limit Exhaustion & Permit Recovery",
         "PASSED",
-        f"Opened {len(streams)} streams before flow control backpressure;"
-        " cleaned up cleanly",
+        f"Opened {num_opened} streams before flow control backpressure;"
+        " verified permit recovery and cleaned up cleanly",
     )
   except Exception as e:
     record_result(

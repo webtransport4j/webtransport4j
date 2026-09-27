@@ -11,6 +11,7 @@ _python_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python")
 if _python_dir not in sys.path:
     sys.path.insert(0, _python_dir)
 
+import sitecustomize
 import interop_test_suite
 
 if __name__ == "__main__":

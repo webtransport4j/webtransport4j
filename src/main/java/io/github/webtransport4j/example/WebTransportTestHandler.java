@@ -5,9 +5,14 @@ import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.server.WebTransportConfig;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +21,45 @@ import org.slf4j.LoggerFactory;
 public class WebTransportTestHandler implements WebTransportHandler {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportTestHandler.class);
+
+  private static final int DEFAULT_MAX_DELAYED_TASKS = 64;
+  private static final ScheduledExecutorService SHARED_DELAY_SCHEDULER =
+      Executors.newScheduledThreadPool(
+          Math.min(2, Math.max(1, Runtime.getRuntime().availableProcessors())),
+          r -> {
+            Thread t = new Thread(r, "wt-test-delay-worker");
+            t.setDaemon(true);
+            return t;
+          });
+
+  private final ScheduledExecutorService delayScheduler;
+  private final Semaphore delayAdmissionSemaphore;
+  private final int maxDelayedTasks;
+
+  /** Default constructor using shared scheduler and configured max delayed tasks. */
+  public WebTransportTestHandler() {
+    this(
+        SHARED_DELAY_SCHEDULER,
+        WebTransportConfig.getInt(
+            "webtransport4j.test.handler.max_delayed_tasks", DEFAULT_MAX_DELAYED_TASKS));
+  }
+
+  /**
+   * Constructor with custom scheduler and admission capacity.
+   *
+   * @param delayScheduler dedicated scheduler for delayed tasks
+   * @param maxDelayedTasks maximum concurrent delayed tasks admitted
+   */
+  public WebTransportTestHandler(ScheduledExecutorService delayScheduler, int maxDelayedTasks) {
+    this.delayScheduler = delayScheduler;
+    this.maxDelayedTasks = maxDelayedTasks;
+    this.delayAdmissionSemaphore = new Semaphore(maxDelayedTasks);
+  }
+
+  /** Returns the number of currently available delayed task admission permits. */
+  public int getAvailableDelayPermits() {
+    return delayAdmissionSemaphore.availablePermits();
+  }
 
   @Override
   public void onSessionReady(@NonNull WebTransportSession session) {
@@ -145,18 +189,6 @@ public class WebTransportTestHandler implements WebTransportHandler {
           String prefixCheck =
               new String(bytes, 0, Math.min(bytes.length, 20), StandardCharsets.UTF_8);
           Runnable process = () -> {
-            if (prefixCheck.startsWith("SleepServer_")) {
-              logger.info(
-                  "😴 Server received Sleep command on stream {}. Simulating heavy blocking task...",
-                  stream.streamId());
-              try {
-                Thread.sleep(3000);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-              }
-              logger.info("⏰ Server woke up on stream {} after sleeping.", stream.streamId());
-            }
-
             if (isBidi) {
               if (!stream.hasAttribute("prefixed")) {
                 stream.setAttribute("prefixed", true);
@@ -192,7 +224,39 @@ public class WebTransportTestHandler implements WebTransportHandler {
           };
 
           if (prefixCheck.startsWith("SleepServer_")) {
-            CompletableFuture.runAsync(process);
+            if (!delayAdmissionSemaphore.tryAcquire()) {
+              logger.warn(
+                  "⚠️ Delay admission limit reached (max {}). Dropping delayed chunk on stream {}.",
+                  maxDelayedTasks,
+                  stream.streamId());
+              stream.close();
+              return;
+            }
+            logger.info(
+                "😴 Server received Sleep command on stream {}. Scheduling non-blocking delayed task...",
+                stream.streamId());
+            try {
+              delayScheduler.schedule(
+                  () -> {
+                    try {
+                      logger.info(
+                          "⏰ Server executing delayed response on stream {}.", stream.streamId());
+                      process.run();
+                    } catch (Throwable t) {
+                      logger.error(
+                          "❌ Error executing delayed response on stream {}", stream.streamId(), t);
+                    } finally {
+                      delayAdmissionSemaphore.release();
+                    }
+                  },
+                  3000,
+                  TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException e) {
+              delayAdmissionSemaphore.release();
+              logger.error(
+                  "❌ Delayed task rejected by scheduler on stream {}", stream.streamId(), e);
+              stream.close();
+            }
           } else {
             process.run();
           }
