@@ -187,6 +187,9 @@ public class Draft16Section6SessionTerminationTest {
    */
   @Test
   public void testSection6_2_ImmediateClosureSessionGoneCodepoint() {
-    assertEquals("WT_SESSION_GONE codepoint must be 0x170d7b68", 0x170d7b68L, 0x170d7b68L);
+    assertEquals(
+        "WT_SESSION_GONE codepoint must be 0x170d7b68",
+        0x170d7b68L,
+        WebTransportUtils.WT_SESSION_GONE & 0xFFFFFFFFL);
   }
 }

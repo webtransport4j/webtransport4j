@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -159,30 +160,22 @@ public class WebTransportConfigTest {
     assertTrue(!WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true));
     assertEquals(16, WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64));
 
-    // Test invalid GSO size range validation logic (throws IllegalArgumentException)
+    // Test invalid GSO size range validation via WebTransportServer.validateGsoSize
     System.setProperty("webtransport4j.epoll.gso.size", "0");
     int sizeInvalidLow = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
-    boolean exceptionThrown = false;
-    try {
-      if (sizeInvalidLow < 1 || sizeInvalidLow > 64) {
-        throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
-      }
-    } catch (IllegalArgumentException e) {
-      exceptionThrown = true;
-    }
-    assertTrue(exceptionThrown);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WebTransportServer.validateGsoSize(sizeInvalidLow));
 
     System.setProperty("webtransport4j.epoll.gso.size", "65");
     int sizeInvalidHigh = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
-    exceptionThrown = false;
-    try {
-      if (sizeInvalidHigh < 1 || sizeInvalidHigh > 64) {
-        throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
-      }
-    } catch (IllegalArgumentException e) {
-      exceptionThrown = true;
-    }
-    assertTrue(exceptionThrown);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WebTransportServer.validateGsoSize(sizeInvalidHigh));
+
+    // Valid bounds must succeed
+    WebTransportServer.validateGsoSize(1);
+    WebTransportServer.validateGsoSize(64);
   }
 
   @Test

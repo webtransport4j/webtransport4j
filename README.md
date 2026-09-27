@@ -588,14 +588,18 @@ The repository includes interoperability tooling under [`interop/`](interop/).
 
 ```text
 interop/
-├── native-wt-test.html
-├── client.go
-├── client.py
-├── interop_test_suite.py
-├── test_all_streams.py
-├── dg_test.py
-├── proxy_migration.py
-└── go_throughput/
+├── README.md                      # Detailed interop documentation
+├── run_tests.sh                   # Unified interop test runner
+├── python/                        # Python Draft-16 test suite & clients
+│   ├── interop_test_suite.py      # Full 30-test Draft-16 matrix
+│   ├── benchmarks/                # Performance benchmarks
+│   ├── examples/                  # Real-world chat and voice demos
+│   └── diagnostics/               # Diagnostic & stream probe scripts
+├── go/                            # Go client & throughput benchmarks
+│   ├── client.go
+│   └── throughput/
+└── browser/                       # Browser WebTransport test console
+    └── native-wt-test.html
 ```
 
 Current interoperability coverage includes:
@@ -815,7 +819,7 @@ mvn test -Pbench
 Additional tooling lives under:
 
 ```text
-interop/go_throughput/
+interop/go/throughput/
 ```
 
 Performance numbers should always be published together with enough information to reproduce them:

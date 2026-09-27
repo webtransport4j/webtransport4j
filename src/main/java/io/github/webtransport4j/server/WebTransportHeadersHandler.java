@@ -38,6 +38,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public static final WebTransportHeadersHandler INSTANCE = new WebTransportHeadersHandler();
 
+  public static final String UPGRADE_TOKEN_H3 = "webtransport-h3";
+  public static final String UPGRADE_TOKEN_LEGACY = "webtransport";
+
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
   public WebTransportHeadersHandler() {}
@@ -92,8 +95,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return;
     }
     if ("CONNECT".contentEquals(method)
-        && ("webtransport-h3".contentEquals(protocol) || "webtransport".contentEquals(protocol))) {
-      // Validate scheme: MUST be "https" as per draft-15 section 4.4
+        && (UPGRADE_TOKEN_H3.contentEquals(protocol) || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
       if (!"https".contentEquals(scheme)) {
         logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
@@ -132,10 +134,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           return;
         }
         long sessionId = connectStream.streamId();
-        // verify it is client-iniated bi directional stream as per below RFC
-        // https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
-        // Client-Initiated Bi-Directional: 0x0, 0x4, 0x8, ... → type=0 mod 4
-        if (sessionId % 4L != 0L) {
+        // verify it is client-initiated bi directional stream as per RFC 9000 section 2.1
+        // and https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
+        if (!WebTransportUtils.isClientInitiatedBidirectionalStream(sessionId)) {
           logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
           quic.close(
               true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);

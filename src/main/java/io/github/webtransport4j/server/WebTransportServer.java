@@ -502,10 +502,7 @@ public class WebTransportServer {
 
           if (udpGso) {
             int gsoSize = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
-            if (gsoSize < 1 || gsoSize > 64) {
-              throw new IllegalArgumentException(
-                  "webtransport4j.epoll.gso.size must be in range 1 - 64");
-            }
+            validateGsoSize(gsoSize);
             bootstrap.option(
                 QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
                 EpollQuicUtils.newSegmentedAllocator(gsoSize));
@@ -984,6 +981,14 @@ public class WebTransportServer {
               + ") must be greater than or equal to webtransport.initial.max.data ("
               + wtMaxData
               + ")");
+    }
+  }
+
+  /** Validate Epoll UDP GSO size. */
+  public static void validateGsoSize(int gsoSize) {
+    if (gsoSize < 1 || gsoSize > 64) {
+      throw new IllegalArgumentException(
+          "webtransport4j.epoll.gso.size must be in range 1 - 64");
     }
   }
 }

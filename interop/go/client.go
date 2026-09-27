@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
-	"github.com/quic-go/quic-go/http3/qlog"
+	"github.com/quic-go/quic-go/qlog"
 	"github.com/quic-go/webtransport-go"
 )
 
@@ -73,12 +73,10 @@ func runClient() error {
 	}
 
 	cl := &webtransport.Dialer{
-		ApplicationProtocols: protocols,
-		TLSClientConfig:      tlsConf,
+		TLSClientConfig: tlsConf,
 		QUICConfig: &quic.Config{
-			Tracer:                           qlog.DefaultConnectionTracer,
-			EnableDatagrams:                  true,
-			EnableStreamResetPartialDelivery: true,
+			Tracer:          qlog.DefaultConnectionTracer,
+			EnableDatagrams: true,
 		},
 	}
 	defer cl.Close()
@@ -98,8 +96,8 @@ func runClient() error {
 	}
 
 	fmt.Printf(
-		"negotiated protocol: %s\n",
-		sess.SessionState().ApplicationProtocol,
+		"WebTransport session established! RemoteAddr: %s\n",
+		sess.RemoteAddr(),
 	)
 
 	// ------------------------------------------------------------------
