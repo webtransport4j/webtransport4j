@@ -179,7 +179,11 @@ public class WebTransportServerBuilder {
     return this;
   }
 
-  /** Sets a pre-configured {@link GlobalTrafficShapingHandler} for traffic shaping on this server. */
+  /**
+   * Sets a pre-configured handler whose exclusive ownership transfers to the server on build.
+   * Building another server with the same handler (including through another builder) is rejected.
+   * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
+   */
   public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
     this.trafficShaper = trafficShaper;
     return this;

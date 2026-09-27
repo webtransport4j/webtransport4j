@@ -84,6 +84,8 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
     ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
     if (reactiveSession != null) {
+      // This retained reference belongs to the receiveDatagrams() subscriber, which must close it.
+      // The delegate borrows the transport reference and must retain separately for asynchronous work.
       data.retain();
       reactiveSession.emitIncomingDatagram(data);
       subscribeAndIgnore(delegate.onDatagramReceived(reactiveSession, data));

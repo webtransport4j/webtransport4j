@@ -39,6 +39,7 @@ public class ReactiveWebTransportSession {
 
   /**
    * Returns a standard reactive Publisher of incoming datagrams from the peer.
+   * Each delivered datagram owns a retained reference that the subscriber must close.
    */
   public @NonNull Publisher<WebTransportBuffer> receiveDatagrams() {
     return incomingDatagrams;

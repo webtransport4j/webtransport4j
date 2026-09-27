@@ -1,7 +1,9 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -78,18 +80,96 @@ public class WebTransportMultiServerInstanceTest {
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
-    server.start();
+    NioEventLoopGroup group = new NioEventLoopGroup(1);
+    GlobalTrafficShapingHandler customShaper = null;
+    GlobalTrafficShapingHandler replacement = null;
     try {
-      Assert.assertNull("No traffic shaper configured by default", server.getTrafficShaper());
-
-      GlobalTrafficShapingHandler customShaper =
-          new GlobalTrafficShapingHandler(new io.netty.channel.nio.NioEventLoopGroup(1), 2000L, 2000L);
+      customShaper = new GlobalTrafficShapingHandler(group, 2000L, 2000L);
+      replacement = new GlobalTrafficShapingHandler(group, 3000L, 3000L);
+      server.setTrafficShaper(customShaper);
+      server.setTrafficShaper(replacement);
+      Assert.assertSame(replacement, server.getTrafficShaper());
+      server.start();
+      GlobalTrafficShapingHandler rejected = customShaper;
+      Assert.assertThrows(IllegalStateException.class, () -> server.setTrafficShaper(rejected));
+      Assert.assertThrows(IllegalStateException.class, () -> server.setTrafficShaper(null));
+      Assert.assertSame(replacement, server.getTrafficShaper());
+    } finally {
       try {
-        server.setTrafficShaper(customShaper);
-        Assert.assertSame(customShaper, server.getTrafficShaper());
+        server.stop();
+        if (customShaper != null) {
+          customShaper.release();
+        }
+        if (replacement != null) {
+          replacement.release();
+        }
       } finally {
-        customShaper.release();
+        group.shutdownGracefully(0, 5, java.util.concurrent.TimeUnit.SECONDS).syncUninterruptibly();
       }
+    }
+  }
+
+  @Test
+  public void testInjectedHandlerCannotBeSharedAcrossServers() {
+    ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+    executor.setRemoveOnCancelPolicy(true);
+    GlobalTrafficShapingHandler shaper = new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
+    WebTransportServerBuilder builder = WebTransportServer.builder().trafficShaper(shaper);
+    WebTransportServer owner = builder.build();
+    WebTransportServer other = WebTransportServer.builder().build();
+    try {
+      Assert.assertThrows(IllegalStateException.class, builder::build);
+      Assert.assertThrows(IllegalStateException.class,
+          () -> WebTransportServer.builder().trafficShaper(shaper).build());
+      Assert.assertThrows(IllegalStateException.class, () -> other.setTrafficShaper(shaper));
+      Assert.assertNull(other.getTrafficShaper());
+      Assert.assertSame(shaper, owner.getTrafficShaper());
+      Assert.assertEquals("Rejected ownership transfers must leave the owner's timer active", 1,
+          executor.getQueue().size());
+    } finally {
+      shaper.release();
+      if (owner.getBusinessExecutor() != null) {
+        owner.getBusinessExecutor().shutdownNow();
+      }
+      if (other.getBusinessExecutor() != null) {
+        other.getBusinessExecutor().shutdownNow();
+      }
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void testStartupFailureReleasesAndClearsInjectedHandler() {
+    ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
+    executor.setRemoveOnCancelPolicy(true);
+    GlobalTrafficShapingHandler shaper = new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
+    WebTransportServer server = WebTransportServer.builder()
+        .port(0).transportType("nio").ssl("missing-key.pem", "missing-cert.pem")
+        .trafficShaper(shaper).build();
+    try {
+      Assert.assertThrows(IllegalStateException.class, server::start);
+      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      Assert.assertNull(server.getTrafficShaper());
+      Assert.assertTrue("Failure cleanup must cancel the traffic counter", executor.getQueue().isEmpty());
+      server.stop();
+      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      Assert.assertTrue(executor.getQueue().isEmpty());
+    } finally {
+      server.stop();
+      shaper.release();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void testStartupFailureClearsAutomaticallyCreatedHandler() {
+    WebTransportServer server = WebTransportServer.builder()
+        .port(0).transportType("nio").ssl("missing-key.pem", "missing-cert.pem")
+        .globalTrafficLimits(2000L, 2000L).build();
+    try {
+      Assert.assertThrows(IllegalStateException.class, server::start);
+      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      Assert.assertNull(server.getTrafficShaper());
     } finally {
       server.stop();
     }

@@ -78,6 +78,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
     private final Subscriber<? super WebTransportBuffer> subscriber;
     private final AtomicLong demand = new AtomicLong(0L);
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AtomicBoolean terminated = new AtomicBoolean(false);
     private final AtomicBoolean streamClosed = new AtomicBoolean(false);
     private final Queue<WebTransportBuffer> pendingQueue = new ConcurrentLinkedQueue<>();
 
@@ -88,15 +89,14 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
       // Wire callbacks from the WebTransportStream
       stream.onData(buf -> {
-        if (cancelled.get()) {
-          try {
-            buf.release();
-          } catch (Throwable ignored) {
-          }
+        if (cancelled.get() || terminated.get()) {
           return;
         }
         if (demand.get() > 0) {
           drainQueue();
+          if (cancelled.get() || terminated.get()) {
+            return;
+          }
           if (demand.get() > 0) {
             if (demand.get() != Long.MAX_VALUE) {
               demand.decrementAndGet();
@@ -109,8 +109,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
                 buf.release();
               } catch (Throwable ignored) {
               }
-              subscriber.onError(t);
-              cancel();
+              signalError(t);
               return;
             }
           } else {
@@ -129,21 +128,14 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
         streamClosed.set(true);
         if (!cancelled.get()) {
           drainQueue();
-          if (pendingQueue.isEmpty()) {
-            subscriber.onComplete();
-          }
         }
       });
 
-      stream.onError(t -> {
-        if (!cancelled.get()) {
-          subscriber.onError(t);
-        }
-      });
+      stream.onError(this::signalError);
     }
 
     private void drainQueue() {
-      while (demand.get() > 0 && !pendingQueue.isEmpty()) {
+      while (!terminated.get() && !cancelled.get() && demand.get() > 0 && !pendingQueue.isEmpty()) {
         WebTransportBuffer buf = pendingQueue.poll();
         if (buf != null) {
           if (demand.get() != Long.MAX_VALUE) {
@@ -156,10 +148,28 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
               buf.release();
             } catch (Throwable ignored) {
             }
-            subscriber.onError(t);
-            cancel();
+            signalError(t);
             break;
           }
+        }
+      }
+      if (streamClosed.get() && pendingQueue.isEmpty()) {
+        signalComplete();
+      }
+    }
+
+    private void signalComplete() {
+      if (!cancelled.get() && terminated.compareAndSet(false, true)) {
+        subscriber.onComplete();
+      }
+    }
+
+    private void signalError(Throwable t) {
+      if (!cancelled.get() && terminated.compareAndSet(false, true)) {
+        try {
+          subscriber.onError(t);
+        } finally {
+          cancel();
         }
       }
     }
@@ -181,7 +191,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
     }
 
     private void checkAndTriggerRead() {
-      if (cancelled.get() || streamClosed.get()) {
+      if (cancelled.get() || terminated.get() || streamClosed.get()) {
         return;
       }
       long currentDemand = demand.get();
@@ -199,22 +209,24 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
     @Override
     public void request(long n) {
+      if (cancelled.get() || terminated.get()) {
+        return;
+      }
       if (n <= 0) {
-        subscriber.onError(new IllegalArgumentException("Demand must be positive"));
+        signalError(new IllegalArgumentException("Demand must be positive"));
         return;
       }
       addDemand(n);
       drainQueue();
-      if (streamClosed.get() && pendingQueue.isEmpty() && !cancelled.get()) {
-        subscriber.onComplete();
-        return;
-      }
       checkAndTriggerRead();
     }
 
     @Override
     public void cancel() {
-      cancelled.set(true);
+      terminated.set(true);
+      if (!cancelled.compareAndSet(false, true)) {
+        return;
+      }
       stream.setAutoRead(false);
       stream.close();
       WebTransportBuffer b;
