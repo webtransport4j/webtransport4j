@@ -23,6 +23,7 @@ This documentation covers the core API, async programming model with `Completabl
 5. [Session & Stream API Reference](#4-session--stream-api-reference)
    - [WebTransportSession](#webtransportsession)
    - [WebTransportStream](#webtransportstream)
+   - [Stream Priority & Incremental Scheduling (RFC 9218)](#stream-priority--incremental-scheduling-rfc-9218)
    - [Datagram Transmission](#datagram-transmission)
 6. [Production Readiness & Tuning](#5-production-readiness--tuning)
 
@@ -346,6 +347,17 @@ session.createBiStream()
       stream.onData(buf -> System.out.println("Client replied"));
     });
 
+// Server-initiated streams with RFC 9218 priority
+session.createBiStream(StreamPriority.HIGHEST) // urgency = 0
+    .thenAccept(controlStream -> {
+      controlStream.writeText("Urgent Control Signal");
+    });
+
+session.createUniStream(StreamPriority.of(5, true)) // urgency = 5, incremental/interleaved = true
+    .thenAccept(mediaStream -> {
+      mediaStream.write(videoChunk);
+    });
+
 // Session attributes
 String path = session.path();
 long id = session.getSessionStreamId();
@@ -377,11 +389,68 @@ Path filePath = Paths.get("/var/data/largefile.bin");
 BinarySource fileSource = BinarySources.fromPath(filePath);
 CompletableFuture<Void> f4 = stream.write(fileSource, 65536); // 64KB chunk size
 
+// Stream Priority (RFC 9218) - dynamic updates
+stream.setPriority(StreamPriority.HIGHEST);
+stream.setPriority(1, true); // urgency 1, incremental interleaving
+StreamPriority currentPriority = stream.getPriority();
+
 // Stream lifecycle & attributes
 stream.setAttribute("userId", "usr_123");
 String userId = stream.getAttribute("userId", String.class);
 stream.close();
 stream.reset(0x01); // Reset stream with error code
+```
+
+### Stream Priority & Incremental Scheduling (RFC 9218)
+
+WebTransport4J implements the IETF RFC 9218 (*Extensible Prioritization Scheme for HTTP/QUIC*), providing fine-grained control over bandwidth allocation and stream scheduling:
+
+#### Priority Parameters
+- **`urgency` (0–7)**:
+  - `0` is the highest urgency (critical sync signals, urgent control frames).
+  - `3` is the default urgency per RFC 9218.
+  - `7` is the lowest urgency (background telemetry, prefetching).
+- **`incremental` (boolean)**:
+  - `false` (default): sequential / exclusive scheduling. Frames from this stream are dispatched without interleaving among sibling streams of equal urgency.
+  - `true`: incremental / round-robin scheduling. Frames from equal-urgency streams are interleaved concurrently, preventing head-of-line blocking across media chunks, progressive assets, or concurrent downloads.
+
+#### Priority API Usage
+
+```java
+import io.github.webtransport4j.api.StreamPriority;
+
+// Predefined constants
+StreamPriority defaultPri = StreamPriority.DEFAULT; // urgency=3, incremental=false
+StreamPriority highestPri = StreamPriority.HIGHEST; // urgency=0, incremental=false
+StreamPriority lowestPri  = StreamPriority.LOWEST;  // urgency=7, incremental=false
+
+// Factory methods
+StreamPriority custom     = StreamPriority.of(2, true);
+StreamPriority urgentOnly = StreamPriority.urgency(1);       // default incremental (false)
+StreamPriority incOnly    = StreamPriority.incremental(true); // default urgency (3)
+
+// Fluent copies
+StreamPriority modified = custom.withUrgency(0).withIncremental(false);
+
+// Querying priority
+int urgency   = custom.urgency();       // or custom.getUrgency()
+boolean isInc = custom.isIncremental(); // or custom.incremental()
+
+// 1. Setting priority at stream creation:
+session.createBiStream(StreamPriority.of(1, true))
+    .thenAccept(stream -> {
+      // Stream is scheduled with urgency=1 and incremental interleaving
+    });
+
+// 2. Updating priority dynamically on an existing stream:
+stream.setPriority(StreamPriority.HIGHEST)
+    .thenRun(() -> System.out.println("Priority promoted to HIGHEST"));
+
+// 3. Reactive Streams support:
+reactiveSession.createBiStream(StreamPriority.of(2, true))
+    .subscribe(subscriber);
+
+reactiveStream.setPriority(StreamPriority.HIGHEST);
 ```
 
 ### Datagram Transmission

@@ -96,4 +96,32 @@ public interface WebTransportStream {
   boolean isActive();
 
   @NonNull CompletableFuture<Void> shutdown(int error);
+
+  /* ---------- Stream Priority (RFC 9218) ---------- */
+
+  /**
+   * Sets the priority of this stream according to RFC 9218 extensible prioritization scheme.
+   *
+   * @param priority the desired stream priority
+   * @return a future that completes when the priority update is committed to the QUIC transport
+   */
+  @NonNull CompletableFuture<Void> setPriority(@NonNull StreamPriority priority);
+
+  /**
+   * Sets the priority of this stream according to RFC 9218 extensible prioritization scheme.
+   *
+   * @param urgency the urgency level between 0 (highest) and 7 (lowest)
+   * @param incremental whether the stream should be scheduled incrementally / interleaved
+   * @return a future that completes when the priority update is committed to the QUIC transport
+   */
+  default @NonNull CompletableFuture<Void> setPriority(int urgency, boolean incremental) {
+    return setPriority(StreamPriority.of(urgency, incremental));
+  }
+
+  /**
+   * Returns the current priority of this stream.
+   *
+   * @return the stream priority, or {@link StreamPriority#DEFAULT} if not explicitly configured
+   */
+  @NonNull StreamPriority getPriority();
 }

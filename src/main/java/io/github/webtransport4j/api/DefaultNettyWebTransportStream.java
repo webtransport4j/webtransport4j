@@ -6,6 +6,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
 import io.netty.util.concurrent.Future;
@@ -352,5 +353,27 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   @Override
   public @NonNull CompletableFuture<Void> shutdown(int error) {
     return toCompletableFuture(streamChannel().shutdown(error, streamChannel().newPromise()));
+  }
+
+  @Override
+  public @NonNull CompletableFuture<Void> setPriority(@NonNull StreamPriority priority) {
+    Objects.requireNonNull(priority, "priority cannot be null");
+    return toCompletableFuture(
+        streamChannel.updatePriority(
+            new QuicStreamPriority(priority.urgency(), priority.isIncremental())));
+  }
+
+  @Override
+  public @NonNull CompletableFuture<Void> setPriority(int urgency, boolean incremental) {
+    return setPriority(StreamPriority.of(urgency, incremental));
+  }
+
+  @Override
+  public @NonNull StreamPriority getPriority() {
+    QuicStreamPriority quicPriority = streamChannel.priority();
+    if (quicPriority == null) {
+      return StreamPriority.DEFAULT;
+    }
+    return StreamPriority.of(quicPriority.urgency(), quicPriority.isIncremental());
   }
 }

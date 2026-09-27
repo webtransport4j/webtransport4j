@@ -1,10 +1,16 @@
 package io.github.webtransport4j.api;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-import io.netty.util.concurrent.Future;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -63,7 +69,6 @@ public class ReactiveWebTransportStreamTest {
     assertTrue(received.contains(mockBuffer2));
   }
 
-  @SuppressWarnings("unchecked")
   @Test
   public void testSubscriberWritesData() {
     WebTransportStream mockStream = mock(WebTransportStream.class);
@@ -86,5 +91,25 @@ public class ReactiveWebTransportStreamTest {
     verify(mockStream).write(mockBuffer);
     // Verify subscription requested next item after write completes successfully
     verify(mockSubscription, times(2)).request(1);
+  }
+
+  @Test
+  public void testStreamDelegationAndPriority() {
+    WebTransportStream mockStream = mock(WebTransportStream.class);
+    when(mockStream.setPriority(any(StreamPriority.class))).thenReturn(CompletableFuture.completedFuture(null));
+    when(mockStream.setPriority(anyInt(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
+    when(mockStream.getPriority()).thenReturn(StreamPriority.of(1, true));
+
+    ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
+    assertSame(mockStream, reactiveStream.stream());
+
+    reactiveStream.setPriority(StreamPriority.of(1, true));
+    verify(mockStream).setPriority(StreamPriority.of(1, true));
+
+    reactiveStream.setPriority(4, false);
+    verify(mockStream).setPriority(4, false);
+
+    assertEquals(StreamPriority.of(1, true), reactiveStream.getPriority());
+    verify(mockStream).getPriority();
   }
 }

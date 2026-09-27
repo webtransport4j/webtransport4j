@@ -1,5 +1,6 @@
 package io.github.webtransport4j.api;
 
+import java.util.concurrent.CompletableFuture;
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -12,8 +13,10 @@ import org.reactivestreams.Subscription;
  */
 public class ReactiveWebTransportSession {
   private final WebTransportSession session;
-  private final WebTransportFlowPublisher<ReactiveWebTransportStream> incomingStreams = new WebTransportFlowPublisher<>();
-  private final WebTransportFlowPublisher<WebTransportBuffer> incomingDatagrams = new WebTransportFlowPublisher<>();
+  private final WebTransportFlowPublisher<ReactiveWebTransportStream> incomingStreams =
+      new WebTransportFlowPublisher<>();
+  private final WebTransportFlowPublisher<WebTransportBuffer> incomingDatagrams =
+      new WebTransportFlowPublisher<>();
 
   public ReactiveWebTransportSession(@NonNull WebTransportSession session) {
     this.session = session;
@@ -74,6 +77,24 @@ public class ReactiveWebTransportSession {
    * Create an outbound bidirectional stream as a standard reactive Publisher.
    */
   public @NonNull Publisher<ReactiveWebTransportStream> createBiStream() {
+    return createBiStreamInternal(null);
+  }
+
+  /**
+   * Create an outbound bidirectional stream with priority as a standard reactive Publisher.
+   */
+  public @NonNull Publisher<ReactiveWebTransportStream> createBiStream(@NonNull StreamPriority priority) {
+    return createBiStreamInternal(priority);
+  }
+
+  /**
+   * Create an outbound bidirectional stream with priority as a standard reactive Publisher.
+   */
+  public @NonNull Publisher<ReactiveWebTransportStream> createBiStream(int urgency, boolean incremental) {
+    return createBiStreamInternal(StreamPriority.of(urgency, incremental));
+  }
+
+  private @NonNull Publisher<ReactiveWebTransportStream> createBiStreamInternal(StreamPriority priority) {
     return new Publisher<ReactiveWebTransportStream>() {
       @Override
       public void subscribe(Subscriber<? super ReactiveWebTransportStream> subscriber) {
@@ -84,7 +105,9 @@ public class ReactiveWebTransportSession {
               subscriber.onError(new IllegalArgumentException("Demand must be positive"));
               return;
             }
-            session.createBiStream().whenComplete((stream, ex) -> {
+            CompletableFuture<WebTransportStream> future =
+                priority == null ? session.createBiStream() : session.createBiStream(priority);
+            future.whenComplete((stream, ex) -> {
               if (ex == null) {
                 subscriber.onNext(new ReactiveWebTransportStream(stream));
                 subscriber.onComplete();
@@ -105,6 +128,24 @@ public class ReactiveWebTransportSession {
    * Create an outbound unidirectional stream as a standard reactive Publisher.
    */
   public @NonNull Publisher<ReactiveWebTransportStream> createUniStream() {
+    return createUniStreamInternal(null);
+  }
+
+  /**
+   * Create an outbound unidirectional stream with priority as a standard reactive Publisher.
+   */
+  public @NonNull Publisher<ReactiveWebTransportStream> createUniStream(@NonNull StreamPriority priority) {
+    return createUniStreamInternal(priority);
+  }
+
+  /**
+   * Create an outbound unidirectional stream with priority as a standard reactive Publisher.
+   */
+  public @NonNull Publisher<ReactiveWebTransportStream> createUniStream(int urgency, boolean incremental) {
+    return createUniStreamInternal(StreamPriority.of(urgency, incremental));
+  }
+
+  private @NonNull Publisher<ReactiveWebTransportStream> createUniStreamInternal(StreamPriority priority) {
     return new Publisher<ReactiveWebTransportStream>() {
       @Override
       public void subscribe(Subscriber<? super ReactiveWebTransportStream> subscriber) {
@@ -115,7 +156,9 @@ public class ReactiveWebTransportSession {
               subscriber.onError(new IllegalArgumentException("Demand must be positive"));
               return;
             }
-            session.createUniStream().whenComplete((stream, ex) -> {
+            CompletableFuture<WebTransportStream> future =
+                priority == null ? session.createUniStream() : session.createUniStream(priority);
+            future.whenComplete((stream, ex) -> {
               if (ex == null) {
                 subscriber.onNext(new ReactiveWebTransportStream(stream));
                 subscriber.onComplete();

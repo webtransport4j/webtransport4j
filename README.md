@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  Bidirectional streams · Unidirectional streams · Datagrams · Async APIs · Reactive Streams
+  Bidirectional streams · Unidirectional streams · Datagrams · RFC 9218 Priority · Reactive Streams
 </p>
 
 <p align="center">
@@ -786,6 +786,7 @@ The core WebTransport transport model is already implemented. Development toward
  Bidirectional streams                DONE
  Unidirectional streams               DONE
  Datagrams                            DONE
+ Stream priority (RFC 9218)           DONE
  Client-initiated streams             DONE
  Server-initiated streams             DONE
  Browser interoperability             DONE

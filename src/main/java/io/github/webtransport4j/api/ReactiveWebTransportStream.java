@@ -1,6 +1,7 @@
 package io.github.webtransport4j.api;
 
 import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,6 +21,22 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
   public ReactiveWebTransportStream(@NonNull WebTransportStream stream) {
     this.stream = stream;
+  }
+
+  public @NonNull WebTransportStream stream() {
+    return stream;
+  }
+
+  public @NonNull CompletableFuture<Void> setPriority(@NonNull StreamPriority priority) {
+    return stream.setPriority(priority);
+  }
+
+  public @NonNull CompletableFuture<Void> setPriority(int urgency, boolean incremental) {
+    return stream.setPriority(urgency, incremental);
+  }
+
+  public @NonNull StreamPriority getPriority() {
+    return stream.getPriority();
   }
 
   // --- Publisher Implementation ---

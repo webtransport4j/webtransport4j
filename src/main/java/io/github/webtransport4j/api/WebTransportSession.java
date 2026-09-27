@@ -17,6 +17,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -528,25 +529,122 @@ public class WebTransportSession {
         }
       };
 
+  /**
+   * Creates an outbound unidirectional stream with the default channel pipeline.
+   *
+   * @return a future that completes with the opened stream
+   */
   public @NonNull CompletableFuture<WebTransportStream> createUniStream() {
     return createUniStream(DEFAULT_UNI_INITIALIZER);
   }
 
+  /**
+   * Creates an outbound unidirectional stream with the given custom channel handler.
+   *
+   * @param streamHandler channel handler to add to the stream pipeline
+   * @return a future that completes with the opened stream
+   */
   public @NonNull CompletableFuture<WebTransportStream> createUniStream(
       @NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createUniStream(connectStream, false, streamHandler));
   }
 
+  /**
+   * Creates an outbound unidirectional stream with the given priority.
+   *
+   * @param priority the stream priority per RFC 9218
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(@NonNull StreamPriority priority) {
+    return createUniStream(DEFAULT_UNI_INITIALIZER, priority);
+  }
+
+  /**
+   * Creates an outbound unidirectional stream with the given urgency and incremental flag.
+   *
+   * @param urgency urgency level between 0 and 7
+   * @param incremental true if incremental/interleaved scheduling is enabled
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(int urgency, boolean incremental) {
+    return createUniStream(DEFAULT_UNI_INITIALIZER, StreamPriority.of(urgency, incremental));
+  }
+
+  /**
+   * Creates an outbound unidirectional stream with the given custom handler and priority.
+   *
+   * @param streamHandler channel handler to add to the stream pipeline
+   * @param priority the stream priority per RFC 9218
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
+      @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority) {
+    Objects.requireNonNull(priority, "priority cannot be null");
+    return wrapStreamFuture(
+        WebTransportUtils.createUniStream(connectStream, false, streamHandler), priority);
+  }
+
+  /**
+   * Creates an outbound bidirectional stream with the default channel pipeline.
+   *
+   * @return a future that completes with the opened stream
+   */
   public @NonNull CompletableFuture<WebTransportStream> createBiStream() {
     return createBiStream(DEFAULT_BI_INITIALIZER);
   }
 
+  /**
+   * Creates an outbound bidirectional stream with the given custom channel handler.
+   *
+   * @param streamHandler channel handler to add to the stream pipeline
+   * @return a future that completes with the opened stream
+   */
   public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createBiStream(connectStream, false, streamHandler));
   }
 
+  /**
+   * Creates an outbound bidirectional stream with the given priority.
+   *
+   * @param priority the stream priority per RFC 9218
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull StreamPriority priority) {
+    return createBiStream(DEFAULT_BI_INITIALIZER, priority);
+  }
+
+  /**
+   * Creates an outbound bidirectional stream with the given urgency and incremental flag.
+   *
+   * @param urgency urgency level between 0 and 7
+   * @param incremental true if incremental/interleaved scheduling is enabled
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(int urgency, boolean incremental) {
+    return createBiStream(DEFAULT_BI_INITIALIZER, StreamPriority.of(urgency, incremental));
+  }
+
+  /**
+   * Creates an outbound bidirectional stream with the given custom handler and priority.
+   *
+   * @param streamHandler channel handler to add to the stream pipeline
+   * @param priority the stream priority per RFC 9218
+   * @return a future that completes with the opened stream
+   */
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(
+      @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority) {
+    Objects.requireNonNull(priority, "priority cannot be null");
+    return wrapStreamFuture(
+        WebTransportUtils.createBiStream(connectStream, false, streamHandler), priority);
+  }
+
   private @NonNull CompletableFuture<WebTransportStream> wrapStreamFuture(
       @NonNull Future<QuicStreamChannel> streamFuture) {
+    return wrapStreamFuture(streamFuture, null);
+  }
+
+  private @NonNull CompletableFuture<WebTransportStream> wrapStreamFuture(
+      @NonNull Future<QuicStreamChannel> streamFuture, @Nullable StreamPriority priority) {
     CompletableFuture<WebTransportStream> cf = new CompletableFuture<>();
     streamFuture.addListener(
         (Future<QuicStreamChannel> f) -> {
@@ -564,7 +662,17 @@ public class WebTransportSession {
               ch.closeFuture()
                   .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
             }
-            cf.complete(stream);
+            if (priority != null) {
+              stream.setPriority(priority).whenComplete((v, ex) -> {
+                if (ex != null) {
+                  cf.completeExceptionally(ex);
+                } else {
+                  cf.complete(stream);
+                }
+              });
+            } else {
+              cf.complete(stream);
+            }
           } else {
             cf.completeExceptionally(f.cause());
           }
