@@ -538,6 +538,8 @@ Flux.fromIterable(largeDataSet)
 
 #### Configuration
 
+*Note: If these properties are changed dynamically at runtime, the new watermarks will apply automatically to all **newly created streams**. Existing, already-open streams will retain their original watermarks.*
+
 | Property | Default | Description |
 | :--- | :--- | :--- |
 | `webtransport4j.netty.write_buffer.high_water_mark` | `4194304` (4 MB) | Netty `ChannelOutboundBuffer` high watermark per stream. `isWritable()` → `false` when exceeded. |
