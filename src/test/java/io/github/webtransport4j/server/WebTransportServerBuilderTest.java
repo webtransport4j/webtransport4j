@@ -41,4 +41,17 @@ public class WebTransportServerBuilderTest {
     Assert.assertNotNull(server.getHandler("/"));
     Assert.assertNotNull(server.getHandler("/chat"));
   }
+
+  @Test
+  public void testBuilderTrafficShapingConfiguration() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .globalTrafficLimits(1024L, 2048L)
+            .defaultHandler(new WebTransportHandler() {})
+            .build();
+
+    Assert.assertNotNull(server);
+    Assert.assertNull(server.getTrafficShaper()); // not started yet
+  }
 }

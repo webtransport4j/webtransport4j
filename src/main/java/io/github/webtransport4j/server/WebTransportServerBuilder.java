@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.Arrays;
@@ -39,6 +40,9 @@ public class WebTransportServerBuilder {
   private WebTransportHandler defaultHandler;
   private final Map<String, WebTransportHandler> handlers = new Object2ObjectOpenHashMap<>();
   private Supplier<MessageDispatcher> messageDispatcherSupplier;
+  private GlobalTrafficShapingHandler trafficShaper;
+  private Long globalTrafficWriteLimit;
+  private Long globalTrafficReadLimit;
 
   public WebTransportServerBuilder() {}
 
@@ -175,6 +179,19 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /** Sets a pre-configured {@link GlobalTrafficShapingHandler} for traffic shaping on this server. */
+  public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    this.trafficShaper = trafficShaper;
+    return this;
+  }
+
+  /** Sets global bandwidth rate limits in bytes per second for this server instance. */
+  public @NonNull WebTransportServerBuilder globalTrafficLimits(long writeLimit, long readLimit) {
+    this.globalTrafficWriteLimit = writeLimit;
+    this.globalTrafficReadLimit = readLimit;
+    return this;
+  }
+
   // Getters for WebTransportServer initialization
   public Integer getPort() { return port; }
   public String getHost() { return host; }
@@ -193,6 +210,9 @@ public class WebTransportServerBuilder {
   public WebTransportHandler getDefaultHandler() { return defaultHandler; }
   public Map<String, WebTransportHandler> getHandlers() { return handlers; }
   public Supplier<MessageDispatcher> getMessageDispatcherSupplier() { return messageDispatcherSupplier; }
+  public GlobalTrafficShapingHandler getTrafficShaper() { return trafficShaper; }
+  public Long getGlobalTrafficWriteLimit() { return globalTrafficWriteLimit; }
+  public Long getGlobalTrafficReadLimit() { return globalTrafficReadLimit; }
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

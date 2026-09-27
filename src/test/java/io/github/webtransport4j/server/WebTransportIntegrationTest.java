@@ -69,6 +69,7 @@ public class WebTransportIntegrationTest {
   private WebTransportServer webTransportServer;
   private static final CountDownLatch[] sessionCloseLatch = new CountDownLatch[1];
   private QuicSslContext clientSslContext;
+  private GlobalTrafficShapingHandler globalTrafficShaper;
 
   @Before
   public void setUp() throws Exception {
@@ -473,10 +474,10 @@ public class WebTransportIntegrationTest {
             .sync()
             .channel();
 
-    if (WebTransportServer.globalTrafficShaper != null) {
+    if (globalTrafficShaper != null) {
       serverChannel
           .attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER)
-          .set(WebTransportServer.globalTrafficShaper);
+          .set(globalTrafficShaper);
     }
     port = ((InetSocketAddress) serverChannel.localAddress()).getPort();
   }
@@ -496,9 +497,9 @@ public class WebTransportIntegrationTest {
     if (clientGroup != null) {
       clientGroup.shutdownGracefully();
     }
-    if (WebTransportServer.globalTrafficShaper != null) {
-      WebTransportServer.globalTrafficShaper.release();
-      WebTransportServer.globalTrafficShaper = null;
+    if (globalTrafficShaper != null) {
+      globalTrafficShaper.release();
+      globalTrafficShaper = null;
     }
     System.clearProperty("webtransport4j.server.traffic.global.write.limit");
     System.clearProperty("webtransport4j.server.traffic.global.read.limit");
@@ -1920,7 +1921,7 @@ public class WebTransportIntegrationTest {
 
     if (globalWrite > 0 || globalRead > 0) {
       serverGroup = new NioEventLoopGroup(1);
-      WebTransportServer.globalTrafficShaper =
+      globalTrafficShaper =
           new GlobalTrafficShapingHandler(
               serverGroup, globalWrite, globalRead);
     }

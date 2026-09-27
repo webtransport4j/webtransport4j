@@ -513,10 +513,17 @@ public class WebTransportUtils {
   /** Adds traffic shaping handlers to the stream pipeline. */
   public static void addTrafficShapers(@NonNull QuicStreamChannel stream) {
     QuicChannel quic = stream.parent();
-    GlobalTrafficShapingHandler globalTrafficShapingHandler =
-        quic.parent() != null
-            ? quic.parent().attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).get()
-            : null;
+    GlobalTrafficShapingHandler globalTrafficShapingHandler = null;
+    if (quic != null && quic.parent() != null) {
+      globalTrafficShapingHandler =
+          quic.parent().attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).get();
+    }
+    if (globalTrafficShapingHandler == null && quic != null) {
+      WebTransportServer server = quic.attr(WebTransportAttributeKeys.SERVER_KEY).get();
+      if (server != null) {
+        globalTrafficShapingHandler = server.getTrafficShaper();
+      }
+    }
     if (globalTrafficShapingHandler != null) {
       stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShapingHandler);
       if (logger.isDebugEnabled()) {

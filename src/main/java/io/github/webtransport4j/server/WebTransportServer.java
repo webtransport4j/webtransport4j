@@ -90,7 +90,11 @@ public class WebTransportServer {
   private Supplier<MessageDispatcher> messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
   private final ExecutorService businessExecutor;
 
-  public static GlobalTrafficShapingHandler globalTrafficShaper;
+  private GlobalTrafficShapingHandler trafficShaper;
+  private Long configuredGlobalWriteLimit;
+  private Long configuredGlobalReadLimit;
+
+  private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
 
   /** Lifecycle states of the WebTransport server. */
   public enum ServerState {
@@ -166,6 +170,9 @@ public class WebTransportServer {
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
     this.initialMaxStreamsUni = builder.getInitialMaxStreamsUni();
     this.initialMaxData = builder.getInitialMaxData();
+    this.trafficShaper = builder.getTrafficShaper();
+    this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
+    this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
 
     if (builder.getMetricsListener() != null) {
       this.metricsListener = builder.getMetricsListener();
@@ -244,6 +251,20 @@ public class WebTransportServer {
     return messageDispatcherSupplier;
   }
 
+  /**
+   * Returns the traffic shaping handler for this server instance, or null if traffic shaping is not enabled.
+   */
+  public @Nullable GlobalTrafficShapingHandler getTrafficShaper() {
+    return trafficShaper;
+  }
+
+  /**
+   * Sets the traffic shaping handler for this server instance.
+   */
+  public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    this.trafficShaper = trafficShaper;
+  }
+
   /** Returns the handler for a path. */
   public @NonNull WebTransportHandler getHandler(@NonNull String path) {
     String normalized = normalizePath(path);
@@ -310,6 +331,7 @@ public class WebTransportServer {
       }
       throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
     }
+    ACTIVE_SERVER_INSTANCES.incrementAndGet();
 
     try {
       if (defaultHandler == null) {
@@ -405,6 +427,7 @@ public class WebTransportServer {
       state.set(ServerState.STARTED);
     } catch (Exception e) {
       state.set(ServerState.STOPPED);
+      ACTIVE_SERVER_INSTANCES.updateAndGet(c -> Math.max(0, c - 1));
       throw e;
     }
   }
@@ -562,10 +585,12 @@ public class WebTransportServer {
 
 
   private void setupTrafficShaping() {
-    long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
-    long globalReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
-    if (globalWriteLimit > 0 || globalReadLimit > 0) {
-      globalTrafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+    long globalWriteLimit = configuredGlobalWriteLimit != null ? configuredGlobalWriteLimit
+        : WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
+    long globalReadLimit = configuredGlobalReadLimit != null ? configuredGlobalReadLimit
+        : WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
+    if (this.trafficShaper == null && (globalWriteLimit > 0 || globalReadLimit > 0)) {
+      this.trafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
     }
   }
 
@@ -802,6 +827,11 @@ public class WebTransportServer {
     bindFuture.sync();
     this.channel = bindFuture.channel();
     this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
+    this.channel.attr(WebTransportAttributeKeys.SERVER_KEY).set(this);
+    GlobalTrafficShapingHandler effectiveShaper = getTrafficShaper();
+    if (effectiveShaper != null) {
+      this.channel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(effectiveShaper);
+    }
 
     logger.info("✅ WebTransport server started on {}:{}", getHost(), getPort());
   }
@@ -849,11 +879,13 @@ public class WebTransportServer {
           group = null;
         }
       }
-      if (globalTrafficShaper != null) {
-        globalTrafficShaper.release();
-        globalTrafficShaper = null;
+      if (this.trafficShaper != null) {
+        this.trafficShaper.release();
+        this.trafficShaper = null;
       }
-      IpRateLimitingHandler.stopReloader();
+      if (ACTIVE_SERVER_INSTANCES.updateAndGet(c -> Math.max(0, c - 1)) == 0) {
+        IpRateLimitingHandler.stopReloader();
+      }
       if (businessExecutor != null && !businessExecutor.isShutdown()) {
         businessExecutor.shutdown();
         try {
