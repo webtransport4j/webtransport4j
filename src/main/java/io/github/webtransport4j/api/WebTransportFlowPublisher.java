@@ -66,7 +66,7 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
       return;
     }
     queue.offer(item);
-      
+
     drain();
   }
 
@@ -84,9 +84,10 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
   }
 
   private void drain() {
-    if (subscriber == null) return;
+    if (subscriber == null)
+      return;
     while (demand.get() > 0
-      && !queue.isEmpty() && !cancelled.get()) {
+        && !queue.isEmpty() && !cancelled.get()) {
       T item = queue.poll();
       if (item != null) {
         demand.decrementAndGet();

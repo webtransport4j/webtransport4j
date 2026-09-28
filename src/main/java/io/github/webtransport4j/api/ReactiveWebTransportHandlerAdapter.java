@@ -7,6 +7,7 @@ import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 /**
  * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement
  * the standard {@link WebTransportHandler} interface.
@@ -30,7 +31,8 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {}
+      public void onNext(Void aVoid) {
+      }
 
       @Override
       public void onError(Throwable t) {
@@ -55,10 +57,12 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
         }
 
         @Override
-        public void onNext(Void aVoid) {}
+        public void onNext(Void aVoid) {
+        }
 
         @Override
-        public void onError(Throwable t) {}
+        public void onError(Throwable t) {
+        }
 
         @Override
         public void onComplete() {
@@ -98,13 +102,16 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {}
+      public void onNext(Void aVoid) {
+      }
 
       @Override
-      public void onError(Throwable t) {}
+      public void onError(Throwable t) {
+      }
 
       @Override
-      public void onComplete() {}
+      public void onComplete() {
+      }
     });
   }
 }
