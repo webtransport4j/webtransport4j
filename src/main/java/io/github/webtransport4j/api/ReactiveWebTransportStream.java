@@ -4,6 +4,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
@@ -76,6 +77,7 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
   private class SubscriptionImpl implements Subscription {
     private final Subscriber<? super WebTransportBuffer> subscriber;
+    private final AtomicInteger drainWip = new AtomicInteger();
     private final AtomicLong demand = new AtomicLong(0L);
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean terminated = new AtomicBoolean(false);
@@ -92,34 +94,9 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
         if (cancelled.get() || terminated.get()) {
           return;
         }
-        if (demand.get() > 0) {
-          drainQueue();
-          if (cancelled.get() || terminated.get()) {
-            return;
-          }
-          if (demand.get() > 0) {
-            if (demand.get() != Long.MAX_VALUE) {
-              demand.decrementAndGet();
-            }
-            try {
-              buf.retain();
-              subscriber.onNext(buf);
-            } catch (Throwable t) {
-              try {
-                buf.release();
-              } catch (Throwable ignored) {
-              }
-              signalError(t);
-              return;
-            }
-          } else {
-            buf.retain();
-            pendingQueue.offer(buf);
-          }
-        } else {
-          buf.retain();
-          pendingQueue.offer(buf);
-        }
+        buf.retain();
+        pendingQueue.offer(buf);
+        drainQueue();
 
         checkAndTriggerRead();
       });
@@ -135,12 +112,17 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
     }
 
     private void drainQueue() {
-      while (!terminated.get() && !cancelled.get() && demand.get() > 0 && !pendingQueue.isEmpty()) {
-        WebTransportBuffer buf = pendingQueue.poll();
-        if (buf != null) {
-          if (demand.get() != Long.MAX_VALUE) {
-            demand.decrementAndGet();
+      if (drainWip.getAndIncrement() != 0) {
+        return;
+      }
+      int missed = 1;
+      do {
+        while (!terminated.get() && !cancelled.get() && demand.get() > 0) {
+          WebTransportBuffer buf = pendingQueue.poll();
+          if (buf == null) {
+            break;
           }
+          demand.updateAndGet(current -> current == Long.MAX_VALUE ? current : current - 1);
           try {
             subscriber.onNext(buf);
           } catch (Throwable t) {
@@ -152,10 +134,14 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
             break;
           }
         }
-      }
-      if (streamClosed.get() && pendingQueue.isEmpty()) {
-        signalComplete();
-      }
+        if (terminated.get() || cancelled.get()) {
+          releasePendingBuffers();
+        }
+        if (streamClosed.get() && pendingQueue.isEmpty()) {
+          signalComplete();
+        }
+        missed = drainWip.addAndGet(-missed);
+      } while (missed != 0);
     }
 
     private void signalComplete() {
@@ -229,6 +215,10 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       }
       stream.setAutoRead(false);
       stream.close();
+      releasePendingBuffers();
+    }
+
+    private void releasePendingBuffers() {
       WebTransportBuffer b;
       while ((b = pendingQueue.poll()) != null) {
         try {

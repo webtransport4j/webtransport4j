@@ -16,6 +16,8 @@ import static org.mockito.Mockito.when;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
@@ -324,6 +326,96 @@ public class ReactiveWebTransportStreamTest {
           .count();
       assertEquals(1L, terminals);
     }
+  }
+
+  @Test
+  public void testDataDeliverySerializesConcurrentRequestsDataAndClose() throws Exception {
+    assertSerializedDelivery(false);
+  }
+
+  @Test
+  public void testQueuedDeliverySerializesConcurrentRequestsDataAndClose() throws Exception {
+    assertSerializedDelivery(true);
+  }
+
+  private void assertSerializedDelivery(boolean queued) throws Exception {
+    TerminalFixture f = new TerminalFixture();
+    WebTransportBuffer first = mock(WebTransportBuffer.class);
+    WebTransportBuffer second = mock(WebTransportBuffer.class);
+    WebTransportBuffer third = mock(WebTransportBuffer.class);
+    CountDownLatch delivering = new CountDownLatch(1);
+    CountDownLatch releaseDelivery = new CountDownLatch(1);
+    org.mockito.Mockito.doAnswer(invocation -> {
+      delivering.countDown();
+      await(releaseDelivery);
+      return null;
+    }).when(f.subscriber).onNext(first);
+
+    if (queued) {
+      f.data.accept(first);
+    } else {
+      f.subscription.request(1);
+    }
+    CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> {
+      if (queued) {
+        f.subscription.request(1);
+      } else {
+        f.data.accept(first);
+      }
+    });
+    try {
+      assertTrue(delivering.await(5, TimeUnit.SECONDS));
+      f.subscription.request(1);
+      f.data.accept(second);
+      f.data.accept(third);
+      f.close.onClose();
+      verify(f.subscriber, never()).onNext(second);
+      verify(f.subscriber, never()).onNext(third);
+      verify(f.subscriber, never()).onComplete();
+    } finally {
+      releaseDelivery.countDown();
+      delivery.get(5, TimeUnit.SECONDS);
+    }
+    verify(f.subscriber).onNext(second);
+    verify(f.subscriber, never()).onNext(third);
+    verify(f.subscriber, never()).onComplete();
+    f.subscription.request(1);
+    f.close.onClose();
+    org.mockito.InOrder order = org.mockito.Mockito.inOrder(f.subscriber);
+    order.verify(f.subscriber).onNext(first);
+    order.verify(f.subscriber).onNext(second);
+    order.verify(f.subscriber).onNext(third);
+    order.verify(f.subscriber).onComplete();
+    verify(f.subscriber, times(1)).onComplete();
+    for (WebTransportBuffer buffer : new WebTransportBuffer[] {first, second, third}) {
+      verify(buffer).retain();
+      verify(buffer, never()).release();
+    }
+  }
+
+  @Test
+  public void testCloseWaitsForInFlightDeliveryWithEmptyQueue() throws Exception {
+    TerminalFixture f = new TerminalFixture();
+    CountDownLatch delivering = new CountDownLatch(1);
+    CountDownLatch releaseDelivery = new CountDownLatch(1);
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    org.mockito.Mockito.doAnswer(invocation -> {
+      delivering.countDown();
+      await(releaseDelivery);
+      return null;
+    }).when(f.subscriber).onNext(buffer);
+    f.subscription.request(1);
+    CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> f.data.accept(buffer));
+    try {
+      assertTrue(delivering.await(5, TimeUnit.SECONDS));
+      f.close.onClose();
+      f.subscription.request(1);
+      verify(f.subscriber, never()).onComplete();
+    } finally {
+      releaseDelivery.countDown();
+      delivery.get(5, TimeUnit.SECONDS);
+    }
+    verify(f.subscriber, times(1)).onComplete();
   }
 
   private static void await(java.util.concurrent.CountDownLatch latch) {

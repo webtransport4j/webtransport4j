@@ -90,6 +90,7 @@ public class WebTransportServer {
 
   private Supplier<MessageDispatcher> messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
   private final ExecutorService businessExecutor;
+  private final boolean ownsBusinessExecutor;
 
   private volatile GlobalTrafficShapingHandler trafficShaper;
   private Long configuredGlobalWriteLimit;
@@ -139,6 +140,7 @@ public class WebTransportServer {
     this.defaultHandler = defaultHandler;
     handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
+    this.ownsBusinessExecutor = true;
   }
 
   public WebTransportServer() {
@@ -146,6 +148,7 @@ public class WebTransportServer {
     };
     handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
+    this.ownsBusinessExecutor = true;
   }
 
   /** Web Transport Server with custom business executor. */
@@ -155,6 +158,7 @@ public class WebTransportServer {
     }
     this.defaultHandler = defaultHandler;
     handlers.put("/", defaultHandler);
+    this.ownsBusinessExecutor = businessExecutor == null;
     this.businessExecutor = businessExecutor != null ? businessExecutor : BusinessExecutorFactory.create();
   }
 
@@ -184,6 +188,7 @@ public class WebTransportServer {
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
     }
+    this.ownsBusinessExecutor = builder.getBusinessExecutor() == null;
     this.businessExecutor = builder.getBusinessExecutor() != null
         ? builder.getBusinessExecutor()
         : BusinessExecutorFactory.create();
@@ -473,7 +478,7 @@ public class WebTransportServer {
       state.set(ServerState.STARTED);
     } catch (Exception e) {
       try {
-        stop();
+        stop(5, TimeUnit.SECONDS, false);
       } catch (RuntimeException cleanupFailure) {
         e.addSuppressed(cleanupFailure);
       }
@@ -893,8 +898,15 @@ public class WebTransportServer {
 
   /** Stops the server with a specified timeout. */
   public void stop(long timeout, @NonNull TimeUnit unit) {
+    stop(timeout, unit, true);
+  }
+
+  private void stop(long timeout, TimeUnit unit, boolean shutdownExecutor) {
     synchronized (state) {
       ServerState previous = state.get();
+      if (previous == ServerState.STOPPED && shutdownExecutor) {
+        shutdownBusinessExecutor(timeout, unit);
+      }
       if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
         logger.debug("Server is already stopped or stopping.");
         return;
@@ -934,19 +946,26 @@ public class WebTransportServer {
       }
       releaseTrafficShaper();
       unregisterServerInstance();
-      if (businessExecutor != null && !businessExecutor.isShutdown()) {
-        businessExecutor.shutdown();
-        try {
-          if (!businessExecutor.awaitTermination(timeout, unit)) {
-            businessExecutor.shutdownNow();
-          }
-        } catch (InterruptedException e) {
-          businessExecutor.shutdownNow();
-        }
+      if (shutdownExecutor) {
+        shutdownBusinessExecutor(timeout, unit);
       }
       logger.info("WebTransport server stopped successfully.");
     } finally {
       state.set(ServerState.STOPPED);
+    }
+  }
+
+  private void shutdownBusinessExecutor(long timeout, TimeUnit unit) {
+    if (ownsBusinessExecutor && businessExecutor != null && !businessExecutor.isShutdown()) {
+      businessExecutor.shutdown();
+      try {
+        if (!businessExecutor.awaitTermination(timeout, unit)) {
+          businessExecutor.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        businessExecutor.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
     }
   }
 
