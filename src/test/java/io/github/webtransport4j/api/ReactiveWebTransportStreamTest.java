@@ -236,4 +236,130 @@ public class ReactiveWebTransportStreamTest {
     verify(mockStream).close();
     verify(mockStream, atLeastOnce()).setAutoRead(false);
   }
+  @Test
+  public void testCloseAndRepeatedRequestsSignalCompleteOnce() {
+    TerminalFixture f = new TerminalFixture();
+    f.close.onClose();
+    f.close.onClose();
+    f.subscription.request(1);
+    f.subscription.request(0);
+    f.error.accept(new IllegalStateException("late error"));
+    WebTransportBuffer lateBuffer = mock(WebTransportBuffer.class);
+    f.data.accept(lateBuffer);
+    verify(f.subscriber, never()).onNext(any());
+    verify(lateBuffer, never()).release(); // No reference was retained after termination.
+    verify(f.subscriber, times(1)).onComplete();
+    verify(f.subscriber, never()).onError(any());
+  }
+
+  @Test
+  public void testCloseWaitsForQueuedDataThenCompletesOnce() {
+    TerminalFixture f = new TerminalFixture();
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    f.data.accept(buffer);
+    f.close.onClose();
+    verify(f.subscriber, never()).onComplete();
+    f.subscription.request(1);
+    f.subscription.request(1);
+    f.close.onClose();
+    verify(f.subscriber).onNext(buffer);
+    verify(f.subscriber, times(1)).onComplete();
+  }
+
+  @Test
+  public void testInvalidDemandReleasesQueueAndSignalsErrorOnce() {
+    TerminalFixture f = new TerminalFixture();
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    f.data.accept(buffer);
+    f.subscription.request(0);
+    f.subscription.request(-1);
+    f.close.onClose();
+    f.error.accept(new IllegalStateException("late error"));
+    verify(f.subscriber, times(1)).onError(any(IllegalArgumentException.class));
+    verify(f.subscriber, never()).onComplete();
+    verify(buffer).release();
+  }
+
+  @Test
+  public void testOnNextFailureSignalsErrorOnce() {
+    TerminalFixture f = new TerminalFixture();
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    org.mockito.Mockito.doThrow(new IllegalStateException("subscriber failed"))
+        .when(f.subscriber).onNext(buffer);
+    f.data.accept(buffer);
+    f.close.onClose();
+    f.subscription.request(1);
+    f.subscription.request(1);
+    f.close.onClose();
+    verify(f.subscriber, times(1)).onError(any(IllegalStateException.class));
+    verify(f.subscriber, never()).onComplete();
+    verify(buffer).release();
+  }
+
+  @Test
+  public void testConcurrentCloseAndErrorSignalOnlyOneTerminalEvent() throws Exception {
+    for (int i = 0; i < 50; i++) {
+      TerminalFixture f = new TerminalFixture();
+      java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(2);
+      java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+      CompletableFuture<Void> close = CompletableFuture.runAsync(() -> {
+        ready.countDown();
+        await(go);
+        f.close.onClose();
+      });
+      CompletableFuture<Void> error = CompletableFuture.runAsync(() -> {
+        ready.countDown();
+        await(go);
+        f.error.accept(new IllegalStateException("transport failed"));
+      });
+      try {
+        assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      } finally {
+        go.countDown();
+      }
+      CompletableFuture.allOf(close, error).get(5, java.util.concurrent.TimeUnit.SECONDS);
+      long terminals = org.mockito.Mockito.mockingDetails(f.subscriber).getInvocations().stream()
+          .filter(invocation -> invocation.getMethod().getName().equals("onComplete")
+              || invocation.getMethod().getName().equals("onError"))
+          .count();
+      assertEquals(1L, terminals);
+    }
+  }
+
+  private static void await(java.util.concurrent.CountDownLatch latch) {
+    try {
+      assertTrue(latch.await(5, java.util.concurrent.TimeUnit.SECONDS));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
+  }
+
+  private static class TerminalFixture {
+    final Subscriber<WebTransportBuffer> subscriber;
+    final Subscription subscription;
+    final OnCloseListener close;
+    final Consumer<Throwable> error;
+    final Consumer<WebTransportBuffer> data;
+
+    @SuppressWarnings("unchecked")
+    TerminalFixture() {
+      WebTransportStream stream = mock(WebTransportStream.class);
+      subscriber = mock(Subscriber.class);
+      new ReactiveWebTransportStream(stream).subscribe(subscriber);
+      ArgumentCaptor<Subscription> subscriptionCaptor = ArgumentCaptor.forClass(Subscription.class);
+      ArgumentCaptor<OnCloseListener> closeCaptor = ArgumentCaptor.forClass(OnCloseListener.class);
+      ArgumentCaptor<Consumer<Throwable>> errorCaptor = ArgumentCaptor.forClass(Consumer.class);
+      ArgumentCaptor<Consumer<WebTransportBuffer>> dataCaptor = ArgumentCaptor.forClass(Consumer.class);
+      verify(subscriber).onSubscribe(subscriptionCaptor.capture());
+      verify(stream).onClose(closeCaptor.capture());
+      verify(stream).onError(errorCaptor.capture());
+      verify(stream).onData(dataCaptor.capture());
+      subscription = subscriptionCaptor.getValue();
+      close = closeCaptor.getValue();
+      error = errorCaptor.getValue();
+      data = dataCaptor.getValue();
+    }
+  }
+
 }

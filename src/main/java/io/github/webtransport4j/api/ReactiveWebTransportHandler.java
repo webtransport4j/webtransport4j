@@ -46,6 +46,9 @@ public interface ReactiveWebTransportHandler {
 
   /**
    * Invoked when a datagram is received from the client.
+   * The buffer is borrowed for this callback. For asynchronous processing, retain a separate
+   * reference before returning and close it when processing finishes. The reference delivered
+   * through {@link ReactiveWebTransportSession#receiveDatagrams()} belongs to its subscriber.
    *
    * @param session the reactive session.
    * @param data    the received datagram payload buffer.

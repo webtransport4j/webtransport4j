@@ -39,6 +39,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -90,10 +91,13 @@ public class WebTransportServer {
   private Supplier<MessageDispatcher> messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
   private final ExecutorService businessExecutor;
 
-  private GlobalTrafficShapingHandler trafficShaper;
+  private volatile GlobalTrafficShapingHandler trafficShaper;
   private Long configuredGlobalWriteLimit;
   private Long configuredGlobalReadLimit;
 
+  // Weak keys remember transferred handlers without keeping released handlers alive.
+  private static final Map<GlobalTrafficShapingHandler, Boolean> OWNED_TRAFFIC_SHAPERS = new WeakHashMap<>();
+  private static final Object SERVER_INSTANCES_LOCK = new Object();
   private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
 
   /** Lifecycle states of the WebTransport server. */
@@ -170,7 +174,7 @@ public class WebTransportServer {
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
     this.initialMaxStreamsUni = builder.getInitialMaxStreamsUni();
     this.initialMaxData = builder.getInitialMaxData();
-    this.trafficShaper = builder.getTrafficShaper();
+    this.trafficShaper = claimTrafficShaper(builder.getTrafficShaper());
     this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
 
@@ -259,10 +263,48 @@ public class WebTransportServer {
   }
 
   /**
-   * Sets the traffic shaping handler for this server instance.
+   * Sets the traffic shaping handler while this server is stopped, transferring exclusive ownership.
+   * A handler previously transferred to a server cannot be reused. The caller remains responsible
+   * for releasing a handler replaced before startup.
+   *
+   * @throws IllegalStateException if the server is not stopped or the handler was already transferred
    */
   public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
-    this.trafficShaper = trafficShaper;
+    synchronized (state) {
+      if (state.get() != ServerState.STOPPED) {
+        throw new IllegalStateException("Traffic shaper can only be replaced while the server is stopped");
+      }
+      if (this.trafficShaper != trafficShaper) {
+        this.trafficShaper = claimTrafficShaper(trafficShaper);
+      }
+    }
+  }
+
+  private static GlobalTrafficShapingHandler claimTrafficShaper(GlobalTrafficShapingHandler handler) {
+    if (handler != null) {
+      synchronized (OWNED_TRAFFIC_SHAPERS) {
+        if (OWNED_TRAFFIC_SHAPERS.putIfAbsent(handler, Boolean.TRUE) != null) {
+          throw new IllegalStateException("Traffic shaper ownership has already been transferred to a server");
+        }
+      }
+    }
+    return handler;
+  }
+
+  private void releaseTrafficShaper() {
+    GlobalTrafficShapingHandler handler = this.trafficShaper;
+    this.trafficShaper = null;
+    if (handler != null) {
+      handler.release();
+    }
+  }
+
+  private static void unregisterServerInstance() {
+    synchronized (SERVER_INSTANCES_LOCK) {
+      if (ACTIVE_SERVER_INSTANCES.decrementAndGet() == 0) {
+        IpRateLimitingHandler.stopReloader();
+      }
+    }
   }
 
   /** Returns the handler for a path. */
@@ -323,15 +365,19 @@ public class WebTransportServer {
    * server channel is bound.
    */
   public void start() throws Exception {
-    if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
-      ServerState current = state.get();
-      if (current == ServerState.STARTED || current == ServerState.STARTING) {
-        logger.warn("⚠️ Server is already {} on port {}", current.name().toLowerCase(), getPort());
-        return;
+    synchronized (state) {
+      if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
+        ServerState current = state.get();
+        if (current == ServerState.STARTED || current == ServerState.STARTING) {
+          logger.warn("⚠️ Server is already {} on port {}", current.name().toLowerCase(), getPort());
+          return;
+        }
+        throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
       }
-      throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
+      synchronized (SERVER_INSTANCES_LOCK) {
+        ACTIVE_SERVER_INSTANCES.incrementAndGet();
+      }
     }
-    ACTIVE_SERVER_INSTANCES.incrementAndGet();
 
     try {
       if (defaultHandler == null) {
@@ -426,8 +472,11 @@ public class WebTransportServer {
       bindServer(bootstrap, transportConfig, serverCodec, targetHost, targetPort);
       state.set(ServerState.STARTED);
     } catch (Exception e) {
-      state.set(ServerState.STOPPED);
-      ACTIVE_SERVER_INSTANCES.updateAndGet(c -> Math.max(0, c - 1));
+      try {
+        stop();
+      } catch (RuntimeException cleanupFailure) {
+        e.addSuppressed(cleanupFailure);
+      }
       throw e;
     }
   }
@@ -590,7 +639,8 @@ public class WebTransportServer {
     long globalReadLimit = configuredGlobalReadLimit != null ? configuredGlobalReadLimit
         : WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
     if (this.trafficShaper == null && (globalWriteLimit > 0 || globalReadLimit > 0)) {
-      this.trafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+      this.trafficShaper = claimTrafficShaper(
+          new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit));
     }
   }
 
@@ -843,10 +893,13 @@ public class WebTransportServer {
 
   /** Stops the server with a specified timeout. */
   public void stop(long timeout, @NonNull TimeUnit unit) {
-    ServerState previous = state.getAndSet(ServerState.STOPPING);
-    if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
-      logger.debug("Server is already stopped or stopping.");
-      return;
+    synchronized (state) {
+      ServerState previous = state.get();
+      if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
+        logger.debug("Server is already stopped or stopping.");
+        return;
+      }
+      state.set(ServerState.STOPPING);
     }
     try {
       if (tlsWatcher != null) {
@@ -879,13 +932,8 @@ public class WebTransportServer {
           group = null;
         }
       }
-      if (this.trafficShaper != null) {
-        this.trafficShaper.release();
-        this.trafficShaper = null;
-      }
-      if (ACTIVE_SERVER_INSTANCES.updateAndGet(c -> Math.max(0, c - 1)) == 0) {
-        IpRateLimitingHandler.stopReloader();
-      }
+      releaseTrafficShaper();
+      unregisterServerInstance();
       if (businessExecutor != null && !businessExecutor.isShutdown()) {
         businessExecutor.shutdown();
         try {

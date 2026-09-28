@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class WebTransportFlowPublisher<T> implements Publisher<T> {
   private final Queue<T> queue = new ConcurrentLinkedQueue<>();
-  private Subscriber<? super T> subscriber;
+  private volatile Subscriber<? super T> subscriber;
   private final AtomicLong demand = new AtomicLong(0L);
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   private final AtomicBoolean completed = new AtomicBoolean(false);
@@ -84,8 +84,11 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
   }
 
   private void drain() {
-    if (subscriber == null)
+    if (cancelled.get() || (subscriber == null && completed.get())) {
+      drainAndCloseQueue();
       return;
+    }
+    if (subscriber == null) return;
     while (demand.get() > 0
         && !queue.isEmpty() && !cancelled.get()) {
       T item = queue.poll();
