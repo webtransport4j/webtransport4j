@@ -1,6 +1,6 @@
 # WebTransport4J - Complete API Documentation & Practical Guide
 
-Welcome to **WebTransport4J**, a high-performance, production-ready WebTransport (HTTP/3 over QUIC) library for Java.
+Welcome to **WebTransport4J**, a high-performance, experimental WebTransport (HTTP/3 over QUIC) library for Java.
 
 This documentation covers the core API, async programming model with `CompletableFuture`, declarative endpoint mapping (`@WebTransportEndpoint`), and complete, copy-pasteable practical application examples for:
 - **Plain Java (Standalone / Embedded)**

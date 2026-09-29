@@ -1,23 +1,26 @@
 package io.github.webtransport4j.server;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3ClientConnectionHandler;
+import io.netty.handler.codec.http3.Http3DataFrame;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
-import io.netty.handler.codec.http3.Http3DataFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicSslContext;
@@ -35,9 +38,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 /**
  * Unmocked Integration test verifying real QUIC connection teardown,
  * session unregistration, and active session count decrementing across back-to-back runs.
@@ -51,6 +51,11 @@ public class SessionManagerTeardownIntegrationTest {
   private final AtomicInteger sessionsOpenedCount = new AtomicInteger(0);
   private final AtomicInteger sessionsClosedCount = new AtomicInteger(0);
 
+  /**
+   * Sets up test server and client context before each test execution.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     sessionsOpenedCount.set(0);
@@ -83,6 +88,9 @@ public class SessionManagerTeardownIntegrationTest {
         .build();
   }
 
+  /**
+   * Shuts down client event loop group after test execution.
+   */
   @After
   public void tearDown() {
     if (clientGroup != null) {
@@ -216,7 +224,7 @@ public class SessionManagerTeardownIntegrationTest {
             .connect()
             .get(5, TimeUnit.SECONDS);
 
-        QuicStreamChannel connectStream = Http3.newRequestStream(
+        final QuicStreamChannel connectStream = Http3.newRequestStream(
             quicChannel,
             new ChannelInitializer<QuicStreamChannel>() {
               @Override
@@ -242,14 +250,16 @@ public class SessionManagerTeardownIntegrationTest {
         connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
         // Wait for response headers (handshake)
-        assertTrue("Handshake response headers must be received for run " + run, responseLatch.await(5, TimeUnit.SECONDS));
+        assertTrue("Handshake response headers must be received for run " + run,
+            responseLatch.await(5, TimeUnit.SECONDS));
 
         // Verify active session count on server == 1
         long deadline = System.currentTimeMillis() + 3000;
         while (server.getActiveSessionCount() == 0 && System.currentTimeMillis() < deadline) {
           Thread.sleep(50);
         }
-        assertEquals("Server active sessions must be 1 during session for run " + run, 1, server.getActiveSessionCount());
+        assertEquals("Server active sessions must be 1 during session for run " + run,
+            1, server.getActiveSessionCount());
 
         // Forcefully close client connection
         quicChannel.close().sync();
@@ -260,7 +270,8 @@ public class SessionManagerTeardownIntegrationTest {
           Thread.sleep(50);
         }
 
-        assertEquals("Server active session count must return to 0 after connection teardown for run " + run, 0, server.getActiveSessionCount());
+        assertEquals("Server active session count must return to 0 after connection teardown for run " + run,
+            0, server.getActiveSessionCount());
       } finally {
         udpChannel.close();
       }

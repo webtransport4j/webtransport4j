@@ -32,8 +32,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -84,6 +84,9 @@ public class ConnectionScalabilityBenchmarkTest {
   private String host;
   private int port;
 
+  /**
+   * Sets up test configuration.
+   */
   @Before
   public void setUp() {
     String configuredPort = System.getProperty("target.port");

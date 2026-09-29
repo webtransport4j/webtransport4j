@@ -1,4 +1,5 @@
 package io.github.webtransport4j.api;
+
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 

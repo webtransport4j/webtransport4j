@@ -3,28 +3,50 @@ package io.github.webtransport4j.client;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.CharsetUtil;
 import io.netty.util.NetUtil;
 import io.netty.util.ReferenceCountUtil;
-
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Bidirectional stream throughput and latency benchmark client.
+ */
 public final class WebTransportBiBenchmark {
 
     // Benchmark configuration
     private static final int WARMUP_ITERATIONS = 10_000;
     private static final int MEASUREMENT_ITERATIONS = 500_000;
 
+    /**
+     * Main entry point for bidirectional benchmark.
+     *
+     * @param args command-line arguments
+     * @throws Exception if benchmark run fails
+     */
     public static void main(String... args) throws Exception {
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
 
@@ -57,7 +79,8 @@ public final class WebTransportBiBenchmark {
             settings.enableH3Datagram(true);
 
             QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
-                    .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
+                    .handler(new WebTransportClientHandler(
+                        new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
                     .remoteAddress(new InetSocketAddress(NetUtil.LOCALHOST4, 4433))
                     .connect()
                     .get();
@@ -128,7 +151,9 @@ public final class WebTransportBiBenchmark {
     /**
      * Sends messages and blocks until all corresponding bytes are echoed back by the server.
      */
-    private static void runLoad(QuicStreamChannel channel, BenchmarkBiHandler handler, ByteBuf payload, int iterations) throws InterruptedException {
+    private static void runLoad(
+        QuicStreamChannel channel, BenchmarkBiHandler handler, ByteBuf payload, int iterations)
+        throws InterruptedException {
         int payloadSize = payload.readableBytes();
         long totalBytesExpected = (long) iterations * payloadSize;
 
@@ -149,41 +174,41 @@ public final class WebTransportBiBenchmark {
         // Wait for the echo server to stream everything back
         latch.await();
     }
-}
 
-/**
- * Custom handler to track incoming bytes and release the latch when the expected amount is received.
- */
-class BenchmarkBiHandler extends ChannelDuplexHandler {
-    private static final Logger logger = LoggerFactory.getLogger(BenchmarkBiHandler.class);
-    private long bytesReceived = 0;
-    private long bytesExpected = 0;
-    private CountDownLatch currentLatch;
+    /**
+     * Custom handler to track incoming bytes and release the latch when the expected amount is received.
+     */
+    static class BenchmarkBiHandler extends ChannelDuplexHandler {
+        private static final Logger logger = LoggerFactory.getLogger(BenchmarkBiHandler.class);
+        private long bytesReceived = 0;
+        private long bytesExpected = 0;
+        private CountDownLatch currentLatch;
 
-    public void expect(long bytes, CountDownLatch latch) {
-        this.bytesExpected = bytes;
-        this.bytesReceived = 0;
-        this.currentLatch = latch;
-    }
-
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            bytesReceived += buf.readableBytes();
-
-            if (currentLatch != null && bytesReceived >= bytesExpected) {
-                currentLatch.countDown();
-            }
-            ReferenceCountUtil.release(msg);
-        } else {
-            super.channelRead(ctx, msg);
+        public void expect(long bytes, CountDownLatch latch) {
+            this.bytesExpected = bytes;
+            this.bytesReceived = 0;
+            this.currentLatch = latch;
         }
-    }
 
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.error("Exception in bidirectional benchmark stream handler", cause);
-        ctx.close();
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof ByteBuf) {
+                ByteBuf buf = (ByteBuf) msg;
+                bytesReceived += buf.readableBytes();
+
+                if (currentLatch != null && bytesReceived >= bytesExpected) {
+                    currentLatch.countDown();
+                }
+                ReferenceCountUtil.release(msg);
+            } else {
+                super.channelRead(ctx, msg);
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            logger.error("Exception in bidirectional benchmark stream handler", cause);
+            ctx.close();
+        }
     }
 }

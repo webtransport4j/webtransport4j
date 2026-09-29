@@ -1,6 +1,5 @@
 package io.github.webtransport4j.jmh;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.server.DefaultMessageDispatcher;
 import io.github.webtransport4j.server.StreamMailbox;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
@@ -22,7 +21,18 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.mockito.Mockito;
-import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.annotations.Benchmark;
+import org.openjdk.jmh.annotations.BenchmarkMode;
+import org.openjdk.jmh.annotations.Fork;
+import org.openjdk.jmh.annotations.Measurement;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
+import org.openjdk.jmh.annotations.Scope;
+import org.openjdk.jmh.annotations.Setup;
+import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.annotations.Warmup;
 
 /** JMH benchmark for MessageDispatcher performance across execution modes. */
 @State(Scope.Thread)
@@ -109,6 +119,9 @@ public class MessageDispatcherBenchmark {
     }
   }
 
+  /**
+   * Tears down benchmark executor.
+   */
   @TearDown
   public void tearDown() {
     if (executor != null) {

@@ -96,6 +96,12 @@ public class QuarkusWebTransportSampleApp {
     }
   }
 
+  /**
+   * Main entry point for Quarkus sample application.
+   *
+   * @param args command line arguments
+   * @throws Exception if startup fails
+   */
   public static void main(String[] args) throws Exception {
     logger.info("==========================================================");
     logger.info("⚡ Starting Quarkus / CDI WebTransport Sample Application...");

@@ -1,71 +1,117 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # WebTransport Interoperability Test Runner
-# ==============================================================================
-# Usage:
-#   ./run_tests.sh          # Runs Python Draft-16 Interop Test Suite (default)
-#   ./run_tests.sh python   # Runs Python Draft-16 Interop Test Suite
-#   ./run_tests.sh go       # Runs Go WebTransport Client Test
-#   ./run_tests.sh all      # Runs all available automated suites
+# Usage: ./run_tests.sh [python]
 # ==============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET="${1:-python}"
+MAIN_CLASS="io.github.webtransport4j.example.ServerSample"
+SERVER_LOG="${SCRIPT_DIR}/interop-server.log"
+SERVER_PID=""
+
+case "${TARGET}" in
+    python) ;;
+    *)
+        echo "❌ Unknown target: ${TARGET}"
+        echo "Valid targets: python"
+        exit 1
+        ;;
+esac
+
+for command in mvn java python3 lsof pgrep; do
+    command -v "${command}" >/dev/null 2>&1 || {
+        echo "❌ Required command not found: ${command}"
+        exit 1
+    }
+done
+
+stop_process() {
+    local pid="$1"
+
+    kill -TERM "${pid}" 2>/dev/null || return 0
+
+    for ((i = 0; i < 10; i++)); do
+        if ! kill -0 "${pid}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    kill -KILL "${pid}" 2>/dev/null || true
+}
+
+cleanup() {
+    if [[ -n "${SERVER_PID}" ]]; then
+        echo "🛑 Stopping test server..."
+        stop_process "${SERVER_PID}"
+        wait "${SERVER_PID}" 2>/dev/null || true
+    fi
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "=================================================================="
 echo "🌐 WebTransport Interoperability Test Suite"
 echo "=================================================================="
 
-run_python_suite() {
-    echo "🐍 Running Python IETF Draft-16 Interop Suite (30 Tests)..."
-    export PYTHONPATH="${SCRIPT_DIR}:${SCRIPT_DIR}/python:${PYTHONPATH:-}"
-    python3 "${SCRIPT_DIR}/python/interop_test_suite.py"
-}
+# Match only Java processes associated with this sample server.
+# Do not kill unrelated Java applications.
+SERVER_PATTERN='java.*io[.]github[.]webtransport4j[.]example[.]ServerSample'
 
-run_go_suite() {
-    echo "🐹 Running Go WebTransport Client..."
-    cd "${SCRIPT_DIR}/go"
-    local status=0
-    if command -v timeout >/dev/null 2>&1; then
-        timeout 10s go run client.go -url https://127.0.0.1:4433/test -insecure || status=$?
-    elif command -v gtimeout >/dev/null 2>&1; then
-        gtimeout 10s go run client.go -url https://127.0.0.1:4433/test -insecure || status=$?
-    else
-        python3 -c "
-import subprocess, sys
-try:
-    res = subprocess.run(['go', 'run', 'client.go', '-url', 'https://127.0.0.1:4433/test', '-insecure'], timeout=10)
-    sys.exit(res.returncode)
-except subprocess.TimeoutExpired:
-    sys.exit(124)
-" || status=$?
-    fi
+while IFS= read -r pid; do
+    [[ -n "${pid}" ]] || continue
+    echo "🛑 Stopping existing ServerSample instance: ${pid}"
+    stop_process "${pid}"
+done < <(pgrep -f "${SERVER_PATTERN}" || true)
 
-    if [ "${status}" -eq 124 ]; then
-        echo "✅ Go client finished bounded test run."
-    elif [ "${status}" -ne 0 ]; then
-        echo "❌ Go client failed with exit code: ${status}"
-        return "${status}"
-    fi
-}
+echo "🚀 Starting WebTransport server..."
+echo "📝 Server log: ${SERVER_LOG}"
 
-case "${TARGET}" in
-    python)
-        run_python_suite
-        ;;
-    go)
-        run_go_suite
-        ;;
-    all)
-        run_python_suite
-        echo ""
-        run_go_suite
-        ;;
-    *)
-        echo "❌ Unknown target: ${TARGET}"
-        echo "Valid targets: python, go, all"
+# Run Maven from the directory containing the project's pom.xml,
+# or pass MAVEN_PROJECT_DIR explicitly.
+(
+    cd "${MAVEN_PROJECT_DIR:-${SCRIPT_DIR}/..}"
+    exec mvn exec:java \
+        -Dexec.mainClass="${MAIN_CLASS}" \
+        -Dwebtransport4j.dev_mode=true \
+        -Dwebtransport4j.quic.idle.timeout.seconds=30
+) >"${SERVER_LOG}" 2>&1 &
+
+SERVER_PID=$!
+
+echo "⏳ Waiting for the server's UDP socket..."
+
+ready=false
+for ((i = 0; i < 120; i++)); do
+    if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+        echo "❌ Server exited during startup."
+        tail -n 80 "${SERVER_LOG}"
         exit 1
-        ;;
-esac
+    fi
+
+    # exec:java runs the sample inside Maven's JVM.
+    if lsof -nP -a -p "${SERVER_PID}" -iUDP \
+        >/dev/null 2>&1; then
+        ready=true
+        break
+    fi
+
+    sleep 1
+done
+
+if [[ "${ready}" != true ]]; then
+    echo "❌ Server did not bind a UDP socket within 120 seconds."
+    tail -n 80 "${SERVER_LOG}"
+    exit 1
+fi
+
+echo "✅ Server UDP socket is bound."
+echo "🐍 Running Python IETF Draft-16 Interop Suite..."
+
+export PYTHONPATH="${SCRIPT_DIR}:${SCRIPT_DIR}/python${PYTHONPATH:+:${PYTHONPATH}}"
+python3 "${SCRIPT_DIR}/python/interop_test_suite.py"

@@ -60,6 +60,11 @@ public class WebTransportDatagramIntegrationTest {
   private String lastReceivedServerDatagram;
   private String lastReceivedClientDatagram;
 
+  /**
+   * Sets up test server before each test.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     serverDatagramReceivedLatch = new CountDownLatch(1);
@@ -91,6 +96,11 @@ public class WebTransportDatagramIntegrationTest {
     log.info("DatagramTest: Server started on port {}", server.getPort());
   }
 
+  /**
+   * Shuts down channels and loop after each test.
+   *
+   * @throws Exception if teardown fails
+   */
   @After
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
@@ -172,7 +182,7 @@ public class WebTransportDatagramIntegrationTest {
     CountDownLatch connectReady = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
 
-    QuicStreamChannel connectStream = Http3.newRequestStream(
+    final QuicStreamChannel connectStream = Http3.newRequestStream(
         clientQuicChannel,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override
@@ -216,7 +226,8 @@ public class WebTransportDatagramIntegrationTest {
     assertEquals("HELLO-DATAGRAM-12345", lastReceivedServerDatagram);
 
     // Assert client receives echoed datagram back from server
-    assertTrue("Client should receive echoed datagram within 5s", clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue("Client should receive echoed datagram within 5s",
+        clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
     assertEquals("ECHO:HELLO-DATAGRAM-12345", lastReceivedClientDatagram);
   }
 }

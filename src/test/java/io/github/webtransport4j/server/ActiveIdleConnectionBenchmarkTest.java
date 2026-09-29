@@ -8,12 +8,11 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
 import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import java.lang.reflect.Method;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
@@ -29,8 +28,8 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -74,16 +73,18 @@ public class ActiveIdleConnectionBenchmarkTest {
       LoggerFactory.getLogger(ActiveIdleConnectionBenchmarkTest.class);
 
   private static final byte[] PING_BYTES = new byte[1024];
+
   static {
     java.util.Arrays.fill(PING_BYTES, (byte) 'A');
   }
+
   private static final int PING_LENGTH = PING_BYTES.length;
   private static final ByteBuf PING_BUF = Unpooled.unreleasableBuffer(
       Unpooled.directBuffer(PING_BYTES.length).writeBytes(PING_BYTES));
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
   private static final int MAX_CLIENT_THREADS = 128;
-  private static final int MAX_CLIENT_UDP_CHANNELS = 4096*2;
+  private static final int MAX_CLIENT_UDP_CHANNELS = 4096 * 2;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
   private static final long IDLE_TIMEOUT_SECONDS = positiveProperty("benchmark.idle.timeout.seconds", 600);
   private static final long DURATION_SECONDS = nonNegativeProperty("benchmark.duration.seconds", 30);
@@ -91,6 +92,7 @@ public class ActiveIdleConnectionBenchmarkTest {
   private String host;
   private int port;
 
+  /** Sets up benchmark connection parameters from system properties. */
   @Before
   public void setUp() {
     String configuredPort = System.getProperty("target.port");
@@ -286,7 +288,7 @@ public class ActiveIdleConnectionBenchmarkTest {
         }
 
         TimeUnit.SECONDS.sleep(durationSeconds);
-        long activeElapsedMs =
+        final long activeElapsedMs =
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - activeStartNanos);
 
         for (java.util.concurrent.ScheduledFuture<?> task : slicePingTasks) {
@@ -411,6 +413,7 @@ public class ActiveIdleConnectionBenchmarkTest {
           return new ClientTransport(group, castChannel);
         }
       } catch (Throwable ignored) {
+        // Intentionally empty: Epoll not available
       }
 
       try {
@@ -426,6 +429,7 @@ public class ActiveIdleConnectionBenchmarkTest {
           return new ClientTransport(group, castChannel);
         }
       } catch (Throwable ignored) {
+        // Intentionally empty: KQueue not available
       }
 
       logger.info("⚡ Client using Java NIO transport");
@@ -446,7 +450,9 @@ public class ActiveIdleConnectionBenchmarkTest {
         .build();
   }
 
-  private BenchmarkSession openSession(Channel udpChannel, int connectionIndex, AtomicLong totalRecvMsgs) throws Exception {
+  private BenchmarkSession openSession(
+      Channel udpChannel, int connectionIndex,
+      AtomicLong totalRecvMsgs) throws Exception {
     QuicChannel quicChannel = null;
     QuicStreamChannel connectStream = null;
     AtomicBoolean closing = new AtomicBoolean();
@@ -594,7 +600,6 @@ public class ActiveIdleConnectionBenchmarkTest {
                         }
                       }
 
-                      @Override
                       public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
                         recordFailure(lifecycleFailure, closing, cause);
                       }
@@ -630,7 +635,9 @@ public class ActiveIdleConnectionBenchmarkTest {
       int active = Integer.parseInt(configuredActive.trim());
       return Math.min(totalConnections, Math.max(1, active));
     }
-    double ratio = Double.parseDouble(System.getProperty("benchmark.active.ratio", String.valueOf(DEFAULT_ACTIVE_RATIO)));
+    double ratio = Double.parseDouble(
+        System.getProperty("benchmark.active.ratio",
+            String.valueOf(DEFAULT_ACTIVE_RATIO)));
     return Math.min(totalConnections, Math.max(1, (int) Math.round(totalConnections * ratio)));
   }
 
@@ -659,7 +666,9 @@ public class ActiveIdleConnectionBenchmarkTest {
 
   private static long nonNegativeProperty(String property, long defaultValue) {
     String val = System.getProperty(property);
-    if (val == null) return defaultValue;
+    if (val == null) {
+      return defaultValue;
+    }
     return Math.max(0, Long.parseLong(val));
   }
 
@@ -738,7 +747,10 @@ public class ActiveIdleConnectionBenchmarkTest {
       this.closing = closing;
 
       quicChannel.closeFuture().addListener(
-          f -> ActiveIdleConnectionBenchmarkTest.recordFailure(lifecycleFailure, closing, new IllegalStateException("Connection #" + index + " closed unexpectedly")));
+          f -> ActiveIdleConnectionBenchmarkTest.recordFailure(
+              lifecycleFailure, closing,
+              new IllegalStateException(
+                  "Connection #" + index + " closed unexpectedly")));
     }
 
     private void setActive(boolean active) {

@@ -23,6 +23,9 @@ public class BenchmarkServerRunner {
   public static final AtomicLong serverReceivedMsgs = new AtomicLong();
   public static final AtomicLong serverSentMsgs = new AtomicLong();
 
+  /**
+   * Echo handler for benchmarks.
+   */
   public static class EchoHandler implements WebTransportHandler {
     @Override
     public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
@@ -37,6 +40,12 @@ public class BenchmarkServerRunner {
     }
   }
 
+  /**
+   * Main entry point to launch benchmark server runner.
+   *
+   * @param args command-line arguments
+   * @throws Exception if server launch fails
+   */
   public static void main(String[] args) throws Exception {
     int port = 56159;
     if (args.length > 0) {
@@ -95,7 +104,7 @@ public class BenchmarkServerRunner {
       while (server.isStarted()) {
         try {
           Thread.sleep(5000);
-          long heapMb = mem.getHeapMemoryUsage().getUsed() / (1024 * 1024);
+          final long heapMb = mem.getHeapMemoryUsage().getUsed() / (1024 * 1024);
           long gcCount = 0;
           long gcTime = 0;
           for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
@@ -106,23 +115,23 @@ public class BenchmarkServerRunner {
               gcTime += t;
             }
           }
-          long dCount = gcCount - prevGcCount;
-          long dTime = gcTime - prevGcTime;
+          long deltaCount = gcCount - prevGcCount;
+          long deltaTime = gcTime - prevGcTime;
           prevGcCount = gcCount;
           prevGcTime = gcTime;
           int activeSessionCount = server.getActiveSessionCount();
           int peakSessions = peakSessionCount.accumulateAndGet(activeSessionCount, Math::max);
 
           logger.info(
-              "📊 SERVER STATS | Sessions: {} (peak {}) | Server Recv: {} | Server Sent: {} | Heap: {} MB | GC Count Δ (5s): {}"
-                  + " | GC Time Δ (5s): {} ms",
+              "📊 SERVER STATS | Sessions: {} (peak {}) | Server Recv: {} | Server Sent: {} | Heap: {} MB "
+                  + "| GC Count Δ (5s): {} | GC Time Δ (5s): {} ms",
               activeSessionCount,
               peakSessions,
               serverReceivedMsgs.get(),
               serverSentMsgs.get(),
               heapMb,
-              dCount,
-              dTime);
+              deltaCount,
+              deltaTime);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           break;

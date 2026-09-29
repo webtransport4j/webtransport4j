@@ -17,6 +17,11 @@ public class SpringWebTransportServerLifecycle implements SmartLifecycle {
   private final WebTransportServer server;
   private volatile boolean running = false;
 
+  /**
+   * Constructs lifecycle manager for the provided WebTransportServer.
+   *
+   * @param server the server instance to manage
+   */
   public SpringWebTransportServerLifecycle(WebTransportServer server) {
     if (server == null) {
       throw new IllegalArgumentException("WebTransportServer cannot be null");

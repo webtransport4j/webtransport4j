@@ -122,7 +122,7 @@ public class ReactiveWebTransportStreamTest {
     WebTransportStream mockStream = mock(WebTransportStream.class);
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
 
-    ArgumentCaptor<Consumer<WebTransportBuffer>> consumerCaptor =
+    final ArgumentCaptor<Consumer<WebTransportBuffer>> consumerCaptor =
         ArgumentCaptor.forClass(Consumer.class);
 
     List<WebTransportBuffer> received = new ArrayList<>();
@@ -151,7 +151,7 @@ public class ReactiveWebTransportStreamTest {
     verify(mockStream, never()).read();
 
     verify(mockStream).onData(consumerCaptor.capture());
-    Consumer<WebTransportBuffer> onData = consumerCaptor.getValue();
+    final Consumer<WebTransportBuffer> onData = consumerCaptor.getValue();
 
     // 2. Request 1 item -> triggers transport read
     subscriptionHolder[0].request(1);
@@ -238,6 +238,7 @@ public class ReactiveWebTransportStreamTest {
     verify(mockStream).close();
     verify(mockStream, atLeastOnce()).setAutoRead(false);
   }
+
   @Test
   public void testCloseAndRepeatedRequestsSignalCompleteOnce() {
     TerminalFixture f = new TerminalFixture();

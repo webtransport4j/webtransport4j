@@ -12,8 +12,8 @@ import static org.mockito.Mockito.when;
 
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.server.DefaultWebTransportSession;
-import io.github.webtransport4j.server.NettyWebTransportSession;
 import io.github.webtransport4j.server.Http3InboundControlStreamHandler;
+import io.github.webtransport4j.server.NettyWebTransportSession;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;

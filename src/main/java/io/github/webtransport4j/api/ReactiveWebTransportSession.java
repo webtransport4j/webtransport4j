@@ -13,8 +13,10 @@ import org.reactivestreams.Subscription;
  */
 public class ReactiveWebTransportSession {
   private final WebTransportSession session;
-  private final WebTransportFlowPublisher<ReactiveWebTransportStream> incomingStreams = new WebTransportFlowPublisher<>();
-  private final WebTransportFlowPublisher<WebTransportBuffer> incomingDatagrams = new WebTransportFlowPublisher<>();
+  private final WebTransportFlowPublisher<ReactiveWebTransportStream> incomingStreams =
+      new WebTransportFlowPublisher<>();
+  private final WebTransportFlowPublisher<WebTransportBuffer> incomingDatagrams =
+      new WebTransportFlowPublisher<>();
 
   public ReactiveWebTransportSession(@NonNull WebTransportSession session) {
     this.session = session;

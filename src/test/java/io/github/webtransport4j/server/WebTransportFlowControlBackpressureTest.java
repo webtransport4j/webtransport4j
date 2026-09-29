@@ -58,6 +58,11 @@ public class WebTransportFlowControlBackpressureTest {
   private CountDownLatch streamOpenedLatch;
   private AtomicLong bytesSentByServer;
 
+  /**
+   * Sets up test server before each test.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     streamOpenedLatch = new CountDownLatch(1);
@@ -85,6 +90,11 @@ public class WebTransportFlowControlBackpressureTest {
     log.info("BackpressureTest: Server started on port {}", server.getPort());
   }
 
+  /**
+   * Cleans up client channels and event loops after each test.
+   *
+   * @throws Exception if cleanup fails
+   */
   @After
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
@@ -151,7 +161,7 @@ public class WebTransportFlowControlBackpressureTest {
     CountDownLatch connectReady = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
 
-    QuicStreamChannel connectStream = Http3.newRequestStream(
+    final QuicStreamChannel connectStream = Http3.newRequestStream(
         clientQuicChannel,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override
@@ -182,7 +192,7 @@ public class WebTransportFlowControlBackpressureTest {
     long sessionId = connectHolder[0].streamId();
 
     // Open bidi stream on client & send header + initial frame data
-    QuicStreamChannel clientBidiStream = clientQuicChannel.createStream(
+    final QuicStreamChannel clientBidiStream = clientQuicChannel.createStream(
         QuicStreamType.BIDIRECTIONAL,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override

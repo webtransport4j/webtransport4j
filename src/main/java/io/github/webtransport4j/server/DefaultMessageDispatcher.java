@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -210,14 +211,22 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
 
         // Dispatch data
         if (stream.getDataConsumer() != null) {
-          DefaultNettyWebTransportBuffer buffer =
-              new DefaultNettyWebTransportBuffer(frame.content().retainedSlice());
+          ByteBuf slice = frame.content().retainedSlice();
           try {
-            stream.getDataConsumer().accept(buffer);
+            DefaultNettyWebTransportBuffer buffer =
+                new DefaultNettyWebTransportBuffer(slice);
+            slice = null; // ownership transferred to buffer
+            try {
+              stream.getDataConsumer().accept(buffer);
+            } finally {
+              buffer.release();
+            }
           } catch (Exception e) {
             logger.error("Error in stream onData callback", e);
           } finally {
-            buffer.release();
+            if (slice != null) {
+              slice.release();
+            }
           }
         }
       } else if (frame instanceof WebTransportDatagramFrame) {
@@ -226,18 +235,27 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         if (metrics != null) {
           metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
         }
-        DefaultNettyWebTransportBuffer buffer =
-            new DefaultNettyWebTransportBuffer(frame.content().retainedSlice());
+        ByteBuf slice = frame.content().retainedSlice();
         try {
-          handler.onDatagramReceived(session, buffer);
+          DefaultNettyWebTransportBuffer buffer =
+              new DefaultNettyWebTransportBuffer(slice);
+          slice = null; // ownership transferred to buffer
+          try {
+            handler.onDatagramReceived(session, buffer);
+          } finally {
+            buffer.release();
+          }
         } catch (Exception e) {
           logger.error("Error in onDatagramReceived callback", e);
         } finally {
-          buffer.release();
+          if (slice != null) {
+            slice.release();
+          }
         }
       }
     } catch (Exception e) {
       logger.error("Exception in tryDispatchToHandler", e);
     }
   }
+
 }

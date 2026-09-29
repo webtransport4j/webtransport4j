@@ -2,11 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -16,29 +14,219 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  MVN_FLAGS: --batch-mode --errors --no-transfer-progress
+
 jobs:
   build:
-    name: Build & Test (JDK ${{ matrix.java-version }})
+    name: Build & Test (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        java-version: ['17', '21', '25']
-
+        java: ['17', '21', '25']
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
-      - name: Set up JDK ${{ matrix.java-version }}
-        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
         with:
-          java-version: ${{ matrix.java-version }}
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
 
-      - name: Build and Test with Maven
+      - name: Ensure Maven is installed
         run: |
-          mvn --batch-mode --errors clean test \
-            -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN
+          if ! command -v mvn >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y maven
+          fi
+
+      - name: Checkstyle, compile and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn $MVN_FLAGS checkstyle:check verify \
+            -Dio.netty.leakDetection.level=PARANOID \
+            2>&1 | tee build.log
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("build.log").read_bytes().decode("utf-8", errors="replace")
+          text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+          text = text.replace("\x00", "")
+
+          reports = list(re.finditer(r"LEAK:.*", text))
+          expected = re.compile(
+              r"(?<![\w.])"
+              r"io\.github\.webtransport4j\.server\."
+              r"MemoryLeakDetectionTest\.testIntentionalMemoryLeak"
+              r"\(MemoryLeakDetectionTest\.java:\d+\)\s*$"
+          )
+
+          intentional = 0
+          unexpected = 0
+
+          for index, report in enumerate(reports):
+              end = reports[index + 1].start() if index + 1 < len(reports) else len(text)
+              block = text[report.start():end]
+
+              # Inspect the first allocation frame, not arbitrary mentions in the log.
+              creation = re.search(r"Created at:[ \t]*\r?\n([^\r\n]+)", block)
+              origin = creation.group(1).strip() if creation else "(allocation origin unavailable)"
+
+              allowed = (
+                  report.group().startswith("LEAK: Object.release()")
+                  and expected.search(origin) is not None
+              )
+
+              if allowed:
+                  intentional += 1
+              else:
+                  unexpected += 1
+                  print(f"::error::Unexpected leak: {report.group()}")
+                  print(f"Allocation origin: {origin}")
+
+          print(f"Intentional reports: {intentional}; unexpected reports: {unexpected}")
+
+          if intentional != 1 or unexpected != 0:
+              print("::error::Expected exactly one intentional leak and no other leaks")
+              raise SystemExit(1)
+          PY
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: build-jdk${{ matrix.java }}-attempt${{ github.run_attempt }}
+          path: |
+            build.log
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  interop:
+    name: Interop (${{ matrix.client }}, JDK ${{ matrix.java }})
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        client: [python, java]
+        java: ['17', '21', '25']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+          cache: maven
+
+      - name: Ensure required tools are installed
+        run: |
+          packages=()
+          command -v mvn >/dev/null 2>&1 || packages+=(maven)
+          command -v lsof >/dev/null 2>&1 || packages+=(lsof)
+          if ((${#packages[@]})); then
+            sudo apt-get update
+            sudo apt-get install -y "${packages[@]}"
+          fi
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        if: matrix.client == 'python'
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        if: matrix.client == 'python'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install aioquic 'pywebtransport==0.20.1'
+
+      - name: Build server
+        run: mvn $MVN_FLAGS package -DskipTests
+
+      - name: Start server and run interop suite
+        env:
+          CLIENT: ${{ matrix.client }}
+          PYTHONPATH: ${{ github.workspace }}/interop:${{ github.workspace }}/interop/python
+        run: |
+          set -euo pipefail
+          mvn $MVN_FLAGS exec:java \
+            -Dexec.mainClass=io.github.webtransport4j.example.ServerSample \
+            -Dwebtransport4j.dev_mode=true \
+            -Dwebtransport4j.quic.idle.timeout.seconds=30 \
+            >server.log 2>&1 &
+          SERVER_PID=$!
+
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if ((status != 0)); then
+              cat server.log || true
+            fi
+            kill "$SERVER_PID" 2>/dev/null || true
+            for ((i = 0; i < 10; i++)); do
+              kill -0 "$SERVER_PID" 2>/dev/null || break
+              sleep 1
+            done
+            if kill -0 "$SERVER_PID" 2>/dev/null; then
+              kill -KILL "$SERVER_PID" 2>/dev/null || true
+            fi
+            wait "$SERVER_PID" 2>/dev/null || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          ready=false
+          for ((i = 0; i < 120; i++)); do
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "Server exited during startup."
+              exit 1
+            fi
+            if lsof -nP -a -p "$SERVER_PID" -iUDP:4433 >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            echo "Server did not bind UDP port 4433 within 120 seconds."
+            exit 1
+          fi
+
+          case "$CLIENT" in
+            python)
+              python interop/python/interop_test_suite.py 2>&1 | tee client.log
+              ;;
+            java)
+              mvn $MVN_FLAGS exec:java \
+                -Dexec.mainClass=io.github.webtransport4j.client.WebTransportClientTestSuite \
+                -Dexec.arguments=https://localhost:4433/test \
+                2>&1 | tee client.log
+              ;;
+          esac
+
+      - name: Upload interop logs on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: interop-${{ matrix.client }}-jdk${{ matrix.java }}-attempt${{ github.run_attempt }}
+          path: |
+            server.log
+            client.log
+          if-no-files-found: ignore
+          retention-days: 7

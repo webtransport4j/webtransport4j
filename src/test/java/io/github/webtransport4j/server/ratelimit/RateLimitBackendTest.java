@@ -9,6 +9,9 @@ import io.github.webtransport4j.server.WebTransportConfig;
 import org.junit.Before;
 import org.junit.Test;
 
+/**
+ * Tests for rate limit backend implementations.
+ */
 public class RateLimitBackendTest {
 
   @Before

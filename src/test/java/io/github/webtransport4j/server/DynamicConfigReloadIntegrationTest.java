@@ -25,7 +25,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * End-to-end unmocked integration test verifying production-grade dynamic configuration reloading:
- * 1. Verifies live dynamic updates to rate limiting, blocklists, whitelists, and overrides without restarting the server.
+ * 1. Verifies live dynamic updates to rate limiting, blocklists, whitelists, and overrides
+ *    without restarting the server.
  * 2. Verifies dynamic flow control stream limits (`max_absolute_streams.bidi` and `uni`).
  * 3. Verifies filesystem-based dynamic property file reloads (`webtransport-dynamic.properties`).
  * 4. Runs full WebTransport client test suite against the dynamically updated server.
@@ -37,6 +38,9 @@ public class DynamicConfigReloadIntegrationTest {
   @Rule
   public TemporaryFolder tempFolder = new TemporaryFolder();
 
+  /**
+   * Test echo endpoint for dynamic configuration reload tests.
+   */
   public static class TestEchoEndpoint implements WebTransportHandler {
     @Override
     public void onSessionReady(WebTransportSession session) {
@@ -87,6 +91,9 @@ public class DynamicConfigReloadIntegrationTest {
     }
   }
 
+  /**
+   * Resets dynamic properties before and after each test.
+   */
   @Before
   @After
   public void cleanup() {
@@ -152,16 +159,21 @@ public class DynamicConfigReloadIntegrationTest {
       IpRateLimitingHandler.reloadSharedConfig();
 
       // Assert dynamic configuration parameters in memory
-      assertEquals(200, WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+      assertEquals(200,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
       assertEquals(50000, WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000));
       assertEquals("trie", WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "netty"));
       assertEquals("127.0.0.1,10.0.0.0/8", WebTransportConfig.get("webtransport4j.server.ratelimit.whitelist", ""));
       assertEquals("192.168.1.1:10", WebTransportConfig.get("webtransport4j.server.ratelimit.overrides", ""));
       assertEquals("9.9.9.9,1.2.3.4", WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist", ""));
-      assertEquals(500000, WebTransportConfig.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
-      assertEquals("0.0001", WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
-      assertEquals(6000L, WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
-      assertEquals(6000L, WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
+      assertEquals(500000,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
+      assertEquals("0.0001",
+          WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
+      assertEquals(6000L,
+          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
+      assertEquals(6000L,
+          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
       assertTrue(WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", false));
       assertEquals(10, WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 5));
 

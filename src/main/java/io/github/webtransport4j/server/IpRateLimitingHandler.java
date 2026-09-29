@@ -1,27 +1,29 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
+import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
+import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
-import java.net.InetSocketAddress;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
-import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
-import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 
 /** Handler for rate-limiting connections per IP. */
 @ChannelHandler.Sharable
@@ -96,7 +98,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
       this.rawWhitelistConfig =
           WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.whitelist", "");
-      if (previous != null && this.engineType.equals(previous.engineType) && this.rawWhitelistConfig.equals(previous.rawWhitelistConfig)) {
+      if (previous != null && this.engineType.equals(previous.engineType)
+          && this.rawWhitelistConfig.equals(previous.rawWhitelistConfig)) {
         this.whitelistEngine = previous.whitelistEngine;
       } else {
         if ("netty".equals(this.engineType)) {
@@ -114,7 +117,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
       this.rawOverridesConfig =
           WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.overrides", "");
-      if (previous != null && this.engineType.equals(previous.engineType) && this.rawOverridesConfig.equals(previous.rawOverridesConfig)) {
+      if (previous != null && this.engineType.equals(previous.engineType)
+          && this.rawOverridesConfig.equals(previous.rawOverridesConfig)) {
         this.overridesEngine = previous.overridesEngine;
       } else {
         if ("netty".equals(this.engineType)) {
@@ -177,12 +181,18 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     }
   }
 
+  /**
+   * Reloads shared rate limiting rules from configuration.
+   */
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
     clearState();
     updateReloaderState();
   }
 
+  /**
+   * Resets rate limiting state and rules for testing.
+   */
   public static void resetForTest() {
     sharedRules = new SharedRateLimitRules(null);
     clearState();
@@ -191,11 +201,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static final AtomicReference<ScheduledExecutorService> reloaderExecutor = new AtomicReference<>();
   private static volatile int currentIntervalSecs = -1;
 
+  /**
+   * Clears in-memory IP counts and backend state.
+   */
   public static void clearState() {
     ipCounts.clear();
     backend.clear();
   }
 
+  /**
+   * Stops the background dynamic configuration reloader.
+   */
   public static void stopReloader() {
     ScheduledExecutorService executor = reloaderExecutor.getAndSet(null);
     if (executor != null) {
@@ -205,6 +221,9 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     clearState();
   }
 
+  /**
+   * Updates the dynamic configuration reloader state based on configuration settings.
+   */
   public static void updateReloaderState() {
     boolean reloadEnabled =
         WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);

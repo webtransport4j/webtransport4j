@@ -89,7 +89,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
 
   private static final int ITERATIONS = 1000;
   private static final int WARMUP_ITERATIONS = 100;
-  private static final byte[] CHESS_MOVE_PAYLOAD = "{\"t\":\"move\",\"d\":{\"u\":\"e2e4\",\"b\":1,\"l\":120}}".getBytes(StandardCharsets.UTF_8);
+  private static final byte[] CHESS_MOVE_PAYLOAD =
+      "{\"t\":\"move\",\"d\":{\"u\":\"e2e4\",\"b\":1,\"l\":120}}"
+          .getBytes(StandardCharsets.UTF_8);
   private static final String HOST = "localhost";
   private static final String IPV6_HOST = HOST;
 
@@ -105,6 +107,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
   private static WebTransportServer wtServer;
   private static int wtPort;
 
+  /** Sets up WebSocket and WebTransport servers for benchmarking. */
   @BeforeClass
   public static void startServers() throws Exception {
     System.setProperty("webtransport4j.server.port", "0");
@@ -173,6 +176,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
     log.info("Started WebTransport Server on port {}", wtPort);
   }
 
+  /** Stops all benchmark servers and releases resources. */
   @AfterClass
   public static void stopServers() throws Exception {
     if (wsServerChannel != null) {
@@ -205,6 +209,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
     public final double jitterStdDevMs;
     public final double spikeRatio; // p99 / p50
 
+    /** Constructs a LatencyStats from collected latencies. */
     public LatencyStats(String name, String scenario, List<Double> latenciesMs) {
       this.name = name;
       this.scenario = scenario;
@@ -236,7 +241,9 @@ public class WebSocketVsWebTransportJitterBenchmark {
     }
 
     private static double percentile(List<Double> sorted, double pct) {
-      if (sorted.isEmpty()) return 0;
+      if (sorted.isEmpty()) {
+        return 0;
+      }
       int index = (int) Math.ceil((pct / 100.0) * sorted.size()) - 1;
       return sorted.get(Math.max(0, Math.min(sorted.size() - 1, index)));
     }
@@ -248,7 +255,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
 
   @Test
   public void runComprehensiveBenchmark() throws Exception {
-    List<LatencyStats> allStats = new ArrayList<>();
+    final List<LatencyStats> allStats = new ArrayList<>();
 
     System.out.println("\n=========================================================================================");
     System.out.println("  LICHESS CHESS REAL-TIME LATENCY & JITTER BENCHMARK: NETTY WEBSOCKET vs WEBTRANSPORT   ");
@@ -289,6 +296,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
     printResults(allStats);
   }
 
+  /** Runs the comprehensive benchmark as a standalone application. */
   public static void main(String[] args) throws Exception {
     startServers();
     try {
@@ -299,15 +307,24 @@ public class WebSocketVsWebTransportJitterBenchmark {
   }
 
   private void printResults(List<LatencyStats> statsList) {
-    System.out.println("\n----------------------------------------------------------------------------------------------------------------------------------");
+    System.out.println("\n"
+        + "------------------------------------------------------------"
+        + "--------------------------------------------------------------");
     System.out.printf("%-26s | %-12s | %-7s | %-7s | %-7s | %-7s | %-7s | %-8s | %-8s | %-7s%n",
-        "Protocol & Transport", "Scenario", "Min(ms)", "p50(ms)", "Mean(ms)", "p95(ms)", "p99(ms)", "Max(ms)", "Jitterσ", "Spike (p99/p50)");
-    System.out.println("----------------------------------------------------------------------------------------------------------------------------------");
+        "Protocol & Transport", "Scenario", "Min(ms)", "p50(ms)",
+        "Mean(ms)", "p95(ms)", "p99(ms)", "Max(ms)", "Jitterσ",
+        "Spike (p99/p50)");
+    System.out.println(
+        "------------------------------------------------------------"
+        + "--------------------------------------------------------------");
     for (LatencyStats s : statsList) {
       System.out.printf("%-26s | %-12s | %7.3f | %7.3f | %7.3f | %7.3f | %7.3f | %8.3f | %8.3f | %6.1fx%n",
-          s.name, s.scenario, s.minMs, s.medianMs, s.meanMs, s.p95Ms, s.p99Ms, s.maxMs, s.jitterStdDevMs, s.spikeRatio);
+          s.name, s.scenario, s.minMs, s.medianMs, s.meanMs,
+          s.p95Ms, s.p99Ms, s.maxMs, s.jitterStdDevMs, s.spikeRatio);
     }
-    System.out.println("----------------------------------------------------------------------------------------------------------------------------------\n");
+    System.out.println(
+        "------------------------------------------------------------"
+        + "--------------------------------------------------------------\n");
   }
 
   // ==========================================
@@ -454,7 +471,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
       // Handshake CONNECT stream
       CountDownLatch handshakeLatch = new CountDownLatch(1);
       long[] sessionIdHolder = new long[1];
-      QuicStreamChannel connectStream = Http3.newRequestStream(
+      final QuicStreamChannel connectStream = Http3.newRequestStream(
           quicChannel,
           new ChannelInitializer<QuicStreamChannel>() {
             @Override
@@ -499,7 +516,11 @@ public class WebSocketVsWebTransportJitterBenchmark {
               ch.eventLoop().execute(() -> {
                 for (String name : new ArrayList<>(p.names())) {
                   if (name.contains("Http3")) {
-                    try { p.remove(name); } catch (Exception ignored) {}
+                    try {
+                      p.remove(name);
+                    } catch (Exception ignored) {
+                      // Intentionally empty: ignore removal failures
+                    }
                   }
                 }
               });
@@ -643,7 +664,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
       // Handshake CONNECT stream
       CountDownLatch handshakeLatch = new CountDownLatch(1);
       long[] sessionIdHolder = new long[1];
-      QuicStreamChannel connectStream = Http3.newRequestStream(
+      final QuicStreamChannel connectStream = Http3.newRequestStream(
           quicChannel,
           new ChannelInitializer<QuicStreamChannel>() {
             @Override
@@ -690,7 +711,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
       List<Double> latenciesMs = new ArrayList<>(ITERATIONS);
       for (int i = 0; i < ITERATIONS; i++) {
         activeFuture[0] = new CompletableFuture<>();
-        long start = System.nanoTime();
+        final long start = System.nanoTime();
         ByteBuf dg = Unpooled.buffer();
         WebTransportUtils.writeVarInt(dg, sessionId / 4);
         dg.writeBytes(CHESS_MOVE_PAYLOAD);
@@ -703,7 +724,8 @@ public class WebSocketVsWebTransportJitterBenchmark {
       }
 
       quicChannel.close().sync();
-      return new LatencyStats("WebTransport Datagram (QUIC)", simulateJitter ? "1.5% Jitter" : "Clean LAN", latenciesMs);
+      return new LatencyStats("WebTransport Datagram (QUIC)",
+          simulateJitter ? "1.5% Jitter" : "Clean LAN", latenciesMs);
     } finally {
       clientGroup.shutdownGracefully();
     }
@@ -744,6 +766,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
                       handshakeLatch.countDown();
                     }
                   }
+
                   @Override
                   protected void channelRead0(ChannelHandlerContext ctx, Object msg) {}
                 });
@@ -800,7 +823,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
 
       List<Double> latenciesMs = new ArrayList<>(50);
       for (int i = 0; i < 50; i++) {
-        long start = System.nanoTime();
+        final long start = System.nanoTime();
         QuicChannel quicChannel = QuicChannel.newBootstrap(udpChannel)
             .handler(new Http3ClientConnectionHandler(null, null, new UnknownStreamHandlerFactory(),
                 new DefaultHttp3SettingsFrame(settings), false, (id, value) -> true))
@@ -809,7 +832,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
             .get();
 
         CountDownLatch handshakeLatch = new CountDownLatch(1);
-        QuicStreamChannel connectStream = Http3.newRequestStream(
+        final QuicStreamChannel connectStream = Http3.newRequestStream(
             quicChannel,
             new ChannelInitializer<QuicStreamChannel>() {
               @Override

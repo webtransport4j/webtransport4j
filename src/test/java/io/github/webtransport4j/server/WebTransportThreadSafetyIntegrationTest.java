@@ -68,6 +68,11 @@ public class WebTransportThreadSafetyIntegrationTest {
   private AtomicInteger corruptedMessagesCount;
   private AtomicInteger processedMessagesCount;
 
+  /**
+   * Sets up test server and client QUIC channel.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     corruptedMessagesCount = new AtomicInteger(0);
@@ -112,8 +117,11 @@ public class WebTransportThreadSafetyIntegrationTest {
             }
           }
 
-          @Override public void onSessionReady(@NonNull WebTransportSession session) {}
-          @Override public void onSessionClosed(@NonNull WebTransportSession session) {}
+          @Override
+          public void onSessionReady(@NonNull WebTransportSession session) {}
+
+          @Override
+          public void onSessionClosed(@NonNull WebTransportSession session) {}
         })
         .build();
 
@@ -164,7 +172,7 @@ public class WebTransportThreadSafetyIntegrationTest {
     CountDownLatch sessionLatch = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
 
-    QuicStreamChannel connectStream = Http3.newRequestStream(clientQuicChannel,
+    final QuicStreamChannel connectStream = Http3.newRequestStream(clientQuicChannel,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override
           protected void initChannel(QuicStreamChannel ch) {
@@ -195,6 +203,11 @@ public class WebTransportThreadSafetyIntegrationTest {
 
   private long sessionId;
 
+  /**
+   * Shuts down clients and server after test execution.
+   *
+   * @throws Exception if shutdown fails
+   */
   @After
   public void tearDown() throws Exception {
     if (asyncPool != null) {
@@ -275,7 +288,8 @@ public class WebTransportThreadSafetyIntegrationTest {
     assertEquals("All byte payload must be received", expectedTotalBytes, rxBytesCounter.get());
     assertTrue("Async tasks must be executed off-thread", processedMessagesCount.get() > 0);
 
-    log.info("✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across 8 worker threads with ZERO corruption!",
+    log.info("✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "
+            + "8 worker threads with ZERO corruption!",
         totalExpectedMessages);
   }
 }

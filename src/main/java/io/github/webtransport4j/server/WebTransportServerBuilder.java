@@ -197,26 +197,86 @@ public class WebTransportServerBuilder {
   }
 
   // Getters for WebTransportServer initialization
-  public Integer getPort() { return port; }
-  public String getHost() { return host; }
-  public String getSslKeyPath() { return sslKeyPath; }
-  public String getSslCertPath() { return sslCertPath; }
-  public QuicSslContext getSslContext() { return sslContext; }
-  public List<String> getAllowedOrigins() { return allowedOrigins; }
-  public ExecutorService getBusinessExecutor() { return businessExecutor; }
-  public WebTransportMetricsListener getMetricsListener() { return metricsListener; }
-  public QuicTokenHandler getQuicTokenHandler() { return quicTokenHandler; }
-  public String getTransportType() { return transportType; }
-  public Long getIdleTimeoutSeconds() { return idleTimeoutSeconds; }
-  public Long getInitialMaxStreamsBidi() { return initialMaxStreamsBidi; }
-  public Long getInitialMaxStreamsUni() { return initialMaxStreamsUni; }
-  public Long getInitialMaxData() { return initialMaxData; }
-  public WebTransportHandler getDefaultHandler() { return defaultHandler; }
-  public Map<String, WebTransportHandler> getHandlers() { return handlers; }
-  public Supplier<MessageDispatcher> getMessageDispatcherSupplier() { return messageDispatcherSupplier; }
-  public GlobalTrafficShapingHandler getTrafficShaper() { return trafficShaper; }
-  public Long getGlobalTrafficWriteLimit() { return globalTrafficWriteLimit; }
-  public Long getGlobalTrafficReadLimit() { return globalTrafficReadLimit; }
+  Integer getPort() {
+    return port;
+  }
+
+  String getHost() {
+    return host;
+  }
+
+  String getSslKeyPath() {
+    return sslKeyPath;
+  }
+
+  String getSslCertPath() {
+    return sslCertPath;
+  }
+
+  QuicSslContext getSslContext() {
+    return sslContext;
+  }
+
+  List<String> getAllowedOrigins() {
+    return allowedOrigins;
+  }
+
+  ExecutorService getBusinessExecutor() {
+    return businessExecutor;
+  }
+
+  WebTransportMetricsListener getMetricsListener() {
+    return metricsListener;
+  }
+
+  QuicTokenHandler getQuicTokenHandler() {
+    return quicTokenHandler;
+  }
+
+  String getTransportType() {
+    return transportType;
+  }
+
+  Long getIdleTimeoutSeconds() {
+    return idleTimeoutSeconds;
+  }
+
+  Long getInitialMaxStreamsBidi() {
+    return initialMaxStreamsBidi;
+  }
+
+  Long getInitialMaxStreamsUni() {
+    return initialMaxStreamsUni;
+  }
+
+  Long getInitialMaxData() {
+    return initialMaxData;
+  }
+
+  WebTransportHandler getDefaultHandler() {
+    return defaultHandler;
+  }
+
+  Map<String, WebTransportHandler> getHandlers() {
+    return handlers;
+  }
+
+  Supplier<MessageDispatcher> getMessageDispatcherSupplier() {
+    return messageDispatcherSupplier;
+  }
+
+  GlobalTrafficShapingHandler getTrafficShaper() {
+    return trafficShaper;
+  }
+
+  Long getGlobalTrafficWriteLimit() {
+    return globalTrafficWriteLimit;
+  }
+
+  Long getGlobalTrafficReadLimit() {
+    return globalTrafficReadLimit;
+  }
+
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

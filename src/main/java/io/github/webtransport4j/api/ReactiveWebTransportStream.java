@@ -13,13 +13,18 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 /**
- * Standard Reactive Streams wrapper for WebTransportStream.
- * Implements both Publisher (for reading from the stream)
- * and Subscriber (for writing to the stream).
- * Compatible natively with Spring WebFlux, Project Reactor, RxJava, etc.
+ * Reactive Streams wrapper for reading from and writing to a WebTransport stream.
+ *
+ * <p>Buffers delivered by this publisher belong to its subscriber and must be released. This
+ * wrapper's write subscriber consumes each incoming buffer reference and releases it after the
+ * write completes, fails, or throws synchronously. The underlying stream's write method borrows
+ * the buffer rather than consuming that reference.
  */
-public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>, Subscriber<WebTransportBuffer> {
+public class ReactiveWebTransportStream
+        implements Publisher<WebTransportBuffer>, Subscriber<WebTransportBuffer> {
+
   private final WebTransportStream stream;
+  private Subscription subscription;
 
   public ReactiveWebTransportStream(@NonNull WebTransportStream stream) {
     this.stream = stream;
@@ -41,41 +46,29 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
     return stream.getPriority();
   }
 
-  /**
-   * Returns true if the underlying stream is writable.
-   *
-   * @return true if writes can be accepted without exceeding backpressure thresholds
-   */
+  /** Returns whether the underlying stream is writable. */
   public boolean isWritable() {
     return stream.isWritable();
   }
 
-  /**
-   * Returns a future that completes when the stream becomes writable again.
-   *
-   * @return future that completes when writable
-   */
+  /** Returns a future that completes when the stream becomes writable. */
   public @NonNull CompletableFuture<Void> waitForWritable() {
     return stream.waitForWritable();
   }
 
-  /**
-   * Registers a listener to be notified when the stream's writability state changes.
-   *
-   * @param listener consumer receiving true when writable, false when congested
-   */
+  /** Registers a listener for changes to the underlying stream's writability. */
   public void onWritabilityChanged(@NonNull Consumer<Boolean> listener) {
     stream.onWritabilityChanged(listener);
   }
 
-  // --- Publisher Implementation ---
   @Override
   public void subscribe(Subscriber<? super WebTransportBuffer> subscriber) {
-    SubscriptionImpl subscription = new SubscriptionImpl(subscriber);
-    subscriber.onSubscribe(subscription);
+    SubscriptionImpl incomingSubscription = new SubscriptionImpl(subscriber);
+    subscriber.onSubscribe(incomingSubscription);
   }
 
   private class SubscriptionImpl implements Subscription {
+
     private final Subscriber<? super WebTransportBuffer> subscriber;
     private final AtomicInteger drainWip = new AtomicInteger();
     private final AtomicLong demand = new AtomicLong(0L);
@@ -86,27 +79,27 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
 
     SubscriptionImpl(Subscriber<? super WebTransportBuffer> subscriber) {
       this.subscriber = subscriber;
-      // Start with auto-read disabled to enforce reactive backpressure at the wire level
       stream.setAutoRead(false);
 
-      // Wire callbacks from the WebTransportStream
-      stream.onData(buf -> {
-        if (cancelled.get() || terminated.get()) {
-          return;
-        }
-        buf.retain();
-        pendingQueue.offer(buf);
-        drainQueue();
+      stream.onData(
+              buffer -> {
+                if (cancelled.get() || terminated.get()) {
+                  return;
+                }
+                // The dispatcher owns its original reference. Acquire one for reactive delivery.
+                buffer.retain();
+                pendingQueue.offer(buffer);
+                drainQueue();
+                checkAndTriggerRead();
+              });
 
-        checkAndTriggerRead();
-      });
-
-      stream.onClose(() -> {
-        streamClosed.set(true);
-        if (!cancelled.get()) {
-          drainQueue();
-        }
-      });
+      stream.onClose(
+              () -> {
+                streamClosed.set(true);
+                if (!cancelled.get()) {
+                  drainQueue();
+                }
+              });
 
       stream.onError(this::signalError);
     }
@@ -118,19 +111,20 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       int missed = 1;
       do {
         while (!terminated.get() && !cancelled.get() && demand.get() > 0) {
-          WebTransportBuffer buf = pendingQueue.poll();
-          if (buf == null) {
+          WebTransportBuffer buffer = pendingQueue.poll();
+          if (buffer == null) {
             break;
           }
           demand.updateAndGet(current -> current == Long.MAX_VALUE ? current : current - 1);
           try {
-            subscriber.onNext(buf);
-          } catch (Throwable t) {
+            subscriber.onNext(buffer);
+          } catch (Throwable failure) {
             try {
-              buf.release();
+              buffer.release();
             } catch (Throwable ignored) {
+              // Continue terminating and releasing the remaining queued buffers.
             }
-            signalError(t);
+            signalError(failure);
             break;
           }
         }
@@ -150,10 +144,10 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       }
     }
 
-    private void signalError(Throwable t) {
+    private void signalError(Throwable failure) {
       if (!cancelled.get() && terminated.compareAndSet(false, true)) {
         try {
-          subscriber.onError(t);
+          subscriber.onError(failure);
         } finally {
           cancel();
         }
@@ -213,48 +207,79 @@ public class ReactiveWebTransportStream implements Publisher<WebTransportBuffer>
       if (!cancelled.compareAndSet(false, true)) {
         return;
       }
-      stream.setAutoRead(false);
-      stream.close();
-      releasePendingBuffers();
+      try {
+        stream.setAutoRead(false);
+      } finally {
+        try {
+          stream.close();
+        } finally {
+          releasePendingBuffers();
+        }
+      }
     }
 
     private void releasePendingBuffers() {
-      WebTransportBuffer b;
-      while ((b = pendingQueue.poll()) != null) {
+      WebTransportBuffer buffer;
+      while ((buffer = pendingQueue.poll()) != null) {
         try {
-          b.release();
+          buffer.release();
         } catch (Throwable ignored) {
+          // Continue releasing the other queued references.
         }
       }
     }
   }
 
-  // --- Subscriber Implementation ---
-  private Subscription subscription;
-
   @Override
   public void onSubscribe(Subscription subscription) {
     this.subscription = subscription;
-    subscription.request(1); // request the first item
+    subscription.request(1);
   }
 
   @Override
   public void onNext(WebTransportBuffer item) {
-    stream.write(item).whenComplete((res, ex) -> {
-      if (ex == null) {
-        subscription.request(1); // request next item
-      } else {
-        onError(ex);
-      }
-    });
+    final CompletableFuture<Void> writeFuture;
+
+    try {
+      writeFuture = stream.write(item);
+    } catch (Throwable failure) {
+      releaseAfterWrite(item, failure);
+      return;
+    }
+
+    writeFuture.whenComplete(
+            (result, failure) -> releaseAfterWrite(item, failure));
   }
+
+  private void releaseAfterWrite(WebTransportBuffer item, Throwable failure) {
+    try {
+      if (failure != null) {
+        onError(failure);
+      } else {
+        subscription.request(1);
+      }
+    } finally {
+      item.close();
+    }
+  }
+
 
   @Override
   public void onError(Throwable throwable) {
-    if (stream.getErrorHandler() != null) {
-      stream.getErrorHandler().accept(throwable);
+    try {
+      if (subscription != null) {
+        subscription.cancel();
+      }
+    } finally {
+      try {
+        Consumer<Throwable> handler = stream.getErrorHandler();
+        if (handler != null) {
+          handler.accept(throwable);
+        }
+      } finally {
+        stream.close();
+      }
     }
-    stream.close();
   }
 
   @Override

@@ -25,6 +25,8 @@ from typing import List, Tuple
 from aioquic.buffer import Buffer
 from pywebtransport import ClientConfig, WebTransportClient
 
+from raw_aioquic import open_raw_session
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -68,12 +70,9 @@ def make_capsule(capsule_type: int, payload: bytes) -> bytes:
   return buf.data + payload
 
 
-async def send_capsule_on_connect_stream(session, capsule_bytes: bytes):
-  stream_id = session._control_stream_id
-  session.protocol_handler._h3.send_data(
-      stream_id=stream_id, data=capsule_bytes, end_stream=False
-  )
-  session.protocol_handler._trigger_transmission()
+async def send_capsule_on_connect_stream(raw_session, capsule_bytes: bytes):
+  protocol, session_id = raw_session
+  protocol.send_capsule(session_id=session_id, data=capsule_bytes)
 
 
 # ==============================================================================
@@ -85,14 +84,14 @@ async def test_01_session_connect_positive(client, base_url: str):
   test_num = 1
   try:
     session = await client.connect(url=f"{base_url}/test")
-    assert session.is_ready
+    await session.ensure_ready()
     record_result(
         test_num,
         "POSITIVE",
         "§ 3.2",
         "Primary Session Connect (/test)",
         "PASSED",
-        f"Stream ID {session._control_stream_id}",
+        f"Stream ID {session.session_id}",
     )
     return session
   except Exception as e:
@@ -111,7 +110,7 @@ async def test_02_url_path_chat_positive(client, base_url: str):
   test_num = 2
   try:
     s = await client.connect(url=f"{base_url}/chat")
-    assert s.is_ready
+    await s.ensure_ready()
     await s.close()
     record_result(
         test_num,
@@ -137,12 +136,12 @@ async def test_03_url_path_echo_positive(client, base_url: str):
   test_num = 3
   try:
     s = await client.connect(url=f"{base_url}/echo")
-    assert s.is_ready
+    await s.ensure_ready()
     st = await s.create_bidirectional_stream()
-    await st.write_all(b"EchoHandlerTestPayload", end_stream=False)
+    await st.write_all(data=b"EchoHandlerTestPayload", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=3.0)
     assert b"EchoHandlerTestPayload" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
     await s.close()
     record_result(
         test_num,

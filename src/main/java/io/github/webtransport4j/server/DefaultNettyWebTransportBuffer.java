@@ -8,44 +8,60 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 
 /**
- * Netty-backed implementation of {@link WebTransportBuffer} wrapping a {@link ByteBuf}.
+ * Netty-backed buffer with an atomic wrapper lifetime and no monitor locking.
  *
- * <p>This wrapper is immutable in its delegate reference and thread-safe.
- * Calling {@link #retain()} increments the underlying buffer's reference count.
- * Calling {@link #release()} safely decrements the reference count if still retained.
+ * <p>Construction transfers ownership of exactly one existing delegate reference to this wrapper;
+ * it does not retain the delegate. Wrapper references are counted independently. The owned delegate
+ * reference is released exactly once, when the last wrapper reference is released.
+ *
+ * <p>A caller must own a live wrapper reference throughout each operation, including use of returned
+ * borrowed views. Retain before handing the wrapper to asynchronous work, and release that reference
+ * when the work finishes. Reference counting is thread-safe; content access, reader-index changes
+ * and compound operations require confinement or external coordination.
  */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
   private final @NonNull ByteBuf delegate;
-  private final AtomicInteger refCnt;
+  private final AtomicInteger refCnt = new AtomicInteger(1);
 
+  /**
+   * Takes ownership of one existing delegate reference on successful construction.
+   *
+   * @param delegate a live buffer reference whose ownership is transferred to this wrapper
+   */
   public DefaultNettyWebTransportBuffer(@NonNull ByteBuf delegate) {
     this.delegate = Objects.requireNonNull(delegate, "delegate must not be null");
-    this.refCnt = new AtomicInteger(1);
+    if (delegate.refCnt() <= 0) {
+      throw new IllegalArgumentException("delegate has already been released");
+    }
   }
 
   /**
-   * Returns a retained slice of the readable bytes for outbound writing.
+   * Creates an independently retained slice of the readable bytes. The caller must release it or
+   * transfer ownership to a Netty write. It remains valid after this wrapper is released.
    *
-   * @return retained readable slice
+   * @return an independently owned readable slice
    */
   public @NonNull ByteBuf retainedReadableBuffer() {
+    ensureAccessible();
     return delegate.retainedSlice(delegate.readerIndex(), delegate.readableBytes());
   }
 
   /**
-   * Returns the underlying ByteBuf delegate.
+   * Returns a borrowed delegate. Do not release the reference owned by this wrapper. To keep it
+   * independently, explicitly acquire and later release an additional delegate reference.
    *
-   * @return the delegate ByteBuf
+   * @return the borrowed delegate
    */
   public @NonNull ByteBuf delegate() {
+    ensureAccessible();
     return delegate;
   }
 
   /**
-   * Returns the current reference count of this buffer wrapper.
+   * Returns the wrapper reference count, not the delegate count. Independent slices are excluded.
    *
-   * @return reference count
+   * @return the current wrapper reference count
    */
   public int refCnt() {
     return refCnt.get();
@@ -53,21 +69,26 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
   @Override
   public int readableBytes() {
+    ensureAccessible();
     return delegate.readableBytes();
   }
 
+  /** Returns a borrowed view; a live reference must be held until use of the view finishes. */
   @Override
   public ByteBuffer nioBuffer() {
+    ensureAccessible();
     return delegate.nioBuffer();
   }
 
   @Override
   public ByteBuffer skipBytes(int length) {
+    ensureAccessible();
     return delegate.skipBytes(length).nioBuffer();
   }
 
   @Override
   public byte[] readBytes() {
+    ensureAccessible();
     byte[] bytes = new byte[delegate.readableBytes()];
     delegate.readBytes(bytes);
     return bytes;
@@ -75,35 +96,48 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
   @Override
   public WebTransportBuffer retain() {
-    refCnt.incrementAndGet();
-    delegate.retain();
-    return this;
+    return retain(1);
   }
 
   /**
-   * Retains the buffer with a custom increment.
+   * Acquires additional wrapper references without changing the delegate reference count.
    *
-   * @param increment the amount to increment reference count
+   * @param increment positive number of references to acquire
    * @return this buffer
+   * @throws IllegalStateException if released or the wrapper reference count would overflow
    */
   public WebTransportBuffer retain(int increment) {
     if (increment <= 0) {
       throw new IllegalArgumentException("increment must be positive: " + increment);
     }
-    refCnt.addAndGet(increment);
-    delegate.retain(increment);
-    return this;
+    for (;;) {
+      int current = refCnt.get();
+      if (current == 0) {
+        throw new IllegalStateException("buffer has already been released");
+      }
+      if (increment > Integer.MAX_VALUE - current) {
+        throw new IllegalStateException("reference count overflow");
+      }
+      if (refCnt.compareAndSet(current, current + increment)) {
+        return this;
+      }
+    }
   }
 
+  /**
+   * Releases one wrapper reference. Calls after zero are no-ops, preserving the previous behavior.
+   * The thread performing the transition to zero releases the single owned delegate reference.
+   */
   @Override
   public void release() {
     for (;;) {
       int current = refCnt.get();
-      if (current <= 0) {
+      if (current == 0) {
         return;
       }
       if (refCnt.compareAndSet(current, current - 1)) {
-        if (delegate.refCnt() > 0) {
+        if (current == 1) {
+          // Never silently swallow invalid delegate ownership or retry this final release.
           delegate.release();
         }
         return;
@@ -114,5 +148,11 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   @Override
   public void close() {
     release();
+  }
+
+  private void ensureAccessible() {
+    if (refCnt.get() == 0) {
+      throw new IllegalStateException("buffer has already been released");
+    }
   }
 }

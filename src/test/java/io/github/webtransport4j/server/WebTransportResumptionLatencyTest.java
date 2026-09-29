@@ -387,7 +387,8 @@ public class WebTransportResumptionLatencyTest {
     log.info("📊 Speedup: " + speedup + "x faster");
     if (durationResumedMs >= durationFullMs) {
       log.warn(
-          "⚠️ Microbenchmark CPU Jitter Notice: Resumed: {}ms vs Full: {}ms (Session resumption verified at TLS layer: {})",
+          "⚠️ Microbenchmark CPU Jitter Notice: Resumed: {}ms vs Full: {}ms "
+              + "(Session resumption verified at TLS layer: {})",
           durationResumedMs, durationFullMs, clientResumed);
     }
 

@@ -17,6 +17,9 @@ public class WebTransportNonBlockingLifecycleTest {
   private String previousDispatchMode;
   private String previousPort;
 
+  /**
+   * Sets up test environment.
+   */
   @Before
   public void setUp() {
     previousDispatchMode = System.getProperty("webtransport4j.dispatch.execution.mode");
@@ -25,6 +28,9 @@ public class WebTransportNonBlockingLifecycleTest {
     System.setProperty("webtransport4j.server.port", "0");
   }
 
+  /**
+   * Tears down test environment.
+   */
   @After
   public void tearDown() {
     restoreProperty("webtransport4j.dispatch.execution.mode", previousDispatchMode);

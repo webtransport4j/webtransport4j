@@ -5,7 +5,6 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import java.nio.charset.StandardCharsets;
-
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

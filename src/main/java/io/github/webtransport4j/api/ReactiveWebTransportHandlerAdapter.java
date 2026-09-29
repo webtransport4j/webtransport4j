@@ -2,7 +2,6 @@ package io.github.webtransport4j.api;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
@@ -31,7 +30,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {
+      public void onNext(Void unused) {
       }
 
       @Override
@@ -57,7 +56,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
         }
 
         @Override
-        public void onNext(Void aVoid) {
+        public void onNext(Void unused) {
         }
 
         @Override
@@ -104,7 +103,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {
+      public void onNext(Void unused) {
       }
 
       @Override

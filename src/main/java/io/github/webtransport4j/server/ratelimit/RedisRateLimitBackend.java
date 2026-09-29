@@ -11,7 +11,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Distributed Redis implementation of {@link RateLimitBackend} supporting multi-node cluster rate limiting.
- * Accommodates custom Redis client functions or reflection-based client adapters while maintaining fallback capabilities.
+ * Accommodates custom Redis client functions or reflection-based client adapters while maintaining fallback
+ * capabilities.
  */
 public class RedisRateLimitBackend implements RateLimitBackend {
   private static final Logger logger = LoggerFactory.getLogger(RedisRateLimitBackend.class);
@@ -20,11 +21,22 @@ public class RedisRateLimitBackend implements RateLimitBackend {
   private final BiFunction<String, Long, Integer> redisIncrFunction;
   private final String keyPrefix;
 
+  /**
+   * Constructs a new Redis rate limit backend with default key prefix.
+   */
   public RedisRateLimitBackend() {
-    this(null, WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.redis.key_prefix", "webtransport4j:ratelimit:"));
+    this(null, WebTransportConfig.getNonNull(
+        "webtransport4j.server.ratelimit.redis.key_prefix", "webtransport4j:ratelimit:"));
   }
 
-  public RedisRateLimitBackend(@Nullable BiFunction<String, Long, Integer> customIncrFunction, @NonNull String keyPrefix) {
+  /**
+   * Constructs a new Redis rate limit backend.
+   *
+   * @param customIncrFunction the Redis increment function
+   * @param keyPrefix the key prefix to use in Redis
+   */
+  public RedisRateLimitBackend(
+      @Nullable BiFunction<String, Long, Integer> customIncrFunction, @NonNull String keyPrefix) {
     this.keyPrefix = keyPrefix;
     this.redisIncrFunction = customIncrFunction;
   }
@@ -39,7 +51,8 @@ public class RedisRateLimitBackend implements RateLimitBackend {
           return count;
         }
       } catch (Exception e) {
-        logger.warn("⚠️ Redis rate limit backend error for IP {}, falling back to local memory: {}", ip, e.getMessage());
+        logger.warn("⚠️ Redis rate limit backend error for IP {}, falling back to local memory: {}",
+            ip, e.getMessage());
       }
     }
     return fallbackBackend.incrementAndGet(ip, currentMinute, maxTrackedIps);

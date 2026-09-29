@@ -3,8 +3,8 @@ package io.github.webtransport4j.benchmark;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.concurrent.FastThreadLocal;
@@ -99,6 +99,7 @@ public class BufferAllocationBenchmarkTest {
   public void testSingleThreadedThroughput() {
     byte[] payload = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
     ByteBuf buf = Unpooled.wrappedBuffer(payload);
+    long expectedBytesRead = (long) BENCHMARK_ITERATIONS * payload.length;
 
     try {
       // 1. Warm up JIT for both paths
@@ -108,13 +109,13 @@ public class BufferAllocationBenchmarkTest {
       final long ftlStart = System.nanoTime();
       final long ftlBlackhole = runFastThreadLocalBenchmark(buf, BENCHMARK_ITERATIONS);
       final long ftlDurationNs = System.nanoTime() - ftlStart;
-      assertTrue(ftlBlackhole > 0);
+      assertEquals(expectedBytesRead, ftlBlackhole);
 
       // 3. Measure new DefaultNettyWebTransportBuffer()
       final long newStart = System.nanoTime();
       final long newBlackhole = runNewAllocationBenchmark(buf, BENCHMARK_ITERATIONS);
       final long newDurationNs = System.nanoTime() - newStart;
-      assertTrue(newBlackhole > 0);
+      assertEquals(expectedBytesRead, newBlackhole);
 
       final double ftlNsPerOp = (double) ftlDurationNs / BENCHMARK_ITERATIONS;
       final double newNsPerOp = (double) newDurationNs / BENCHMARK_ITERATIONS;
@@ -134,8 +135,7 @@ public class BufferAllocationBenchmarkTest {
           String.format("%,.0f", newOpsPerSec));
       logger.info("================================================================================");
 
-      // Both approaches should achieve sub-50 nanosecond operations in JIT
-      assertTrue(newNsPerOp < 50.0);
+      // Timings are informational. Absolute latency varies with the host, JIT, and runner load.
     } finally {
       buf.release();
     }

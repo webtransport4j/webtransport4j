@@ -121,6 +121,11 @@ public class WebTransportServer {
     return activeSslContext;
   }
 
+  /**
+   * Checks for certificate modifications and hot-reloads if changes are detected.
+   *
+   * @return true if certificates were reloaded, false otherwise
+   */
   public boolean checkAndReloadTlsCertificates() {
     if (tlsWatcher != null) {
       return tlsWatcher.checkAndReload();
@@ -143,6 +148,7 @@ public class WebTransportServer {
     this.ownsBusinessExecutor = true;
   }
 
+  /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
     this.defaultHandler = new WebTransportHandler() {
     };
@@ -389,9 +395,9 @@ public class WebTransportServer {
         throw new IllegalStateException(
             "Server cannot start without a registered default path handler.");
       }
-      int targetPort = configuredPort != null ? configuredPort
+      final int targetPort = configuredPort != null ? configuredPort
           : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
-      String targetHost = configuredHost != null ? configuredHost
+      final String targetHost = configuredHost != null ? configuredHost
           : WebTransportConfig.get("webtransport4j.server.host", "0.0.0.0");
 
       List<String> resolvedOrigins = this.allowedOrigins;
@@ -568,7 +574,8 @@ public class WebTransportServer {
           epollGroEnabled = udpGro;
           if (udpGro) {
             @SuppressWarnings("unchecked")
-            ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+            ChannelOption<Boolean> udpGroOption =
+                (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
             bootstrap.option(udpGroOption, udpGro);
           }
 
@@ -674,7 +681,8 @@ public class WebTransportServer {
                 + certFile.getAbsolutePath());
       }
     } else if (devMode) {
-      logger.info("🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
+      logger.info(
+          "🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
       SelfSignedCertificate ssc = new SelfSignedCertificate("localhost");
       keyFile = ssc.privateKey();
       certFile = ssc.certificate();
@@ -848,7 +856,11 @@ public class WebTransportServer {
   }
 
   private void bindServer(
-      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, String targetHost, int targetPort)
+      Bootstrap bootstrap,
+      @NonNull TransportConfig transportConfig,
+      ChannelHandler serverCodec,
+      String targetHost,
+      int targetPort)
       throws Exception {
     int defaultRecvBufSize = 65536;
     int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
@@ -921,7 +933,8 @@ public class WebTransportServer {
       if (shutdownHook != null) {
         try {
           Runtime.getRuntime().removeShutdownHook(shutdownHook);
-        } catch (Exception ignored) {
+        } catch (Exception expected) {
+          // ignored
         }
         shutdownHook = null;
       }
