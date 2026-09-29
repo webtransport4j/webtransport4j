@@ -141,7 +141,7 @@ jobs:
           distribution: temurin
 
       - name: Cache Maven packages
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
