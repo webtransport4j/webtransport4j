@@ -670,27 +670,43 @@ public class WebTransportServer {
     File keyFile;
     File certFile;
 
-    if (keyPath != null && certPath != null) {
+    if ((keyPath == null) != (certPath == null)) {
+      throw new IllegalStateException(
+        "Both SSL key path and certificate path must be configured together.");
+    }
+
+    if (keyPath != null) {
       keyFile = new File(keyPath);
       certFile = new File(certPath);
-      if (!keyFile.exists() || !certFile.exists()) {
+    
+      if (!keyFile.isFile() || !keyFile.canRead()) {
         throw new IllegalStateException(
-            "Configured SSL certificate files do not exist or are unreadable: key="
-                + keyFile.getAbsolutePath()
-                + ", cert="
+            "SSL private key does not exist, is not a regular file, or is unreadable: "
+                + keyFile.getAbsolutePath());
+      }
+    
+      if (!certFile.isFile() || !certFile.canRead()) {
+        throw new IllegalStateException(
+            "SSL certificate does not exist, is not a regular file, or is unreadable: "
                 + certFile.getAbsolutePath());
       }
     } else if (devMode) {
-      logger.info(
-          "🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
+      logger.warn(
+    "================================================================================\n"
+        + "⚠️  WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED\n"
+        + "⚠️  A SELF-SIGNED TLS CERTIFICATE WILL BE GENERATED\n"
+        + "⚠️  DO NOT USE THIS CONFIGURATION IN PRODUCTION\n"
+        + "⚠️  Configure webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path\n"
+        + "================================================================================");
+    
       SelfSignedCertificate ssc = new SelfSignedCertificate("localhost");
       keyFile = ssc.privateKey();
       certFile = ssc.certificate();
     } else {
       throw new IllegalStateException(
           "SSL key path and certificate path must be configured for production. "
-              + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path in configuration, "
-              + "or set webtransport4j.dev_mode=true for local development.");
+              + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path, "
+              + "or enable webtransport4j.dev_mode=true for local development.");
     }
 
     long sessionTimeout = WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
