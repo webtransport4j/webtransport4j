@@ -53,6 +53,11 @@ public class WebTransportServerDrainIntegrationTest {
   private QuicChannel clientQuicChannel;
   private CountDownLatch sessionClosedLatch;
 
+  /**
+   * Sets up test server before each test execution.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     sessionClosedLatch = new CountDownLatch(1);
@@ -72,6 +77,11 @@ public class WebTransportServerDrainIntegrationTest {
     log.info("ServerDrainTest: Server started on port {}", server.getPort());
   }
 
+  /**
+   * Tears down client channels and loops after each test execution.
+   *
+   * @throws Exception if teardown fails
+   */
   @After
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
@@ -137,7 +147,7 @@ public class WebTransportServerDrainIntegrationTest {
     // Establish WebTransport CONNECT stream
     CountDownLatch connectReady = new CountDownLatch(1);
 
-    QuicStreamChannel connectStream = Http3.newRequestStream(
+    final QuicStreamChannel connectStream = Http3.newRequestStream(
         clientQuicChannel,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override
@@ -176,7 +186,8 @@ public class WebTransportServerDrainIntegrationTest {
     assertFalse("Server should report isStarted() == false after stop", server.isStarted());
 
     // Assert session closed latch was triggered
-    assertTrue("Active session should receive onSessionClosed on server stop", sessionClosedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue("Active session should receive onSessionClosed on server stop",
+        sessionClosedLatch.await(5, TimeUnit.SECONDS));
 
     // Attempt connecting a new client to the stopped port (should fail or time out)
     boolean connectFailed = false;

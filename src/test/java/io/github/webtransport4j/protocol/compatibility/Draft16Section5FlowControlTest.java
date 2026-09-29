@@ -11,7 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.server.DefaultWebTransportSession;
 import io.github.webtransport4j.server.Http3InboundControlStreamHandler;
+import io.github.webtransport4j.server.NettyWebTransportSession;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;
@@ -109,7 +111,7 @@ public class Draft16Section5FlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(0L);
 
-    WebTransportSession session = new WebTransportSession(
+    DefaultWebTransportSession session = new DefaultWebTransportSession(
         0L, mockConnectStream, "/wt", 100L, 100L, 10000L, 100L, 100L, 10000L, true, true);
 
     assertEquals("Client-initiated Uni count must start at 0", 0L,
@@ -207,7 +209,7 @@ public class Draft16Section5FlowControlTest {
     Http3InboundControlStreamHandler handler = new Http3InboundControlStreamHandler();
     handler.channelRead(mockCtx, new DefaultHttp3SettingsFrame(settings));
 
-    WebTransportSession session = mgr.get(0L);
+    NettyWebTransportSession session = mgr.get(0L);
     assertNotNull(session);
     assertEquals(50L, session.getPeerSettingsMaxStreamsUni());
     assertEquals(60L, session.getPeerSettingsMaxStreamsBidi());
@@ -241,7 +243,7 @@ public class Draft16Section5FlowControlTest {
     when(mockConnectStream.hasAttr(any())).thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(0L);
+    NettyWebTransportSession session = mgr.get(0L);
     assertNotNull(session);
     session.setPeerSettingsMaxStreamsBidi(100L);
 
@@ -284,7 +286,7 @@ public class Draft16Section5FlowControlTest {
     when(mockConnectStream.hasAttr(any())).thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(0L);
+    NettyWebTransportSession session = mgr.get(0L);
     assertNotNull(session);
     session.markPeerMaxDataCapsuleReceived();
     session.setPeerSettingsMaxData(5000L);

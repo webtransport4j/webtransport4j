@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.Arrays;
@@ -39,6 +40,9 @@ public class WebTransportServerBuilder {
   private WebTransportHandler defaultHandler;
   private final Map<String, WebTransportHandler> handlers = new Object2ObjectOpenHashMap<>();
   private Supplier<MessageDispatcher> messageDispatcherSupplier;
+  private GlobalTrafficShapingHandler trafficShaper;
+  private Long globalTrafficWriteLimit;
+  private Long globalTrafficReadLimit;
 
   public WebTransportServerBuilder() {}
 
@@ -175,24 +179,104 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /**
+   * Sets a pre-configured handler whose exclusive ownership transfers to the server on build.
+   * Building another server with the same handler (including through another builder) is rejected.
+   * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
+   */
+  public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    this.trafficShaper = trafficShaper;
+    return this;
+  }
+
+  /** Sets global bandwidth rate limits in bytes per second for this server instance. */
+  public @NonNull WebTransportServerBuilder globalTrafficLimits(long writeLimit, long readLimit) {
+    this.globalTrafficWriteLimit = writeLimit;
+    this.globalTrafficReadLimit = readLimit;
+    return this;
+  }
+
   // Getters for WebTransportServer initialization
-  public Integer getPort() { return port; }
-  public String getHost() { return host; }
-  public String getSslKeyPath() { return sslKeyPath; }
-  public String getSslCertPath() { return sslCertPath; }
-  public QuicSslContext getSslContext() { return sslContext; }
-  public List<String> getAllowedOrigins() { return allowedOrigins; }
-  public ExecutorService getBusinessExecutor() { return businessExecutor; }
-  public WebTransportMetricsListener getMetricsListener() { return metricsListener; }
-  public QuicTokenHandler getQuicTokenHandler() { return quicTokenHandler; }
-  public String getTransportType() { return transportType; }
-  public Long getIdleTimeoutSeconds() { return idleTimeoutSeconds; }
-  public Long getInitialMaxStreamsBidi() { return initialMaxStreamsBidi; }
-  public Long getInitialMaxStreamsUni() { return initialMaxStreamsUni; }
-  public Long getInitialMaxData() { return initialMaxData; }
-  public WebTransportHandler getDefaultHandler() { return defaultHandler; }
-  public Map<String, WebTransportHandler> getHandlers() { return handlers; }
-  public Supplier<MessageDispatcher> getMessageDispatcherSupplier() { return messageDispatcherSupplier; }
+  Integer getPort() {
+    return port;
+  }
+
+  String getHost() {
+    return host;
+  }
+
+  String getSslKeyPath() {
+    return sslKeyPath;
+  }
+
+  String getSslCertPath() {
+    return sslCertPath;
+  }
+
+  QuicSslContext getSslContext() {
+    return sslContext;
+  }
+
+  List<String> getAllowedOrigins() {
+    return allowedOrigins;
+  }
+
+  ExecutorService getBusinessExecutor() {
+    return businessExecutor;
+  }
+
+  WebTransportMetricsListener getMetricsListener() {
+    return metricsListener;
+  }
+
+  QuicTokenHandler getQuicTokenHandler() {
+    return quicTokenHandler;
+  }
+
+  String getTransportType() {
+    return transportType;
+  }
+
+  Long getIdleTimeoutSeconds() {
+    return idleTimeoutSeconds;
+  }
+
+  Long getInitialMaxStreamsBidi() {
+    return initialMaxStreamsBidi;
+  }
+
+  Long getInitialMaxStreamsUni() {
+    return initialMaxStreamsUni;
+  }
+
+  Long getInitialMaxData() {
+    return initialMaxData;
+  }
+
+  WebTransportHandler getDefaultHandler() {
+    return defaultHandler;
+  }
+
+  Map<String, WebTransportHandler> getHandlers() {
+    return handlers;
+  }
+
+  Supplier<MessageDispatcher> getMessageDispatcherSupplier() {
+    return messageDispatcherSupplier;
+  }
+
+  GlobalTrafficShapingHandler getTrafficShaper() {
+    return trafficShaper;
+  }
+
+  Long getGlobalTrafficWriteLimit() {
+    return globalTrafficWriteLimit;
+  }
+
+  Long getGlobalTrafficReadLimit() {
+    return globalTrafficReadLimit;
+  }
+
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

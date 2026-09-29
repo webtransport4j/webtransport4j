@@ -12,7 +12,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
@@ -75,7 +74,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
     assertEquals(5L, session.getInitialMaxStreamsBidi());
 
@@ -151,7 +150,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(200L);
+    NettyWebTransportSession session = mgr.get(200L);
     assertNotNull(session);
     assertEquals(8L, session.getInitialMaxStreamsUni());
 
@@ -222,7 +221,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(300L);
+    NettyWebTransportSession session = mgr.get(300L);
     assertNotNull(session);
     assertEquals(2L, session.getInitialMaxStreamsBidi());
 
@@ -292,7 +291,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(400L);
+    NettyWebTransportSession session = mgr.get(400L);
     assertNotNull(session);
     assertEquals(5L, session.getInitialMaxStreamsBidi());
 
@@ -371,7 +370,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
 
     session.setPeerSettingsMaxStreamsUni(0L);
@@ -430,7 +429,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(dataAttr);
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(500L);
+    NettyWebTransportSession session = mgr.get(500L);
     assertNotNull(session);
 
     // Verify bidi and uni limits are set to their fallback default values
@@ -488,7 +487,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(200L);
+    NettyWebTransportSession session = mgr.get(200L);
     assertNotNull(session);
 
     // Set absolute max streams properties programmatically

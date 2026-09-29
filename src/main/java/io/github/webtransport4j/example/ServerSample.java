@@ -10,10 +10,17 @@ public class ServerSample {
   /** Main. */
   public static void main(@NonNull String[] args) throws Exception {
     WebTransportServer server = new WebTransportServer(new DefaultPathHandler());
-    server.setMetricsListener(new LoggingWebTransportMetricsListener(60, TimeUnit.SECONDS));
+    LoggingWebTransportMetricsListener listener =
+        new LoggingWebTransportMetricsListener(60, TimeUnit.SECONDS);
+    server.setMetricsListener(listener);
     server.registerHandler("/test", new WebTransportTestHandler());
     server.registerHandler("/chat", new WebTransportChatHandler());
-    server.registerHandler("/echo",new EchoWebTransportHandler());
-    server.start();
+    server.registerHandler("/echo", new EchoWebTransportHandler());
+    try {
+      server.start();
+    } catch (Exception e) {
+      listener.close();
+      throw e;
+    }
   }
 }

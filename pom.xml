@@ -164,7 +164,11 @@
             <version>1.37</version>
             <scope>test</scope>
         </dependency>
-
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.80</version>
+        </dependency>
     </dependencies>
 
     <profiles>
@@ -265,6 +269,10 @@
                             <additionalClasspathElements>
                                 <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
                             </additionalClasspathElements>
+                            <excludes>
+                                <exclude>**/*_jmhTest*</exclude>
+                                <exclude>**/jmh_generated/**</exclude>
+                            </excludes>
                         </configuration>
                     </plugin>
                 </plugins>
@@ -369,6 +377,10 @@
                 <version>3.5.4</version>
                 <configuration>
                     <argLine>-Dio.netty.leakDetection.level=PARANOID</argLine>
+                    <excludes>
+                        <exclude>**/*_jmhTest*</exclude>
+                        <exclude>**/jmh_generated/**</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
 

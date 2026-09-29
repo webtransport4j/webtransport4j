@@ -1,11 +1,5 @@
 package io.github.webtransport4j.example;
 
-/**
- * @author https://github.com/sanjomo
- * @date 02/07/26 9:19 pm
- */
-
-
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -17,7 +11,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Simple echo server.
  *
- * - Echoes every bidirectional stream back on the same stream.
+ * <p>- Echoes every bidirectional stream back on the same stream.
  * - Echoes unidirectional streams back using a new server unidirectional stream.
  * - Echoes datagrams back as datagrams.
  */

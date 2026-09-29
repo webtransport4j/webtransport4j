@@ -2,11 +2,11 @@ package io.github.webtransport4j.api;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+
 /**
  * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement
  * the standard {@link WebTransportHandler} interface.
@@ -30,7 +30,8 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {}
+      public void onNext(Void unused) {
+      }
 
       @Override
       public void onError(Throwable t) {
@@ -55,10 +56,12 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
         }
 
         @Override
-        public void onNext(Void aVoid) {}
+        public void onNext(Void unused) {
+        }
 
         @Override
-        public void onError(Throwable t) {}
+        public void onError(Throwable t) {
+        }
 
         @Override
         public void onComplete() {
@@ -84,6 +87,9 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
     ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
     if (reactiveSession != null) {
+      // This retained reference belongs to the receiveDatagrams() subscriber, which must close it.
+      // The delegate borrows the transport reference and must retain separately for asynchronous work.
+      data.retain();
       reactiveSession.emitIncomingDatagram(data);
       subscribeAndIgnore(delegate.onDatagramReceived(reactiveSession, data));
     }
@@ -97,13 +103,16 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       }
 
       @Override
-      public void onNext(Void aVoid) {}
+      public void onNext(Void unused) {
+      }
 
       @Override
-      public void onError(Throwable t) {}
+      public void onError(Throwable t) {
+      }
 
       @Override
-      public void onComplete() {}
+      public void onComplete() {
+      }
     });
   }
 }

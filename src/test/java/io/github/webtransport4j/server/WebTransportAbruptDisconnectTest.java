@@ -57,6 +57,11 @@ public class WebTransportAbruptDisconnectTest {
   private QuicChannel clientQuicChannel;
   private CountDownLatch sessionClosedLatch;
 
+  /**
+   * Sets up test server before each test.
+   *
+   * @throws Exception if setup fails
+   */
   @Before
   public void setUp() throws Exception {
     ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
@@ -86,6 +91,11 @@ public class WebTransportAbruptDisconnectTest {
     log.info("AbruptDisconnectTest: Server started on port {}", server.getPort());
   }
 
+  /**
+   * Shuts down client channels and event loop after each test.
+   *
+   * @throws Exception if teardown fails
+   */
   @After
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
@@ -152,7 +162,7 @@ public class WebTransportAbruptDisconnectTest {
     CountDownLatch connectReady = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
 
-    QuicStreamChannel connectStream = Http3.newRequestStream(
+    final QuicStreamChannel connectStream = Http3.newRequestStream(
         clientQuicChannel,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override
@@ -183,7 +193,7 @@ public class WebTransportAbruptDisconnectTest {
     long sessionId = connectHolder[0].streamId();
 
     // Open bidi stream & send payload
-    QuicStreamChannel bidiStream = clientQuicChannel.createStream(
+    final QuicStreamChannel bidiStream = clientQuicChannel.createStream(
         QuicStreamType.BIDIRECTIONAL,
         new ChannelInitializer<QuicStreamChannel>() {
           @Override

@@ -5,8 +5,10 @@ import org.reactivestreams.Publisher;
 
 /**
  * A reactive handler for WebTransport sessions.
- * Extends reactive hooks for session lifecycles, incoming streams, and datagrams,
- * returning Publisher&lt;Void&gt; to cleanly bind processing pipelines in an agnostic way.
+ * Extends reactive hooks for session lifecycles, incoming streams, and
+ * datagrams,
+ * returning Publisher&lt;Void&gt; to cleanly bind processing pipelines in an
+ * agnostic way.
  */
 public interface ReactiveWebTransportHandler {
 
@@ -34,7 +36,7 @@ public interface ReactiveWebTransportHandler {
    * Invoked when a client initiates a new unidirectional or bidirectional stream.
    *
    * @param session the reactive session.
-   * @param stream the reactive stream.
+   * @param stream  the reactive stream.
    * @return a Publisher that completes when stream processing is done.
    */
   default @NonNull Publisher<Void> onIncomingStream(
@@ -44,9 +46,12 @@ public interface ReactiveWebTransportHandler {
 
   /**
    * Invoked when a datagram is received from the client.
+   * The buffer is borrowed for this callback. For asynchronous processing, retain a separate
+   * reference before returning and close it when processing finishes. The reference delivered
+   * through {@link ReactiveWebTransportSession#receiveDatagrams()} belongs to its subscriber.
    *
    * @param session the reactive session.
-   * @param data the received datagram payload buffer.
+   * @param data    the received datagram payload buffer.
    * @return a Publisher that completes when datagram processing is done.
    */
   default @NonNull Publisher<Void> onDatagramReceived(

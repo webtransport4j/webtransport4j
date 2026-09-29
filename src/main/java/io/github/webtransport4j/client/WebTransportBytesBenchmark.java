@@ -3,15 +3,28 @@ package io.github.webtransport4j.client;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.NetUtil;
 import io.netty.util.ReferenceCountUtil;
-
 import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -19,6 +32,9 @@ import java.util.concurrent.locks.LockSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Bulk byte throughput benchmark client for WebTransport over HTTP/3.
+ */
 public final class WebTransportBytesBenchmark {
 
     // 1 GB total data = 1,073,741,824 bytes
@@ -27,6 +43,12 @@ public final class WebTransportBytesBenchmark {
     // Aggressive Chunking: 256 KB per write
     private static final int CHUNK_SIZE = 256 * 1024;
 
+    /**
+     * Main entry point to execute the bulk byte throughput benchmark.
+     *
+     * @param args command-line arguments
+     * @throws Exception if benchmark execution fails
+     */
     public static void main(String... args) throws Exception {
         // MultiThreadIoEventLoopGroup with 8 threads for high I/O capacity
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(8, NioIoHandler.newFactory());
@@ -59,7 +81,8 @@ public final class WebTransportBytesBenchmark {
             settings.enableH3Datagram(true);
 
             QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
-                    .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
+                    .handler(new WebTransportClientHandler(
+                        new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
                     .remoteAddress(new InetSocketAddress(NetUtil.LOCALHOST4, 4433))
                     .connect()
                     .get();
@@ -113,7 +136,8 @@ public final class WebTransportBytesBenchmark {
 
             System.out.println("\n================ BENCHMARK RESULTS ================");
             System.out.printf("Total Data Transferred : %.2f MB (Send & Receive)%n", TOTAL_BYTES / (1024.0 * 1024.0));
-            System.out.println("Time Taken             : " + durationMs + " ms (" + String.format("%.2f", seconds) + " seconds)");
+            System.out.println("Time Taken             : " + durationMs + " ms ("
+                + String.format("%.2f", seconds) + " seconds)");
             System.out.printf("Throughput (MB/s)      : %,.2f MB/s%n", mbps);
             System.out.printf("Throughput (Network)   : %,.2f Gbps%n", gbps);
             System.out.println("===================================================");
@@ -123,7 +147,8 @@ public final class WebTransportBytesBenchmark {
         }
     }
 
-    private static void streamDataWithBackpressure(QuicStreamChannel channel, BulkThroughputHandler handler, ByteBuf chunk) throws InterruptedException {
+    private static void streamDataWithBackpressure(
+        QuicStreamChannel channel, BulkThroughputHandler handler, ByteBuf chunk) throws InterruptedException {
         CountDownLatch latch = new CountDownLatch(1);
         handler.expect(TOTAL_BYTES, latch);
 
@@ -161,55 +186,56 @@ public final class WebTransportBytesBenchmark {
         System.out.printf("All %,d bytes sent. Awaiting full echo receipt from server...%n", TOTAL_BYTES);
         latch.await();
     }
-}
 
-/**
- * Monitors incoming byte stream to count payload progress without keeping data in memory.
- */
-class BulkThroughputHandler extends ChannelDuplexHandler {
-    private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler.class);
-    private long bytesReceived = 0;
-    private long bytesExpected = 0;
-    private CountDownLatch currentLatch;
-    private long lastReportedPercent = 0;
+    /**
+     * Monitors incoming byte stream to count payload progress without keeping data in memory.
+     */
+    static class BulkThroughputHandler extends ChannelDuplexHandler {
+        private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler.class);
+        private long bytesReceived = 0;
+        private long bytesExpected = 0;
+        private CountDownLatch currentLatch;
+        private long lastReportedPercent = 0;
 
-    public void expect(long bytes, CountDownLatch latch) {
-        this.bytesExpected = bytes;
-        this.bytesReceived = 0;
-        this.currentLatch = latch;
-        this.lastReportedPercent = 0;
-    }
+        public void expect(long bytes, CountDownLatch latch) {
+            this.bytesExpected = bytes;
+            this.bytesReceived = 0;
+            this.currentLatch = latch;
+            this.lastReportedPercent = 0;
+        }
 
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            bytesReceived += buf.readableBytes();
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof ByteBuf) {
+                ByteBuf buf = (ByteBuf) msg;
+                bytesReceived += buf.readableBytes();
 
-            // Print progress every 10% milestone
-            long currentPercent = (bytesReceived * 100) / bytesExpected;
-            if (currentPercent >= lastReportedPercent + 10) {
-                lastReportedPercent = (currentPercent / 10) * 10;
-                System.out.println("Progress: Received " + lastReportedPercent + "% (" + (bytesReceived / (1024 * 1024)) + " MB)");
-                System.out.flush();
-            }
-
-            if (currentLatch != null && bytesReceived >= bytesExpected) {
-                if (lastReportedPercent < 100) {
-                    System.out.println("Progress: Received 100% (" + (bytesReceived / (1024 * 1024)) + " MB)");
+                // Print progress every 10% milestone
+                long currentPercent = (bytesReceived * 100) / bytesExpected;
+                if (currentPercent >= lastReportedPercent + 10) {
+                    lastReportedPercent = (currentPercent / 10) * 10;
+                    System.out.println("Progress: Received " + lastReportedPercent + "% ("
+                        + (bytesReceived / (1024 * 1024)) + " MB)");
                     System.out.flush();
                 }
-                currentLatch.countDown();
-            }
-            ReferenceCountUtil.release(msg);
-        } else {
-            super.channelRead(ctx, msg);
-        }
-    }
 
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.error("Exception in benchmark stream handler", cause);
-        ctx.close();
+                if (currentLatch != null && bytesReceived >= bytesExpected) {
+                    if (lastReportedPercent < 100) {
+                        System.out.println("Progress: Received 100% (" + (bytesReceived / (1024 * 1024)) + " MB)");
+                        System.out.flush();
+                    }
+                    currentLatch.countDown();
+                }
+                ReferenceCountUtil.release(msg);
+            } else {
+                super.channelRead(ctx, msg);
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            logger.error("Exception in benchmark stream handler", cause);
+            ctx.close();
+        }
     }
 }

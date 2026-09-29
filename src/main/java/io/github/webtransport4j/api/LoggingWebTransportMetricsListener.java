@@ -25,7 +25,8 @@ import org.slf4j.LoggerFactory;
  *
  * @author https://github.com/sanjomo
  */
-public class LoggingWebTransportMetricsListener implements WebTransportMetricsListener {
+public class LoggingWebTransportMetricsListener
+    implements WebTransportMetricsListener, AutoCloseable {
 
   private static final Logger logger =
       LoggerFactory.getLogger(LoggingWebTransportMetricsListener.class);
@@ -169,6 +170,11 @@ public class LoggingWebTransportMetricsListener implements WebTransportMetricsLi
       reportFuture.cancel(false);
     }
     scheduler.shutdownNow();
+  }
+
+  @Override
+  public void close() {
+    shutdown();
   }
 
   /** Provides a snapshot of all current metric values as a formatted string. */

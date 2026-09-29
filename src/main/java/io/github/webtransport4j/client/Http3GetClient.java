@@ -1,30 +1,50 @@
 package io.github.webtransport4j.client;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.*;
-import io.netty.channel.socket.ChannelInputShutdownEvent;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioIoHandler;
+import io.netty.channel.socket.ChannelInputShutdownEvent;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3DataFrame;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.CharsetUtil;
 import io.netty.util.NetUtil;
-import io.netty.util.ReferenceCountUtil;
-
 import java.net.InetSocketAddress;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Sample HTTP/3 GET client demonstrating requests over QUIC and HTTP/3.
+ */
 public final class Http3GetClient {
 
     private static final Logger logger = LoggerFactory.getLogger(Http3GetClient.class);
     private static final long RESPONSE_TIMEOUT_MILLIS =
             Long.getLong("webtransport4j.client.http3.get.timeout.millis", 5000L);
 
+    /**
+     * Main entry point to send an HTTP/3 GET request.
+     *
+     * @param args command-line arguments
+     * @throws Exception if request fails
+     */
     public static void main(String[] args) throws Exception {
 
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
@@ -57,7 +77,8 @@ public final class Http3GetClient {
             settings.enableConnectProtocol(true);
             settings.enableH3Datagram(true);
             QuicChannel quicChannel = QuicChannel.newBootstrap(udp)
-                    .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
+                    .handler(new WebTransportClientHandler(
+                        new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
                     .remoteAddress(new InetSocketAddress(NetUtil.LOCALHOST4, 4433))
                     .connect()
                     .get();
@@ -101,7 +122,8 @@ public final class Http3GetClient {
                     }).sync().getNow();
             requestStream.config().setAllowHalfClosure(true);
             requestStream.closeFuture().addListener(f ->
-                    responseComplete.completeExceptionally(new IllegalStateException("Response stream closed before FIN")));
+                    responseComplete.completeExceptionally(
+                        new IllegalStateException("Response stream closed before FIN")));
 
             Http3HeadersFrame request = new DefaultHttp3HeadersFrame();
             request.headers()

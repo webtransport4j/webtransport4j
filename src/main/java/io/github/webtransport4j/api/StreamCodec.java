@@ -1,6 +1,5 @@
-package io.github.webtransport4j.example;
+package io.github.webtransport4j.api;
 
-import io.github.webtransport4j.api.WebTransportBuffer;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 

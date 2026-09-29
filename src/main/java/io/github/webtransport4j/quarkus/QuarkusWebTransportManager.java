@@ -19,6 +19,11 @@ public class QuarkusWebTransportManager {
 
   private final WebTransportServer server;
 
+  /**
+   * Constructs a new manager wrapping the specified server.
+   *
+   * @param server the WebTransport server to manage
+   */
   public QuarkusWebTransportManager(WebTransportServer server) {
     if (server == null) {
       throw new IllegalArgumentException("WebTransportServer cannot be null");
@@ -65,7 +70,8 @@ public class QuarkusWebTransportManager {
               builder.reactiveHandler(path, reactiveHandler);
             }
           } else {
-            logger.warn("⚠️ Bean '{}' has @WebTransportEndpoint but does not implement WebTransportHandler or ReactiveWebTransportHandler",
+            logger.warn("⚠️ Bean '{}' has @WebTransportEndpoint but does not implement "
+                + "WebTransportHandler or ReactiveWebTransportHandler",
                 bean.getClass().getName());
           }
         }

@@ -79,6 +79,7 @@ public class FramingLayerTest {
             });
     return future;
   }
+
   private static final Logger log = LoggerFactory.getLogger(FramingLayerTest.class);
 
   @Test
@@ -97,7 +98,7 @@ public class FramingLayerTest {
     assertTrue(output instanceof WebTransportDatagramFrame);
 
     WebTransportDatagramFrame frame = (WebTransportDatagramFrame) output;
-    assertEquals(40L<<2, frame.sessionId());
+    assertEquals(40L << 2, frame.sessionId());
     assertEquals("Hello", frame.content().toString(StandardCharsets.UTF_8));
     frame.release();
   }
@@ -386,7 +387,7 @@ public class FramingLayerTest {
 
   @Test
   public void testWebTransportHeadersHandlerHandshake() throws Exception {
-    WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+    final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -486,7 +487,7 @@ public class FramingLayerTest {
 
   @Test
   public void testHandshakeWithWebTransportSettingsOverrides() throws Exception {
-    WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+    final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
@@ -569,7 +570,7 @@ public class FramingLayerTest {
 
     // Verify registration
     assertTrue(mgr.hasSession(200L));
-    WebTransportSession session = mgr.get(200L);
+    NettyWebTransportSession session = mgr.get(200L);
     assertNotNull(session);
 
     // Verify that settings overrode the connection-level limits
@@ -580,7 +581,7 @@ public class FramingLayerTest {
 
   @Test
   public void testWebTransportHeadersHandlerInvalidSessionId() throws Exception {
-    WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+    final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -641,7 +642,7 @@ public class FramingLayerTest {
         .thenReturn(mock(Attribute.class));
 
     mgr.register(mockConnectStream);
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
 
     // peerSettingsMaxStreamsUni = 2, peerSettingsMaxStreamsBidi = 1
@@ -851,7 +852,7 @@ public class FramingLayerTest {
     // Set maximum sessions limit to 1
     System.setProperty("webtransport4j.webtransport.max_sessions_per_connection", "1");
     try {
-      WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
+      final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
       ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
       QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
       QuicChannel mockParent = mock(QuicChannel.class);

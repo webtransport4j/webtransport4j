@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientTestSuite;
+import java.nio.charset.StandardCharsets;
 import org.jspecify.annotations.NonNull;
 import org.junit.After;
 import org.junit.Before;
@@ -12,8 +13,9 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
-
+/**
+ * Test for running {@link WebTransportClientTestSuite} against an embedded server.
+ */
 public class WebTransportClientTestSuiteTest {
 
     private static final Logger logger = LoggerFactory.getLogger(WebTransportClientTestSuiteTest.class);
@@ -98,6 +100,11 @@ public class WebTransportClientTestSuiteTest {
 
     private Thread serverThread;
 
+    /**
+     * Sets up and starts the test server before each test.
+     *
+     * @throws Exception if setup fails
+     */
     @Before
     public void setUp() throws Exception {
         System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
@@ -125,6 +132,11 @@ public class WebTransportClientTestSuiteTest {
         logger.info("Server asynchronously started on port: {}", port);
     }
 
+    /**
+     * Stops the test server after each test.
+     *
+     * @throws Exception if teardown fails
+     */
     @After
     public void tearDown() throws Exception {
         if (server != null) {

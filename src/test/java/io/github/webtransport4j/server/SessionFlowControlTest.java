@@ -75,7 +75,7 @@ public class SessionFlowControlTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
     assertEquals(1000L, session.getPeerSettingsMaxData());
 
@@ -336,7 +336,7 @@ public class SessionFlowControlTest {
 
     mgr.register(mockConnectStream);
 
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     assertNotNull(session);
     assertEquals(1000L, session.getSettingsMaxData());
 

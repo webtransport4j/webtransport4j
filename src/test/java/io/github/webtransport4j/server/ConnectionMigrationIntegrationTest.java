@@ -5,7 +5,6 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import io.github.webtransport4j.api.NettyWebTransportStream;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;

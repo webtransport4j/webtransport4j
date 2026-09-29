@@ -25,12 +25,21 @@ from typing import List, Tuple
 from aioquic.buffer import Buffer
 from pywebtransport import ClientConfig, WebTransportClient
 
+from raw_aioquic import open_raw_session
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("WebTransportDraft16Suite")
+
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+  try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+  except Exception:
+    pass
 
 # Results tracking
 test_results: List[Tuple[int, str, str, str, str, str]] = []
@@ -68,12 +77,9 @@ def make_capsule(capsule_type: int, payload: bytes) -> bytes:
   return buf.data + payload
 
 
-async def send_capsule_on_connect_stream(session, capsule_bytes: bytes):
-  stream_id = session._control_stream_id
-  session.protocol_handler._h3.send_data(
-      stream_id=stream_id, data=capsule_bytes, end_stream=False
-  )
-  session.protocol_handler._trigger_transmission()
+async def send_capsule_on_connect_stream(raw_session, capsule_bytes: bytes):
+  protocol, session_id = raw_session
+  protocol.send_capsule(session_id=session_id, data=capsule_bytes)
 
 
 # ==============================================================================
@@ -85,14 +91,14 @@ async def test_01_session_connect_positive(client, base_url: str):
   test_num = 1
   try:
     session = await client.connect(url=f"{base_url}/test")
-    assert session.is_ready
+    await session.ensure_ready()
     record_result(
         test_num,
         "POSITIVE",
         "§ 3.2",
         "Primary Session Connect (/test)",
         "PASSED",
-        f"Stream ID {session._control_stream_id}",
+        f"Stream ID {session.session_id}",
     )
     return session
   except Exception as e:
@@ -111,7 +117,7 @@ async def test_02_url_path_chat_positive(client, base_url: str):
   test_num = 2
   try:
     s = await client.connect(url=f"{base_url}/chat")
-    assert s.is_ready
+    await s.ensure_ready()
     await s.close()
     record_result(
         test_num,
@@ -137,12 +143,12 @@ async def test_03_url_path_echo_positive(client, base_url: str):
   test_num = 3
   try:
     s = await client.connect(url=f"{base_url}/echo")
-    assert s.is_ready
+    await s.ensure_ready()
     st = await s.create_bidirectional_stream()
-    await st.write_all(b"EchoHandlerTestPayload", end_stream=False)
+    await st.write_all(data=b"EchoHandlerTestPayload", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=3.0)
     assert b"EchoHandlerTestPayload" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
     await s.close()
     record_result(
         test_num,
@@ -262,30 +268,27 @@ async def test_06_server_uni_stream_positive(session):
     raise
 
 
-async def test_07_unknown_session_uni_stream_negative(session):
+async def test_07_unknown_session_uni_stream_negative(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 7
   try:
-    quic_conn = session.protocol_handler._quic
-    unknown_session_id = 999999
-    uni_stream_id = quic_conn.get_next_available_stream_id(
-        is_unidirectional=True
-    )
-
-    buf = Buffer(capacity=32)
-    buf.push_uint_var(0x54)  # WebTransport Uni stream type
-    buf.push_uint_var(unknown_session_id)
-    buf.push_bytes(b"BadUniSessionPayload")
-
-    quic_conn.send_stream_data(uni_stream_id, buf.data, end_stream=True)
-    session.protocol_handler._trigger_transmission()
-    await asyncio.sleep(0.3)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      raw_proto.send_unknown_session_stream(
+          session_id=999999, data=b"BadUniSessionPayload", unidirectional=True
+      )
+      await asyncio.sleep(0.3)
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"HealthCheckUniDrop"
+      )
+      assert b"ACK BI: HealthCheckUniDrop" in resp
 
     # Verify active session is completely healthy
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"HealthCheckUniDrop", end_stream=False)
+    await st.write_all(data=b"HealthCheckUniDrop", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: HealthCheckUniDrop" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -504,30 +507,27 @@ async def test_12_hol_blocking_positive(session):
     raise
 
 
-async def test_13_unknown_session_bidi_stream_negative(session):
+async def test_13_unknown_session_bidi_stream_negative(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 13
   try:
-    quic_conn = session.protocol_handler._quic
-    unknown_session_id = 999999
-    bidi_stream_id = quic_conn.get_next_available_stream_id(
-        is_unidirectional=False
-    )
-
-    buf = Buffer(capacity=32)
-    buf.push_uint_var(0x41)  # WebTransport Bidi stream type
-    buf.push_uint_var(unknown_session_id)
-    buf.push_bytes(b"BadBidiSessionPayload")
-
-    quic_conn.send_stream_data(bidi_stream_id, buf.data, end_stream=True)
-    session.protocol_handler._trigger_transmission()
-    await asyncio.sleep(0.3)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      raw_proto.send_unknown_session_stream(
+          session_id=999999, data=b"BadBidiSessionPayload", unidirectional=False
+      )
+      await asyncio.sleep(0.3)
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"HealthCheckBidiDrop"
+      )
+      assert b"ACK BI: HealthCheckBidiDrop" in resp
 
     # Verify active session is completely healthy
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"HealthCheckBidiDrop", end_stream=False)
+    await st.write_all(data=b"HealthCheckBidiDrop", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: HealthCheckBidiDrop" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -657,26 +657,37 @@ async def test_15_error_code_reserved_codepoints_negative():
     raise
 
 
-async def test_16_wire_stream_reset_positive(session):
+async def test_16_wire_stream_reset_positive(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 16
   try:
-    stream = await session.create_bidirectional_stream()
-    await stream.write_all(b"ResetTestPayload", end_stream=False)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      stream_id = raw_proto.http.create_webtransport_stream(
+          session_id=raw_session_id, is_unidirectional=False
+      )
+      raw_proto._quic.send_stream_data(
+          stream_id, b"ResetTestPayload", end_stream=False
+      )
+      raw_proto.transmit()
 
-    # Reset stream using Draft-16 mapped HTTP/3 error code
-    mapped_error = webtransport_code_to_http_code(0x1234)
-    session.protocol_handler._quic.reset_stream(
-        stream.stream_id, error_code=mapped_error
-    )
-    session.protocol_handler._trigger_transmission()
-    await asyncio.sleep(0.3)
+      # Reset stream using Draft-16 mapped HTTP/3 error code
+      mapped_error = webtransport_code_to_http_code(0x1234)
+      raw_proto._quic.reset_stream(stream_id, error_code=mapped_error)
+      raw_proto.transmit()
+      await asyncio.sleep(0.3)
+
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"AliveAfterReset"
+      )
+      assert b"ACK BI: AliveAfterReset" in resp
 
     # Verify session remains fully operational
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"AliveAfterReset", end_stream=False)
+    await st.write_all(data=b"AliveAfterReset", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: AliveAfterReset" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -698,25 +709,36 @@ async def test_16_wire_stream_reset_positive(session):
     raise
 
 
-async def test_17_wire_stop_sending_positive(session):
+async def test_17_wire_stop_sending_positive(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 17
   try:
-    stream = await session.create_bidirectional_stream()
-    await stream.write_all(b"StopSendingPayload", end_stream=False)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      stream_id = raw_proto.http.create_webtransport_stream(
+          session_id=raw_session_id, is_unidirectional=False
+      )
+      raw_proto._quic.send_stream_data(
+          stream_id, b"StopSendingPayload", end_stream=False
+      )
+      raw_proto.transmit()
 
-    mapped_error = webtransport_code_to_http_code(0x5678)
-    session.protocol_handler._quic.stop_stream(
-        stream.stream_id, error_code=mapped_error
-    )
-    session.protocol_handler._trigger_transmission()
-    await asyncio.sleep(0.3)
+      mapped_error = webtransport_code_to_http_code(0x5678)
+      raw_proto._quic.stop_stream(stream_id, error_code=mapped_error)
+      raw_proto.transmit()
+      await asyncio.sleep(0.3)
+
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"AliveAfterStopSending"
+      )
+      assert b"ACK BI: AliveAfterStopSending" in resp
 
     # Verify session remains operational
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"AliveAfterStopSending", end_stream=False)
+    await st.write_all(data=b"AliveAfterStopSending", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: AliveAfterStopSending" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -779,24 +801,27 @@ async def test_18_datagram_positive(session):
     raise
 
 
-async def test_19_unknown_session_datagram_negative(session):
+async def test_19_unknown_session_datagram_negative(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 19
   try:
-    quic_conn = session.protocol_handler._quic
-    buf_dgram = Buffer(capacity=32)
-    buf_dgram.push_uint_var(99999)  # Unknown quarter session ID
-    buf_dgram.push_bytes(b"BadDgramSessionPayload")
-
-    quic_conn.send_datagram_frame(buf_dgram.data)
-    session.protocol_handler._trigger_transmission()
-    await asyncio.sleep(0.3)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      raw_proto.send_unknown_session_datagram(
+          quarter_session_id=99999, data=b"BadDgramSessionPayload"
+      )
+      await asyncio.sleep(0.3)
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"HealthCheckDgramDrop"
+      )
+      assert b"ACK BI: HealthCheckDgramDrop" in resp
 
     # Verify session remains operational
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"HealthCheckDgramDrop", end_stream=False)
+    await st.write_all(data=b"HealthCheckDgramDrop", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: HealthCheckDgramDrop" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -823,19 +848,26 @@ async def test_19_unknown_session_datagram_negative(session):
 # ==============================================================================
 
 
-async def test_20_drain_session_positive(session):
+async def test_20_drain_session_positive(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 20
   try:
-    drain_cap = make_capsule(WT_DRAIN_SESSION_TYPE, b"")  # length = 0
-    await send_capsule_on_connect_stream(session, drain_cap)
-    await asyncio.sleep(0.3)
+    async with open_raw_session(url) as (raw_proto, raw_session_id):
+      drain_cap = make_capsule(WT_DRAIN_SESSION_TYPE, b"")  # length = 0
+      raw_proto.send_capsule(session_id=raw_session_id, data=drain_cap)
+      await asyncio.sleep(0.3)
+      resp = await raw_proto.exchange(
+          session_id=raw_session_id, data=b"HelloPostDrain"
+      )
+      assert b"ACK BI: HelloPostDrain" in resp
 
     # § 4.7: Endpoints MAY continue using the session after drain
     st = await session.create_bidirectional_stream()
-    await st.write_all(b"HelloPostDrain", end_stream=False)
+    await st.write_all(data=b"HelloPostDrain", end_stream=False)
     resp = await asyncio.wait_for(st.read(), timeout=2.0)
     assert b"ACK BI: HelloPostDrain" in resp
-    await st.write_all(b"", end_stream=True)
+    await st.write_all(data=b"", end_stream=True)
 
     record_result(
         test_num,
@@ -860,23 +892,22 @@ async def test_20_drain_session_positive(session):
 async def test_21_drain_session_nonzero_negative(client, url: str):
   test_num = 21
   try:
-    s = await client.connect(url=url)
     invalid_drain = make_capsule(
         WT_DRAIN_SESSION_TYPE, b"ILLEGAL_NONZERO_PAYLOAD"
     )
-    await send_capsule_on_connect_stream(s, invalid_drain)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, invalid_drain)
+      await asyncio.sleep(0.5)
 
-    # Server MUST reset connect stream with H3_MESSAGE_ERROR (0x010e)
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      # Server MUST reset connect stream with H3_MESSAGE_ERROR (0x010e)
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after malformed drain capsule!"
+      assert failed, "Session was NOT reset after malformed drain capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -905,23 +936,22 @@ async def test_21_drain_session_nonzero_negative(client, url: str):
 async def test_22_prohibited_max_stream_data_negative(client, url: str):
   test_num = 22
   try:
-    s = await client.connect(url=url)
     buf = Buffer(capacity=8)
     buf.push_uint_var(1000)
     prohibited = make_capsule(WT_MAX_STREAM_DATA_TYPE, buf.data)
-    await send_capsule_on_connect_stream(s, prohibited)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, prohibited)
+      await asyncio.sleep(0.5)
 
-    # § 5.4: Server MUST reset session with WT_FLOW_CONTROL_ERROR (0x045d4487)
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      # § 5.4: Server MUST reset session with WT_FLOW_CONTROL_ERROR (0x045d4487)
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after prohibited capsule!"
+      assert failed, "Session was NOT reset after prohibited capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -945,22 +975,21 @@ async def test_22_prohibited_max_stream_data_negative(client, url: str):
 async def test_23_prohibited_stream_data_blocked_negative(client, url: str):
   test_num = 23
   try:
-    s = await client.connect(url=url)
     buf = Buffer(capacity=8)
     buf.push_uint_var(1000)
     prohibited = make_capsule(WT_STREAM_DATA_BLOCKED_TYPE, buf.data)
-    await send_capsule_on_connect_stream(s, prohibited)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, prohibited)
+      await asyncio.sleep(0.5)
 
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after prohibited capsule!"
+      assert failed, "Session was NOT reset after prohibited capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -989,21 +1018,20 @@ async def test_23_prohibited_stream_data_blocked_negative(client, url: str):
 async def test_24_truncated_close_session_negative(client, url: str):
   test_num = 24
   try:
-    s = await client.connect(url=url)
     # Payload less than 4 bytes (only 2 bytes)
     truncated = make_capsule(WT_CLOSE_SESSION_TYPE, b"\x00\x01")
-    await send_capsule_on_connect_stream(s, truncated)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, truncated)
+      await asyncio.sleep(0.5)
 
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after truncated close capsule!"
+      assert failed, "Session was NOT reset after truncated close capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -1027,23 +1055,22 @@ async def test_24_truncated_close_session_negative(client, url: str):
 async def test_25_oversized_close_session_negative(client, url: str):
   test_num = 25
   try:
-    s = await client.connect(url=url)
     # Payload error code (4 bytes) + 1025 bytes reason phrase (> 1024 bound)
     oversized = make_capsule(
         WT_CLOSE_SESSION_TYPE, b"\x00\x00\x00\x00" + (b"A" * 1025)
     )
-    await send_capsule_on_connect_stream(s, oversized)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, oversized)
+      await asyncio.sleep(0.5)
 
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after oversized close capsule!"
+      assert failed, "Session was NOT reset after oversized close capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -1067,23 +1094,22 @@ async def test_25_oversized_close_session_negative(client, url: str):
 async def test_26_invalid_utf8_close_session_negative(client, url: str):
   test_num = 26
   try:
-    s = await client.connect(url=url)
     # Invalid UTF-8 sequence in reason phrase
     invalid_utf8 = make_capsule(
         WT_CLOSE_SESSION_TYPE, b"\x00\x00\x00\x00\xff\xfe\xfd"
     )
-    await send_capsule_on_connect_stream(s, invalid_utf8)
-    await asyncio.sleep(0.5)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, invalid_utf8)
+      await asyncio.sleep(0.5)
 
-    failed = False
-    try:
-      st = await s.create_bidirectional_stream()
-      await st.write_all(b"probe", end_stream=False)
-      await asyncio.wait_for(st.read(), timeout=1.0)
-    except Exception:
-      failed = True
+      failed = False
+      try:
+        raw_proto, raw_session_id = raw_session
+        await raw_proto.exchange(session_id=raw_session_id, data=b"probe")
+      except Exception:
+        failed = True
 
-    assert failed, "Session was NOT reset after invalid UTF-8 close capsule!"
+      assert failed, "Session was NOT reset after invalid UTF-8 close capsule!"
     record_result(
         test_num,
         "NEGATIVE",
@@ -1104,13 +1130,17 @@ async def test_26_invalid_utf8_close_session_negative(client, url: str):
     raise
 
 
-async def test_27_graceful_close_session_positive(session):
+async def test_27_graceful_close_session_positive(
+    session, url: str = "https://127.0.0.1:4433/test"
+):
   test_num = 27
   try:
     close_payload = b"\x00\x00\x00\x00" + "Graceful Close Test".encode("utf-8")
     valid_close = make_capsule(WT_CLOSE_SESSION_TYPE, close_payload)
-    await send_capsule_on_connect_stream(session, valid_close)
-    await asyncio.sleep(0.4)
+    async with open_raw_session(url) as raw_session:
+      await send_capsule_on_connect_stream(raw_session, valid_close)
+      await asyncio.sleep(0.4)
+
     await session.close()
     record_result(
         test_num,
@@ -1148,9 +1178,14 @@ async def test_28_flow_control_exhaustion_positive(client, url: str):
         try:
           st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=0.8)
           streams.append(st)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
           blocked = True
           break
+        except Exception as e:
+          if any(term in str(e).lower() for term in ("stream limit", "blocked", "limit")):
+            blocked = True
+            break
+          raise
 
       assert blocked, (
           f"Flow control exhaustion failed: server stream limit was not reached within 150 streams (opened {len(streams)})"
@@ -1159,22 +1194,32 @@ async def test_28_flow_control_exhaustion_positive(client, url: str):
       # Clean up opened streams to recover permits
       for st in streams:
         try:
-          await st.write_all(data=b"", end_stream=True)
-          await s.stream_manager.remove_stream(st.stream_id)
+          if hasattr(st, "reset"):
+            await st.reset()
+          else:
+            await st.close()
         except Exception:
           pass
       num_opened = len(streams)
       streams.clear()
+      await asyncio.sleep(0.5)
 
       # Verify permit recovery by opening and closing one more stream
       recovered_st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=2.0)
-      await recovered_st.write_all(data=b"", end_stream=True)
-      await s.stream_manager.remove_stream(recovered_st.stream_id)
+      try:
+        if hasattr(recovered_st, "reset"):
+          await recovered_st.reset()
+        else:
+          await recovered_st.close()
+      except Exception:
+        pass
     finally:
       for st in streams:
         try:
-          await st.write_all(data=b"", end_stream=True)
-          await s.stream_manager.remove_stream(st.stream_id)
+          if hasattr(st, "reset"):
+            await st.reset()
+          else:
+            await st.close()
         except Exception:
           pass
       await s.close()
@@ -1255,7 +1300,12 @@ async def test_30_inactivity_timeout_negative(client, url: str):
 
     dropped = False
     try:
-      if s.is_closed or not s.connection or not s.connection.is_connected:
+      conn = (
+          s._connection()
+          if hasattr(s, "_connection")
+          else getattr(s, "connection", None)
+      )
+      if s.is_closed or conn is None or not conn.is_connected:
         dropped = True
       else:
         st = await asyncio.wait_for(
@@ -1322,7 +1372,9 @@ async def main():
       # Server sends initial greeting streams on session ready
       await test_06_server_uni_stream_positive(primary_session)
       await test_05_client_uni_stream_positive(primary_session)
-      await test_07_unknown_session_uni_stream_negative(primary_session)
+      await test_07_unknown_session_uni_stream_negative(
+          primary_session, f"{base_url}/test"
+      )
 
       # --- Section 3: Bidirectional Stream Features ---
       logger.info(
@@ -1333,7 +1385,9 @@ async def main():
       await test_10_large_payload_positive(primary_session)
       await test_11_concurrent_streams_positive(primary_session)
       await test_12_hol_blocking_positive(primary_session)
-      await test_13_unknown_session_bidi_stream_negative(primary_session)
+      await test_13_unknown_session_bidi_stream_negative(
+          primary_session, f"{base_url}/test"
+      )
 
       # --- Section 4: Application Error Code Remapping & Stream Resets ---
       logger.info(
@@ -1342,20 +1396,26 @@ async def main():
       )
       await test_14_error_code_remapping_positive()
       await test_15_error_code_reserved_codepoints_negative()
-      await test_16_wire_stream_reset_positive(primary_session)
-      await test_17_wire_stop_sending_positive(primary_session)
+      await test_16_wire_stream_reset_positive(
+          primary_session, f"{base_url}/test"
+      )
+      await test_17_wire_stop_sending_positive(
+          primary_session, f"{base_url}/test"
+      )
 
       # --- Section 5: Datagram Features ---
       logger.info("\n--- [SECTION 5] Datagram Features (§ 4.5) ---")
       await test_18_datagram_positive(primary_session)
-      await test_19_unknown_session_datagram_negative(primary_session)
+      await test_19_unknown_session_datagram_negative(
+          primary_session, f"{base_url}/test"
+      )
 
       # --- Section 6: Capsule Protocol - Drain Session ---
       logger.info(
           "\n--- [SECTION 6] Capsule Protocol - Drain Session (§ 4.7, § 9.6)"
           " ---"
       )
-      await test_20_drain_session_positive(primary_session)
+      await test_20_drain_session_positive(primary_session, f"{base_url}/test")
       await test_21_drain_session_nonzero_negative(
           client, f"{base_url}/test"
       )
@@ -1386,7 +1446,9 @@ async def main():
       await test_26_invalid_utf8_close_session_negative(
           client, f"{base_url}/test"
       )
-      await test_27_graceful_close_session_positive(primary_session)
+      await test_27_graceful_close_session_positive(
+          primary_session, f"{base_url}/test"
+      )
 
       # --- Section 9: Flow Control & Stream Limits ---
       logger.info(

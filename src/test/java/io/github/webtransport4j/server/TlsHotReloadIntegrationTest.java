@@ -25,7 +25,8 @@ import org.slf4j.LoggerFactory;
  * 1. Starts a real WebTransportServer using cert1.
  * 2. Overwrites cert files on disk with fresh cert2 while server is running.
  * 3. Verifies watcher reloads active QuicSslContext.
- * 4. Runs full WebTransport client test suite against the hot-reloaded server to verify end-to-end handshake & stream/datagram data exchange.
+ * 4. Runs full WebTransport client test suite against the hot-reloaded server to verify end-to-end handshake
+ *    and stream/datagram data exchange.
  */
 public class TlsHotReloadIntegrationTest {
 
@@ -34,6 +35,9 @@ public class TlsHotReloadIntegrationTest {
   @Rule
   public TemporaryFolder tempFolder = new TemporaryFolder();
 
+  /**
+   * Test echo endpoint for TLS hot-reload integration tests.
+   */
   public static class TestEchoEndpoint implements WebTransportHandler {
     @Override
     public void onSessionReady(WebTransportSession session) {
@@ -89,7 +93,7 @@ public class TlsHotReloadIntegrationTest {
     IpRateLimitingHandler.resetForTest();
     WebTransportConfig.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
 
-      // Step 1: Generate initial certificate 1
+    // Step 1: Generate initial certificate 1
     SelfSignedCertificate cert1 = new SelfSignedCertificate("localhost");
     File keyFile = tempFolder.newFile("key.pem");
     File certFile = tempFolder.newFile("cert.pem");

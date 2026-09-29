@@ -1,23 +1,30 @@
 package io.github.webtransport4j.client;
 
-/**
- * @author https://github.com/sanjomo
- * @date 03/07/26 6:03 pm
- */
-
-
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.NetUtil;
 import io.netty.util.ReferenceCountUtil;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.net.InetSocketAddress;
@@ -29,7 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Aggressive Bulk Throughput Benchmark for WebTransport File Transfer
+ * Aggressive bulk throughput benchmark for WebTransport file transfer.
  */
 public final class WebTransportFileBenchmark {
 
@@ -38,6 +45,12 @@ public final class WebTransportFileBenchmark {
     // Aggressive Chunking: 256 KB per write
     private static final int CHUNK_SIZE = 256 * 1024;
 
+    /**
+     * Main entry point to run file transfer benchmark.
+     *
+     * @param args command-line arguments specifying the file path
+     * @throws Exception if benchmark execution fails
+     */
     public static void main(String... args) throws Exception {
 
         String filePath = args.length > 0 ? args[0] : System.getProperty("webtransport4j.benchmark.file");
@@ -52,8 +65,9 @@ public final class WebTransportFileBenchmark {
             return;
         }
 
-        final long TOTAL_BYTES = file.length();
-        System.out.println("Preparing to stream file: " + file.getName() + " (" + (TOTAL_BYTES / (1024 * 1024)) + " MB)");
+        final long totalBytes = file.length();
+        System.out.println("Preparing to stream file: " + file.getName() + " ("
+            + (totalBytes / (1024 * 1024)) + " MB)");
 
         // MultiThreadIoEventLoopGroup with 8 threads for high I/O capacity
         EventLoopGroup group = new MultiThreadIoEventLoopGroup(8, NioIoHandler.newFactory());
@@ -88,7 +102,8 @@ public final class WebTransportFileBenchmark {
             settings.enableH3Datagram(true);
 
             QuicChannel quicChannel = QuicChannel.newBootstrap(channel)
-                    .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
+                    .handler(new WebTransportClientHandler(
+                        new DefaultHttp3SettingsFrame(settings), true, (id, value) -> true))
                     .remoteAddress(new InetSocketAddress(NetUtil.LOCALHOST4, 4433))
                     .connect()
                     .get();
@@ -123,19 +138,20 @@ public final class WebTransportFileBenchmark {
             long startTime = System.nanoTime();
 
             // Start sending file data with aggressive backpressure safety
-            streamFileWithBackpressure(biStreamChannel, throughputHandler, fileChannel, TOTAL_BYTES);
+            streamFileWithBackpressure(biStreamChannel, throughputHandler, fileChannel, totalBytes);
 
             long endTime = System.nanoTime();
 
             // Calculate Metrics
             long durationMs = TimeUnit.NANOSECONDS.toMillis(endTime - startTime);
             double seconds = durationMs / 1000.0;
-            double mbps = (TOTAL_BYTES / (1024.0 * 1024.0)) / seconds;
-            double gbps = (TOTAL_BYTES * 8.0 / 1_000_000_000.0) / seconds;
+            double mbps = (totalBytes / (1024.0 * 1024.0)) / seconds;
+            double gbps = (totalBytes * 8.0 / 1_000_000_000.0) / seconds;
 
             System.out.println("\n================ BENCHMARK RESULTS ================");
-            System.out.printf("Total Data Transferred : %.2f MB (Send & Receive)%n", TOTAL_BYTES / (1024.0 * 1024.0));
-            System.out.println("Time Taken             : " + durationMs + " ms (" + String.format("%.2f", seconds) + " seconds)");
+            System.out.printf("Total Data Transferred : %.2f MB (Send & Receive)%n", totalBytes / (1024.0 * 1024.0));
+            System.out.println("Time Taken             : " + durationMs + " ms ("
+                + String.format("%.2f", seconds) + " seconds)");
             System.out.printf("Throughput (MB/s)      : %,.2f MB/s%n", mbps);
             System.out.printf("Throughput (Network)   : %,.2f Gbps%n", gbps);
             System.out.println("===================================================");
@@ -145,7 +161,9 @@ public final class WebTransportFileBenchmark {
         }
     }
 
-    private static void streamFileWithBackpressure(QuicStreamChannel channel, BulkThroughputHandler1 handler, FileChannel fileChannel, long totalBytes) throws Exception {
+    private static void streamFileWithBackpressure(
+        QuicStreamChannel channel, BulkThroughputHandler1 handler, FileChannel fileChannel, long totalBytes)
+        throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         handler.expect(totalBytes, latch);
 
@@ -191,50 +209,51 @@ public final class WebTransportFileBenchmark {
         System.out.println("All data sent. Awaiting full echo receipt from server...");
         latch.await();
     }
-}
 
-/**
- * Monitors incoming byte stream to count payload progress without keeping data in memory.
- */
-class BulkThroughputHandler1 extends ChannelDuplexHandler {
-    private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler1.class);
-    private long bytesReceived = 0;
-    private long bytesExpected = 0;
-    private CountDownLatch currentLatch;
-    private long lastReportedPercent = 0;
+    /**
+     * Monitors incoming byte stream to count payload progress without keeping data in memory.
+     */
+    static class BulkThroughputHandler1 extends ChannelDuplexHandler {
+        private static final Logger logger = LoggerFactory.getLogger(BulkThroughputHandler1.class);
+        private long bytesReceived = 0;
+        private long bytesExpected = 0;
+        private CountDownLatch currentLatch;
+        private long lastReportedPercent = 0;
 
-    public void expect(long bytes, CountDownLatch latch) {
-        this.bytesExpected = bytes;
-        this.bytesReceived = 0;
-        this.currentLatch = latch;
-        this.lastReportedPercent = 0;
-    }
-
-    @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        if (msg instanceof ByteBuf) {
-            ByteBuf buf = (ByteBuf) msg;
-            bytesReceived += buf.readableBytes();
-
-            // Print progress every 10% milestone
-            long currentPercent = (bytesReceived * 100) / bytesExpected;
-            if (currentPercent >= lastReportedPercent + 10) {
-                lastReportedPercent = (currentPercent / 10) * 10;
-                System.out.println("Progress: Received " + lastReportedPercent + "% (" + (bytesReceived / (1024 * 1024)) + " MB)");
-            }
-
-            if (currentLatch != null && bytesReceived >= bytesExpected) {
-                currentLatch.countDown();
-            }
-            ReferenceCountUtil.release(msg);
-        } else {
-            super.channelRead(ctx, msg);
+        public void expect(long bytes, CountDownLatch latch) {
+            this.bytesExpected = bytes;
+            this.bytesReceived = 0;
+            this.currentLatch = latch;
+            this.lastReportedPercent = 0;
         }
-    }
 
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        logger.error("Exception in benchmark channel", cause);
-        ctx.close();
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof ByteBuf) {
+                ByteBuf buf = (ByteBuf) msg;
+                bytesReceived += buf.readableBytes();
+
+                // Print progress every 10% milestone
+                long currentPercent = (bytesReceived * 100) / bytesExpected;
+                if (currentPercent >= lastReportedPercent + 10) {
+                    lastReportedPercent = (currentPercent / 10) * 10;
+                    System.out.println("Progress: Received " + lastReportedPercent + "% ("
+                        + (bytesReceived / (1024 * 1024)) + " MB)");
+                }
+
+                if (currentLatch != null && bytesReceived >= bytesExpected) {
+                    currentLatch.countDown();
+                }
+                ReferenceCountUtil.release(msg);
+            } else {
+                super.channelRead(ctx, msg);
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            logger.error("Exception in benchmark channel", cause);
+            ctx.close();
+        }
     }
 }

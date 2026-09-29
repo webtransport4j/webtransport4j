@@ -1,6 +1,6 @@
 # WebTransport4J - Complete API Documentation & Practical Guide
 
-Welcome to **WebTransport4J**, a high-performance, production-ready WebTransport (HTTP/3 over QUIC) library for Java.
+Welcome to **WebTransport4J**, a high-performance, experimental WebTransport (HTTP/3 over QUIC) library for Java.
 
 This documentation covers the core API, async programming model with `CompletableFuture`, declarative endpoint mapping (`@WebTransportEndpoint`), and complete, copy-pasteable practical application examples for:
 - **Plain Java (Standalone / Embedded)**
@@ -23,6 +23,8 @@ This documentation covers the core API, async programming model with `Completabl
 5. [Session & Stream API Reference](#4-session--stream-api-reference)
    - [WebTransportSession](#webtransportsession)
    - [WebTransportStream](#webtransportstream)
+   - [Outbound Backpressure & Flow Control](#outbound-backpressure--flow-control)
+   - [Stream Priority & Incremental Scheduling (RFC 9218)](#stream-priority--incremental-scheduling-rfc-9218)
    - [Datagram Transmission](#datagram-transmission)
 6. [Production Readiness & Tuning](#5-production-readiness--tuning)
 
@@ -346,6 +348,17 @@ session.createBiStream()
       stream.onData(buf -> System.out.println("Client replied"));
     });
 
+// Server-initiated streams with RFC 9218 priority
+session.createBiStream(StreamPriority.HIGHEST) // urgency = 0
+    .thenAccept(controlStream -> {
+      controlStream.writeText("Urgent Control Signal");
+    });
+
+session.createUniStream(StreamPriority.of(5, true)) // urgency = 5, incremental/interleaved = true
+    .thenAccept(mediaStream -> {
+      mediaStream.write(videoChunk);
+    });
+
 // Session attributes
 String path = session.path();
 long id = session.getSessionStreamId();
@@ -377,11 +390,211 @@ Path filePath = Paths.get("/var/data/largefile.bin");
 BinarySource fileSource = BinarySources.fromPath(filePath);
 CompletableFuture<Void> f4 = stream.write(fileSource, 65536); // 64KB chunk size
 
+// Stream Priority (RFC 9218) - dynamic updates
+stream.setPriority(StreamPriority.HIGHEST);
+stream.setPriority(1, true); // urgency 1, incremental interleaving
+StreamPriority currentPriority = stream.getPriority();
+
 // Stream lifecycle & attributes
 stream.setAttribute("userId", "usr_123");
 String userId = stream.getAttribute("userId", String.class);
 stream.close();
 stream.reset(0x01); // Reset stream with error code
+```
+
+### Sending Data (Text, JSON, Files)
+
+The `WebTransportStream` API provides convenient, zero-copy methods for sending various data types. It is designed to be highly performant across all Java versions (Java 8 through Java 25).
+
+#### 1. Sending Normal Text & JSON
+You can send plain text or JSON payloads easily. Since JSON is naturally UTF-8 text, `writeText()` is the recommended method.
+
+```java
+// Small text payloads (Non-blocking, no writability check needed)
+stream.writeText("Welcome to the server!");
+
+// JSON payload (String)
+String jsonString = "{\"action\": \"LOGIN\", \"status\": \"SUCCESS\"}";
+stream.writeText(jsonString);
+```
+> **Warning**: For small, infrequent text messages, you can safely call `writeText()` without checking backpressure. However, if you are rapidly streaming thousands of JSON objects, **you must check writability** (see Backpressure section) or you will cause an `OutOfMemoryError`.
+
+For maximum performance (e.g., when using Jackson or Gson), serialize your object directly to a byte array to avoid intermediate String allocations:
+```java
+byte[] jsonBytes = objectMapper.writeValueAsBytes(myObject);
+stream.write(jsonBytes);
+```
+
+#### 2. Sending Big Files (with built-in chunking)
+For large files or streams, WebTransport4J provides `BinarySource`, which automatically chunks the file and streams it over the network asynchronously without loading the whole file into RAM.
+
+```java
+Path filePath = Paths.get("/var/data/large_video.mp4");
+BinarySource source = BinarySources.fromPath(filePath);
+
+// Streams the file in 64KB chunks automatically. 
+// No manual backpressure handling required here, as BinarySource handles it internally!
+stream.write(source, 65536)
+      .thenRun(() -> System.out.println("File transfer complete!"));
+```
+
+
+### Outbound Backpressure & Flow Control
+
+#### The Risk of Unbounded Buffering
+Naively looping over `stream.write(...)` without awaiting or chaining the returned `CompletableFuture` causes writes to accumulate in Netty's `ChannelOutboundBuffer`. Under network congestion, this leads to memory exhaustion and `OutOfMemoryError`.
+
+```java
+// ❌ ANTI-PATTERN: Naive unawaited loop causes OOM under congestion
+for (byte[] chunk : largeDataSet) {
+  stream.write(chunk); // Writes enqueue faster than network can drain!
+}
+```
+
+#### How WebTransport4J Handles This (Netty-Native)
+WebTransport4J leverages Netty's built-in `ChannelOutboundBuffer` watermarks — **no redundant application-layer queue**:
+
+1. **`WriteBufferWaterMark`** is configured on every `QuicStreamChannel` (default: 2MB low / 4MB high). When pending bytes in `ChannelOutboundBuffer` exceed the high watermark, `channel.isWritable()` flips to `false`. When drained below the low watermark, it flips back to `true`.
+2. **`stream.isWritable()`** delegates directly to `channel.isWritable()` — applications can check this before writing.
+3. **`stream.waitForWritable()`** returns a `CompletableFuture<Void>` that completes when Netty's `channelWritabilityChanged` fires with `writable=true`.
+4. **`stream.onWritabilityChanged(listener)`** provides an event-driven callback bridging Netty's pipeline to the stream API.
+
+#### Backpressure API
+
+```java
+// 1. Check writability (delegates to Netty's ChannelOutboundBuffer watermarks)
+boolean writable = stream.isWritable();
+
+// 2. Await writability asynchronously (completes immediately if already writable)
+CompletableFuture<Void> writableFuture = stream.waitForWritable();
+
+// 3. Event-driven listener
+stream.onWritabilityChanged(isWritable -> {
+  if (isWritable) {
+    System.out.println("Stream ready for more writes");
+  } else {
+    System.out.println("Stream congested; pause producing data");
+  }
+});
+```
+
+#### Production Patterns
+
+Click the section below that matches your stack and Java version:
+
+<details>
+  <summary><strong>Java 21+ (Virtual Threads) - Recommended</strong></summary>
+
+With Java 21 Virtual Threads, you can safely `.join()` futures without blocking expensive OS carrier threads. This creates the most readable code.
+
+```java
+while (dataSource.hasNext()) {
+  if (!stream.isWritable()) {
+    // Yields the virtual thread, does not block OS thread!
+    stream.waitForWritable().join();
+  }
+  stream.write(dataSource.next()).join();
+}
+```
+</details>
+
+<details>
+  <summary><strong>Java 8+ (Asynchronous Future Chaining)</strong></summary>
+
+If you cannot use Virtual Threads, use `.thenCompose(...)` to chain writes. This ensures subsequent chunks are only dispatched after preceding writes hit the network.
+
+```java
+CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+for (byte[] chunk : chunks) {
+  chain = chain.thenCompose(v -> stream.write(chunk));
+}
+
+// Or as a recursive loop checking writability:
+public CompletableFuture<Void> sendAsync(Iterator<byte[]> it, WebTransportStream stream) {
+  if (!it.hasNext()) return CompletableFuture.completedFuture(null);
+  
+  if (!stream.isWritable()) {
+    return stream.waitForWritable().thenCompose(v -> sendAsync(it, stream));
+  }
+  return stream.write(it.next()).thenCompose(v -> sendAsync(it, stream));
+}
+```
+</details>
+
+<details>
+  <summary><strong>Reactive Streams (Spring WebFlux / Project Reactor)</strong></summary>
+
+For Reactive applications, `ReactiveWebTransportStream` is a full `Subscriber` that naturally paces itself using reactive backpressure (request(1)).
+
+```java
+ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(stream);
+
+// The Subscriber automatically pulls data only when the stream is writable!
+Flux.fromIterable(largeDataSet)
+    .map(WebTransportBuffer::wrap)
+    .subscribe(reactiveStream);
+```
+</details>
+
+#### Configuration
+
+*Note: If these properties are changed dynamically at runtime, the new watermarks will apply automatically to all **newly created streams**. Existing, already-open streams will retain their original watermarks.*
+
+| Property | Default | Description |
+| :--- | :--- | :--- |
+| `webtransport4j.netty.write_buffer.high_water_mark` | `4194304` (4 MB) | Netty `ChannelOutboundBuffer` high watermark per stream. `isWritable()` → `false` when exceeded. |
+| `webtransport4j.netty.write_buffer.low_water_mark` | `2097152` (2 MB) | Netty low watermark. `isWritable()` → `true` when drained below. |
+
+### Stream Priority & Incremental Scheduling (RFC 9218)
+
+WebTransport4J implements the IETF RFC 9218 (*Extensible Prioritization Scheme for HTTP/QUIC*), providing fine-grained control over bandwidth allocation and stream scheduling:
+
+#### Priority Parameters
+- **`urgency` (0–7)**:
+  - `0` is the highest urgency (critical sync signals, urgent control frames).
+  - `3` is the default urgency per RFC 9218.
+  - `7` is the lowest urgency (background telemetry, prefetching).
+- **`incremental` (boolean)**:
+  - `false` (default): sequential / exclusive scheduling. Frames from this stream are dispatched without interleaving among sibling streams of equal urgency.
+  - `true`: incremental / round-robin scheduling. Frames from equal-urgency streams are interleaved concurrently, preventing head-of-line blocking across media chunks, progressive assets, or concurrent downloads.
+
+#### Priority API Usage
+
+```java
+import io.github.webtransport4j.api.StreamPriority;
+
+// Predefined constants
+StreamPriority defaultPri = StreamPriority.DEFAULT; // urgency=3, incremental=false
+StreamPriority highestPri = StreamPriority.HIGHEST; // urgency=0, incremental=false
+StreamPriority lowestPri  = StreamPriority.LOWEST;  // urgency=7, incremental=false
+
+// Factory methods
+StreamPriority custom     = StreamPriority.of(2, true);
+StreamPriority urgentOnly = StreamPriority.urgency(1);       // default incremental (false)
+StreamPriority incOnly    = StreamPriority.incremental(true); // default urgency (3)
+
+// Fluent copies
+StreamPriority modified = custom.withUrgency(0).withIncremental(false);
+
+// Querying priority
+int urgency   = custom.urgency();       // or custom.getUrgency()
+boolean isInc = custom.isIncremental(); // or custom.incremental()
+
+// 1. Setting priority at stream creation:
+session.createBiStream(StreamPriority.of(1, true))
+    .thenAccept(stream -> {
+      // Stream is scheduled with urgency=1 and incremental interleaving
+    });
+
+// 2. Updating priority dynamically on an existing stream:
+stream.setPriority(StreamPriority.HIGHEST)
+    .thenRun(() -> System.out.println("Priority promoted to HIGHEST"));
+
+// 3. Reactive Streams support:
+reactiveSession.createBiStream(StreamPriority.of(2, true))
+    .subscribe(subscriber);
+
+reactiveStream.setPriority(StreamPriority.HIGHEST);
 ```
 
 ### Datagram Transmission

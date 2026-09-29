@@ -39,6 +39,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -89,8 +90,16 @@ public class WebTransportServer {
 
   private Supplier<MessageDispatcher> messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
   private final ExecutorService businessExecutor;
+  private final boolean ownsBusinessExecutor;
 
-  public static GlobalTrafficShapingHandler globalTrafficShaper;
+  private volatile GlobalTrafficShapingHandler trafficShaper;
+  private Long configuredGlobalWriteLimit;
+  private Long configuredGlobalReadLimit;
+
+  // Weak keys remember transferred handlers without keeping released handlers alive.
+  private static final Map<GlobalTrafficShapingHandler, Boolean> OWNED_TRAFFIC_SHAPERS = new WeakHashMap<>();
+  private static final Object SERVER_INSTANCES_LOCK = new Object();
+  private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
 
   /** Lifecycle states of the WebTransport server. */
   public enum ServerState {
@@ -112,6 +121,11 @@ public class WebTransportServer {
     return activeSslContext;
   }
 
+  /**
+   * Checks for certificate modifications and hot-reloads if changes are detected.
+   *
+   * @return true if certificates were reloaded, false otherwise
+   */
   public boolean checkAndReloadTlsCertificates() {
     if (tlsWatcher != null) {
       return tlsWatcher.checkAndReload();
@@ -131,13 +145,16 @@ public class WebTransportServer {
     this.defaultHandler = defaultHandler;
     handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
+    this.ownsBusinessExecutor = true;
   }
 
+  /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
     this.defaultHandler = new WebTransportHandler() {
     };
     handlers.put("/", defaultHandler);
     this.businessExecutor = BusinessExecutorFactory.create();
+    this.ownsBusinessExecutor = true;
   }
 
   /** Web Transport Server with custom business executor. */
@@ -147,6 +164,7 @@ public class WebTransportServer {
     }
     this.defaultHandler = defaultHandler;
     handlers.put("/", defaultHandler);
+    this.ownsBusinessExecutor = businessExecutor == null;
     this.businessExecutor = businessExecutor != null ? businessExecutor : BusinessExecutorFactory.create();
   }
 
@@ -166,6 +184,9 @@ public class WebTransportServer {
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
     this.initialMaxStreamsUni = builder.getInitialMaxStreamsUni();
     this.initialMaxData = builder.getInitialMaxData();
+    this.trafficShaper = claimTrafficShaper(builder.getTrafficShaper());
+    this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
+    this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
 
     if (builder.getMetricsListener() != null) {
       this.metricsListener = builder.getMetricsListener();
@@ -173,6 +194,7 @@ public class WebTransportServer {
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
     }
+    this.ownsBusinessExecutor = builder.getBusinessExecutor() == null;
     this.businessExecutor = builder.getBusinessExecutor() != null
         ? builder.getBusinessExecutor()
         : BusinessExecutorFactory.create();
@@ -244,6 +266,58 @@ public class WebTransportServer {
     return messageDispatcherSupplier;
   }
 
+  /**
+   * Returns the traffic shaping handler for this server instance, or null if traffic shaping is not enabled.
+   */
+  public @Nullable GlobalTrafficShapingHandler getTrafficShaper() {
+    return trafficShaper;
+  }
+
+  /**
+   * Sets the traffic shaping handler while this server is stopped, transferring exclusive ownership.
+   * A handler previously transferred to a server cannot be reused. The caller remains responsible
+   * for releasing a handler replaced before startup.
+   *
+   * @throws IllegalStateException if the server is not stopped or the handler was already transferred
+   */
+  public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    synchronized (state) {
+      if (state.get() != ServerState.STOPPED) {
+        throw new IllegalStateException("Traffic shaper can only be replaced while the server is stopped");
+      }
+      if (this.trafficShaper != trafficShaper) {
+        this.trafficShaper = claimTrafficShaper(trafficShaper);
+      }
+    }
+  }
+
+  private static GlobalTrafficShapingHandler claimTrafficShaper(GlobalTrafficShapingHandler handler) {
+    if (handler != null) {
+      synchronized (OWNED_TRAFFIC_SHAPERS) {
+        if (OWNED_TRAFFIC_SHAPERS.putIfAbsent(handler, Boolean.TRUE) != null) {
+          throw new IllegalStateException("Traffic shaper ownership has already been transferred to a server");
+        }
+      }
+    }
+    return handler;
+  }
+
+  private void releaseTrafficShaper() {
+    GlobalTrafficShapingHandler handler = this.trafficShaper;
+    this.trafficShaper = null;
+    if (handler != null) {
+      handler.release();
+    }
+  }
+
+  private static void unregisterServerInstance() {
+    synchronized (SERVER_INSTANCES_LOCK) {
+      if (ACTIVE_SERVER_INSTANCES.decrementAndGet() == 0) {
+        IpRateLimitingHandler.stopReloader();
+      }
+    }
+  }
+
   /** Returns the handler for a path. */
   public @NonNull WebTransportHandler getHandler(@NonNull String path) {
     String normalized = normalizePath(path);
@@ -302,13 +376,18 @@ public class WebTransportServer {
    * server channel is bound.
    */
   public void start() throws Exception {
-    if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
-      ServerState current = state.get();
-      if (current == ServerState.STARTED || current == ServerState.STARTING) {
-        logger.warn("⚠️ Server is already {} on port {}", current.name().toLowerCase(), getPort());
-        return;
+    synchronized (state) {
+      if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
+        ServerState current = state.get();
+        if (current == ServerState.STARTED || current == ServerState.STARTING) {
+          logger.warn("⚠️ Server is already {} on port {}", current.name().toLowerCase(), getPort());
+          return;
+        }
+        throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
       }
-      throw new IllegalStateException("Cannot start WebTransportServer while in state: " + current);
+      synchronized (SERVER_INSTANCES_LOCK) {
+        ACTIVE_SERVER_INSTANCES.incrementAndGet();
+      }
     }
 
     try {
@@ -316,9 +395,9 @@ public class WebTransportServer {
         throw new IllegalStateException(
             "Server cannot start without a registered default path handler.");
       }
-      int targetPort = configuredPort != null ? configuredPort
+      final int targetPort = configuredPort != null ? configuredPort
           : WebTransportConfig.getInt("webtransport4j.server.port", 4433);
-      String targetHost = configuredHost != null ? configuredHost
+      final String targetHost = configuredHost != null ? configuredHost
           : WebTransportConfig.get("webtransport4j.server.host", "0.0.0.0");
 
       List<String> resolvedOrigins = this.allowedOrigins;
@@ -404,7 +483,11 @@ public class WebTransportServer {
       bindServer(bootstrap, transportConfig, serverCodec, targetHost, targetPort);
       state.set(ServerState.STARTED);
     } catch (Exception e) {
-      state.set(ServerState.STOPPED);
+      try {
+        stop(5, TimeUnit.SECONDS, false);
+      } catch (RuntimeException cleanupFailure) {
+        e.addSuppressed(cleanupFailure);
+      }
       throw e;
     }
   }
@@ -491,7 +574,8 @@ public class WebTransportServer {
           epollGroEnabled = udpGro;
           if (udpGro) {
             @SuppressWarnings("unchecked")
-            ChannelOption<Boolean> udpGroOption = (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
+            ChannelOption<Boolean> udpGroOption =
+                (ChannelOption<Boolean>) epollOptionClass.getField("UDP_GRO").get(null);
             bootstrap.option(udpGroOption, udpGro);
           }
 
@@ -562,10 +646,13 @@ public class WebTransportServer {
 
 
   private void setupTrafficShaping() {
-    long globalWriteLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
-    long globalReadLimit = WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
-    if (globalWriteLimit > 0 || globalReadLimit > 0) {
-      globalTrafficShaper = new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit);
+    long globalWriteLimit = configuredGlobalWriteLimit != null ? configuredGlobalWriteLimit
+        : WebTransportConfig.getLong("webtransport4j.server.traffic.global.write.limit", 0L);
+    long globalReadLimit = configuredGlobalReadLimit != null ? configuredGlobalReadLimit
+        : WebTransportConfig.getLong("webtransport4j.server.traffic.global.read.limit", 0L);
+    if (this.trafficShaper == null && (globalWriteLimit > 0 || globalReadLimit > 0)) {
+      this.trafficShaper = claimTrafficShaper(
+          new GlobalTrafficShapingHandler(group, globalWriteLimit, globalReadLimit));
     }
   }
 
@@ -594,7 +681,8 @@ public class WebTransportServer {
                 + certFile.getAbsolutePath());
       }
     } else if (devMode) {
-      logger.info("🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
+      logger.info(
+          "🔑 Development mode enabled (webtransport4j.dev_mode=true). Generating self-signed TLS 1.3 certificate...");
       SelfSignedCertificate ssc = new SelfSignedCertificate("localhost");
       keyFile = ssc.privateKey();
       certFile = ssc.certificate();
@@ -768,7 +856,11 @@ public class WebTransportServer {
   }
 
   private void bindServer(
-      Bootstrap bootstrap, @NonNull TransportConfig transportConfig, ChannelHandler serverCodec, String targetHost, int targetPort)
+      Bootstrap bootstrap,
+      @NonNull TransportConfig transportConfig,
+      ChannelHandler serverCodec,
+      String targetHost,
+      int targetPort)
       throws Exception {
     int defaultRecvBufSize = 65536;
     int recvBufSize = WebTransportConfig.getInt("webtransport4j.server.recv.buffer.size", defaultRecvBufSize);
@@ -802,6 +894,11 @@ public class WebTransportServer {
     bindFuture.sync();
     this.channel = bindFuture.channel();
     this.channel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
+    this.channel.attr(WebTransportAttributeKeys.SERVER_KEY).set(this);
+    GlobalTrafficShapingHandler effectiveShaper = getTrafficShaper();
+    if (effectiveShaper != null) {
+      this.channel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(effectiveShaper);
+    }
 
     logger.info("✅ WebTransport server started on {}:{}", getHost(), getPort());
   }
@@ -813,10 +910,20 @@ public class WebTransportServer {
 
   /** Stops the server with a specified timeout. */
   public void stop(long timeout, @NonNull TimeUnit unit) {
-    ServerState previous = state.getAndSet(ServerState.STOPPING);
-    if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
-      logger.debug("Server is already stopped or stopping.");
-      return;
+    stop(timeout, unit, true);
+  }
+
+  private void stop(long timeout, TimeUnit unit, boolean shutdownExecutor) {
+    synchronized (state) {
+      ServerState previous = state.get();
+      if (previous == ServerState.STOPPED && shutdownExecutor) {
+        shutdownBusinessExecutor(timeout, unit);
+      }
+      if (previous == ServerState.STOPPED || previous == ServerState.STOPPING) {
+        logger.debug("Server is already stopped or stopping.");
+        return;
+      }
+      state.set(ServerState.STOPPING);
     }
     try {
       if (tlsWatcher != null) {
@@ -826,7 +933,8 @@ public class WebTransportServer {
       if (shutdownHook != null) {
         try {
           Runtime.getRuntime().removeShutdownHook(shutdownHook);
-        } catch (Exception ignored) {
+        } catch (Exception expected) {
+          // ignored
         }
         shutdownHook = null;
       }
@@ -849,24 +957,35 @@ public class WebTransportServer {
           group = null;
         }
       }
-      if (globalTrafficShaper != null) {
-        globalTrafficShaper.release();
-        globalTrafficShaper = null;
-      }
-      IpRateLimitingHandler.stopReloader();
-      if (businessExecutor != null && !businessExecutor.isShutdown()) {
-        businessExecutor.shutdown();
+      releaseTrafficShaper();
+      unregisterServerInstance();
+      if (metricsListener instanceof AutoCloseable) {
         try {
-          if (!businessExecutor.awaitTermination(timeout, unit)) {
-            businessExecutor.shutdownNow();
-          }
-        } catch (InterruptedException e) {
-          businessExecutor.shutdownNow();
+          ((AutoCloseable) metricsListener).close();
+        } catch (Exception e) {
+          logger.warn("Failed to close metrics listener", e);
         }
+      }
+      if (shutdownExecutor) {
+        shutdownBusinessExecutor(timeout, unit);
       }
       logger.info("WebTransport server stopped successfully.");
     } finally {
       state.set(ServerState.STOPPED);
+    }
+  }
+
+  private void shutdownBusinessExecutor(long timeout, TimeUnit unit) {
+    if (ownsBusinessExecutor && businessExecutor != null && !businessExecutor.isShutdown()) {
+      businessExecutor.shutdown();
+      try {
+        if (!businessExecutor.awaitTermination(timeout, unit)) {
+          businessExecutor.shutdownNow();
+        }
+      } catch (InterruptedException e) {
+        businessExecutor.shutdownNow();
+        Thread.currentThread().interrupt();
+      }
     }
   }
 

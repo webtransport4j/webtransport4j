@@ -5,19 +5,39 @@ import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.*;
-import io.netty.handler.codec.quic.*;
+import io.netty.handler.codec.http3.DefaultHttp3Headers;
+import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
+import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.http3.Http3ClientConnectionHandler;
+import io.netty.handler.codec.http3.Http3Headers;
+import io.netty.handler.codec.http3.Http3HeadersFrame;
+import io.netty.handler.codec.http3.Http3Settings;
+import io.netty.handler.codec.http3.Http3SettingsFrame;
+import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicException;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
+import io.netty.handler.codec.quic.QuicTransportError;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.concurrent.Future;
-import java.net.InetSocketAddress;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import it.unimi.dsi.fastutil.objects.ObjectSets;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -167,7 +187,7 @@ public class WebTransportClientTestSuite {
         URI uri = new URI(urlString);
         String host = uri.getHost();
         int port = uri.getPort() == -1 ? 4433 : uri.getPort();
-        String path = uri.getPath();
+        final String path = uri.getPath();
 
         QuicSslContext context = QuicSslContextBuilder.forClient()
                 .trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -208,7 +228,7 @@ public class WebTransportClientTestSuite {
         CountDownLatch handshakeLatch = new CountDownLatch(1);
         QuicStreamChannel[] connectStreamContainer = new QuicStreamChannel[1];
 
-        QuicStreamChannel connectStreamChannel = Http3.newRequestStream(
+        final QuicStreamChannel connectStreamChannel = Http3.newRequestStream(
                 quicChannel,
                 new ChannelInitializer<QuicStreamChannel>() {
                     @Override
@@ -244,6 +264,7 @@ public class WebTransportClientTestSuite {
         return new Session(quicChannel, connectStreamContainer[0], connectStreamContainer[0].streamId());
     }
 
+    /** Runs the WebTransport client test suite. */
     public static void main(String... args) throws Exception {
         String url = args.length > 0 ? args[0] : "https://localhost:4433/test";
         logger.info("=========================================");
@@ -256,7 +277,7 @@ public class WebTransportClientTestSuite {
 
         try {
             logger.info("🔗 Connecting to {}...", url);
-            Session session = connect(url, group, serverUniLatch, serverBidiLatch);
+            final Session session = connect(url, group, serverUniLatch, serverBidiLatch);
             logger.info("✅ Connection Established!\n");
 
             pendingVerifications.add("Server_Uni_Received");
@@ -441,7 +462,7 @@ public class WebTransportClientTestSuite {
 
     private static void testLargePayload(QuicChannel quicChannel, long sessionId) throws Exception {
         logger.info("🧪 --- Running Large Payload Test (Data Integrity) ---");
-        CountDownLatch latch = new CountDownLatch(1);
+        final CountDownLatch latch = new CountDownLatch(1);
         String payloadId = "LargePayload_" + System.currentTimeMillis();
         pendingVerifications.add(payloadId);
 
@@ -562,7 +583,7 @@ public class WebTransportClientTestSuite {
 
     private static void testNoHeadOfLineBlocking(QuicChannel quicChannel, long sessionId) throws Exception {
         logger.info("🧪 --- Running Application-Level HOLB Test ---");
-        CountDownLatch fastLatch = new CountDownLatch(1);
+        final CountDownLatch fastLatch = new CountDownLatch(1);
         CountDownLatch hogLatch = new CountDownLatch(1);
 
         String hogPayload = "SleepServer_" + System.currentTimeMillis();
@@ -600,7 +621,7 @@ public class WebTransportClientTestSuite {
         Thread.sleep(500);
 
         // 2. Create Fast stream
-        long startTime = System.currentTimeMillis();
+        final long startTime = System.currentTimeMillis();
         QuicStreamChannel fastStream = quicChannel
                 .createStream(QuicStreamType.BIDIRECTIONAL, new ChannelInitializer<QuicStreamChannel>() {
                     @Override
@@ -690,7 +711,8 @@ public class WebTransportClientTestSuite {
                     } else {
                         Throwable cause = f.cause();
                         if (cause != null && isStreamLimitError(cause)) {
-                            logger.info("✅ Flow control working! Stream creation rejected by stream limit after opening {} streams: {}",
+                            logger.info("✅ Flow control working! Stream creation rejected"
+                                    + " by stream limit after opening {} streams: {}",
                                     streams.size(), cause.getMessage());
                             blocked = true;
                             break;
@@ -699,7 +721,8 @@ public class WebTransportClientTestSuite {
                         } else if (cause != null) {
                             throw new RuntimeException("Stream creation failed unexpectedly", cause);
                         } else {
-                            throw new Exception("Stream creation failed without cause after opening " + streams.size() + " streams");
+                            throw new Exception("Stream creation failed without cause"
+                                    + " after opening " + streams.size() + " streams");
                         }
                     }
                 }

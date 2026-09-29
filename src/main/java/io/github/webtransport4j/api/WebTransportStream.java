@@ -1,6 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.github.webtransport4j.example.StreamCodec;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Map;
@@ -96,4 +95,82 @@ public interface WebTransportStream {
   boolean isActive();
 
   @NonNull CompletableFuture<Void> shutdown(int error);
+
+  /* ---------- Stream Priority (RFC 9218) ---------- */
+
+  /**
+   * Sets the priority of this stream according to RFC 9218 extensible prioritization scheme.
+   *
+   * @param priority the desired stream priority
+   * @return a future that completes when the priority update is committed to the QUIC transport
+   */
+  @NonNull CompletableFuture<Void> setPriority(@NonNull StreamPriority priority);
+
+  /**
+   * Sets the priority of this stream according to RFC 9218 extensible prioritization scheme.
+   *
+   * @param urgency the urgency level between 0 (highest) and 7 (lowest)
+   * @param incremental whether the stream should be scheduled incrementally / interleaved
+   * @return a future that completes when the priority update is committed to the QUIC transport
+   */
+  default @NonNull CompletableFuture<Void> setPriority(int urgency, boolean incremental) {
+    return setPriority(StreamPriority.of(urgency, incremental));
+  }
+
+  /**
+   * Returns the current priority of this stream.
+   *
+   * @return the stream priority, or {@link StreamPriority#DEFAULT} if not explicitly configured
+   */
+  @NonNull StreamPriority getPriority();
+
+  /* ---------- Backpressure & Writability ---------- */
+
+  /**
+   * Returns true if the stream's outbound buffer is below the high watermark and can accept writes.
+   *
+   * @return true if the stream is writable, false if backpressure is exerted
+   */
+  boolean isWritable();
+
+  /**
+   * Returns a future that completes when the stream becomes writable again.
+   *
+   * <p>If the stream is currently writable, the returned future is already completed.
+   *
+   * @return a future that completes when the stream can accept writes
+   */
+  @NonNull CompletableFuture<Void> waitForWritable();
+
+  /**
+   * Registers a listener to be notified when the stream's writability state changes.
+   *
+   * @param listener consumer receiving true when writable, false when congested
+   */
+  void onWritabilityChanged(@NonNull Consumer<Boolean> listener);
+
+  /**
+   * Configures whether data from this stream is read automatically from the network.
+   *
+   * <p>When auto-read is disabled (false), incoming bytes will remain in the QUIC transport
+   * receive window on the wire, exerting flow control backpressure against the remote peer.
+   *
+   * @param autoRead true to enable automatic reading, false to disable
+   */
+  default void setAutoRead(boolean autoRead) {}
+
+  /**
+   * Returns whether auto-read is enabled for this stream.
+   *
+   * @return true if auto-read is enabled, default true
+   */
+  default boolean isAutoRead() {
+    return true;
+  }
+
+  /**
+   * Requests an explicit read of incoming data from the underlying transport.
+   * Used when {@link #isAutoRead()} is false to read the next chunk of data from the wire.
+   */
+  default void read() {}
 }

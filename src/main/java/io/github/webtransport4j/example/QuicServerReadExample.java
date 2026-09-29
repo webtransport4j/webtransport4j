@@ -13,7 +13,6 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.RecvByteBufAllocator;
-
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ChannelInputShutdownReadComplete;
 import io.netty.channel.socket.nio.NioDatagramChannel;
@@ -28,11 +27,12 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
-
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 
 /**
+ * Example QUIC server reading incoming stream data.
+ *
  * @author https://github.com/sanjomo
  * @date 02/07/26 9:59 pm
  */
@@ -42,6 +42,12 @@ public final class QuicServerReadExample {
 
     private QuicServerReadExample() { }
 
+    /**
+     * Main entry point to start the example QUIC server.
+     *
+     * @param args command-line arguments
+     * @throws Exception if server execution fails
+     */
     public static void main(String[] args) throws Exception {
         SelfSignedCertificate selfSignedCertificate = new SelfSignedCertificate();
         QuicSslContext context = QuicSslContextBuilder.forServer(
@@ -85,8 +91,8 @@ public final class QuicServerReadExample {
                                     private long received;
                                     @Override
                                     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-                                        ByteBuf buf=(ByteBuf) msg;
-                                        received+=buf.readableBytes();
+                                        ByteBuf buf = (ByteBuf) msg;
+                                        received += buf.readableBytes();
                                         //System.out.println("received "+ received);
                                         ReferenceCountUtil.release(msg);
                                     }
@@ -101,8 +107,11 @@ public final class QuicServerReadExample {
                                     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
                                         ctx.fireUserEventTriggered(evt);
                                         if (evt instanceof ChannelInputShutdownReadComplete) {
-                                            // We received the FIN of the remove peer. This means everything was read. Let's call close() so we also send the FIN.
-                                            System.err.println("It takes time to read: " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) + "ms");
+                                            // We received the FIN of the remove peer.
+                                            // This means everything was read.
+                                            // Let's call close() so we also send the FIN.
+                                            System.err.println("It takes time to read: "
+                                                + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) + "ms");
                                             ctx.close();
                                         }
                                     }
@@ -123,4 +132,5 @@ public final class QuicServerReadExample {
         } finally {
             group.shutdownGracefully();
         }
-    }}
+    }
+}

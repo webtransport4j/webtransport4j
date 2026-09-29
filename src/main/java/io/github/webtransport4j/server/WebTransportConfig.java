@@ -75,7 +75,9 @@ public class WebTransportConfig {
     }
 
     // Fallback: Copy dynamic keys from the static properties
-    logger.debug("ℹ️ webtransport-dynamic.properties not found. Dynamic reloads will default to static/default properties.");
+    logger.debug(
+        "ℹ️ webtransport-dynamic.properties not found. "
+            + "Dynamic reloads will default to static/default properties.");
     for (String key : staticProperties.stringPropertyNames()) {
       if (isDynamicKey(key)) {
         target.setProperty(key, staticProperties.getProperty(key));

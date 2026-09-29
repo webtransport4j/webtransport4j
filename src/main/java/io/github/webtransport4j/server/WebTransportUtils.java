@@ -132,7 +132,7 @@ public class WebTransportUtils {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
         connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    WebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+    NettyWebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
@@ -199,7 +199,11 @@ public class WebTransportUtils {
                         : UNI_STREAM_TYPE);
                 writeVarInt(header, connectStreamChannel.streamId());
                 stream.writeAndFlush(header);
-                session.getActiveServerInitiatedBi().add(stream);
+                if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
+                  session.getActiveServerInitiatedBi().add(stream);
+                } else {
+                  session.getActiveServerInitiatedUni().add(stream);
+                }
                 stream
                     .closeFuture()
                     .addListener(
@@ -509,10 +513,17 @@ public class WebTransportUtils {
   /** Adds traffic shaping handlers to the stream pipeline. */
   public static void addTrafficShapers(@NonNull QuicStreamChannel stream) {
     QuicChannel quic = stream.parent();
-    GlobalTrafficShapingHandler globalTrafficShapingHandler =
-        quic.parent() != null
-            ? quic.parent().attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).get()
-            : null;
+    GlobalTrafficShapingHandler globalTrafficShapingHandler = null;
+    if (quic != null && quic.parent() != null) {
+      globalTrafficShapingHandler =
+          quic.parent().attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).get();
+    }
+    if (globalTrafficShapingHandler == null && quic != null) {
+      WebTransportServer server = quic.attr(WebTransportAttributeKeys.SERVER_KEY).get();
+      if (server != null) {
+        globalTrafficShapingHandler = server.getTrafficShaper();
+      }
+    }
     if (globalTrafficShapingHandler != null) {
       stream.pipeline().addFirst("global-traffic-shaper", globalTrafficShapingHandler);
       if (logger.isDebugEnabled()) {

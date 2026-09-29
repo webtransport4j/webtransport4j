@@ -7,7 +7,13 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
@@ -107,7 +113,7 @@ public class StreamBufferingTest {
     mgr.register(mockConnectStream);
 
     // Setup current stream count = 1 (already at limit before incrementing)
-    WebTransportSession session = mgr.get(100L);
+    NettyWebTransportSession session = mgr.get(100L);
     session.setClientInitiatedStreamsBidi(1L);
 
     // New incoming stream

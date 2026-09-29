@@ -212,16 +212,21 @@ public class WebTransportConfigTest {
       WebTransportConfig.reload();
 
       // 3. Verify all values are resolved correctly
-      assertEquals(999, WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+      assertEquals(999,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
       assertEquals(12345, WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000));
       assertEquals("trie", WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "netty"));
       assertEquals("8.8.8.8,9.9.9.9", WebTransportConfig.get("webtransport4j.server.ratelimit.whitelist", ""));
       assertEquals("10.0.0.1:5,10.0.0.2:0", WebTransportConfig.get("webtransport4j.server.ratelimit.overrides", ""));
       assertEquals("5.5.5.5,6.6.6.6", WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist", ""));
-      assertEquals(2000000, WebTransportConfig.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
-      assertEquals("0.00001", WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
-      assertEquals(77L, WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
-      assertEquals(88L, WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
+      assertEquals(2000000,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
+      assertEquals("0.00001",
+          WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
+      assertEquals(77L,
+          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
+      assertEquals(88L,
+          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
       assertEquals(120L, WebTransportConfig.getLong("webtransport4j.session.resumption.timeout.seconds", 60L));
 
     } finally {
@@ -240,6 +245,7 @@ public class WebTransportConfigTest {
     assertEquals("VIRTUAL_THREADS", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", null));
 
     WebTransportConfig.removeProperty("webtransport4j.dispatch.execution.mode");
-    assertEquals("NETTY_EVENT_LOOP", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL"));
+    assertEquals("NETTY_EVENT_LOOP",
+        WebTransportConfig.get("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL"));
   }
 }

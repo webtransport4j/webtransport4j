@@ -27,8 +27,17 @@ public class WebTransportSessionManager {
 
   // Key: The Session ID (which is the Stream ID of the CONNECT stream)
   // Value: The Session object containing state
-  private final Map<Long, WebTransportSession> sessions = new ConcurrentHashMap<>();
+  private final Map<Long, NettyWebTransportSession> sessions = new ConcurrentHashMap<>();
   private final AtomicInteger occupiedSlots = new AtomicInteger();
+  private final WebTransportSessionFactory sessionFactory;
+
+  public WebTransportSessionManager() {
+    this(DefaultWebTransportSession::new);
+  }
+
+  public WebTransportSessionManager(@NonNull WebTransportSessionFactory sessionFactory) {
+    this.sessionFactory = java.util.Objects.requireNonNull(sessionFactory, "sessionFactory cannot be null");
+  }
 
   boolean reserveSession(int limit) {
     if (limit <= 0) {
@@ -227,7 +236,7 @@ public class WebTransportSessionManager {
       }
     }
 
-    WebTransportSession session = new WebTransportSession(
+    NettyWebTransportSession session = sessionFactory.createSession(
         sessionStreamId,
         connectStream,
         pathStr,
@@ -297,7 +306,7 @@ public class WebTransportSessionManager {
     return sessions.containsKey(sessionStreamId);
   }
 
-  public @Nullable WebTransportSession get(long sessionStreamId) {
+  public @Nullable NettyWebTransportSession get(long sessionStreamId) {
     return sessions.get(sessionStreamId);
   }
 
@@ -305,7 +314,7 @@ public class WebTransportSessionManager {
     return sessions.size();
   }
 
-  public @NonNull Collection<WebTransportSession> getSessions() {
+  public @NonNull Collection<NettyWebTransportSession> getSessions() {
     return sessions.values();
   }
 
@@ -328,7 +337,7 @@ public class WebTransportSessionManager {
    *                        already detached
    */
   public void unregister(long sessionStreamId, @Nullable QuicChannel fallbackQuic) {
-    WebTransportSession removed = sessions.remove(sessionStreamId);
+    NettyWebTransportSession removed = sessions.remove(sessionStreamId);
     if (removed == null) {
       return;
     }
@@ -404,7 +413,7 @@ public class WebTransportSessionManager {
    * @return true if the session was found and closed, false otherwise
    */
   public boolean closeSessionWithFlowControlError(long sessionId) {
-    WebTransportSession session = sessions.get(sessionId);
+    NettyWebTransportSession session = sessions.get(sessionId);
     if (session != null) {
       closeSessionWithFlowControlError(session);
       return true;
@@ -417,7 +426,7 @@ public class WebTransportSessionManager {
    *
    * @param session the session to close
    */
-  public void closeSessionWithFlowControlError(@NonNull WebTransportSession session) {
+  public void closeSessionWithFlowControlError(@NonNull NettyWebTransportSession session) {
     session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
     logger.info(
         "❌ Closing CONNECT stream for session {} with WT_FLOW_CONTROL_ERROR (0x045d4487)",
@@ -439,7 +448,7 @@ public class WebTransportSessionManager {
    */
   public void closeAllWithFlowControlError() {
     QuicChannel quic = null;
-    for (WebTransportSession session : sessions.values()) {
+    for (NettyWebTransportSession session : sessions.values()) {
       session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
       if (logger.isInfoEnabled()) {
         logger.info(
@@ -476,7 +485,7 @@ public class WebTransportSessionManager {
     }
     QuicChannel quic = quicChannel;
     if (quic == null) {
-      for (WebTransportSession s : sessions.values()) {
+      for (NettyWebTransportSession s : sessions.values()) {
         if (s != null && s.getConnectStream() != null && s.getConnectStream().parent() != null) {
           quic = s.getConnectStream().parent();
           break;

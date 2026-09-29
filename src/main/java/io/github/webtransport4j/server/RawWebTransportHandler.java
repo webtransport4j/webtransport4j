@@ -111,7 +111,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
             WebTransportSessionManager mgr =
                 quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
             if (mgr != null) {
-              WebTransportSession session = mgr.get(sessionId);
+              NettyWebTransportSession session = mgr.get(sessionId);
               if (session != null) {
                 session.updateLastReadTime();
 
@@ -289,7 +289,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
     ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
     ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
-    WebTransportSession session = mgr.get(sessionId);
+    NettyWebTransportSession session = mgr.get(sessionId);
     if (session == null) {
       return false;
     }
@@ -399,7 +399,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       return;
     }
     // Retrieve the active WebTransportSession.
-    WebTransportSession session = mgr.get(sessionId);
+    NettyWebTransportSession session = mgr.get(sessionId);
     ByteBuf data = (ByteBuf) msg;
     int bytesToWrite = data.readableBytes();
     // If the session does not exist, or session-level flow control is not enabled/negotiated,
