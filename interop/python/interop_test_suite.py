@@ -1178,9 +1178,14 @@ async def test_28_flow_control_exhaustion_positive(client, url: str):
         try:
           st = await asyncio.wait_for(s.create_bidirectional_stream(), timeout=0.8)
           streams.append(st)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, TimeoutError):
           blocked = True
           break
+        except Exception as e:
+          if any(term in str(e).lower() for term in ("stream limit", "blocked", "limit")):
+            blocked = True
+            break
+          raise
 
       assert blocked, (
           f"Flow control exhaustion failed: server stream limit was not reached within 150 streams (opened {len(streams)})"

@@ -167,6 +167,8 @@ jobs:
             -Dexec.mainClass=io.github.webtransport4j.example.ServerSample \
             -Dwebtransport4j.dev_mode=true \
             -Dwebtransport4j.quic.idle.timeout.seconds=30 \
+            -Dwebtransport4j.quic.max.streams.bidi=100 \
+            -Dwebtransport4j.webtransport.initial.max.streams.bidi=100 \
             >server.log 2>&1 &
           SERVER_PID=$!
 
