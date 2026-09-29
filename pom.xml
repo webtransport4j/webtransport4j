@@ -269,6 +269,10 @@
                             <additionalClasspathElements>
                                 <additionalClasspathElement>${project.build.outputDirectory}/META-INF/versions/25</additionalClasspathElement>
                             </additionalClasspathElements>
+                            <excludes>
+                                <exclude>**/*_jmhTest*</exclude>
+                                <exclude>**/jmh_generated/**</exclude>
+                            </excludes>
                         </configuration>
                     </plugin>
                 </plugins>

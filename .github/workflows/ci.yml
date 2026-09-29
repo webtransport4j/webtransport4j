@@ -38,7 +38,15 @@ jobs:
         with:
           java-version: ${{ matrix.java }}
           distribution: temurin
-          cache: maven
+
+      - name: Cache Maven packages
+        uses: actions/cache@d4323d4df99fa242ac718b49678462e201c1e607 # v4.2.2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-jdk${{ matrix.java }}-
+            ${{ runner.os }}-maven-
 
       - name: Ensure Maven is installed
         run: |
@@ -131,7 +139,15 @@ jobs:
         with:
           java-version: ${{ matrix.java }}
           distribution: temurin
-          cache: maven
+
+      - name: Cache Maven packages
+        uses: actions/cache@d4323d4df99fa242ac718b49678462e201c1e607 # v4.2.2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-jdk${{ matrix.java }}-
+            ${{ runner.os }}-maven-
 
       - name: Ensure required tools are installed
         run: |
