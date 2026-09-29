@@ -40,7 +40,7 @@ jobs:
           distribution: temurin
 
       - name: Cache Maven packages
-        uses: actions/cache@d4323d4df104b026c6a166049fb557cb5d0bedfc # v4.2.0
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
@@ -141,7 +141,7 @@ jobs:
           distribution: temurin
 
       - name: Cache Maven packages
-        uses: actions/cache@d4323d4df104b026c6a166049fb557cb5d0bedfc # v4.2.0
+        uses: actions/cache@v4
         with:
           path: ~/.m2/repository
           key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
