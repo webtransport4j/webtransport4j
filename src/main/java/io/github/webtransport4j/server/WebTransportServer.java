@@ -1306,11 +1306,6 @@ public class WebTransportServer implements AutoCloseable {
     stop(5, TimeUnit.SECONDS);
   }
 
-  @Override
-  public void close() {
-    stop();
-  }
-
   /** Stops the server with a specified timeout. */
   public void stop(long timeout, @NonNull TimeUnit unit) {
     stop(timeout, Objects.requireNonNull(unit, "unit"), true);
@@ -1557,6 +1552,11 @@ public class WebTransportServer implements AutoCloseable {
     if (gsoSize < 1 || gsoSize > 64) {
       throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
     }
+  }
+
+  @Override
+  public void close() {
+    stop();
   }
 
   @Override
