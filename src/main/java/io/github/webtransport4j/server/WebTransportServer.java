@@ -959,6 +959,13 @@ public class WebTransportServer {
       }
       releaseTrafficShaper();
       unregisterServerInstance();
+      if (metricsListener instanceof AutoCloseable) {
+        try {
+          ((AutoCloseable) metricsListener).close();
+        } catch (Exception e) {
+          logger.warn("Failed to close metrics listener", e);
+        }
+      }
       if (shutdownExecutor) {
         shutdownBusinessExecutor(timeout, unit);
       }
