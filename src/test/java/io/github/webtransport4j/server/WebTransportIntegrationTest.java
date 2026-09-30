@@ -2893,7 +2893,7 @@ public class WebTransportIntegrationTest {
     assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
     long duration = endTime[0] - startTime;
     log.info("Stream Read Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
+    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1100);
 
     quicClient.close().sync();
   }

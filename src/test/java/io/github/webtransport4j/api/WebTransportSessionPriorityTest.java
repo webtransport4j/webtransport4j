@@ -22,6 +22,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.util.concurrent.CompletableFuture;
@@ -93,7 +94,12 @@ public class WebTransportSessionPriorityTest {
     when(mockCreatedStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
     ChannelPromise closePromise = new DefaultChannelPromise(mockCreatedStream);
     when(mockCreatedStream.closeFuture()).thenReturn(closePromise);
-    when(mockCreatedStream.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
+    when(mockCreatedStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              ReferenceCountUtil.safeRelease(invocation.getArgument(0));
+              return mock(ChannelFuture.class);
+            });
 
     Attribute<WebTransportStream> streamAttr = mock(Attribute.class);
     when(mockCreatedStream.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);
