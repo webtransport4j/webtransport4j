@@ -2009,7 +2009,7 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-   /**
+  /**
    * Terminal shutdown. Releases the owned business executor and moves to {@link
    * ServerState#CLOSED}. A subsequent {@link #start()} throws.
    */
