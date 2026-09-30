@@ -139,7 +139,7 @@ public class WebTransportMultiServerInstanceTest {
   }
 
   @Test
-  public void testStartupFailureReleasesAndClearsInjectedHandler() {
+  public void testStartupFailurePreservesInjectedHandlerUntilTerminalClose() {
     ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     executor.setRemoveOnCancelPolicy(true);
     GlobalTrafficShapingHandler shaper = new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
@@ -149,13 +149,17 @@ public class WebTransportMultiServerInstanceTest {
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
       Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      // Injected shaper survives restartable stop() so server can be retried
+      Assert.assertSame(shaper, server.getTrafficShaper());
+      Assert.assertFalse("Traffic counter must remain active across restartable stop", executor.getQueue().isEmpty());
+
+      // Terminal close must release and clear the injected shaper
+      server.close();
+      Assert.assertEquals(WebTransportServer.ServerState.CLOSED, server.getState());
       Assert.assertNull(server.getTrafficShaper());
-      Assert.assertTrue("Failure cleanup must cancel the traffic counter", executor.getQueue().isEmpty());
-      server.stop();
-      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
-      Assert.assertTrue(executor.getQueue().isEmpty());
+      Assert.assertTrue("Terminal close must cancel the traffic counter", executor.getQueue().isEmpty());
     } finally {
-      server.stop();
+      server.close();
       shaper.release();
       executor.shutdownNow();
     }

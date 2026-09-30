@@ -23,12 +23,21 @@ env:
 
 jobs:
   build:
-    name: Build & Test (JDK ${{ matrix.java }})
-    runs-on: ubuntu-latest
+    name: Build & Test (${{ matrix.os }}, JDK ${{ matrix.java }})
+    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix:
-        java: ['17', '21', '25']
+        os:
+          - ubuntu-24.04
+          - windows-2025
+          - macos-15
+        java:
+          - '17'
+          - '21'
+          - '25'
+
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -43,22 +52,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-maven-jdk${{ matrix.java }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            ${{ runner.os }}-maven-jdk${{ matrix.java }}-
-            ${{ runner.os }}-maven-
+            ${{ runner.os }}-${{ runner.arch }}-maven-jdk${{ matrix.java }}-
+            ${{ runner.os }}-${{ runner.arch }}-maven-
 
-      - name: Ensure Maven is installed
+      - name: Show environment
         run: |
-          if ! command -v mvn >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y maven
-          fi
+          java -version
+          mvn --version
+          python3 --version
 
       - name: Checkstyle, compile and test
         shell: bash
         run: |
           set -euo pipefail
+
           mvn $MVN_FLAGS checkstyle:check verify \
             -Dio.netty.leakDetection.level=PARANOID \
             2>&1 | tee build.log
@@ -72,6 +81,7 @@ jobs:
           text = text.replace("\x00", "")
 
           reports = list(re.finditer(r"LEAK:.*", text))
+
           expected = re.compile(
               r"(?<![\w.])"
               r"io\.github\.webtransport4j\.server\."
@@ -83,12 +93,24 @@ jobs:
           unexpected = 0
 
           for index, report in enumerate(reports):
-              end = reports[index + 1].start() if index + 1 < len(reports) else len(text)
+              end = (
+                  reports[index + 1].start()
+                  if index + 1 < len(reports)
+                  else len(text)
+              )
+
               block = text[report.start():end]
 
-              # Inspect the first allocation frame, not arbitrary mentions in the log.
-              creation = re.search(r"Created at:[ \t]*\r?\n([^\r\n]+)", block)
-              origin = creation.group(1).strip() if creation else "(allocation origin unavailable)"
+              creation = re.search(
+                  r"Created at:[ \t]*\r?\n([^\r\n]+)",
+                  block
+              )
+
+              origin = (
+                  creation.group(1).strip()
+                  if creation
+                  else "(allocation origin unavailable)"
+              )
 
               allowed = (
                   report.group().startswith("LEAK: Object.release()")
@@ -102,10 +124,16 @@ jobs:
                   print(f"::error::Unexpected leak: {report.group()}")
                   print(f"Allocation origin: {origin}")
 
-          print(f"Intentional reports: {intentional}; unexpected reports: {unexpected}")
+          print(
+              f"Intentional reports: {intentional}; "
+              f"unexpected reports: {unexpected}"
+          )
 
           if intentional != 1 or unexpected != 0:
-              print("::error::Expected exactly one intentional leak and no other leaks")
+              print(
+                  "::error::Expected exactly one intentional leak "
+                  "and no other leaks"
+              )
               raise SystemExit(1)
           PY
 
@@ -113,7 +141,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: build-jdk${{ matrix.java }}-attempt${{ github.run_attempt }}
+          name: build-${{ matrix.os }}-jdk${{ matrix.java }}-attempt${{ github.run_attempt }}
           path: |
             build.log
             target/surefire-reports/
@@ -123,13 +151,20 @@ jobs:
 
   interop:
     name: Interop (${{ matrix.client }}, JDK ${{ matrix.java }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
+
     strategy:
       fail-fast: false
       matrix:
-        client: [python, java]
-        java: ['17', '21', '25']
+        client:
+          - python
+          - java
+        java:
+          - '17'
+          - '21'
+          - '25'
+
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -152,8 +187,10 @@ jobs:
       - name: Ensure required tools are installed
         run: |
           packages=()
+
           command -v mvn >/dev/null 2>&1 || packages+=(maven)
           command -v lsof >/dev/null 2>&1 || packages+=(lsof)
+
           if ((${#packages[@]})); then
             sudo apt-get update
             sudo apt-get install -y "${packages[@]}"
@@ -179,6 +216,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/interop:${{ github.workspace }}/interop/python
         run: |
           set -euo pipefail
+
           mvn $MVN_FLAGS exec:java \
             -Dexec.mainClass=io.github.webtransport4j.example.ServerSample \
             -Dwebtransport4j.dev_mode=true \
@@ -186,41 +224,52 @@ jobs:
             -Dwebtransport4j.quic.max.streams.bidi=100 \
             -Dwebtransport4j.webtransport.initial.max.streams.bidi=100 \
             >server.log 2>&1 &
+
           SERVER_PID=$!
 
           cleanup() {
             status=$?
             trap - EXIT
+
             if ((status != 0)); then
               cat server.log || true
             fi
+
             kill "$SERVER_PID" 2>/dev/null || true
+
             for ((i = 0; i < 10; i++)); do
               kill -0 "$SERVER_PID" 2>/dev/null || break
               sleep 1
             done
+
             if kill -0 "$SERVER_PID" 2>/dev/null; then
               kill -KILL "$SERVER_PID" 2>/dev/null || true
             fi
+
             wait "$SERVER_PID" 2>/dev/null || true
             exit "$status"
           }
+
           trap cleanup EXIT
           trap 'exit 130' INT
           trap 'exit 143' TERM
 
           ready=false
+
           for ((i = 0; i < 120; i++)); do
             if ! kill -0 "$SERVER_PID" 2>/dev/null; then
               echo "Server exited during startup."
               exit 1
             fi
+
             if lsof -nP -a -p "$SERVER_PID" -iUDP:4433 >/dev/null 2>&1; then
               ready=true
               break
             fi
+
             sleep 1
           done
+
           if [[ "$ready" != true ]]; then
             echo "Server did not bind UDP port 4433 within 120 seconds."
             exit 1
@@ -228,8 +277,10 @@ jobs:
 
           case "$CLIENT" in
             python)
-              python interop/python/interop_test_suite.py 2>&1 | tee client.log
+              python interop/python/interop_test_suite.py \
+                2>&1 | tee client.log
               ;;
+
             java)
               mvn $MVN_FLAGS exec:java \
                 -Dexec.mainClass=io.github.webtransport4j.client.WebTransportClientTestSuite \

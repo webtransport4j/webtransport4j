@@ -62,11 +62,33 @@ public class WebTransportServerTransportTest {
   }
 
   @Test
-  public void testEpollTransportFallback() throws Exception {
+  public void testNioTransport() throws Exception {
+    System.setProperty("webtransport4j.server.transport", "nio");
+    System.setProperty("webtransport4j.server.port", "0"); // Use random port
+    try {
+      startServerAsyncAndVerify();
+    } finally {
+      System.clearProperty("webtransport4j.server.transport");
+      System.clearProperty("webtransport4j.server.port");
+    }
+  }
+
+  @Test
+  public void testEpollTransport() throws Exception {
     System.setProperty("webtransport4j.server.transport", "epoll");
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
-      startServerAsyncAndVerify();
+      if (isEpollAvailable()) {
+        startServerAsyncAndVerify();
+      } else {
+        IllegalStateException ex =
+            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(
+            "Expected explicit epoll unavailability message",
+            ex.getMessage() != null
+                && (ex.getMessage().contains("Epoll transport was explicitly requested")
+                    || ex.getMessage().contains("could not be initialized")));
+      }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
@@ -74,11 +96,21 @@ public class WebTransportServerTransportTest {
   }
 
   @Test
-  public void testKqueueTransportFallback() throws Exception {
+  public void testKqueueTransport() throws Exception {
     System.setProperty("webtransport4j.server.transport", "kqueue");
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
-      startServerAsyncAndVerify();
+      if (isKqueueAvailable()) {
+        startServerAsyncAndVerify();
+      } else {
+        IllegalStateException ex =
+            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(
+            "Expected explicit kqueue unavailability message",
+            ex.getMessage() != null
+                && (ex.getMessage().contains("KQueue transport was explicitly requested")
+                    || ex.getMessage().contains("could not be initialized")));
+      }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
@@ -86,14 +118,51 @@ public class WebTransportServerTransportTest {
   }
 
   @Test
-  public void testIoUringTransportFallback() throws Exception {
+  public void testIoUringTransport() throws Exception {
     System.setProperty("webtransport4j.server.transport", "iouring");
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
-      startServerAsyncAndVerify();
+      if (isIouringAvailable()) {
+        startServerAsyncAndVerify();
+      } else {
+        IllegalStateException ex =
+            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(
+            "Expected explicit iouring unavailability message",
+            ex.getMessage() != null
+                && (ex.getMessage().contains("IOUring transport was explicitly requested")
+                    || ex.getMessage().contains("could not be initialized")));
+      }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
+    }
+  }
+
+  private static boolean isEpollAvailable() {
+    try {
+      Class<?> clazz = Class.forName("io.netty.channel.epoll.Epoll");
+      return (boolean) clazz.getMethod("isAvailable").invoke(null);
+    } catch (Throwable t) {
+      return false;
+    }
+  }
+
+  private static boolean isKqueueAvailable() {
+    try {
+      Class<?> clazz = Class.forName("io.netty.channel.kqueue.KQueue");
+      return (boolean) clazz.getMethod("isAvailable").invoke(null);
+    } catch (Throwable t) {
+      return false;
+    }
+  }
+
+  private static boolean isIouringAvailable() {
+    try {
+      Class<?> clazz = Class.forName("io.netty.channel.uring.IOUring");
+      return (boolean) clazz.getMethod("isAvailable").invoke(null);
+    } catch (Throwable t) {
+      return false;
     }
   }
 }
