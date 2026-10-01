@@ -188,6 +188,8 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       }
     }
     ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
+    ch.attr(WebTransportAttributeKeys.ORIGIN_VALIDATOR).set(this.server.getOriginValidator());
+    ch.attr(WebTransportAttributeKeys.STRICT_ORIGIN_VALIDATION).set(this.server.isStrictOriginValidation());
     ch.pipeline().addLast(WebTransportDatagramDecoder.INSTANCE);
     if (logger.isDebugEnabled()) {
       logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());

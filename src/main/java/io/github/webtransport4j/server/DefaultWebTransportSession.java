@@ -12,10 +12,12 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.security.cert.Certificate;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -24,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -715,5 +719,21 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   public void updateConnectStream(@NonNull QuicStreamChannel newConnectStream) {
     this.connectStream = newConnectStream;
+  }
+
+  @Override
+  public Certificate[] getPeerCertificates() {
+    Channel parentChannel = connectStream != null ? connectStream.parent() : null;
+    if (parentChannel instanceof QuicChannel) {
+      SSLEngine engine = ((QuicChannel) parentChannel).sslEngine();
+      if (engine != null && engine.getSession() != null) {
+        try {
+          return engine.getSession().getPeerCertificates();
+        } catch (SSLPeerUnverifiedException ignored) {
+          return new Certificate[0];
+        }
+      }
+    }
+    return new Certificate[0];
   }
 }

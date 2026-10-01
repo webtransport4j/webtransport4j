@@ -4,17 +4,24 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.security.ClientAuthMode;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import java.io.File;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -43,6 +50,13 @@ public class WebTransportServerBuilder {
   private GlobalTrafficShapingHandler trafficShaper;
   private Long globalTrafficWriteLimit;
   private Long globalTrafficReadLimit;
+  private ClientAuthMode clientAuthMode;
+  private File trustCertFile;
+  private X509Certificate[] trustCertificates;
+  private TrustManagerFactory trustManagerFactory;
+  private TrustManager trustManager;
+  private OriginValidator originValidator;
+  private Boolean strictOriginValidation;
 
   public WebTransportServerBuilder() {}
 
@@ -92,6 +106,109 @@ public class WebTransportServerBuilder {
   /** Sets the allowed CORS/WebTransport origins. */
   public @NonNull WebTransportServerBuilder allowedOrigins(@NonNull String... origins) {
     this.allowedOrigins = Arrays.asList(origins);
+    return this;
+  }
+
+  /**
+   * Configures the TLS client authentication (mTLS) mode.
+   *
+   * @param clientAuthMode the client authentication mode
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder clientAuth(@Nullable ClientAuthMode clientAuthMode) {
+    this.clientAuthMode = clientAuthMode;
+    return this;
+  }
+
+  /**
+   * Configures the TLS client authentication mode using Netty's ClientAuth enum.
+   *
+   * @param clientAuth Netty ClientAuth mode
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder clientAuth(@Nullable ClientAuth clientAuth) {
+    if (clientAuth == null) {
+      this.clientAuthMode = ClientAuthMode.NONE;
+    } else {
+      switch (clientAuth) {
+        case REQUIRE:
+          this.clientAuthMode = ClientAuthMode.REQUIRE;
+          break;
+        case OPTIONAL:
+          this.clientAuthMode = ClientAuthMode.OPTIONAL;
+          break;
+        case NONE:
+        default:
+          this.clientAuthMode = ClientAuthMode.NONE;
+          break;
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Sets the trusted CA certificate chain file for verifying mTLS client certificates.
+   *
+   * @param trustCertFile CA certificate chain file
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(@Nullable File trustCertFile) {
+    this.trustCertFile = trustCertFile;
+    return this;
+  }
+
+  /**
+   * Sets the trusted certificates for verifying mTLS client certificates.
+   *
+   * @param certificates trusted X.509 certificates
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(X509Certificate @Nullable ... certificates) {
+    this.trustCertificates = certificates;
+    return this;
+  }
+
+  /**
+   * Sets the TrustManagerFactory for verifying mTLS client certificates.
+   *
+   * @param trustManagerFactory trust manager factory
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(@Nullable TrustManagerFactory trustManagerFactory) {
+    this.trustManagerFactory = trustManagerFactory;
+    return this;
+  }
+
+  /**
+   * Sets the TrustManager for verifying mTLS client certificates.
+   *
+   * @param trustManager trust manager
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(@Nullable TrustManager trustManager) {
+    this.trustManager = trustManager;
+    return this;
+  }
+
+  /**
+   * Configures a custom origin and authority validator.
+   *
+   * @param originValidator the origin validator
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder originValidator(@Nullable OriginValidator originValidator) {
+    this.originValidator = originValidator;
+    return this;
+  }
+
+  /**
+   * Enables or disables strict origin validation (rejecting requests with missing Origin header).
+   *
+   * @param strictOriginValidation whether strict origin validation is enforced
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder strictOriginValidation(boolean strictOriginValidation) {
+    this.strictOriginValidation = strictOriginValidation;
     return this;
   }
 
@@ -275,6 +392,34 @@ public class WebTransportServerBuilder {
 
   Long getGlobalTrafficReadLimit() {
     return globalTrafficReadLimit;
+  }
+
+  ClientAuthMode getClientAuthMode() {
+    return clientAuthMode;
+  }
+
+  File getTrustCertFile() {
+    return trustCertFile;
+  }
+
+  X509Certificate[] getTrustCertificates() {
+    return trustCertificates;
+  }
+
+  TrustManagerFactory getTrustManagerFactory() {
+    return trustManagerFactory;
+  }
+
+  TrustManager getTrustManager() {
+    return trustManager;
+  }
+
+  OriginValidator getOriginValidator() {
+    return originValidator;
+  }
+
+  Boolean getStrictOriginValidation() {
+    return strictOriginValidation;
   }
 
 

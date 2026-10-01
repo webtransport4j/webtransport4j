@@ -5,6 +5,8 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.security.ClientAuthMode;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -37,6 +39,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -52,6 +55,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -130,6 +135,13 @@ public class WebTransportServer implements AutoCloseable {
   private Long initialMaxStreamsBidi;
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
+  private ClientAuthMode clientAuthMode;
+  private File trustCertFile;
+  private X509Certificate[] trustCertificates;
+  private TrustManagerFactory trustManagerFactory;
+  private TrustManager trustManager;
+  private OriginValidator originValidator;
+  private Boolean strictOriginValidation;
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
@@ -253,6 +265,13 @@ public class WebTransportServer implements AutoCloseable {
     this.trafficShaperExternallySupplied = builderTrafficShaper != null;
     this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
+    this.clientAuthMode = builder.getClientAuthMode();
+    this.trustCertFile = builder.getTrustCertFile();
+    this.trustCertificates = builder.getTrustCertificates();
+    this.trustManagerFactory = builder.getTrustManagerFactory();
+    this.trustManager = builder.getTrustManager();
+    this.originValidator = builder.getOriginValidator();
+    this.strictOriginValidation = builder.getStrictOriginValidation();
 
     if (builder.getMetricsListener() != null) {
       this.metricsListener = builder.getMetricsListener();
@@ -523,6 +542,35 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns true if the server is active and listening. */
   public boolean isRunning() {
     return isStarted();
+  }
+
+  /**
+   * Returns the configured mTLS client authentication mode.
+   *
+   * @return client authentication mode, or {@code null} if default
+   */
+  public @Nullable ClientAuthMode getClientAuthMode() {
+    return clientAuthMode;
+  }
+
+  /**
+   * Returns the custom origin validator, if configured.
+   *
+   * @return origin validator, or {@code null} if none
+   */
+  public @Nullable OriginValidator getOriginValidator() {
+    return originValidator;
+  }
+
+  /**
+   * Returns {@code true} if strict origin validation is enforced.
+   *
+   * @return true if strict origin validation is active
+   */
+  public boolean isStrictOriginValidation() {
+    return strictOriginValidation != null
+        ? strictOriginValidation
+        : WebTransportConfig.getBoolean("webtransport4j.security.strict_origin", false);
   }
 
   /**
@@ -971,7 +1019,11 @@ public class WebTransportServer implements AutoCloseable {
     if (hotReloadEnabled && resolvedKeyPath != null && resolvedCertPath != null) {
       TlsCertificateWatcher watcher =
           new TlsCertificateWatcher(
-              resolvedKeyPath, resolvedCertPath, this::installReloadedSslContext);
+              resolvedKeyPath,
+              resolvedCertPath,
+              this::installReloadedSslContext,
+              this::applyClientAuthAndTrust,
+              WebTransportConfig.getInt("webtransport4j.ssl.hot_reload.interval_secs", 5));
       watcher.start();
       return watcher;
     }
@@ -1414,12 +1466,51 @@ public class WebTransportServer implements AutoCloseable {
       if (sessionCacheSize > 0) {
         sslBuilder.sessionCacheSize(sessionCacheSize);
       }
+      applyClientAuthAndTrust(sslBuilder);
       QuicSslContext resolvedSslCtx = sslBuilder.build();
       applySessionTicketKeys(resolvedSslCtx);
       return new SslContextBuildResult(resolvedSslCtx, generated);
     } catch (Exception | Error e) {
       deleteGeneratedCertificateQuietly(generated, "failed TLS startup");
       throw e;
+    }
+  }
+
+  void applyClientAuthAndTrust(QuicSslContextBuilder sslBuilder) {
+    ClientAuthMode mode = this.clientAuthMode;
+    if (mode == null) {
+      String confMode = WebTransportConfig.get("webtransport4j.ssl.client_auth", "NONE");
+      try {
+        mode = ClientAuthMode.valueOf(confMode.trim().toUpperCase(Locale.ROOT));
+      } catch (Exception ignored) {
+        mode = ClientAuthMode.NONE;
+      }
+    }
+
+    if (mode == ClientAuthMode.REQUIRE) {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.REQUIRE);
+    } else if (mode == ClientAuthMode.OPTIONAL) {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.OPTIONAL);
+    } else {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.NONE);
+    }
+
+    if (this.trustCertFile != null) {
+      sslBuilder.trustManager(this.trustCertFile);
+    } else if (this.trustCertificates != null && this.trustCertificates.length > 0) {
+      sslBuilder.trustManager(this.trustCertificates);
+    } else if (this.trustManagerFactory != null) {
+      sslBuilder.trustManager(this.trustManagerFactory);
+    } else if (this.trustManager != null) {
+      sslBuilder.trustManager(this.trustManager);
+    } else {
+      String trustPath = WebTransportConfig.get("webtransport4j.ssl.trust_cert.path", null);
+      if (trustPath != null && !trustPath.trim().isEmpty()) {
+        File trustFile = new File(trustPath.trim());
+        if (trustFile.isFile() && trustFile.canRead()) {
+          sslBuilder.trustManager(trustFile);
+        }
+      }
     }
   }
 

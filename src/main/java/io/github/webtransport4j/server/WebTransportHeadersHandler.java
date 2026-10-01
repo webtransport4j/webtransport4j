@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -23,6 +24,7 @@ import io.netty.util.ReferenceCountUtil;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -144,7 +146,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         // Validate CORS allowed origins and authority host
         List<String> allowed = quic.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).get();
-        if (!isAllowed(allowed, origin, authority)) {
+        OriginValidator originValidator = quic.attr(WebTransportAttributeKeys.ORIGIN_VALIDATOR).get();
+        Boolean strictOrigin = quic.attr(WebTransportAttributeKeys.STRICT_ORIGIN_VALIDATION).get();
+        if (!isAllowed(allowed, originValidator, strictOrigin, origin, authority)) {
           logger.warn(
               "❌ Rejecting connection from unauthorized origin: {} (authority: {})",
               origin,
@@ -295,24 +299,58 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
   }
 
   private boolean isAllowed(
-      java.util.@NonNull List<String> allowedOrigins,
-      @NonNull CharSequence origin,
-      @NonNull CharSequence authority) {
+      @Nullable List<String> allowedOrigins,
+      @Nullable OriginValidator originValidator,
+      @Nullable Boolean strictOrigin,
+      @Nullable CharSequence origin,
+      @Nullable CharSequence authority) {
+    String originStr = origin != null ? origin.toString() : null;
+    String authorityStr = authority != null ? authority.toString() : null;
+
+    if (strictOrigin != null && strictOrigin && (originStr == null || originStr.trim().isEmpty())) {
+      logger.warn("Strict origin validation failed: Origin header is missing or empty");
+      return false;
+    }
+
+    if (originValidator != null) {
+      return originValidator.validate(originStr, authorityStr);
+    }
+
     if (allowedOrigins == null || allowedOrigins.isEmpty() || allowedOrigins.contains("*")) {
       return true;
     }
-    // If origin is present, we MUST validate it (no fallback to authority if it
-    // fails validation)
-    if (origin != null) {
-      String originHost = extractHost(origin.toString());
-      return originHost != null && allowedOrigins.contains(originHost);
+
+    if (originStr != null) {
+      if (allowedOrigins.contains(originStr)) {
+        return true;
+      }
+      String originHost = extractHost(originStr);
+      return originHost != null && matchesOriginList(allowedOrigins, originHost);
     }
-    // If origin is absent (non-browser clients), fall back to checking host
-    // extracted from
-    // authority
-    if (authority != null) {
-      String authorityHost = extractHost(authority.toString());
-      return authorityHost != null && allowedOrigins.contains(authorityHost);
+
+    if (authorityStr != null) {
+      if (allowedOrigins.contains(authorityStr)) {
+        return true;
+      }
+      String authorityHost = extractHost(authorityStr);
+      return authorityHost != null && matchesOriginList(allowedOrigins, authorityHost);
+    }
+
+    return false;
+  }
+
+  private boolean matchesOriginList(@NonNull List<String> allowedOrigins, @NonNull String host) {
+    if (allowedOrigins.contains(host)) {
+      return true;
+    }
+    for (String allowed : allowedOrigins) {
+      if (allowed != null && allowed.startsWith("*.")) {
+        String baseDomain = allowed.substring(2);
+        if (host.equalsIgnoreCase(baseDomain)
+            || host.toLowerCase(Locale.ROOT).endsWith("." + baseDomain.toLowerCase(Locale.ROOT))) {
+          return true;
+        }
+      }
     }
     return false;
   }

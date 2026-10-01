@@ -1,5 +1,6 @@
 package io.github.webtransport4j.api;
 
+import java.security.cert.Certificate;
 import java.util.concurrent.CompletableFuture;
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
@@ -28,6 +29,16 @@ public class ReactiveWebTransportSession {
 
   public String path() {
     return session.path();
+  }
+
+  /**
+   * Returns the peer certificates presented during the TLS handshake, or an empty array
+   * if no client certificates were presented or verified.
+   *
+   * @return array of client certificates, or empty array if none
+   */
+  public Certificate[] getPeerCertificates() {
+    return session.getPeerCertificates();
   }
 
   /**
