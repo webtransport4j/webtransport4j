@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
@@ -43,6 +44,8 @@ public class WebTransportServerBuilder {
   private GlobalTrafficShapingHandler trafficShaper;
   private Long globalTrafficWriteLimit;
   private Long globalTrafficReadLimit;
+  private OverloadProtectionPolicy overloadProtectionPolicy;
+  private Boolean autoTuneUdpSocket;
 
   public WebTransportServerBuilder() {}
 
@@ -135,6 +138,29 @@ public class WebTransportServerBuilder {
   /** Sets the initial connection max data payload limit. */
   public @NonNull WebTransportServerBuilder maxData(long maxData) {
     this.initialMaxData = maxData;
+    return this;
+  }
+
+  /**
+   * Sets the adaptive overload protection policy for protecting server resources.
+   *
+   * @param overloadProtectionPolicy the overload protection policy
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder overloadProtectionPolicy(
+      @Nullable OverloadProtectionPolicy overloadProtectionPolicy) {
+    this.overloadProtectionPolicy = overloadProtectionPolicy;
+    return this;
+  }
+
+  /**
+   * Enables or disables automatic OS UDP socket buffer auto-tuning.
+   *
+   * @param autoTuneUdpSocket whether to auto-tune SO_RCVBUF and SO_SNDBUF
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder autoTuneUdpSocket(boolean autoTuneUdpSocket) {
+    this.autoTuneUdpSocket = autoTuneUdpSocket;
     return this;
   }
 
@@ -275,6 +301,14 @@ public class WebTransportServerBuilder {
 
   Long getGlobalTrafficReadLimit() {
     return globalTrafficReadLimit;
+  }
+
+  OverloadProtectionPolicy getOverloadProtectionPolicy() {
+    return overloadProtectionPolicy;
+  }
+
+  Boolean getAutoTuneUdpSocket() {
+    return autoTuneUdpSocket;
   }
 
 

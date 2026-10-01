@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -192,9 +193,38 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           }
           return;
         }
+
+        Attribute<OverloadProtectionPolicy> policyAttr =
+            quic.attr(WebTransportAttributeKeys.OVERLOAD_POLICY);
+        OverloadProtectionPolicy overloadPolicy = policyAttr != null ? policyAttr.get() : null;
+        if (overloadPolicy != null) {
+          int activeSessions = globalSlots != null ? globalSlots.get() : 0;
+          OverloadProtectionPolicy.AdmissionResult decision = overloadPolicy.tryAcquire(activeSessions);
+          if (!decision.isAdmitted()) {
+            mgr.releaseReservation();
+            if (globalSlots != null) {
+              globalSlots.decrementAndGet();
+            }
+            logger.warn("⚠️ Rejecting session: Overload policy shed load ({})", decision.getReason());
+            Http3Headers responseHeaders = new DefaultHttp3Headers();
+            responseHeaders.status(HttpResponseStatus.SERVICE_UNAVAILABLE.codeAsText());
+            if (decision.getRetryAfterSeconds() > 0) {
+              responseHeaders.set("retry-after", String.valueOf(decision.getRetryAfterSeconds()));
+            }
+            ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+            if (f != null) {
+              f.addListener(ChannelFutureListener.CLOSE);
+            }
+            return;
+          }
+        }
+
         String pathStr = path.toString();
         AtomicBoolean pending = new AtomicBoolean(true);
         connectStream.closeFuture().addListener(f -> {
+          if (overloadPolicy != null) {
+            overloadPolicy.release();
+          }
           if (pending.compareAndSet(true, false)) {
             mgr.releaseReservation();
             if (globalSlots != null) {

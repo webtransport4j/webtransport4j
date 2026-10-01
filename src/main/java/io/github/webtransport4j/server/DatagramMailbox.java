@@ -8,6 +8,7 @@ import java.util.Queue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +31,8 @@ public final class DatagramMailbox implements Runnable {
 
   private final Object lock = new Object();
   private final Channel channel;
-  private final Queue<WebTransportFrame> queue = new ArrayDeque<>();
+  private final Queue<WebTransportFrame> highPriorityQueue = new ArrayDeque<>();
+  private final Queue<WebTransportFrame> normalQueue = new ArrayDeque<>();
   private final ExecutorService executor;
   private final FrameDispatcher dispatcher;
   private final int maxCapacity;
@@ -67,27 +69,50 @@ public final class DatagramMailbox implements Runnable {
   }
 
   /**
-   * Enqueues a datagram frame for sequential batch processing.
-   *
-   * <p>If the queue is full or the mailbox is closed, the frame is discarded without retaining it,
-   * firing discard metrics. The caller retains ownership of its original reference.
+   * Enqueues a normal-priority datagram frame for sequential batch processing.
    *
    * @param frame the datagram frame to enqueue
    */
   public void enqueue(@NonNull WebTransportFrame frame) {
+    enqueue(frame, false);
+  }
+
+  /**
+   * Enqueues a datagram frame with specified QoS priority for sequential batch processing.
+   *
+   * <p>When highPriority is true, this frame is queued ahead of normal datagrams. If the mailbox
+   * is full, an older normal-priority frame is evicted to make room for this high-priority frame.
+   *
+   * @param frame the datagram frame to enqueue
+   * @param highPriority true if this frame has priority QoS over normal datagrams
+   */
+  public void enqueue(@NonNull WebTransportFrame frame, boolean highPriority) {
     boolean schedule;
     synchronized (lock) {
       if (closed) {
         discardFrame(frame, "mailbox_closed");
         return;
       }
-      if (queue.size() >= maxCapacity) {
-        discardFrame(frame, "mailbox_full");
-        return;
+      final int totalQueued = highPriorityQueue.size() + normalQueue.size();
+      if (totalQueued >= maxCapacity) {
+        if (highPriority && !normalQueue.isEmpty()) {
+          final WebTransportFrame evicted = normalQueue.poll();
+          if (evicted != null) {
+            discardFrame(evicted, "evicted_for_high_priority");
+            releaseFrame(evicted);
+          }
+        } else {
+          discardFrame(frame, "mailbox_full");
+          return;
+        }
       }
       frame.retain();
       try {
-        queue.add(frame);
+        if (highPriority) {
+          highPriorityQueue.add(frame);
+        } else {
+          normalQueue.add(frame);
+        }
       } catch (RuntimeException | Error failure) {
         frame.release();
         throw failure;
@@ -109,6 +134,36 @@ public final class DatagramMailbox implements Runnable {
     }
   }
 
+  /**
+   * Returns the total count of currently queued datagram frames.
+   *
+   * @return total queued frames
+   */
+  public int size() {
+    synchronized (lock) {
+      return highPriorityQueue.size() + normalQueue.size();
+    }
+  }
+
+  /**
+   * Returns the count of queued high-priority datagram frames.
+   *
+   * @return queued high priority frames
+   */
+  public int getHighPrioritySize() {
+    synchronized (lock) {
+      return highPriorityQueue.size();
+    }
+  }
+
+  private @Nullable WebTransportFrame pollNextFrame() {
+    final WebTransportFrame highPri = highPriorityQueue.poll();
+    if (highPri != null) {
+      return highPri;
+    }
+    return normalQueue.poll();
+  }
+
   /** Prevents new publication and releases all queued frames. */
   public void drainAndRelease() {
     drainAndRelease("mailbox_drained");
@@ -124,14 +179,14 @@ public final class DatagramMailbox implements Runnable {
       closed = true;
     }
     for (;;) {
-      WebTransportFrame frame;
+      final WebTransportFrame frame;
       synchronized (lock) {
-        frame = queue.poll();
+        frame = pollNextFrame();
       }
       if (frame == null) {
         return;
       }
-      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+      final WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
       if (metrics != null) {
         metrics.onDatagramDiscarded(frame.sessionId(), reason);
       }
@@ -150,7 +205,7 @@ public final class DatagramMailbox implements Runnable {
             processing = false;
             return;
           }
-          frame = queue.poll();
+          frame = pollNextFrame();
           if (frame == null) {
             processing = false;
             return;
@@ -174,7 +229,7 @@ public final class DatagramMailbox implements Runnable {
           processing = false;
           return;
         }
-        hasMore = !queue.isEmpty();
+        hasMore = !highPriorityQueue.isEmpty() || !normalQueue.isEmpty();
         if (!hasMore) {
           processing = false;
           return;
