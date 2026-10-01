@@ -5,7 +5,9 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -17,6 +19,7 @@ import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.EpollQuicUtils;
@@ -28,6 +31,7 @@ import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicSslEngine;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
@@ -44,10 +48,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -136,6 +142,8 @@ public class WebTransportServer implements AutoCloseable {
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
+  private final AtomicBoolean draining = new AtomicBoolean(false);
+  private final Set<QuicChannel> activeQuicChannels = ConcurrentHashMap.newKeySet();
 
   private volatile WebTransportMetricsListener metricsListener =
       NoOpWebTransportMetricsListener.INSTANCE;
@@ -523,6 +531,104 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns true if the server is active and listening. */
   public boolean isRunning() {
     return isStarted();
+  }
+
+  /** Returns true if the server is in a coordinated draining phase. */
+  public boolean isDraining() {
+    return draining.get();
+  }
+
+  /** Returns the number of active WebTransport sessions across all QUIC connections. */
+  public int getActiveSessionsCount() {
+    return getActiveSessionCount();
+  }
+
+  void registerQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.add(ch);
+    }
+  }
+
+  void unregisterQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.remove(ch);
+    }
+  }
+
+  /**
+   * Enters the coordinated draining phase per WebTransport Draft-16.
+   *
+   * <p>Broadcasts {@code WT_DRAIN_SESSION} capsules to all connected clients and marks sessions
+   * as draining. Waits up to the specified timeout for sessions to close cleanly before stopping.
+   *
+   * @param timeout maximum time to wait for sessions to drain
+   * @param unit the time unit of the timeout argument
+   */
+  public void drain(long timeout, @NonNull TimeUnit unit) {
+    Objects.requireNonNull(unit, "unit");
+    if (!draining.compareAndSet(false, true)) {
+      return;
+    }
+    logger.info("Initiating graceful WebTransport server drain (timeout: {} {})", timeout, unit);
+
+    for (QuicChannel qch : activeQuicChannels) {
+      if (qch.isActive()) {
+        WebTransportSessionManager mgr = qch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (mgr != null) {
+          for (WebTransportSession s : mgr.getSessions()) {
+            s.markDraining();
+            if (s instanceof DefaultWebTransportSession) {
+              QuicStreamChannel connectStream = ((DefaultWebTransportSession) s).getConnectStream();
+              if (connectStream != null && connectStream.isActive()) {
+                ByteBuf buf = qch.alloc().buffer(8);
+                WebTransportUtils.writeVarInt(buf, 0x78aeL);
+                WebTransportUtils.writeVarInt(buf, 0L);
+                connectStream.writeAndFlush(new DefaultHttp3DataFrame(buf));
+              }
+            }
+          }
+        }
+      }
+    }
+
+    long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
+    while (globalActiveSessions.get() > 0 && System.currentTimeMillis() < deadline) {
+      try {
+        Thread.sleep(50);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      }
+    }
+
+    stop(5, TimeUnit.SECONDS);
+  }
+
+  /**
+   * Programmatically reloads the TLS certificate context using updated PEM files.
+   *
+   * @param certFile the new certificate chain file
+   * @param keyFile the new private key file
+   * @throws Exception if reading the files or building the QuicSslContext fails
+   */
+  public void reloadTlsCertificate(@NonNull File certFile, @NonNull File keyFile) throws Exception {
+    Objects.requireNonNull(certFile, "certFile");
+    Objects.requireNonNull(keyFile, "keyFile");
+    QuicSslContext newContext =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .earlyData(true)
+            .build();
+    installReloadedSslContext(newContext);
+  }
+
+  /**
+   * Programmatically installs an already configured {@link QuicSslContext}.
+   *
+   * @param newContext the new QUIC SSL context
+   */
+  public void reloadTlsCertificate(@NonNull QuicSslContext newContext) {
+    installReloadedSslContext(newContext);
   }
 
   /**
