@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="WebTransport4J Enterprise Observability Dashboard - Production telemetry, W3C distributed tracing, OTLP and Prometheus monitoring.">
+  <title>WebTransport4J · Enterprise Telemetry & Observability Cockpit</title>
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Dashboard Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Sticky Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-section">
+        <div class="brand-logo-badge" id="brand-logo" aria-label="WebTransport4J Logo">
+          WT
+        </div>
+        <div class="brand-text">
+          <h1>
+            WebTransport4J
+            <span class="brand-tag">Enterprise Ops</span>
+          </h1>
+          <div class="brand-subtitle">HTTP/3 QUIC Distributed Observability & Telemetry</div>
+        </div>
+      </div>
+
+      <div class="status-cluster-pill" id="status-pill">
+        <span class="pulse-beacon" id="beacon-indicator"></span>
+        <span id="cluster-status-text">Cluster Healthy · 8 Nodes Active</span>
+      </div>
+
+      <div class="header-controls">
+        <div class="control-group" id="time-window-controls">
+          <button class="btn-toggle active" data-time="5m" id="btn-time-5m">5m</button>
+          <button class="btn-toggle" data-time="15m" id="btn-time-15m">15m</button>
+          <button class="btn-toggle" data-time="1h" id="btn-time-1h">1h</button>
+          <button class="btn-toggle" data-time="24h" id="btn-time-24h">24h</button>
+        </div>
+
+        <button class="btn-secondary" id="btn-pause-toggle" onclick="window.togglePause()">
+          ⏸ Pause
+        </button>
+
+        <button class="btn-primary" id="btn-export-json" onclick="window.exportMetrics('json')">
+          📥 Export Telemetry
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Secondary Navigation Tabs & Source Bar -->
+  <nav class="nav-bar" aria-label="Main Navigation">
+    <div class="nav-container">
+      <ul class="nav-tabs">
+        <li>
+          <button class="nav-tab-btn active" data-tab="overview" id="nav-tab-overview" onclick="window.switchTab('overview')">
+            📊 Operations Cockpit
+          </button>
+        </li>
+        <li>
+          <button class="nav-tab-btn" data-tab="network" id="nav-tab-network" onclick="window.switchTab('network')">
+            ⚡ QUIC & Datagrams
+          </button>
+        </li>
+        <li>
+          <button class="nav-tab-btn" data-tab="traces" id="nav-tab-traces" onclick="window.switchTab('traces')">
+            🔍 W3C Traces (OTLP)
+          </button>
+        </li>
+        <li>
+          <button class="nav-tab-btn" data-tab="memory" id="nav-tab-memory" onclick="window.switchTab('memory')">
+            🛡️ Netty Runtime & Leaks
+          </button>
+        </li>
+        <li>
+          <button class="nav-tab-btn" data-tab="alerts" id="nav-tab-alerts" onclick="window.switchTab('alerts')">
+            🔔 Live Alerts
+            <span class="nav-badge" id="alert-count-badge" style="display: none;">0</span>
+          </button>
+        </li>
+      </ul>
+
+      <div class="source-badge" id="source-badge-btn" onclick="window.openSourceModal()" title="Click to change Telemetry Source">
+        <span class="source-indicator"></span>
+        <span id="active-source-name">Source: Live Cluster Simulator</span>
+        <span style="font-size: 0.65rem; opacity: 0.7;">▼</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main App Viewport -->
+  <main class="app-container">
+
+    <!-- Anomaly / Chaos Injection Toolbar -->
+    <section class="anomaly-toolbar" aria-label="Live Chaos and Testing Controls">
+      <div class="anomaly-title">
+        <span>🧪 Chaos & Anomaly Tester:</span>
+        <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: normal;">Test real-time alert triggers and telemetry resilience</span>
+      </div>
+      <div class="anomaly-buttons">
+        <button class="btn-chaos active-chaos" data-chaos="normal" id="btn-chaos-normal" onclick="window.setAnomalyMode('normal')">
+          ✅ Nominal Flow
+        </button>
+        <button class="btn-chaos" data-chaos="loss" id="btn-chaos-loss" onclick="window.setAnomalyMode('loss')">
+          💥 Network Jitter & Loss (8.5%)
+        </button>
+        <button class="btn-chaos" data-chaos="drops" id="btn-chaos-drops" onclick="window.setAnomalyMode('drops')">
+          🚫 Queue Drops Spike (380/s)
+        </button>
+        <button class="btn-chaos" data-chaos="migrations" id="btn-chaos-migrations" onclick="window.setAnomalyMode('migrations')">
+          🔄 Migration Surge (42/s)
+        </button>
+        <button class="btn-chaos" data-chaos="surge" id="btn-chaos-surge" onclick="window.setAnomalyMode('surge')">
+          📈 Handshake Concurrency
+        </button>
+      </div>
+    </section>
+
+    <!-- Executive Health & SLO Banner -->
+    <section class="slo-banner" aria-label="SLO Summary">
+      <div class="slo-item-main">
+        <h2>WebTransport Service Availability</h2>
+        <p>Real-time cluster reliability against 99.99% Enterprise SLO target (Draft-16 compliant)</p>
+      </div>
+
+      <div class="slo-metric">
+        <div class="slo-metric-label">Availability SLO</div>
+        <div class="slo-metric-val healthy" id="val-slo">99.992%</div>
+        <div class="slo-metric-sub">Target: 99.990%</div>
+      </div>
+
+      <div class="slo-metric">
+        <div class="slo-metric-label">Burn Rate</div>
+        <div class="slo-metric-val healthy" id="val-burn-rate">0.85x</div>
+        <div class="slo-metric-sub">Budget: 14h 22m rem.</div>
+      </div>
+
+      <div class="slo-metric">
+        <div class="slo-metric-label">P99 Handshake</div>
+        <div class="slo-metric-val healthy" id="val-p99-handshake">18.5 ms</div>
+        <div class="slo-metric-sub">0-RTT Resumed: 64%</div>
+      </div>
+
+      <div class="slo-metric">
+        <div class="slo-metric-label">Netty Leak Status</div>
+        <div class="slo-metric-val healthy" id="val-netty-leak-status">0 Leaks</div>
+        <div class="slo-metric-sub">PARANOID Level Active</div>
+      </div>
+    </section>
+
+    <!-- TAB 1: OPERATIONS OVERVIEW -->
+    <div class="tab-pane active" id="tab-overview">
+
+      <!-- KPI Grid -->
+      <section class="kpi-grid" aria-label="Key Performance Indicators">
+        <!-- Active Sessions -->
+        <article class="kpi-card cyan" id="kpi-active-sessions">
+          <div class="kpi-header">
+            <span class="kpi-title">Active Sessions</span>
+            <div class="kpi-icon cyan">🌐</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-active-sessions">1,420</span>
+            <span class="kpi-unit">sessions</span>
+          </div>
+          <div class="kpi-footer">
+            <span class="kpi-delta up">▲ +3.4%</span>
+            <span>Across 8 nodes</span>
+          </div>
+        </article>
+
+        <!-- Active Streams -->
+        <article class="kpi-card violet" id="kpi-active-streams">
+          <div class="kpi-header">
+            <span class="kpi-title">Active Streams</span>
+            <div class="kpi-icon violet">🔀</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-active-streams">5,680</span>
+            <span class="kpi-unit">streams</span>
+          </div>
+          <div class="kpi-footer">
+            <span>60% Bidi · 40% Uni</span>
+            <span>Flow ctrl ok</span>
+          </div>
+        </article>
+
+        <!-- Datagram Throughput -->
+        <article class="kpi-card emerald" id="kpi-datagram-throughput">
+          <div class="kpi-header">
+            <span class="kpi-title">Datagram Throughput</span>
+            <div class="kpi-icon emerald">⚡</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-datagram-pps">28,450</span>
+            <span class="kpi-unit">pps</span>
+          </div>
+          <div class="kpi-footer">
+            <span id="val-datagram-mbps">182.4</span> Mbps
+            <span class="kpi-delta up">Nominal</span>
+          </div>
+        </article>
+
+        <!-- Datagram Drops -->
+        <article class="kpi-card rose" id="kpi-datagram-drops">
+          <div class="kpi-header">
+            <span class="kpi-title">Datagram Drops</span>
+            <div class="kpi-icon rose">🚫</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-datagram-drops">4</span>
+            <span class="kpi-unit">drops/s</span>
+          </div>
+          <div class="kpi-footer">
+            <span>Queue saturation: 0.01%</span>
+            <span class="kpi-delta up">Healthy</span>
+          </div>
+        </article>
+
+        <!-- QUIC RTT -->
+        <article class="kpi-card amber" id="kpi-quic-rtt">
+          <div class="kpi-header">
+            <span class="kpi-title">Mean QUIC RTT</span>
+            <div class="kpi-icon amber">⏱️</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-quic-rtt">14.2 ms</span>
+          </div>
+          <div class="kpi-footer">
+            <span>P99: <strong id="val-quic-p99">28.6 ms</strong></span>
+            <span>Loss: <strong id="val-packet-loss">0.04%</strong></span>
+          </div>
+        </article>
+
+        <!-- Netty Memory -->
+        <article class="kpi-card blue" id="kpi-netty-memory">
+          <div class="kpi-header">
+            <span class="kpi-title">Netty Direct Memory</span>
+            <div class="kpi-icon blue">💾</div>
+          </div>
+          <div class="kpi-value-row">
+            <span class="kpi-value" id="val-netty-memory">342 MB</span>
+          </div>
+          <div class="kpi-footer">
+            <span>Pool used: <strong id="val-memory-pct">33%</strong></span>
+            <span>0 Leaks Detected</span>
+          </div>
+        </article>
+      </section>
+
+      <!-- Charts Row 1 -->
+      <div class="dashboard-row grid-2-1">
+        <!-- Sessions & Streams Dynamics -->
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Sessions & Streams Concurrency</h3>
+              <p>Real-time session count vs active stream multiplexing</p>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item"><span class="legend-dot" style="background: #38bdf8;"></span> Active Sessions</div>
+              <div class="legend-item"><span class="legend-dot" style="background: #a855f7;"></span> Total Streams</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-sessions-streams" class="telemetry-chart"></canvas>
+          </div>
+        </section>
+
+        <!-- Quick Alerts Panel -->
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Live Telemetry Alerts</h3>
+              <p>Continuous rule evaluation</p>
+            </div>
+          </div>
+          <div class="alerts-list" id="alerts-feed-list">
+            <!-- Dynamic alerts inserted by app.js -->
+          </div>
+        </section>
+      </div>
+
+      <!-- Charts Row 2 -->
+      <div class="dashboard-row grid-1-1">
+        <!-- Datagrams Sent vs Dropped -->
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Datagram Throughput & Drops</h3>
+              <p>Sent packets/sec vs dropped queue overflows (pps)</p>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item"><span class="legend-dot" style="background: #10b981;"></span> Datagrams Sent (pps)</div>
+              <div class="legend-item"><span class="legend-dot" style="background: #f43f5e;"></span> Drops x100 (pps)</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-datagrams" class="telemetry-chart"></canvas>
+          </div>
+        </section>
+
+        <!-- QUIC Latency & Jitter -->
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>QUIC RTT Latency & Jitter</h3>
+              <p>Mean vs P99 connection round-trip latency (ms)</p>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item"><span class="legend-dot" style="background: #38bdf8;"></span> Mean RTT (ms)</div>
+              <div class="legend-item"><span class="legend-dot" style="background: #f59e0b;"></span> P99 RTT (ms)</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-rtt-latency" class="telemetry-chart"></canvas>
+          </div>
+        </section>
+      </div>
+
+      <!-- Top Endpoints Table -->
+      <section class="card-panel">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Top WebTransport Request Paths</h3>
+            <p>Active traffic and error distribution per route</p>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="paths-table">
+            <thead>
+              <tr>
+                <th>Request Path</th>
+                <th>Sessions</th>
+                <th>Streams</th>
+                <th>Datagram pps</th>
+                <th>Drop Rate</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="paths-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- TAB 2: NETWORK & QUIC TRANSPORT -->
+    <div class="tab-pane" id="tab-network">
+      <div class="dashboard-row grid-3-col">
+        <article class="kpi-card amber">
+          <div class="kpi-header"><span class="kpi-title">Connection Migrations</span><div class="kpi-icon amber">🔄</div></div>
+          <div class="kpi-value-row"><span class="kpi-value" id="val-migrations">1.2/s</span></div>
+          <div class="kpi-footer"><span>Wi-Fi &lt;&gt; Cellular handoff</span><span class="kpi-delta up">Seamless</span></div>
+        </article>
+
+        <article class="kpi-card emerald">
+          <div class="kpi-header"><span class="kpi-title">Congestion Controller</span><div class="kpi-icon emerald">📊</div></div>
+          <div class="kpi-value-row"><span class="kpi-value">BBRv2</span></div>
+          <div class="kpi-footer"><span>Pacing enabled</span><span>Draft-16 Section 4</span></div>
+        </article>
+
+        <article class="kpi-card cyan">
+          <div class="kpi-header"><span class="kpi-title">QUIC Token Handler</span><div class="kpi-icon cyan">🔐</div></div>
+          <div class="kpi-value-row"><span class="kpi-value">HMAC-SHA256</span></div>
+          <div class="kpi-footer"><span>Expiry: 60,000ms</span><span>Stateless Resumption</span></div>
+        </article>
+      </div>
+
+      <section class="card-panel">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Datagram Payload Size Distribution</h3>
+            <p>Histogram of unfragmented UDP datagram payload bytes</p>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Bucket Range</th><th>Percentage</th><th>Count</th><th>Throughput Share</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="mono-cell">&lt; 128 Bytes (Control / Heartbeat)</td><td>12.4%</td><td class="mono-cell">35,270</td><td>1.2 Mbps</td></tr>
+              <tr><td class="mono-cell">128 - 512 Bytes (Gaming / Audio)</td><td>38.2%</td><td class="mono-cell">108,680</td><td>32.8 Mbps</td></tr>
+              <tr><td class="mono-cell">512 - 1024 Bytes (Video Frames)</td><td>36.1%</td><td class="mono-cell">102,700</td><td>84.6 Mbps</td></tr>
+              <tr><td class="mono-cell">1024 - 1280 Bytes (Bulk MTU Limit)</td><td>13.3%</td><td class="mono-cell">37,840</td><td>63.8 Mbps</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB 3: W3C DISTRIBUTED TRACES (OTLP) -->
+    <div class="tab-pane" id="tab-traces">
+      <section class="card-panel">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>W3C Distributed Tracing Explorer</h3>
+            <p>Live OpenTelemetry Protocol (OTLP) span telemetry & W3C traceparent propagation</p>
+          </div>
+          <div class="card-actions">
+            <span class="badge info">W3C Recommendation Compliant</span>
+            <span class="badge purple">OpenTelemetry 1.48.0</span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="traces-table">
+            <thead>
+              <tr>
+                <th>Trace ID</th>
+                <th>Span ID</th>
+                <th>Endpoint</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>W3C Flags</th>
+                <th>Subprotocol</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="traces-table-body">
+              <!-- Dynamically populated by app.js -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- TAB 4: NETTY RUNTIME & RESILIENCE -->
+    <div class="tab-pane" id="tab-memory">
+      <div class="dashboard-row grid-2-1">
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Netty Direct Memory Allocation</h3>
+              <p>ByteBuf pool usage across QUIC worker loops</p>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item"><span class="legend-dot" style="background: #3b82f6;"></span> Allocated Direct Memory (MB)</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chart-memory" class="telemetry-chart"></canvas>
+          </div>
+        </section>
+
+        <section class="card-panel">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Netty Leak Detection Status</h3>
+              <p>Continuous resource accounting</p>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1rem; padding: 0.5rem 0;">
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 1rem;">
+              <div style="font-weight: 700; color: #34d399; font-size: 1rem; margin-bottom: 4px;">✅ PARANOID Mode Active</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">-Dio.netty.leakDetection.level=PARANOID verified. 100% of buffer allocations sampled. Zero leak instances recorded.</div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.8rem;">
+              <div style="background: var(--bg-input); padding: 0.75rem; border-radius: 4px;">
+                <div style="color: var(--text-dim);">Pooled Allocator</div>
+                <div style="font-weight: 600; color: #fff;">PooledByteBufAllocator</div>
+              </div>
+              <div style="background: var(--bg-input); padding: 0.75rem; border-radius: 4px;">
+                <div style="color: var(--text-dim);">Virtual Threads</div>
+                <div style="font-weight: 600; color: #fff;">Java 21+ Enabled</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- TAB 5: ALERTS & DIAGNOSTICS -->
+    <div class="tab-pane" id="tab-alerts">
+      <section class="card-panel">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Enterprise Alerting & Incident Diagnostics</h3>
+            <p>Active SLO breaches and proactive health remediation runbooks</p>
+          </div>
+        </div>
+        <div class="alerts-list" id="alerts-full-list">
+          <div class="alert-item info">
+            <div class="alert-icon-box">ℹ️</div>
+            <div class="alert-content">
+              <div class="alert-title-row">
+                <span class="alert-title">Cluster Automated Health Watch</span>
+                <span class="alert-time">Continuous</span>
+              </div>
+              <p class="alert-desc">All alerting rules (Datagram Drop Rate &gt; 2%, QUIC P99 &gt; 100ms, Netty Buffer Leaks &gt; 0, Session Handshake Errors &gt; 1%) are active and streaming.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- Trace Details Modal -->
+  <div class="modal-overlay" id="trace-detail-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔍 Distributed Trace Details</h3>
+        <button class="btn-close" onclick="window.closeModal('trace-detail-modal')">&times;</button>
+      </div>
+      <div id="trace-modal-body">
+        <!-- Injected via app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Telemetry Source Configuration Modal -->
+  <div class="modal-overlay" id="source-config-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚙️ Telemetry Ingestion Source</h3>
+        <button class="btn-close" onclick="window.closeModal('source-config-modal')">&times;</button>
+      </div>
+      <div>
+        <div class="form-group">
+          <label for="source-type-select">Source Type</label>
+          <select class="form-control" id="source-type-select">
+            <option value="simulator" selected>Live Cluster Simulator (8 Nodes, Synthetic Load)</option>
+            <option value="otlp">OpenTelemetry Collector (OTLP/HTTP /v1/metrics)</option>
+            <option value="prometheus">Prometheus Server (/metrics Scrape Endpoint)</option>
+            <option value="custom">WebTransport4J Embedded Agent</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="source-endpoint-url">Endpoint URL</label>
+          <input type="text" class="form-control" id="source-endpoint-url" value="http://localhost:4318/v1/metrics" placeholder="http://collector.prod:4318/v1/metrics">
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
+          <button class="btn-secondary" onclick="window.closeModal('source-config-modal')">Cancel</button>
+          <button class="btn-primary" onclick="window.saveSourceConfig()">Connect & Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script src="app.js"></script>
+</body>
+</html>
