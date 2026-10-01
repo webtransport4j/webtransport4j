@@ -13,11 +13,21 @@ import org.slf4j.MDC;
  */
 public final class WebTransportMdcContext {
 
+  /** MDC key for WebTransport session ID. */
   public static final String KEY_SESSION_ID = "webtransport.session_id";
+
+  /** MDC key for WebTransport request path. */
   public static final String KEY_PATH = "webtransport.path";
+
+  /** MDC key for remote client socket address. */
   public static final String KEY_REMOTE_ADDRESS = "webtransport.remote_address";
+
+  /** MDC key for underlying QUIC connection ID. */
   public static final String KEY_CONNECTION_ID = "webtransport.connection_id";
 
+  /**
+   * Private constructor to prevent instantiation.
+   */
   private WebTransportMdcContext() {}
 
   /**
@@ -61,7 +71,17 @@ public final class WebTransportMdcContext {
     private final String prevPath;
     private final String prevRemoteAddress;
     private final String prevConnectionId;
+    private final java.util.concurrent.atomic.AtomicBoolean closed =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
 
+    /**
+     * Constructs a new scope capturing previous MDC values.
+     *
+     * @param prevSessionId previous session ID
+     * @param prevPath previous path
+     * @param prevRemoteAddress previous remote address
+     * @param prevConnectionId previous connection ID
+     */
     private Scope(
         @Nullable String prevSessionId,
         @Nullable String prevPath,
@@ -73,14 +93,25 @@ public final class WebTransportMdcContext {
       this.prevConnectionId = prevConnectionId;
     }
 
+    /**
+     * Closes the scope and restores previous MDC values idempotently.
+     */
     @Override
     public void close() {
-      restoreOrRemove(KEY_SESSION_ID, prevSessionId);
-      restoreOrRemove(KEY_PATH, prevPath);
-      restoreOrRemove(KEY_REMOTE_ADDRESS, prevRemoteAddress);
-      restoreOrRemove(KEY_CONNECTION_ID, prevConnectionId);
+      if (closed.compareAndSet(false, true)) {
+        restoreOrRemove(KEY_SESSION_ID, prevSessionId);
+        restoreOrRemove(KEY_PATH, prevPath);
+        restoreOrRemove(KEY_REMOTE_ADDRESS, prevRemoteAddress);
+        restoreOrRemove(KEY_CONNECTION_ID, prevConnectionId);
+      }
     }
 
+    /**
+     * Restores previous value or removes the MDC key if null.
+     *
+     * @param key MDC key
+     * @param val previous value or null
+     */
     private static void restoreOrRemove(String key, @Nullable String val) {
       if (val != null) {
         MDC.put(key, val);

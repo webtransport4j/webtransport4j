@@ -53,6 +53,11 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     this.prefix = Objects.requireNonNull(prefix, "prefix");
   }
 
+  /**
+   * Binds WebTransport meters to the provided Micrometer {@link MeterRegistry}.
+   *
+   * @param registry the target meter registry
+   */
   @Override
   public void bindTo(@NonNull MeterRegistry registry) {
     this.registry = Objects.requireNonNull(registry, "registry");
@@ -92,19 +97,32 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
         .register(registry);
   }
 
+  /**
+   * Invoked when a new WebTransport session is established.
+   *
+   * @param sessionId the session identifier
+   * @param path the request path
+   */
   @Override
   public void onSessionOpened(long sessionId, @NonNull String path) {
     activeSessions.incrementAndGet();
     sessionStartTimes.put(sessionId, System.nanoTime());
     if (registry != null) {
-      registry.counter(prefix + ".sessions.opened", "path", path).increment();
+      final String safePath = sanitizePath(path);
+      registry.counter(prefix + ".sessions.opened", "path", safePath).increment();
     }
   }
 
+  /**
+   * Invoked when a WebTransport session terminates.
+   *
+   * @param sessionId the session identifier
+   * @param closeCode the termination status code
+   */
   @Override
   public void onSessionClosed(long sessionId, int closeCode) {
     activeSessions.decrementAndGet();
-    Long startTime = sessionStartTimes.remove(sessionId);
+    final Long startTime = sessionStartTimes.remove(sessionId);
     if (startTime != null && sessionDurationTimer != null) {
       sessionDurationTimer.record(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
     }
@@ -113,15 +131,28 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     }
   }
 
+  /**
+   * Invoked when a new bidirectional or unidirectional stream opens.
+   *
+   * @param sessionId the session identifier
+   * @param streamId the stream identifier
+   * @param bidirectional true if bidirectional
+   */
   @Override
   public void onStreamOpened(long sessionId, long streamId, boolean bidirectional) {
     activeStreams.incrementAndGet();
     if (registry != null) {
-      String type = bidirectional ? "bidi" : "uni";
+      final String type = bidirectional ? "bidi" : "uni";
       registry.counter(prefix + ".streams.opened", "type", type).increment();
     }
   }
 
+  /**
+   * Invoked when a stream closes.
+   *
+   * @param sessionId the session identifier
+   * @param streamId the stream identifier
+   */
   @Override
   public void onStreamClosed(long sessionId, long streamId) {
     activeStreams.decrementAndGet();
@@ -130,6 +161,12 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     }
   }
 
+  /**
+   * Invoked when a datagram frame is sent to the network.
+   *
+   * @param sessionId the session identifier
+   * @param bytes datagram payload length in bytes
+   */
   @Override
   public void onDatagramSent(long sessionId, int bytes) {
     if (datagramsSentCounter != null) {
@@ -140,6 +177,12 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     }
   }
 
+  /**
+   * Invoked when a datagram frame is received from the network.
+   *
+   * @param sessionId the session identifier
+   * @param bytes datagram payload length in bytes
+   */
   @Override
   public void onDatagramReceived(long sessionId, int bytes) {
     if (datagramsReceivedCounter != null) {
@@ -150,6 +193,12 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     }
   }
 
+  /**
+   * Invoked when a datagram frame is discarded due to overload or queue drop.
+   *
+   * @param sessionId the session identifier
+   * @param reason diagnostic discard reason
+   */
   @Override
   public void onDatagramDiscarded(long sessionId, @NonNull String reason) {
     if (datagramsDroppedCounter != null) {
@@ -157,6 +206,13 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
     }
   }
 
+  /**
+   * Invoked when connection migration completes for a session.
+   *
+   * @param sessionId the session identifier
+   * @param oldAddress previous client socket address
+   * @param newAddress new client socket address
+   */
   @Override
   public void onConnectionMigration(
       long sessionId, @NonNull String oldAddress, @NonNull String newAddress) {
@@ -181,5 +237,22 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
    */
   public long getActiveStreams() {
     return activeStreams.get();
+  }
+
+  /**
+   * Sanitizes request path to bound meter tag cardinality and ensure leading slash.
+   *
+   * @param path raw path string
+   * @return normalized, bounded path string
+   */
+  private static @NonNull String sanitizePath(@NonNull String path) {
+    if (path.isEmpty() || !path.startsWith("/")) {
+      return "/";
+    }
+    String trimmed = path.trim();
+    if (trimmed.length() > 64) {
+      trimmed = trimmed.substring(0, 64);
+    }
+    return trimmed;
   }
 }

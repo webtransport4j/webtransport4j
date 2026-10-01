@@ -106,4 +106,26 @@ public class WebTransportMicrometerMetricsListenerTest {
     assertNotNull(migratedCounter);
     assertEquals(1.0, migratedCounter.count(), 0.001);
   }
+
+  @Test
+  public void testSanitizePathBoundedCardinality() {
+    StringBuilder sb = new StringBuilder("/");
+    for (int i = 0; i < 100; i++) {
+      sb.append('a');
+    }
+    String longPath = sb.toString();
+    listener.onSessionOpened(2L, longPath);
+
+    // Bounded to 64 chars
+    String expectedBounded = longPath.substring(0, 64);
+    Counter longCounter = registry.find("test.wt.sessions.opened").tag("path", expectedBounded).counter();
+    assertNotNull(longCounter);
+    assertEquals(1.0, longCounter.count(), 0.001);
+
+    // Invalid path without leading slash gets normalized to "/"
+    listener.onSessionOpened(3L, "invalid-no-slash");
+    Counter fallbackCounter = registry.find("test.wt.sessions.opened").tag("path", "/").counter();
+    assertNotNull(fallbackCounter);
+    assertEquals(1.0, fallbackCounter.count(), 0.001);
+  }
 }

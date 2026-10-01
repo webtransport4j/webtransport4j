@@ -42,4 +42,19 @@ public class WebTransportMdcContextTest {
     assertNull(MDC.get(WebTransportMdcContext.KEY_REMOTE_ADDRESS));
     assertNull(MDC.get(WebTransportMdcContext.KEY_CONNECTION_ID));
   }
+
+  @Test
+  public void testMdcScopeIdempotentClose() {
+    WebTransportMdcContext.Scope scope =
+        WebTransportMdcContext.open(100L, "/idempotent", "10.0.0.1:443", "conn-idemp");
+    assertEquals("100", MDC.get(WebTransportMdcContext.KEY_SESSION_ID));
+
+    scope.close();
+    assertNull(MDC.get(WebTransportMdcContext.KEY_SESSION_ID));
+
+    // Subsequent close calls must be safe and idempotent
+    scope.close();
+    scope.close();
+    assertNull(MDC.get(WebTransportMdcContext.KEY_SESSION_ID));
+  }
 }

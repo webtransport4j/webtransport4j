@@ -1,6 +1,7 @@
 package io.github.webtransport4j.observability;
 
 import java.security.SecureRandom;
+import java.util.Locale;
 import java.util.Objects;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -14,7 +15,10 @@ import org.jspecify.annotations.Nullable;
  */
 public final class WebTransportTraceContext {
 
+  /** W3C HTTP header name for traceparent. */
   public static final String HEADER_TRACEPARENT = "traceparent";
+
+  /** W3C HTTP header name for tracestate. */
   public static final String HEADER_TRACESTATE = "tracestate";
 
   private static final SecureRandom RANDOM = new SecureRandom();
@@ -26,6 +30,15 @@ public final class WebTransportTraceContext {
   private final String traceFlags;
   private final @Nullable String tracestate;
 
+  /**
+   * Internal constructor for WebTransportTraceContext.
+   *
+   * @param version W3C trace context version
+   * @param traceId 16-byte hex trace identifier
+   * @param parentId 8-byte hex parent span identifier
+   * @param traceFlags 8-bit hex trace flags
+   * @param tracestate optional W3C tracestate value
+   */
   private WebTransportTraceContext(
       @NonNull String version,
       @NonNull String traceId,
@@ -53,20 +66,33 @@ public final class WebTransportTraceContext {
     if (traceparent == null) {
       return null;
     }
-    String s = traceparent.toString().trim();
-    String[] parts = s.split("-");
-    if (parts.length < 4) {
+    final String s = traceparent.toString().trim();
+    final String[] parts = s.split("-");
+    if (parts.length != 4) {
       return null;
     }
-    String ver = parts[0];
-    String traceId = parts[1];
-    String parentId = parts[2];
-    String flags = parts[3];
+    final String ver = parts[0];
+    final String traceId = parts[1];
+    final String parentId = parts[2];
+    final String flags = parts[3];
 
-    if (ver.length() != 2 || traceId.length() != 32 || parentId.length() != 16 || flags.length() != 2) {
+    // Version validation: 2 hex chars, "ff" is forbidden in W3C spec
+    if (ver.length() != 2 || "ff".equalsIgnoreCase(ver) || !isHex(ver)) {
       return null;
     }
-    String state = (tracestate != null) ? tracestate.toString().trim() : null;
+    // Trace ID validation: 32 hex chars, all-zeros is forbidden
+    if (traceId.length() != 32 || isAllZeros(traceId) || !isHex(traceId)) {
+      return null;
+    }
+    // Parent/Span ID validation: 16 hex chars, all-zeros is forbidden
+    if (parentId.length() != 16 || isAllZeros(parentId) || !isHex(parentId)) {
+      return null;
+    }
+    // Flags validation: 2 hex chars
+    if (flags.length() != 2 || !isHex(flags)) {
+      return null;
+    }
+    final String state = (tracestate != null) ? tracestate.toString().trim() : null;
     return new WebTransportTraceContext(ver, traceId, parentId, flags, state);
   }
 
@@ -77,14 +103,14 @@ public final class WebTransportTraceContext {
    * @return a new {@link WebTransportTraceContext}
    */
   public static @NonNull WebTransportTraceContext createNew(boolean sampled) {
-    byte[] traceBytes = new byte[16];
-    byte[] parentBytes = new byte[8];
+    final byte[] traceBytes = new byte[16];
+    final byte[] parentBytes = new byte[8];
     RANDOM.nextBytes(traceBytes);
     RANDOM.nextBytes(parentBytes);
 
-    String traceId = bytesToHex(traceBytes);
-    String parentId = bytesToHex(parentBytes);
-    String flags = sampled ? "01" : "00";
+    final String traceId = bytesToHex(traceBytes);
+    final String parentId = bytesToHex(parentBytes);
+    final String flags = sampled ? "01" : "00";
     return new WebTransportTraceContext(VERSION, traceId, parentId, flags, null);
   }
 
@@ -94,9 +120,9 @@ public final class WebTransportTraceContext {
    * @return a child {@link WebTransportTraceContext} with the same traceId and a new spanId
    */
   public @NonNull WebTransportTraceContext createChildSpan() {
-    byte[] childSpanBytes = new byte[8];
+    final byte[] childSpanBytes = new byte[8];
     RANDOM.nextBytes(childSpanBytes);
-    String newSpanId = bytesToHex(childSpanBytes);
+    final String newSpanId = bytesToHex(childSpanBytes);
     return new WebTransportTraceContext(version, traceId, newSpanId, traceFlags, tracestate);
   }
 
@@ -109,40 +135,117 @@ public final class WebTransportTraceContext {
     return version + "-" + traceId + "-" + parentId + "-" + traceFlags;
   }
 
+  /**
+   * Returns the W3C version string.
+   *
+   * @return version string
+   */
   public @NonNull String getVersion() {
     return version;
   }
 
+  /**
+   * Returns the 16-byte hex-encoded trace identifier.
+   *
+   * @return trace identifier
+   */
   public @NonNull String getTraceId() {
     return traceId;
   }
 
+  /**
+   * Returns the 8-byte hex-encoded span identifier.
+   *
+   * @return span identifier
+   */
   public @NonNull String getSpanId() {
     return parentId;
   }
 
+  /**
+   * Returns the 8-bit hex-encoded trace flags.
+   *
+   * @return trace flags
+   */
   public @NonNull String getTraceFlags() {
     return traceFlags;
   }
 
+  /**
+   * Returns whether the sampled flag bit is set (least significant bit of traceFlags).
+   *
+   * @return true if sampled
+   */
   public boolean isSampled() {
-    return "01".equals(traceFlags);
+    try {
+      return (Integer.parseInt(traceFlags, 16) & 1) != 0;
+    } catch (NumberFormatException ignored) {
+      return false;
+    }
   }
 
+  /**
+   * Returns the optional W3C tracestate string, or null if not present.
+   *
+   * @return tracestate string or null
+   */
   public @Nullable String getTracestate() {
     return tracestate;
   }
 
+  /**
+   * Checks whether the string contains exclusively hexadecimal characters.
+   *
+   * @param s string to test
+   * @return true if valid hexadecimal
+   */
+  private static boolean isHex(String s) {
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Checks whether the string contains exclusively '0' characters.
+   *
+   * @param s string to test
+   * @return true if all zeros
+   */
+  private static boolean isAllZeros(String s) {
+    for (int i = 0; i < s.length(); i++) {
+      if (s.charAt(i) != '0') {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Formats a byte array as a lowercase hexadecimal string.
+   *
+   * @param bytes byte array
+   * @return hexadecimal representation
+   */
   private static String bytesToHex(byte[] bytes) {
-    StringBuilder sb = new StringBuilder(bytes.length * 2);
+    final StringBuilder sb = new StringBuilder(bytes.length * 2);
     for (byte b : bytes) {
-      sb.append(String.format("%02x", b & 0xff));
+      sb.append(String.format(Locale.ROOT, "%02x", b & 0xff));
     }
     return sb.toString();
   }
 
+  /**
+   * Returns a string representation of this trace context.
+   *
+   * @return traceparent string with optional tracestate
+   */
   @Override
   public String toString() {
     return toTraceparent() + (tracestate != null ? " (" + tracestate + ")" : "");
   }
 }
+
