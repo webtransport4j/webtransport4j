@@ -101,4 +101,9 @@ public final class WebTransportAttributeKeys {
   // Stream Mailbox Attribute Key
   public static final AttributeKey<StreamMailbox> STREAM_MAILBOX_KEY =
       AttributeKey.valueOf("wt.stream.mailbox");
+
+  // Datagram Mailbox Attribute Key
+  public static final AttributeKey<DatagramMailbox> DATAGRAM_MAILBOX_KEY =
+      AttributeKey.valueOf("wt.datagram.mailbox");
 }
+

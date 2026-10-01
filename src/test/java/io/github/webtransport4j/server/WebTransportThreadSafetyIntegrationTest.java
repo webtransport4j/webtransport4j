@@ -285,8 +285,10 @@ public class WebTransportThreadSafetyIntegrationTest {
 
     // Assert zero corruption and exact message count
     assertEquals("Corrupted message count must be 0", 0, corruptedMessagesCount.get());
-    assertEquals("All byte payload must be received", expectedTotalBytes, rxBytesCounter.get());
-    assertTrue("Async tasks must be executed off-thread", processedMessagesCount.get() > 0);
+    assertEquals(
+        "All expected messages must be processed off-thread",
+        (long) totalExpectedMessages,
+        processedMessagesCount.get());
 
     log.info("✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "
             + "8 worker threads with ZERO corruption!",

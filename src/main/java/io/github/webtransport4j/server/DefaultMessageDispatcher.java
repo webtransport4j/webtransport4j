@@ -67,36 +67,16 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         }
         mailbox.enqueue(msg);
       } else {
-        msg.retain();
-        boolean submitted = false;
-        try {
-          if (logger.isDebugEnabled()) {
-            logger.debug("📤 Submitting task to executor: {}", executor.getClass().getSimpleName());
-          }
-          executor.execute(
-              () -> {
-                try {
-                  tryDispatchToHandler(channel, finalSessionId, msg);
-                } catch (Throwable t) {
-                  logger.error("Uncaught exception/error during business logic execution", t);
-                } finally {
-                  msg.release();
-                }
-              });
-          submitted = true;
-        } catch (RejectedExecutionException e) {
-          logger.error(
-              "❌ REJECTED: Task submission rejected by business executor (queue full?). "
-                  + "Executor: {} | SessionID: {} | Shutting down connection",
-              executor.getClass().getSimpleName(),
-              finalSessionId,
-              e);
-          channel.close();
-        } finally {
-          if (!submitted) {
-            msg.release();
+        DatagramMailbox mailbox = channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).get();
+        if (mailbox == null) {
+          mailbox = new DatagramMailbox(channel, executor, this::tryDispatchToHandler);
+          DatagramMailbox oldMailbox =
+              channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).setIfAbsent(mailbox);
+          if (oldMailbox != null) {
+            mailbox = oldMailbox;
           }
         }
+        mailbox.enqueue(msg);
       }
     }
   }

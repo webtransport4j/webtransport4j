@@ -2,6 +2,8 @@ package io.github.webtransport4j.smoke;
 
 import io.github.webtransport4j.api.BinarySource;
 import io.github.webtransport4j.api.BinarySources;
+import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.server.WebTransportServer;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -22,6 +24,16 @@ public final class Java8ConsumerSmoke {
 
     if (!Arrays.equals(expected, destination.array())) {
       throw new AssertionError("BinarySource corrupted the payload");
+    }
+
+    try (WebTransportServer server =
+        WebTransportServer.builder()
+            .port(4433)
+            .handler("/test", new WebTransportHandler() {})
+            .build()) {
+      if (server.getPort() != 4433) {
+        throw new AssertionError("Server port mismatch: " + server.getPort());
+      }
     }
 
     System.out.println("Java 8 downstream compatibility smoke test passed");
