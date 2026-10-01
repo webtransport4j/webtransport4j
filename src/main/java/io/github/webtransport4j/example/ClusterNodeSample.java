@@ -4,8 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import io.github.webtransport4j.observability.otlp.WebTransportOtlpConfig;
 import io.github.webtransport4j.observability.otlp.WebTransportOtlpMetricsListener;
 import io.github.webtransport4j.server.HmacQuicTokenHandler;
-import io.github.webtransport4j.server.WebTransportConfig;
 import io.github.webtransport4j.server.WebTransportServer;
+import io.github.webtransport4j.server.WebTransportServerBuilder;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -40,19 +40,19 @@ public class ClusterNodeSample {
     log.info("🚀 Starting WebTransport4J Clustered Node '{}' on QUIC port {} (Health on {})",
         nodeName, quicPort, healthPort);
 
-    // 1. Configure WebTransport server
-    WebTransportConfig config = new WebTransportConfig();
-    config.setPort(quicPort);
-
-    // Shared QUIC HMAC token handler for stateless resumption across pods
+    // 1. Configure WebTransport server builder
     byte[] hmacKey = hmacKeyStr.getBytes(StandardCharsets.UTF_8);
     HmacQuicTokenHandler tokenHandler = new HmacQuicTokenHandler(hmacKey, 60000L);
-    config.setQuicTokenHandler(tokenHandler);
 
-    WebTransportServer server = new WebTransportServer(new DefaultPathHandler(), config);
-    server.registerHandler("/echo", new EchoWebTransportHandler());
-    server.registerHandler("/chat", new WebTransportChatHandler());
-    server.registerHandler("/test", new WebTransportTestHandler());
+    WebTransportServerBuilder serverBuilder =
+        WebTransportServer.builder()
+            .port(quicPort)
+            .host("0.0.0.0")
+            .quicTokenHandler(tokenHandler)
+            .defaultHandler(new DefaultPathHandler())
+            .handler("/echo", new EchoWebTransportHandler())
+            .handler("/chat", new WebTransportChatHandler())
+            .handler("/test", new WebTransportTestHandler());
 
     // 2. Attach OTLP metrics listener if collector endpoint is configured
     WebTransportOtlpMetricsListener otlpListener = null;
@@ -66,8 +66,10 @@ public class ClusterNodeSample {
               .resourceAttribute("k8s.pod.name", nodeName)
               .build();
       otlpListener = new WebTransportOtlpMetricsListener(otlpConfig);
-      server.setMetricsListener(otlpListener);
+      serverBuilder.metricsListener(otlpListener);
     }
+
+    final WebTransportServer server = serverBuilder.build();
 
     // 3. Start auxiliary HTTP server for Kubernetes probes
     HttpServer healthHttpServer = HttpServer.create(new InetSocketAddress(healthPort), 0);
