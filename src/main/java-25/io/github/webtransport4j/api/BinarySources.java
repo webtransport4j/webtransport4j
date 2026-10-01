@@ -32,8 +32,11 @@ public final class BinarySources {
   }
 
   /** Java 25 Foreign Memory API. */
-  public static @NonNull BinarySource fromMemorySegment(@NonNull MemorySegment segment) {
-    return new MemorySegmentBinarySource(segment);
+  public static @NonNull BinarySource fromMemorySegment(@NonNull Object segment) {
+    if (!(segment instanceof MemorySegment)) {
+      throw new IllegalArgumentException("segment must be a java.lang.foreign.MemorySegment");
+    }
+    return new MemorySegmentBinarySource((MemorySegment) segment);
   }
 
   public static @NonNull BinarySource fromPath(@NonNull Path path) throws IOException {
