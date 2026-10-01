@@ -121,6 +121,104 @@
     state.traces.unshift(generateSampleTrace(i === 6));
   }
 
+  // --- Multi-Source Telemetry Engine (Live Prometheus, OTLP, & Simulator) ---
+  async function pollTelemetry() {
+    if (state.isPaused) return;
+
+    if (state.activeSource === 'prometheus') {
+      try {
+        const url = state.endpointUrl || '/metrics';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        parsePrometheusText(text);
+        updateHistoryAndRender();
+        return;
+      } catch (err) {
+        console.warn('Live Prometheus fetch error, continuing with fallback:', err);
+      }
+    } else if (state.activeSource === 'otlp') {
+      try {
+        const res = await fetch('/api/live-telemetry');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        Object.assign(state.metrics, data);
+        if (data.traces && data.traces.length > 0) {
+          state.traces = data.traces.concat(state.traces).slice(0, 20);
+        }
+        updateHistoryAndRender();
+        return;
+      } catch (err) {
+        console.warn('Live OTLP fetch error, continuing with fallback:', err);
+      }
+    }
+
+    // Default simulator mode
+    tickSimulator();
+  }
+
+  function parsePrometheusText(text) {
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 2) {
+        const rawMetric = parts[0];
+        const val = parseFloat(parts[1]);
+        if (isNaN(val)) continue;
+
+        if (rawMetric.startsWith('webtransport_sessions_active')) {
+          state.metrics.activeSessions = Math.round(val);
+        } else if (rawMetric.startsWith('webtransport_streams_active{type="bidi"}')) {
+          state.metrics.bidiStreams = Math.round(val);
+        } else if (rawMetric.startsWith('webtransport_streams_active{type="uni"}')) {
+          state.metrics.uniStreams = Math.round(val);
+          state.metrics.activeStreams = state.metrics.bidiStreams + state.metrics.uniStreams;
+        } else if (rawMetric.startsWith('webtransport_netty_direct_memory_bytes')) {
+          state.metrics.nettyDirectMemoryMb = Math.round(val / (1024 * 1024));
+        } else if (rawMetric.startsWith('webtransport_quic_rtt_seconds{quantile="0.5"}')) {
+          state.metrics.quicRttMeanMs = +(val * 1000).toFixed(1);
+        } else if (rawMetric.startsWith('webtransport_quic_rtt_seconds{quantile="0.99"}')) {
+          state.metrics.quicRttP99Ms = +(val * 1000).toFixed(1);
+        }
+      }
+    }
+  }
+
+  function updateHistoryAndRender() {
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    state.history.timestamps.push(timeStr);
+    state.history.timestamps.shift();
+
+    state.history.sessions.push(state.metrics.activeSessions);
+    state.history.sessions.shift();
+
+    state.history.streams.push(state.metrics.activeStreams);
+    state.history.streams.shift();
+
+    state.history.datagramsSent.push(state.metrics.datagramsSentRate);
+    state.history.datagramsSent.shift();
+
+    state.history.datagramsDropped.push(state.metrics.datagramsDroppedRate);
+    state.history.datagramsDropped.shift();
+
+    state.history.rttMean.push(state.metrics.quicRttMeanMs);
+    state.history.rttMean.shift();
+
+    state.history.rttP99.push(state.metrics.quicRttP99Ms);
+    state.history.rttP99.shift();
+
+    state.history.memoryMb.push(state.metrics.nettyDirectMemoryMb);
+    state.history.memoryMb.shift();
+
+    evaluateAlerts();
+    updateDomMetrics();
+    renderAllCharts();
+    renderTracesTable();
+    renderPathsTable();
+  }
+
   // --- Telemetry Simulation Engine ---
   function tickSimulator() {
     if (state.isPaused) return;
@@ -162,46 +260,13 @@
 
     state.metrics.nettyDirectMemoryMb = Math.min(950, Math.max(200, Math.round(state.metrics.nettyDirectMemoryMb + noise * 3)));
 
-    // Shift history ring buffers
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    state.history.timestamps.push(timeStr);
-    state.history.timestamps.shift();
-
-    state.history.sessions.push(state.metrics.activeSessions);
-    state.history.sessions.shift();
-
-    state.history.streams.push(state.metrics.activeStreams);
-    state.history.streams.shift();
-
-    state.history.datagramsSent.push(state.metrics.datagramsSentRate);
-    state.history.datagramsSent.shift();
-
-    state.history.datagramsDropped.push(state.metrics.datagramsDroppedRate);
-    state.history.datagramsDropped.shift();
-
-    state.history.rttMean.push(state.metrics.quicRttMeanMs);
-    state.history.rttMean.shift();
-
-    state.history.rttP99.push(state.metrics.quicRttP99Ms);
-    state.history.rttP99.shift();
-
-    state.history.memoryMb.push(state.metrics.nettyDirectMemoryMb);
-    state.history.memoryMb.shift();
-
     // Periodically append a new trace
     if (Math.random() > 0.4) {
       state.traces.unshift(generateSampleTrace(state.anomalyMode !== 'normal' && Math.random() > 0.5));
       if (state.traces.length > 20) state.traces.pop();
     }
 
-    // Evaluate alerting rules
-    evaluateAlerts();
-
-    // Render updates
-    updateDomMetrics();
-    renderAllCharts();
-    renderTracesTable();
-    renderPathsTable();
+    updateHistoryAndRender();
   }
 
   // --- Real-time Alerts Engine ---
@@ -593,16 +658,23 @@
     const type = document.getElementById('source-type-select').value;
     const url = document.getElementById('source-endpoint-url').value;
     state.activeSource = type;
+    state.endpointUrl = url;
 
     const sourceLabel = document.getElementById('active-source-name');
     if (sourceLabel) {
-      if (type === 'simulator') sourceLabel.textContent = 'Live Cluster Simulation';
-      else if (type === 'prometheus') sourceLabel.textContent = 'Prometheus Scraper (' + url + ')';
-      else if (type === 'otlp') sourceLabel.textContent = 'OTLP HTTP Collector (' + url + ')';
-      else sourceLabel.textContent = 'Custom WebTransport Endpoint';
+      if (type === 'simulator') {
+        sourceLabel.textContent = 'Mode: Cluster Simulation';
+      } else if (type === 'prometheus') {
+        sourceLabel.textContent = 'Mode: Live Prometheus (' + url + ')';
+      } else if (type === 'otlp') {
+        sourceLabel.textContent = 'Mode: Live OTLP Stream (' + url + ')';
+      } else {
+        sourceLabel.textContent = 'Mode: Custom Agent (' + url + ')';
+      }
     }
 
     closeModal('source-config-modal');
+    pollTelemetry();
   };
 
   // --- Export Metrics Snapshot ---
@@ -697,7 +769,7 @@ webtransport_netty_direct_memory_bytes ${state.metrics.nettyDirectMemoryMb * 102
       renderAllCharts();
     });
 
-    state.timerId = setInterval(tickSimulator, state.refreshRate);
+    state.timerId = setInterval(pollTelemetry, state.refreshRate);
   }
 
   if (document.readyState === 'loading') {
