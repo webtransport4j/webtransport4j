@@ -34,6 +34,10 @@
   ·
   <a href="API_GUIDE.md">API Guide</a>
   ·
+  <a href="RUNBOOK.md">SRE Runbook</a>
+  ·
+  <a href="CAPACITY_PLANNING.md">Capacity Planning</a>
+  ·
   <a href="#architecture">Architecture</a>
   ·
   <a href="#interoperability">Interoperability</a>
@@ -1076,6 +1080,20 @@ relevant logs
 ```
 
 Pull requests that change protocol behavior should include tests where practical.
+
+---
+
+## Enterprise Governance & Architecture Decision Records (ADRs)
+
+Key architectural decisions and production operational procedures are documented in:
+- **[SRE Runbook](RUNBOOK.md)**: Production incident playbooks, alerting rules, kernel tuning parameters, and triage procedures.
+- **[Capacity Planning Guide](CAPACITY_PLANNING.md)**: Quantitative sizing formulas, resource requirements, and OS limits from 1k to 100k concurrent sessions.
+- **[Architecture Decision Records](docs/adr/)**:
+  - [ADR 0001: Netty Incubator QUIC & Quiche Native Engine](docs/adr/0001-netty-incubator-quic-codec.md)
+  - [ADR 0002: Zero-Copy Buffer Lifecycle & Reference Counting](docs/adr/0002-zero-copy-buffer-lifecycle.md)
+  - [ADR 0003: Unified Observability via WebTransportMetricsListener](docs/adr/0003-unified-observability-micrometer.md)
+  - [ADR 0004: Adaptive Overload Protection, Circuit Breaking & QoS Datagram Eviction](docs/adr/0004-adaptive-overload-protection-and-circuit-breaking.md)
+  - [ADR 0005: Stateless QUIC Token Secret Coordination & Cluster Broadcast Bridge](docs/adr/0005-stateless-quic-clustering-token-secrets.md)
 
 ---
 
