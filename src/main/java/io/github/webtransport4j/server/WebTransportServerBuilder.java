@@ -4,6 +4,8 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
+import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
@@ -43,6 +45,8 @@ public class WebTransportServerBuilder {
   private GlobalTrafficShapingHandler trafficShaper;
   private Long globalTrafficWriteLimit;
   private Long globalTrafficReadLimit;
+  private StatelessTokenSecretProvider statelessTokenSecretProvider;
+  private ClusterBroadcastBridge clusterBroadcastBridge;
 
   public WebTransportServerBuilder() {}
 
@@ -196,6 +200,30 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /**
+   * Configures a stateless token secret provider for multi-node QUIC token coordination and rotation.
+   *
+   * @param provider the secret provider
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder statelessTokenSecretProvider(
+      @Nullable StatelessTokenSecretProvider provider) {
+    this.statelessTokenSecretProvider = provider;
+    return this;
+  }
+
+  /**
+   * Configures a cluster broadcast bridge for distributed inter-node messaging.
+   *
+   * @param bridge the cluster broadcast bridge
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder clusterBroadcastBridge(
+      @Nullable ClusterBroadcastBridge bridge) {
+    this.clusterBroadcastBridge = bridge;
+    return this;
+  }
+
   // Getters for WebTransportServer initialization
   Integer getPort() {
     return port;
@@ -275,6 +303,14 @@ public class WebTransportServerBuilder {
 
   Long getGlobalTrafficReadLimit() {
     return globalTrafficReadLimit;
+  }
+
+  StatelessTokenSecretProvider getStatelessTokenSecretProvider() {
+    return statelessTokenSecretProvider;
+  }
+
+  ClusterBroadcastBridge getClusterBroadcastBridge() {
+    return clusterBroadcastBridge;
   }
 
 

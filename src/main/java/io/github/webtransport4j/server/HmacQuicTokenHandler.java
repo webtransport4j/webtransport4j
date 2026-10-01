@@ -1,10 +1,15 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
+import io.github.webtransport4j.cluster.StaticTokenSecretProvider;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import java.net.InetSocketAddress;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.jspecify.annotations.NonNull;
@@ -36,7 +41,7 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
 
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-  private final SecretKeySpec keySpec;
+  private final StatelessTokenSecretProvider secretProvider;
 
   private final long expirationMs;
 
@@ -48,12 +53,29 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     this(generateRandomKey(), expirationMs);
   }
 
-  /** Hmac Quic Token Handler. */
+  /**
+   * Constructs an HMAC token handler with a static key.
+   *
+   * @param key static HMAC secret key (at least 16 bytes)
+   * @param expirationMs token validity window in milliseconds
+   */
   public HmacQuicTokenHandler(byte[] key, long expirationMs) {
-    if (key == null || key.length < 16) {
-      throw new IllegalArgumentException("Key must be at least 16 bytes");
+    this(new StaticTokenSecretProvider(key), expirationMs);
+  }
+
+  /**
+   * Constructs an HMAC token handler backed by a {@link StatelessTokenSecretProvider}.
+   *
+   * @param secretProvider provider supplying active and rotated validation keys across cluster
+   * @param expirationMs token validity window in milliseconds
+   */
+  public HmacQuicTokenHandler(
+      @NonNull StatelessTokenSecretProvider secretProvider, long expirationMs) {
+    Objects.requireNonNull(secretProvider, "secretProvider must not be null");
+    if (expirationMs <= 0) {
+      throw new IllegalArgumentException("expirationMs must be positive: " + expirationMs);
     }
-    this.keySpec = new SecretKeySpec(key, HMAC_ALGO);
+    this.secretProvider = secretProvider;
     this.expirationMs = expirationMs;
   }
 
@@ -66,13 +88,14 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
   @Override
   public boolean writeToken(
       @NonNull ByteBuf out, @NonNull ByteBuf dcid, @NonNull InetSocketAddress address) {
-    long timestamp = System.currentTimeMillis();
-    byte[] ipBytes = address.getAddress().getAddress();
+    final long timestamp = System.currentTimeMillis();
+    final byte[] ipBytes = address.getAddress().getAddress();
     try {
-      Mac mac = Mac.getInstance(HMAC_ALGO);
-      mac.init(keySpec);
+      final byte[] activeSecret = secretProvider.getActiveSecret();
+      final Mac mac = Mac.getInstance(HMAC_ALGO);
+      mac.init(new SecretKeySpec(activeSecret, HMAC_ALGO));
       // Update with timestamp (big-endian)
-      byte[] timestampBytes = new byte[8];
+      final byte[] timestampBytes = new byte[8];
       for (int i = 0; i < 8; i++) {
         timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
       }
@@ -81,7 +104,7 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
       mac.update(ipBytes);
       // Update with the connection ID bytes
       mac.update(dcid.nioBuffer(dcid.readerIndex(), dcid.readableBytes()));
-      byte[] signature = mac.doFinal();
+      final byte[] signature = mac.doFinal();
       // Write token header
       out.writeLong(timestamp);
       out.writeBytes(signature);
@@ -99,30 +122,33 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     if (token.readableBytes() < TOKEN_LEN) {
       return -1;
     }
-    long timestamp = token.readLong();
-    byte[] signature = new byte[SIGNATURE_LEN];
+    final long timestamp = token.readLong();
+    final byte[] signature = new byte[SIGNATURE_LEN];
     token.readBytes(signature);
-    long now = System.currentTimeMillis();
+    final long now = System.currentTimeMillis();
     // Validate timestamp (prevent replay and future timestamp anomalies)
     if (now - timestamp > expirationMs || timestamp - now > expirationMs) {
       return -1;
     }
-    byte[] ipBytes = address.getAddress().getAddress();
+    final byte[] ipBytes = address.getAddress().getAddress();
     try {
-      Mac mac = Mac.getInstance(HMAC_ALGO);
-      mac.init(keySpec);
-      byte[] timestampBytes = new byte[8];
-      for (int i = 0; i < 8; i++) {
-        timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
-      }
-      mac.update(timestampBytes);
-      mac.update(ipBytes);
-      // The remaining bytes in the token represent the destination connection ID
-      mac.update(token.nioBuffer(token.readerIndex(), token.readableBytes()));
-      byte[] expectedSignature = mac.doFinal();
-      if (MessageDigest.isEqual(signature, expectedSignature)) {
-        // Return the start offset of the destination connection ID (dcid) in the token buffer
-        return token.readerIndex();
+      final List<byte[]> validSecrets = secretProvider.getValidationSecrets();
+      for (byte[] secret : validSecrets) {
+        final Mac mac = Mac.getInstance(HMAC_ALGO);
+        mac.init(new SecretKeySpec(secret, HMAC_ALGO));
+        final byte[] timestampBytes = new byte[8];
+        for (int i = 0; i < 8; i++) {
+          timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
+        }
+        mac.update(timestampBytes);
+        mac.update(ipBytes);
+        // The remaining bytes in the token represent the destination connection ID
+        mac.update(token.nioBuffer(token.readerIndex(), token.readableBytes()));
+        final byte[] expectedSignature = mac.doFinal();
+        if (MessageDigest.isEqual(signature, expectedSignature)) {
+          // Return the start offset of the destination connection ID (dcid) in the token buffer
+          return token.readerIndex();
+        }
       }
     } catch (Exception e) {
       logger.error("Failed to validate HMAC token", e);
@@ -136,3 +162,4 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     return 256;
   }
 }
+
