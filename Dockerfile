@@ -17,14 +17,14 @@ COPY scripts ./scripts
 RUN mvn clean package -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib
 
 # Stage 2: Hardened Production Runtime
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:21-jre AS runtime
 
 LABEL org.opencontainers.image.title="WebTransport4J Cluster Node" \
       org.opencontainers.image.description="High-performance HTTP/3 WebTransport cluster node with stateless QUIC resumption" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Create unprivileged application user
-RUN addgroup -S wtgroup && adduser -S wtuser -G wtgroup
+RUN groupadd -r wtgroup && useradd -r -g wtgroup wtuser
 WORKDIR /app
 
 # Copy application artifacts from builder
@@ -50,6 +50,7 @@ ENV POD_NAME="webtransport-node"
 
 # Health check using auxiliary HTTP probe
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080/healthz || exit 1
+  CMD curl -fsS http://localhost:8080/healthz || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/webtransport4j.jar:/app/lib/*' io.github.webtransport4j.example.ClusterNodeSample"]
+

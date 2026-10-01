@@ -49,12 +49,11 @@ server {
 }
 EOF
 
-# Use non-root user for security compliance
-USER nginx
-
 # Container metadata & health check
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:8080/healthz || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
+
+
