@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # Node 1
+  wt-node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-1
+    restart: unless-stopped
+    ports:
+      - "4433:4433/udp"
+      - "8081:8080"
+    environment:
+      - POD_NAME=wt-node-1
+      - PORT=4433
+      - METRICS_PORT=8080
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # Node 2
+  wt-node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-2
+    restart: unless-stopped
+    ports:
+      - "4434:4433/udp"
+      - "8082:8080"
+    environment:
+      - POD_NAME=wt-node-2
+      - PORT=4433
+      - METRICS_PORT=8080
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # Node 3
+  wt-node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-3
+    restart: unless-stopped
+    ports:
+      - "4435:4433/udp"
+      - "8083:8080"
+    environment:
+      - POD_NAME=wt-node-3
+      - PORT=4433
+      - METRICS_PORT=8080
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # OpenTelemetry Collector (Aggregates telemetry from all 3 cluster nodes)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./dashboard/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus exporter
+    networks:
+      - cluster-net
+
+  # WebTransport4J Dashboard UI
+  webtransport-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: webtransport-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - cluster-net
+
+networks:
+  cluster-net:
+    driver: bridge

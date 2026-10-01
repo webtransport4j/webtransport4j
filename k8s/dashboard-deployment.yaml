@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webtransport4j-dashboard
+  namespace: webtransport-prod
+  labels:
+    app.kubernetes.io/name: webtransport4j-dashboard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webtransport4j-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webtransport4j-dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: ghcr.io/webtransport4j/webtransport4j-dashboard:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtransport4j-dashboard-service
+  namespace: webtransport-prod
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: webtransport4j-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
