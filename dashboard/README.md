@@ -1,63 +1,95 @@
-# WebTransport4J Enterprise Observability Dashboard
+# WebTransport4J Enterprise Observability & Chaos Cockpit
 
-Production-grade real-time telemetry, distributed tracing, and reliability operations cockpit for WebTransport4J clusters.
-
----
-
-## 🌟 Key Capabilities
-
-1. **Multi-Source Ingestion Engine**:
-   - **OpenTelemetry Protocol (OTLP/HTTP)**: Direct ingestion endpoint at `POST /v1/metrics` and `POST /v1/traces`.
-   - **Prometheus Scraper**: Standard text exposition scrape endpoint at `GET /metrics`.
-   - **Live Cluster Simulator**: Realistic multi-node edge telemetry generator simulating QUIC sessions, stream multiplexing, BBR congestion control, datagram bursts, and connection migrations.
-   - **Direct WebTransport4J Agent**: Real-time polling or stream ingestion.
-
-2. **Executive Health & SLO Banner**:
-   - 99.99% Availability SLO tracker with real-time error budget burn rate.
-   - P99 connection handshake latency (0-RTT session resumption tracking).
-   - Netty Buffer Leak Detector status (`-Dio.netty.leakDetection.level=PARANOID` verified 0 leaks).
-
-3. **High-Performance 60fps Telemetry Charts**:
-   - **Sessions & Streams Dynamics**: Active sessions vs open streams (bidi/uni breakdown).
-   - **Datagram Throughput & Drops**: Sent packets/sec vs queue overflow drops.
-   - **QUIC RTT Latency & Jitter**: Mean vs P99 latency spline curves.
-   - **Netty Direct Memory**: Buffer pool allocation and capacity tracking.
-
-4. **W3C Distributed Tracing Explorer**:
-   - Compliant with [W3C TraceContext Recommendation](https://www.w3.org/TR/trace-context/).
-   - Monospace trace table displaying `traceId`, `spanId`, `traceparent`, and `tracestate`.
-   - Interactive waterfall modal visualizing HTTP/3 CONNECT handshake, WebTransport session initialization, and stream/datagram dispatch spans.
-
-5. **Live Anomaly & Chaos Testing Toolbar**:
-   - **Nominal Flow**: Baseline sub-millisecond QUIC performance.
-   - **Network Jitter & Loss (8.5%)**: Simulates mobile carrier degradation and RTT latency spikes.
-   - **Queue Drops Spike (380/s)**: Simulates receiver queue saturation and triggers critical alert rules.
-   - **Migration Surge (42/s)**: Simulates Wi-Fi <-> Cellular client handover bursts.
-   - **Handshake Concurrency**: Simulates sudden spike in incoming CONNECT requests.
+Production-grade real-time telemetry, distributed tracing, and authenticated admin chaos engine for WebTransport4J clusters powered by **Java 25 LTS** and **Generational ZGC**.
 
 ---
 
-## 🚀 Running the Dashboard
+## 🌟 Zero-Simulation Architecture
 
-### 1. Launch with Python (Zero Dependencies)
+The dashboard strictly visualizes **genuine real-world metrics** from active cluster nodes, Prometheus endpoints, and OTLP receivers. **No synthetic random data is generated.**
+- Starts at 0 (idle) when no client traffic is active.
+- Real-time updates reflect actual QUIC packets, streams, datagrams, and buffer allocations.
+- Real W3C distributed traces (`00-<trace_id>-<span_id>-<flags>`) captured from live HTTP/3 CONNECT requests.
+
+---
+
+## 🔐 Mission Control & Authenticated Admin Chaos Console
+
+A dedicated enterprise administration and traffic generator console is available at **[`/admin.html`](http://localhost:8085/admin.html)**.
+
+### Access Credentials & Security:
+- **Operator ID**: `secops-admin`
+- **Secret Passkey**: `webtransport2026!`
+- **Clearance Level**: `Tier-3 Production Chaos & Traffic Orchestrator`
+- **Authentication Security**: 
+  - Login form requires manual credential entry (no pre-filled passwords in DOM or scripts).
+  - Credentials are cryptographically evaluated against a salted **PBKDF2-HMAC-SHA256** hash (100,000 iterations) with salt `wt4j-enterprise-secops-salt-2026`.
+  - Stored hash verification uses constant-time digest comparison (`hmac.compare_digest`) to protect against side-channel and timing attacks. Plaintext passwords are never stored or directly compared.
+
+### Chaos Safeguards & Operational Controls:
+- **Confirmation Warning Modal**: High-impact, aggressive bulk operations (e.g., Queue Overflow Storm of 1,000 datagrams, Abrupt Socket Tear / Chaos Kill, and datagram bursts $\ge 500$) trigger a confirmation dialog requiring explicit operator approval before execution.
+- **Frictionless Individual Operations**: Standard and individual operations (e.g., single handshakes, targeted bidi/uni streams, small datagram transmissions $< 500$) execute directly without modal interruptions.
+- **Start Fresh / Zero-Baseline Reset**: An instant telemetry reset endpoint (`/api/reset` and UI button) clears all live counters, charts, and traces back to pristine zero state.
+
+### Operational Capabilities:
+1. **Real Handshake Orchestrator**:
+   - Establishes genuine TLS 1.3 / QUIC handshake with HTTP/3 CONNECT WebTransport session upgrade.
+   - Inject custom W3C `traceparent` headers to observe distributed trace propagation.
+2. **Stream Transmission Engine**:
+   - Open Uni-directional or Bi-directional streams with custom payloads (text, JSON, binary).
+   - Concurrency slider (1 to 200 concurrent streams) with real echo checksum validation.
+3. **High-Throughput Datagram Hammer**:
+   - Fire 10 to 5,000 UDP datagrams into the QUIC engine at up to 50,000 packets/sec.
+   - Configurable payload MTU size (64B to 1350B).
+4. **Production Chaos & Failure Lab**:
+   - 💥 **Queue Overflow Storm**: blasts 1,000 unthrottled datagrams to saturate Netty queues and force real packet drop metrics.
+   - 🛑 **Abrupt Socket Tear (Unclean Close)**: severs the network socket without sending QUIC `CONNECTION_CLOSE` to test Netty leak detection and connection sweepers.
+   - 🐌 **Concurrency Backpressure**: bursts 50 concurrent streams to verify QUIC flow control windows.
+5. **Live Execution Wire Terminal**:
+   - Monospace real-time terminal showing wire results, round-trip time, session IDs, and **Dashboard Reasoning Hints** explaining the telemetry impact.
+6. **Immutable SecOps Audit Trail**:
+   - Records every administrative action, operator ID, target URL, and execution status.
+
+---
+
+## ⚡ Java 25 & Generational ZGC Ergonomics
+
+WebTransport4J cluster nodes run with cutting-edge JVM low-latency flags:
+```bash
+JAVA_OPTS="-XX:+UseZGC \
+           -XX:MaxRAMPercentage=75.0 \
+           -XX:+ExitOnOutOfMemoryError \
+           -Dio.netty.leakDetection.level=SIMPLE \
+           -Dio.netty.allocator.type=pooled"
+```
+- **Sub-millisecond GC pauses**: eliminates packet jitter during high-velocity 50,000 pps datagram streaming.
+- **Pooled Netty Direct Memory**: zero-copy buffer pooling prevents GC pressure on high-throughput QUIC paths.
+
+---
+
+## 🚀 Running the Cockpit
+
+### 1. Launch Observability Gateway & Admin Server
 ```bash
 python3 dashboard/server.py 8085
 ```
-Open **[http://localhost:8085/](http://localhost:8085/)** in your browser.
+- **Observability Dashboard**: [http://localhost:8085/](http://localhost:8085/)
+- **Admin Chaos Console**: [http://localhost:8085/admin.html](http://localhost:8085/admin.html)
+- **Live Telemetry API**: [http://localhost:8085/api/live-telemetry](http://localhost:8085/api/live-telemetry)
+- **Prometheus Metrics**: [http://localhost:8085/metrics](http://localhost:8085/metrics)
+- **SecOps Audit Trail**: [http://localhost:8085/api/admin/audit-log](http://localhost:8085/api/admin/audit-log)
 
-### 2. Live Endpoints
-- **Web UI**: `http://localhost:8085/`
-- **Prometheus Metrics**: `http://localhost:8085/metrics`
-- **OTLP Metrics Receiver**: `http://localhost:8085/v1/metrics`
-- **OTLP Traces Receiver**: `http://localhost:8085/v1/traces`
-- **Health Check**: `http://localhost:8085/health`
+### 2. Standalone Real Traffic Generator CLI
+```bash
+# Connect and handshake:
+java -cp "target/classes:target/lib/*" io.github.webtransport4j.example.RealTrafficGenerator handshake https://localhost:4433/echo
 
----
+# Send 200 real datagrams (512 bytes each at 2000 pps):
+java -cp "target/classes:target/lib/*" io.github.webtransport4j.example.RealTrafficGenerator datagrams https://localhost:4433/echo 200 512 2000
 
-## 🛠️ Ingestion Configuration
+# Open 10 bidirectional streams:
+java -cp "target/classes:target/lib/*" io.github.webtransport4j.example.RealTrafficGenerator streams https://localhost:4433/echo bidi 10 "Payload Text"
 
-Click the **Source: Live Cluster Simulator** badge in the dashboard navigation bar to switch between:
-1. **Live Cluster Simulator**: Built-in 8-node edge cluster simulation.
-2. **OpenTelemetry Collector**: Point to an existing OpenTelemetry collector (e.g., `http://collector:4318/v1/metrics`).
-3. **Prometheus Server**: Scrape from a Prometheus endpoint.
-4. **WebTransport4J Embedded Agent**: Connect directly to a running Java server instance.
+# Inject queue overflow chaos storm:
+java -cp "target/classes:target/lib/*" io.github.webtransport4j.example.RealTrafficGenerator chaos-burst https://localhost:4433/echo 1000
+```

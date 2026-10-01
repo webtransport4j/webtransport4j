@@ -17,10 +17,10 @@ COPY scripts ./scripts
 RUN mvn clean package -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib
 
 # Stage 2: Hardened Production Runtime
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:25-jre AS runtime
 
 LABEL org.opencontainers.image.title="WebTransport4J Cluster Node" \
-      org.opencontainers.image.description="High-performance HTTP/3 WebTransport cluster node with stateless QUIC resumption" \
+      org.opencontainers.image.description="High-performance HTTP/3 WebTransport cluster node with stateless QUIC resumption and Generational ZGC" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Create unprivileged application user
@@ -38,11 +38,13 @@ USER wtuser
 EXPOSE 4433/udp
 EXPOSE 8080/tcp
 
-# JVM Ergonomics for High-Throughput QUIC Server
-ENV JAVA_OPTS="-XX:+UseG1GC \
+# JVM Ergonomics for Ultra-Low Latency HTTP/3 with Generational ZGC on Java 25
+ENV JAVA_OPTS="-XX:+UseZGC \
                -XX:MaxRAMPercentage=75.0 \
                -XX:+ExitOnOutOfMemoryError \
-               -Dio.netty.leakDetection.level=SIMPLE"
+               -Dio.netty.leakDetection.level=SIMPLE \
+               -Dio.netty.allocator.type=pooled"
+
 
 ENV PORT=4433
 ENV METRICS_PORT=8080

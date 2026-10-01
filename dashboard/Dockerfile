@@ -5,8 +5,9 @@ FROM nginx:1.27-alpine
 WORKDIR /usr/share/nginx/html
 RUN rm -rf ./*
 
-# Copy dashboard static assets
-COPY index.html styles.css app.js README.md ./
+# Copy dashboard & admin console static assets
+COPY index.html styles.css app.js admin.html admin.js README.md ./
+
 
 # Custom hardened Nginx configuration with gzip, security headers, and caching
 RUN cat <<'EOF' > /etc/nginx/conf.d/default.conf

@@ -86,7 +86,7 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector.webtransport-prod.svc.cluster.local:4318/v1/metrics"
             - name: JAVA_OPTS
-              value: "-XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -Dio.netty.leakDetection.level=SIMPLE"
+              value: "-XX:+UseZGC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError -Dio.netty.leakDetection.level=SIMPLE -Dio.netty.allocator.type=pooled"
           resources:
             requests:
               cpu: 500m

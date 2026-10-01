@@ -49,9 +49,17 @@
           ⏸ Pause
         </button>
 
+        <button class="btn-secondary" id="btn-reset-fresh" onclick="window.resetAllTelemetry()" title="Clear all telemetry and graphs to start completely fresh">
+          🔄 Clear &amp; Start Fresh
+        </button>
+
         <button class="btn-primary" id="btn-export-json" onclick="window.exportMetrics('json')">
           📥 Export Telemetry
         </button>
+
+        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #ef4444, #dc2626); text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;" id="btn-header-admin">
+          🔐 Admin Chaos Console
+        </a>
       </div>
     </div>
   </header>
@@ -90,7 +98,7 @@
 
       <div class="source-badge" id="source-badge-btn" onclick="window.openSourceModal()" title="Click to change Telemetry Source">
         <span class="source-indicator"></span>
-        <span id="active-source-name">Source: Live Cluster Simulator</span>
+        <span id="active-source-name">Source: Real Live Cluster</span>
         <span style="font-size: 0.65rem; opacity: 0.7;">▼</span>
       </div>
     </div>
@@ -99,28 +107,22 @@
   <!-- Main App Viewport -->
   <main class="app-container">
 
-    <!-- Anomaly / Chaos Injection Toolbar -->
-    <section class="anomaly-toolbar" aria-label="Live Chaos and Testing Controls">
-      <div class="anomaly-title">
-        <span>🧪 Chaos & Anomaly Tester:</span>
-        <span style="font-size: 0.75rem; color: var(--text-dim); font-weight: normal;">Test real-time alert triggers and telemetry resilience</span>
+    <!-- Production Real-Telemetry & Admin Bridge Banner -->
+    <section class="slo-banner" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(56, 189, 248, 0.25);" aria-label="Production Telemetry Mode">
+      <div class="slo-item-main">
+        <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.35rem;">
+          <span class="status-indicator-dot online"></span>
+          <h2 style="font-size: 1.1rem; margin: 0; color: #fff;">Zero-Simulation Production Cockpit (Java 25 · Generational ZGC)</h2>
+        </div>
+        <p style="margin: 0; font-size: 0.8rem; color: var(--text-dim);">
+          All telemetry values strictly reflect genuine real-world network traffic, Netty ByteBuf pools, and OTLP / Prometheus ingestion from active cluster nodes. No artificial values are generated.
+        </p>
       </div>
-      <div class="anomaly-buttons">
-        <button class="btn-chaos active-chaos" data-chaos="normal" id="btn-chaos-normal" onclick="window.setAnomalyMode('normal')">
-          ✅ Nominal Flow
-        </button>
-        <button class="btn-chaos" data-chaos="loss" id="btn-chaos-loss" onclick="window.setAnomalyMode('loss')">
-          💥 Network Jitter & Loss (8.5%)
-        </button>
-        <button class="btn-chaos" data-chaos="drops" id="btn-chaos-drops" onclick="window.setAnomalyMode('drops')">
-          🚫 Queue Drops Spike (380/s)
-        </button>
-        <button class="btn-chaos" data-chaos="migrations" id="btn-chaos-migrations" onclick="window.setAnomalyMode('migrations')">
-          🔄 Migration Surge (42/s)
-        </button>
-        <button class="btn-chaos" data-chaos="surge" id="btn-chaos-surge" onclick="window.setAnomalyMode('surge')">
-          📈 Handshake Concurrency
-        </button>
+
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #ef4444, #dc2626); text-decoration: none; padding: 0.65rem 1.25rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.25);">
+          ⚡ Open Admin Operations & Chaos Console →
+        </a>
       </div>
     </section>
 
