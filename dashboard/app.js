@@ -212,25 +212,48 @@
       if (el) el.textContent = text;
     };
 
-    setText('val-sessions', (state.metrics.activeSessions || 0).toLocaleString());
-    setText('val-streams', (state.metrics.activeStreams || 0).toLocaleString());
+    const activeSessions = state.metrics.activeSessions || 0;
+    const activeStreams = state.metrics.activeStreams || 0;
+    const totalDatagramPps = (state.metrics.datagramsSentRate || 0) + (state.metrics.datagramsRecvRate || 0);
+    const datagramDrops = state.metrics.datagramsDroppedRate || 0;
+    const meanRtt = (state.metrics.quicRttMeanMs || 0.0).toFixed(1);
+    const p99Rtt = (state.metrics.quicRttP99Ms || 0.0).toFixed(1);
+    const directMemoryMb = state.metrics.nettyDirectMemoryMb || 0;
+    const memoryPoolMb = state.metrics.nettyPoolCapacityMb || 1024;
+    const memoryPct = memoryPoolMb > 0 ? Math.round((directMemoryMb / memoryPoolMb) * 100) : 0;
+
+    // Both ID conventions supported
+    setText('val-sessions', activeSessions.toLocaleString());
+    setText('val-active-sessions', activeSessions.toLocaleString());
+
+    setText('val-streams', activeStreams.toLocaleString());
+    setText('val-active-streams', activeStreams.toLocaleString());
     setText('val-bidi-streams', (state.metrics.bidiStreams || 0).toLocaleString());
     setText('val-uni-streams', (state.metrics.uniStreams || 0).toLocaleString());
 
     setText('val-datagram-throughput', (state.metrics.datagramThroughputMbps || 0.0) + ' Mbps');
+    setText('val-datagram-mbps', (state.metrics.datagramThroughputMbps || 0.0).toFixed(1));
+    setText('val-datagram-pps', totalDatagramPps.toLocaleString());
     setText('val-datagrams-sent', (state.metrics.datagramsSentRate || 0).toLocaleString() + ' pps');
     setText('val-datagrams-recv', (state.metrics.datagramsRecvRate || 0).toLocaleString() + ' pps');
-    setText('val-datagrams-dropped', (state.metrics.datagramsDroppedRate || 0).toLocaleString() + ' /s');
+    setText('val-datagram-drops', datagramDrops.toLocaleString());
+    setText('val-datagrams-dropped', datagramDrops.toLocaleString() + ' /s');
 
-    setText('val-rtt-mean', (state.metrics.quicRttMeanMs || 0.0).toFixed(1) + ' ms');
-    setText('val-rtt-p99', (state.metrics.quicRttP99Ms || 0.0).toFixed(1) + ' ms');
+    setText('val-quic-rtt', meanRtt + ' ms');
+    setText('val-rtt-mean', meanRtt + ' ms');
+    setText('val-quic-p99', p99Rtt + ' ms');
+    setText('val-rtt-p99', p99Rtt + ' ms');
     setText('val-packet-loss', (state.metrics.packetLossPct || 0.0).toFixed(2) + '%');
     setText('val-migrations', (state.metrics.connectionsMigratedRate || 0.0).toFixed(1) + ' /s');
 
-    setText('val-netty-direct', (state.metrics.nettyDirectMemoryMb || 0) + ' MB');
-    setText('val-netty-capacity', (state.metrics.nettyPoolCapacityMb || 1024) + ' MB');
+    setText('val-netty-memory', directMemoryMb + ' MB');
+    setText('val-netty-direct', directMemoryMb + ' MB');
+    setText('val-memory-pct', memoryPct + '%');
+    setText('val-netty-capacity', memoryPoolMb + ' MB');
     setText('val-netty-leaks', (state.metrics.nettyLeaksDetected || 0).toString());
+    setText('val-netty-leak-status', (state.metrics.nettyLeaksDetected || 0) + ' Leaks');
     setText('val-handshake-lat', (state.metrics.sessionHandshakeLatencyMs || 0.0).toFixed(1) + ' ms');
+    setText('val-p99-handshake', (state.metrics.sessionHandshakeLatencyMs || 0.0).toFixed(1) + ' ms');
 
     setText('val-slo', (state.metrics.availabilitySlo || 100.0).toFixed(3) + '%');
     setText('val-burn-rate', (state.metrics.errorBudgetBurnRate || 0.0).toFixed(2) + 'x');
@@ -248,16 +271,20 @@
   }
 
   function renderAlerts() {
-    const list = document.getElementById('alerts-list');
-    if (!list) return;
+    const lists = [
+      document.getElementById('alerts-feed-list'),
+      document.getElementById('alerts-full-list'),
+      document.getElementById('alerts-list')
+    ].filter(Boolean);
+    if (lists.length === 0) return;
 
-    list.innerHTML = state.alerts.map(a => `
-      <div class="alert-item alert-${a.severity}">
-        <div class="alert-icon">
+    const html = state.alerts.map(a => `
+      <div class="alert-item ${a.severity}">
+        <div class="alert-icon-box">
           ${a.severity === 'danger' ? '🚨' : a.severity === 'warning' ? '⚠️' : a.severity === 'success' ? '✅' : 'ℹ️'}
         </div>
         <div class="alert-content">
-          <div class="alert-header">
+          <div class="alert-title-row">
             <span class="alert-title">${escapeHtml(a.title)}</span>
             <span class="alert-time">${escapeHtml(a.time)}</span>
           </div>
@@ -265,6 +292,8 @@
         </div>
       </div>
     `).join('');
+
+    lists.forEach(l => { l.innerHTML = html; });
   }
 
   function renderTracesTable() {
@@ -486,56 +515,7 @@
     alert('Active Mode: Real Live Cluster.\nMetrics are strictly gathered from live WebTransport4J server nodes, Prometheus exposition, and OTLP receivers.\nTo inject traffic or test failure modes, visit the Admin Chaos Console.');
   };
 
-  window.resetAllTelemetry = async function () {
-    try {
-      await fetch('/api/reset');
-    } catch (_) {}
 
-    // Reset local state to clean zeros
-    Object.assign(state.metrics, {
-      activeSessions: 0,
-      activeStreams: 0,
-      bidiStreams: 0,
-      uniStreams: 0,
-      datagramsSentRate: 0,
-      datagramsRecvRate: 0,
-      datagramsDroppedRate: 0,
-      datagramThroughputMbps: 0.0,
-      quicRttMeanMs: 0.0,
-      quicRttP99Ms: 0.0,
-      packetLossPct: 0.0,
-      connectionsMigratedRate: 0.0,
-      nettyDirectMemoryMb: 0,
-      nettyPoolCapacityMb: 1024,
-      nettyLeaksDetected: 0,
-      sessionHandshakeLatencyMs: 0.0,
-      availabilitySlo: 100.0,
-      errorBudgetBurnRate: 0.0
-    });
-
-    state.history.sessions.fill(0);
-    state.history.streams.fill(0);
-    state.history.datagramsSent.fill(0);
-    state.history.datagramsDropped.fill(0);
-    state.history.rttMean.fill(0);
-    state.history.rttP99.fill(0);
-    state.history.memoryMb.fill(0);
-
-    state.traces = [];
-    state.paths.forEach(p => {
-      p.sessions = 0;
-      p.streams = 0;
-      p.pps = 0;
-      p.dropRate = '0.00%';
-      p.status = 'Ready (Idle)';
-    });
-
-    evaluateRealAlerts();
-    updateDomMetrics();
-    renderAllCharts();
-    renderTracesTable();
-    renderPathsTable();
-  };
 
 
   function formatCompact(num) {

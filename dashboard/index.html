@@ -49,10 +49,6 @@
           ⏸ Pause
         </button>
 
-        <button class="btn-secondary" id="btn-reset-fresh" onclick="window.resetAllTelemetry()" title="Clear all telemetry and graphs to start completely fresh">
-          🔄 Clear &amp; Start Fresh
-        </button>
-
         <button class="btn-primary" id="btn-export-json" onclick="window.exportMetrics('json')">
           📥 Export Telemetry
         </button>
@@ -135,20 +131,20 @@
 
       <div class="slo-metric">
         <div class="slo-metric-label">Availability SLO</div>
-        <div class="slo-metric-val healthy" id="val-slo">99.992%</div>
+        <div class="slo-metric-val healthy" id="val-slo">100.0%</div>
         <div class="slo-metric-sub">Target: 99.990%</div>
       </div>
 
       <div class="slo-metric">
         <div class="slo-metric-label">Burn Rate</div>
-        <div class="slo-metric-val healthy" id="val-burn-rate">0.85x</div>
-        <div class="slo-metric-sub">Budget: 14h 22m rem.</div>
+        <div class="slo-metric-val healthy" id="val-burn-rate">0.0x</div>
+        <div class="slo-metric-sub">Budget: 100% rem.</div>
       </div>
 
       <div class="slo-metric">
         <div class="slo-metric-label">P99 Handshake</div>
-        <div class="slo-metric-val healthy" id="val-p99-handshake">18.5 ms</div>
-        <div class="slo-metric-sub">0-RTT Resumed: 64%</div>
+        <div class="slo-metric-val healthy" id="val-p99-handshake">0.0 ms</div>
+        <div class="slo-metric-sub">0-RTT Resumed: 0%</div>
       </div>
 
       <div class="slo-metric">
@@ -170,12 +166,12 @@
             <div class="kpi-icon cyan">🌐</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-active-sessions">1,420</span>
+            <span class="kpi-value" id="val-active-sessions">0</span>
             <span class="kpi-unit">sessions</span>
           </div>
           <div class="kpi-footer">
-            <span class="kpi-delta up">▲ +3.4%</span>
-            <span>Across 8 nodes</span>
+            <span class="kpi-delta up">● Idle</span>
+            <span>Awaiting traffic</span>
           </div>
         </article>
 
@@ -186,11 +182,11 @@
             <div class="kpi-icon violet">🔀</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-active-streams">5,680</span>
+            <span class="kpi-value" id="val-active-streams">0</span>
             <span class="kpi-unit">streams</span>
           </div>
           <div class="kpi-footer">
-            <span>60% Bidi · 40% Uni</span>
+            <span>0 Bidi · 0 Uni</span>
             <span>Flow ctrl ok</span>
           </div>
         </article>
@@ -202,12 +198,12 @@
             <div class="kpi-icon emerald">⚡</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-datagram-pps">28,450</span>
+            <span class="kpi-value" id="val-datagram-pps">0</span>
             <span class="kpi-unit">pps</span>
           </div>
           <div class="kpi-footer">
-            <span id="val-datagram-mbps">182.4</span> Mbps
-            <span class="kpi-delta up">Nominal</span>
+            <span id="val-datagram-mbps">0.0</span> Mbps
+            <span class="kpi-delta up">Idle</span>
           </div>
         </article>
 
@@ -218,12 +214,12 @@
             <div class="kpi-icon rose">🚫</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-datagram-drops">4</span>
+            <span class="kpi-value" id="val-datagram-drops">0</span>
             <span class="kpi-unit">drops/s</span>
           </div>
           <div class="kpi-footer">
-            <span>Queue saturation: 0.01%</span>
-            <span class="kpi-delta up">Healthy</span>
+            <span>Queue saturation: 0.00%</span>
+            <span class="kpi-delta up">Nominal</span>
           </div>
         </article>
 
@@ -234,11 +230,11 @@
             <div class="kpi-icon amber">⏱️</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-quic-rtt">14.2 ms</span>
+            <span class="kpi-value" id="val-quic-rtt">0.0 ms</span>
           </div>
           <div class="kpi-footer">
-            <span>P99: <strong id="val-quic-p99">28.6 ms</strong></span>
-            <span>Loss: <strong id="val-packet-loss">0.04%</strong></span>
+            <span>P99: <strong id="val-quic-p99">0.0 ms</strong></span>
+            <span>Loss: <strong id="val-packet-loss">0.00%</strong></span>
           </div>
         </article>
 
@@ -249,10 +245,10 @@
             <div class="kpi-icon blue">💾</div>
           </div>
           <div class="kpi-value-row">
-            <span class="kpi-value" id="val-netty-memory">342 MB</span>
+            <span class="kpi-value" id="val-netty-memory">0 MB</span>
           </div>
           <div class="kpi-footer">
-            <span>Pool used: <strong id="val-memory-pct">33%</strong></span>
+            <span>Pool used: <strong id="val-memory-pct">0%</strong></span>
             <span>0 Leaks Detected</span>
           </div>
         </article>
@@ -362,8 +358,8 @@
       <div class="dashboard-row grid-3-col">
         <article class="kpi-card amber">
           <div class="kpi-header"><span class="kpi-title">Connection Migrations</span><div class="kpi-icon amber">🔄</div></div>
-          <div class="kpi-value-row"><span class="kpi-value" id="val-migrations">1.2/s</span></div>
-          <div class="kpi-footer"><span>Wi-Fi &lt;&gt; Cellular handoff</span><span class="kpi-delta up">Seamless</span></div>
+          <div class="kpi-value-row"><span class="kpi-value" id="val-migrations">0.0/s</span></div>
+          <div class="kpi-footer"><span>Wi-Fi &lt;&gt; Cellular handoff</span><span class="kpi-delta up">Nominal</span></div>
         </article>
 
         <article class="kpi-card emerald">
@@ -392,10 +388,10 @@
               <tr><th>Bucket Range</th><th>Percentage</th><th>Count</th><th>Throughput Share</th></tr>
             </thead>
             <tbody>
-              <tr><td class="mono-cell">&lt; 128 Bytes (Control / Heartbeat)</td><td>12.4%</td><td class="mono-cell">35,270</td><td>1.2 Mbps</td></tr>
-              <tr><td class="mono-cell">128 - 512 Bytes (Gaming / Audio)</td><td>38.2%</td><td class="mono-cell">108,680</td><td>32.8 Mbps</td></tr>
-              <tr><td class="mono-cell">512 - 1024 Bytes (Video Frames)</td><td>36.1%</td><td class="mono-cell">102,700</td><td>84.6 Mbps</td></tr>
-              <tr><td class="mono-cell">1024 - 1280 Bytes (Bulk MTU Limit)</td><td>13.3%</td><td class="mono-cell">37,840</td><td>63.8 Mbps</td></tr>
+              <tr><td class="mono-cell">&lt; 128 Bytes (Control / Heartbeat)</td><td>0.0%</td><td class="mono-cell">0</td><td>0.0 Mbps</td></tr>
+              <tr><td class="mono-cell">128 - 512 Bytes (Gaming / Audio)</td><td>0.0%</td><td class="mono-cell">0</td><td>0.0 Mbps</td></tr>
+              <tr><td class="mono-cell">512 - 1024 Bytes (Video Frames)</td><td>0.0%</td><td class="mono-cell">0</td><td>0.0 Mbps</td></tr>
+              <tr><td class="mono-cell">1024 - 1280 Bytes (Bulk MTU Limit)</td><td>0.0%</td><td class="mono-cell">0</td><td>0.0 Mbps</td></tr>
             </tbody>
           </table>
         </div>
