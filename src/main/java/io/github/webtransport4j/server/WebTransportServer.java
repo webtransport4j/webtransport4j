@@ -5,6 +5,8 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
+import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -130,6 +132,8 @@ public class WebTransportServer implements AutoCloseable {
   private Long initialMaxStreamsBidi;
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
+  private StatelessTokenSecretProvider statelessTokenSecretProvider;
+  private ClusterBroadcastBridge clusterBroadcastBridge;
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
@@ -253,6 +257,8 @@ public class WebTransportServer implements AutoCloseable {
     this.trafficShaperExternallySupplied = builderTrafficShaper != null;
     this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
+    this.statelessTokenSecretProvider = builder.getStatelessTokenSecretProvider();
+    this.clusterBroadcastBridge = builder.getClusterBroadcastBridge();
 
     if (builder.getMetricsListener() != null) {
       this.metricsListener = builder.getMetricsListener();
@@ -402,6 +408,42 @@ public class WebTransportServer implements AutoCloseable {
         this.trafficShaperExternallySupplied = trafficShaper != null;
       }
     }
+  }
+
+  /**
+   * Returns the cluster broadcast bridge, or null if clustering is not configured.
+   *
+   * @return cluster broadcast bridge or null
+   */
+  public @Nullable ClusterBroadcastBridge getClusterBroadcastBridge() {
+    return clusterBroadcastBridge;
+  }
+
+  /**
+   * Sets the cluster broadcast bridge.
+   *
+   * @param bridge cluster broadcast bridge
+   */
+  public void setClusterBroadcastBridge(@Nullable ClusterBroadcastBridge bridge) {
+    this.clusterBroadcastBridge = bridge;
+  }
+
+  /**
+   * Returns the stateless token secret provider, or null if not configured.
+   *
+   * @return token secret provider or null
+   */
+  public @Nullable StatelessTokenSecretProvider getStatelessTokenSecretProvider() {
+    return statelessTokenSecretProvider;
+  }
+
+  /**
+   * Sets the stateless token secret provider.
+   *
+   * @param provider token secret provider
+   */
+  public void setStatelessTokenSecretProvider(@Nullable StatelessTokenSecretProvider provider) {
+    this.statelessTokenSecretProvider = provider;
   }
 
   private static GlobalTrafficShapingHandler claimTrafficShaper(
@@ -1887,6 +1929,19 @@ public class WebTransportServer implements AutoCloseable {
   private QuicTokenHandler resolveTokenHandler() {
     if (this.quicTokenHandler != null) {
       return this.quicTokenHandler;
+    }
+    if (this.statelessTokenSecretProvider != null) {
+      long expirationMs =
+          WebTransportConfig.getLong(
+              "webtransport4j.quic.token.handler.hmac.expiration.ms", DEFAULT_HMAC_EXPIRATION_MS);
+      if (expirationMs <= 0) {
+        throw new IllegalArgumentException(
+            "webtransport4j.quic.token.handler.hmac.expiration.ms must be > 0");
+      }
+      logger.info(
+          "QUIC token handler configured: HMAC with StatelessTokenSecretProvider across cluster, expiration: {}ms",
+          expirationMs);
+      return new HmacQuicTokenHandler(this.statelessTokenSecretProvider, expirationMs);
     }
     return getTokenHandler();
   }
