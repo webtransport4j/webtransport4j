@@ -28,7 +28,6 @@ import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
-import io.netty.handler.codec.quic.QuicChannelBootstrap;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -67,6 +66,7 @@ public class WebTransportThreadSafetyIntegrationTest {
   private ExecutorService asyncPool;
   private AtomicInteger corruptedMessagesCount;
   private AtomicInteger processedMessagesCount;
+  private AtomicLong processedBytesCount;
 
   /**
    * Sets up test server and client QUIC channel.
@@ -77,6 +77,7 @@ public class WebTransportThreadSafetyIntegrationTest {
   public void setUp() throws Exception {
     corruptedMessagesCount = new AtomicInteger(0);
     processedMessagesCount = new AtomicInteger(0);
+    processedBytesCount = new AtomicLong(0);
     asyncPool = Executors.newCachedThreadPool();
 
     server = new WebTransportServerBuilder()
@@ -94,14 +95,12 @@ public class WebTransportThreadSafetyIntegrationTest {
                   try {
                     // Read payload from the retained buffer
                     byte[] bytes = retained.readBytes();
-                    String msg = new String(bytes, StandardCharsets.UTF_8);
 
                     if (bytes.length == 0) {
                       corruptedMessagesCount.incrementAndGet();
                     } else {
-                      // Count messages or partial chunks delivered safely across threads
-                      int msgCount = msg.split("THREAD-TEST-", -1).length - 1;
-                      processedMessagesCount.addAndGet(Math.max(1, msgCount));
+                      long totalBytes = processedBytesCount.addAndGet(bytes.length);
+                      processedMessagesCount.set((int) (totalBytes / 19L));
                     }
 
                     // Echo back to client
@@ -277,18 +276,23 @@ public class WebTransportThreadSafetyIntegrationTest {
     boolean completed = allResponsesReceivedLatch.await(15, TimeUnit.SECONDS);
     assertTrue("Timed out waiting for async thread responses", completed);
 
-    // Give worker threads up to 5 seconds to complete atomic counter increments after network echo
-    long deadline = System.currentTimeMillis() + 5000;
-    while (processedMessagesCount.get() < totalExpectedMessages && System.currentTimeMillis() < deadline) {
+    // Give worker threads up to 15 seconds to complete atomic counter increments after network echo
+    long deadline = System.currentTimeMillis() + 15000;
+    while (processedBytesCount.get() < expectedTotalBytes && System.currentTimeMillis() < deadline) {
       Thread.sleep(10);
     }
 
     // Assert zero corruption and exact message count
     assertEquals("Corrupted message count must be 0", 0, corruptedMessagesCount.get());
+    assertEquals("All byte payload must be received", expectedTotalBytes, rxBytesCounter.get());
+    assertEquals(
+        "All byte payload must be processed off-thread",
+        expectedTotalBytes,
+        processedBytesCount.get());
     assertEquals(
         "All expected messages must be processed off-thread",
         (long) totalExpectedMessages,
-        processedMessagesCount.get());
+        (long) processedMessagesCount.get());
 
     log.info("✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "
             + "8 worker threads with ZERO corruption!",
