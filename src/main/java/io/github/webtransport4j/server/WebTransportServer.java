@@ -39,6 +39,7 @@ import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -133,6 +134,7 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
+  private final Map<Long, NettyWebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
@@ -507,6 +509,44 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
     return globalActiveSessions.get();
+  }
+
+  /**
+   * Registers an active WebTransport session.
+   *
+   * @param session the session to register
+   */
+  public void registerSession(@NonNull NettyWebTransportSession session) {
+    Objects.requireNonNull(session, "session cannot be null");
+    activeSessionsMap.put(session.getSessionStreamId(), session);
+  }
+
+  /**
+   * Unregisters an active WebTransport session by its session stream ID.
+   *
+   * @param sessionStreamId the stream ID of the session
+   */
+  public void unregisterSession(long sessionStreamId) {
+    activeSessionsMap.remove(sessionStreamId);
+  }
+
+  /**
+   * Returns an unmodifiable collection of all currently active WebTransport sessions.
+   *
+   * @return collection of active sessions
+   */
+  public @NonNull Collection<NettyWebTransportSession> getActiveSessions() {
+    return Collections.unmodifiableCollection(activeSessionsMap.values());
+  }
+
+  /**
+   * Retrieves an active WebTransport session by its session stream ID.
+   *
+   * @param sessionStreamId the stream ID of the session
+   * @return the session, or null if not found
+   */
+  public @Nullable NettyWebTransportSession getSession(long sessionStreamId) {
+    return activeSessionsMap.get(sessionStreamId);
   }
 
   /** Returns the current lifecycle state of the server. */

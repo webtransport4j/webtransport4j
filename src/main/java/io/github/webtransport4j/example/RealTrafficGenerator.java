@@ -13,6 +13,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
@@ -29,6 +30,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -88,7 +90,7 @@ public final class RealTrafficGenerator {
         log.warn("Error closing QuicChannel", e);
       } finally {
         if (group != null) {
-          group.shutdownGracefully();
+          group.shutdownGracefully(0, 50, TimeUnit.MILLISECONDS);
         }
       }
     }
@@ -369,10 +371,148 @@ public final class RealTrafficGenerator {
             "{\"status\":\"SUCCESS\",\"command\":\"chaos-abrupt-close\","
                 + "\"action\":\"FORCIBLE_DISCONNECT\",\"target\":\"%s\"}%n",
             url);
+        session.group.shutdownGracefully(0, 50, TimeUnit.MILLISECONDS);
+        System.exit(0);
+      } else if ("session".equalsIgnoreCase(command) || "daemon".equalsIgnoreCase(command)) {
+        final int streamCount = args.length > 2 ? Integer.parseInt(args[2]) : 0;
+        final boolean bidi = args.length <= 3 || !"uni".equalsIgnoreCase(args[3]);
+        final int keepAliveSec = args.length > 4 ? Integer.parseInt(args[4]) : 3600;
+        final String payload = args.length > 5 ? args[5] : "Real WebTransport Stream";
+        final LiveSession session = connect(url, null);
+        final long rttMs = System.currentTimeMillis() - startTime;
+        int openedStreams = 0;
+        if (streamCount > 0) {
+          openedStreams = sendStreams(session, bidi, streamCount, payload);
+        }
+        System.out.printf(
+            "{\"status\":\"CONNECTED\",\"command\":\"session\",\"sessionId\":%d,"
+                + "\"streamCount\":%d,\"rttMs\":%d,\"target\":\"%s\"}%n",
+            session.getSessionId(), openedStreams, rttMs, url);
+        System.out.flush();
+
+        final long deadline = System.currentTimeMillis() + (keepAliveSec * 1000L);
+        while (System.currentTimeMillis() < deadline && session.getQuicChannel().isOpen()) {
+          try {
+            Thread.sleep(500);
+          } catch (final InterruptedException e) {
+            break;
+          }
+        }
+        session.close();
+        System.exit(0);
+      } else if ("stream-action".equalsIgnoreCase(command)) {
+        final boolean bidi = args.length <= 2 || !"uni".equalsIgnoreCase(args[2]);
+        final String payload = args.length > 3 ? args[3] : "Stream Payload";
+        final String action = args.length > 4 ? args[4] : "send";
+        final int errorCode = args.length > 5 ? Integer.parseInt(args[5]) : 0;
+        try (LiveSession session = connect(url, null)) {
+          final QuicStreamType streamType =
+              bidi ? QuicStreamType.BIDIRECTIONAL : QuicStreamType.UNIDIRECTIONAL;
+          final byte[] payloadBytes = payload.getBytes(StandardCharsets.UTF_8);
+          final CompletableFuture<String> responseFuture = new CompletableFuture<>();
+          final AtomicInteger bytesRecv = new AtomicInteger(0);
+
+          final QuicStreamChannel stream =
+              session
+                  .getQuicChannel()
+                  .createStream(
+                      streamType,
+                      new ChannelInitializer<QuicStreamChannel>() {
+                        @Override
+                        protected void initChannel(final QuicStreamChannel ch) {
+                          ch.pipeline()
+                              .addLast(
+                                  new ChannelInboundHandlerAdapter() {
+                                    @Override
+                                    public void channelRead(
+                                        final ChannelHandlerContext ctx, final Object msg) {
+                                      if (msg instanceof ByteBuf) {
+                                        final ByteBuf buf = (ByteBuf) msg;
+                                        bytesRecv.addAndGet(buf.readableBytes());
+                                        final String text = buf.toString(StandardCharsets.UTF_8);
+                                        buf.release();
+                                        responseFuture.complete(text);
+                                      }
+                                    }
+                                  });
+                        }
+                      })
+                  .sync()
+                  .getNow();
+
+          final ByteBuf buffer = stream.alloc().directBuffer();
+          final long frameType = bidi ? 0x41L : 0x54L;
+          WebTransportUtils.writeVarInt(buffer, frameType);
+          WebTransportUtils.writeVarInt(buffer, session.getSessionId());
+          buffer.writeBytes(payloadBytes);
+          stream.writeAndFlush(buffer).sync();
+
+          String respText = "";
+          if (bidi) {
+            try {
+              respText = responseFuture.get(3, TimeUnit.SECONDS);
+            } catch (final Exception ignored) {
+              respText = "";
+            }
+          }
+
+          if ("close".equalsIgnoreCase(action)) {
+            stream.shutdownOutput().sync();
+          } else if ("reset".equalsIgnoreCase(action)) {
+            stream.shutdown(errorCode, stream.newPromise()).sync();
+          }
+
+          final long durationMs = System.currentTimeMillis() - startTime;
+          System.out.printf(
+              "{\"status\":\"SUCCESS\",\"command\":\"stream-action\",\"sessionId\":%d,"
+                  + "\"streamId\":%d,\"type\":\"%s\",\"action\":\"%s\",\"bytesSent\":%d,"
+                  + "\"bytesReceived\":%d,\"response\":\"%s\",\"durationMs\":%d,\"target\":\"%s\"}%n",
+              session.getSessionId(),
+              stream.streamId(),
+              bidi ? "bidi" : "uni",
+              action,
+              payloadBytes.length,
+              bytesRecv.get(),
+              respText.replace("\"", "'").replace("\n", " "),
+              durationMs,
+              url);
+        }
+      } else if ("drain-session".equalsIgnoreCase(command)) {
+        try (LiveSession session = connect(url, null)) {
+          final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
+          WebTransportUtils.writeVarInt(capsule, 0x78aeL);
+          WebTransportUtils.writeVarInt(capsule, 0L);
+          session.getConnectStream().writeAndFlush(new DefaultHttp3DataFrame(capsule)).sync();
+          final long durationMs = System.currentTimeMillis() - startTime;
+          System.out.printf(
+              "{\"status\":\"SUCCESS\",\"command\":\"drain-session\",\"sessionId\":%d,"
+                  + "\"capsule\":\"0x78ae\",\"durationMs\":%d,\"target\":\"%s\"}%n",
+              session.getSessionId(), durationMs, url);
+        }
+      } else if ("close-session".equalsIgnoreCase(command)) {
+        final int code = args.length > 2 ? Integer.parseInt(args[2]) : 0;
+        final String reason = args.length > 3 ? args[3] : "Normal Closure";
+        final byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
+        try (LiveSession session = connect(url, null)) {
+          final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
+          WebTransportUtils.writeVarInt(capsule, 0x2843L);
+          WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
+          capsule.writeInt(code);
+          capsule.writeBytes(reasonBytes);
+          session.getConnectStream().writeAndFlush(new DefaultHttp3DataFrame(capsule)).sync();
+          session.getConnectStream().close().sync();
+          final long durationMs = System.currentTimeMillis() - startTime;
+          System.out.printf(
+              "{\"status\":\"SUCCESS\",\"command\":\"close-session\",\"sessionId\":%d,"
+                  + "\"capsule\":\"0x2843\",\"code\":%d,\"reason\":\"%s\",\"durationMs\":%d,"
+                  + "\"target\":\"%s\"}%n",
+              session.getSessionId(), code, reason.replace("\"", "'"), durationMs, url);
+        }
       } else {
         System.err.println("Unknown command: " + command);
         System.exit(1);
       }
+      System.exit(0);
     } catch (final Exception ex) {
       log.error("Traffic generation execution failed", ex);
       System.out.printf(

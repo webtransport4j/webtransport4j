@@ -69,18 +69,37 @@
     ]
   };
 
-  // Prepopulate history ring buffers with clean initial zeros
-  const now = Date.now();
-  for (let i = 29; i >= 0; i--) {
-    const t = new Date(now - i * 1000);
-    state.history.timestamps.push(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    state.history.sessions.push(0);
-    state.history.streams.push(0);
-    state.history.datagramsSent.push(0);
-    state.history.datagramsDropped.push(0);
-    state.history.rttMean.push(0);
-    state.history.rttP99.push(0);
-    state.history.memoryMb.push(0);
+  // Prepopulate history ring buffers from persistent storage or initial timestamps
+  try {
+    const savedSource = localStorage.getItem('wt4j_active_datasource');
+    if (savedSource) {
+      const parsed = JSON.parse(savedSource);
+      state.activeSource = parsed.type || 'live-cluster';
+      state.sourceEndpoint = parsed.url || '';
+    }
+    const savedHistory = localStorage.getItem('wt4j_telemetry_history');
+    if (savedHistory) {
+      const parsedHist = JSON.parse(savedHistory);
+      if (parsedHist.timestamps && parsedHist.timestamps.length > 0) {
+        Object.assign(state.history, parsedHist);
+      }
+    }
+  } catch (_) {}
+
+  // If history is still empty, populate with initial time labels
+  if (state.history.timestamps.length === 0) {
+    const now = Date.now();
+    for (let i = 29; i >= 0; i--) {
+      const t = new Date(now - i * 1000);
+      state.history.timestamps.push(t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      state.history.sessions.push(0);
+      state.history.streams.push(0);
+      state.history.datagramsSent.push(0);
+      state.history.datagramsDropped.push(0);
+      state.history.rttMean.push(0);
+      state.history.rttP99.push(0);
+      state.history.memoryMb.push(0);
+    }
   }
 
   // --- Real Telemetry Ingestion Engine ---
@@ -97,6 +116,31 @@
         // Throughput calculation: (datagrams sent/recv * ~512 bytes * 8) / 1,000,000 Mbps
         const totalPps = (state.metrics.datagramsSentRate || 0) + (state.metrics.datagramsRecvRate || 0);
         state.metrics.datagramThroughputMbps = +((totalPps * 512 * 8) / 1_000_000).toFixed(2);
+
+        // Synchronize server-side rolling history so refreshing analytics NEVER wipes data
+        if (data.history && data.history.timestamps && data.history.timestamps.length > 0) {
+          state.history.timestamps = data.history.timestamps.slice();
+          state.history.sessions = data.history.sessions.slice();
+          state.history.streams = data.history.streams.slice();
+          state.history.datagramsSent = data.history.datagramsSent.slice();
+          state.history.datagramsDropped = data.history.datagramsDropped.slice();
+          state.history.rttMean = data.history.rttMean.slice();
+          state.history.rttP99 = data.history.rttP99.slice();
+          state.history.memoryMb = data.history.memoryMb.slice();
+          try {
+            localStorage.setItem('wt4j_telemetry_history', JSON.stringify(state.history));
+          } catch (_) {}
+        }
+
+        // Active datasource synchronization
+        if (data.activeSource && !localStorage.getItem('wt4j_active_datasource')) {
+          state.activeSource = data.activeSource.type;
+          state.sourceEndpoint = data.activeSource.url;
+          const badge = document.getElementById('active-source-name');
+          if (badge && data.activeSource.name) {
+            badge.textContent = `Source: ${data.activeSource.name.split('(')[0].trim()}`;
+          }
+        }
 
         // Update real traces
         if (data.traces && data.traces.length > 0) {
@@ -512,7 +556,70 @@
   };
 
   window.openSourceModal = function () {
-    alert('Active Mode: Real Live Cluster.\nMetrics are strictly gathered from live WebTransport4J server nodes, Prometheus exposition, and OTLP receivers.\nTo inject traffic or test failure modes, visit the Admin Chaos Console.');
+    const modal = document.getElementById('source-config-modal');
+    if (modal) {
+      const selectEl = document.getElementById('source-type-select');
+      const inputEl = document.getElementById('source-endpoint-url');
+      if (selectEl) selectEl.value = state.activeSource || 'live-cluster';
+      if (inputEl) inputEl.value = state.sourceEndpoint || 'http://localhost:8085/api/live-telemetry';
+      modal.classList.add('active');
+    }
+  };
+
+  window.closeModal = function (id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  };
+
+  window.onSourceTypeChange = function () {
+    const selectEl = document.getElementById('source-type-select');
+    const inputEl = document.getElementById('source-endpoint-url');
+    if (!selectEl || !inputEl) return;
+    const val = selectEl.value;
+    if (val === 'live-cluster') inputEl.value = 'http://localhost:8085/api/live-telemetry';
+    else if (val === 'otlp') inputEl.value = 'http://localhost:8085/v1/metrics';
+    else if (val === 'prometheus') inputEl.value = 'http://localhost:8085/metrics';
+    else if (val === 'custom') inputEl.value = 'http://127.0.0.1:8080/healthz';
+  };
+
+  window.saveSourceConfig = async function () {
+    const selectEl = document.getElementById('source-type-select');
+    const inputEl = document.getElementById('source-endpoint-url');
+    const val = selectEl ? selectEl.value : 'live-cluster';
+    const url = inputEl ? inputEl.value.trim() : 'http://localhost:8085/api/live-telemetry';
+    const text = selectEl && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex].text : 'Real Live Cluster';
+
+    state.activeSource = val;
+    state.sourceEndpoint = url;
+
+    try {
+      localStorage.setItem('wt4j_active_datasource', JSON.stringify({ type: val, url: url, name: text }));
+    } catch (_) {}
+
+    try {
+      await fetch('/api/datasource', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: val, url: url, name: text })
+      });
+    } catch (_) {}
+
+    const badge = document.getElementById('active-source-name');
+    if (badge) badge.textContent = `Source: ${text.split('(')[0].trim()}`;
+
+    window.closeModal('source-config-modal');
+    await pollTelemetry();
+  };
+
+  window.refreshAnalytics = async function () {
+    const btn = document.getElementById('btn-refresh-analytics');
+    if (btn) btn.textContent = '⏳ Syncing...';
+    await pollTelemetry();
+    renderAllCharts();
+    if (btn) {
+      btn.textContent = '✅ Synced';
+      setTimeout(() => { btn.textContent = '🔄 Refresh Analytics'; }, 900);
+    }
   };
 
 

@@ -289,6 +289,9 @@ public class WebTransportSessionManager {
 
     Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    if (server != null) {
+      server.registerSession(session);
+    }
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : null;
     if (handler != null) {
       try {
@@ -378,6 +381,9 @@ public class WebTransportSessionManager {
 
     Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    if (server != null) {
+      server.unregisterSession(sessionStreamId);
+    }
     WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
     if (handler != null) {
       try {

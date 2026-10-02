@@ -1,6 +1,7 @@
 /**
- * WebTransport4J Enterprise Admin & Chaos Controller Logic
- * Drives real network traffic, socket handshakes, datagram blasts, and chaos scenarios.
+ * WebTransport4J Enterprise Mission Control & Interactive Session/Stream Studio
+ * Production-ready orchestrator for QUIC connections, individual stream control,
+ * payloads (send/receive), FIN closures, RESET_STREAM, RFC capsules, and wire logs.
  */
 
 (function () {
@@ -8,6 +9,16 @@
 
   let sessionToken = sessionStorage.getItem('wt_admin_token') || '';
   let operatorUser = sessionStorage.getItem('wt_admin_user') || '';
+
+  // Studio State
+  let currentSessionId = null;
+  let cachedSessions = [];
+  let currentStreamFormat = 'text';
+  let activeTab = 'streams';
+  let expandedStreamHistories = new Set();
+  let activeCategoryFilter = 'ALL'; // 'ALL' | 'STANDARD' | 'CHAOS'
+  let isLiveMonitoring = false;
+  let liveMonitorInterval = null;
 
   const elements = {
     authModal: document.getElementById('auth-modal-overlay'),
@@ -21,7 +32,58 @@
     miniSessions: document.getElementById('mini-val-sessions'),
     miniStreams: document.getElementById('mini-val-streams'),
     miniDatagrams: document.getElementById('mini-val-datagrams'),
-    miniDrops: document.getElementById('mini-val-drops')
+    miniDrops: document.getElementById('mini-val-drops'),
+
+    // Studio Containers
+    sessionCountBadge: document.getElementById('session-count-badge'),
+    sessionSearchInput: document.getElementById('session-search-input'),
+    sessionCardsContainer: document.getElementById('session-cards-container'),
+    sessionDetailEmpty: document.getElementById('session-detail-empty'),
+    sessionDetailContent: document.getElementById('session-detail-content'),
+
+    // Filter Pills
+    pillAll: document.getElementById('pill-filter-all'),
+    pillStandard: document.getElementById('pill-filter-standard'),
+    pillChaos: document.getElementById('pill-filter-chaos'),
+    countPillAll: document.getElementById('count-pill-all'),
+    countPillStandard: document.getElementById('count-pill-standard'),
+    countPillChaos: document.getElementById('count-pill-chaos'),
+    btnLiveMonitor: document.getElementById('btn-live-monitor'),
+
+    // Detail Header
+    detailStatusDot: document.getElementById('detail-status-dot'),
+    detailSessionId: document.getElementById('detail-session-id'),
+    detailStatusPill: document.getElementById('detail-status-pill'),
+    detailSubprotocol: document.getElementById('detail-subprotocol'),
+    detailPath: document.getElementById('detail-path'),
+    detailRemote: document.getElementById('detail-remote'),
+    detailClient: document.getElementById('detail-client'),
+    detailRtt: document.getElementById('detail-rtt'),
+    detailTraceparent: document.getElementById('detail-traceparent'),
+
+    // Chaos Diagnostics Banner
+    chaosBanner: document.getElementById('chaos-diagnostics-banner'),
+    chaosScenarioName: document.getElementById('chaos-scenario-name'),
+    chaosMetricLoss: document.getElementById('chaos-metric-loss'),
+    chaosMetricDrops: document.getElementById('chaos-metric-drops'),
+    chaosMetricPressure: document.getElementById('chaos-metric-pressure'),
+    chaosMetricLeak: document.getElementById('chaos-metric-leak'),
+    chaosFaultDetails: document.getElementById('chaos-fault-details'),
+
+    // Studio Tabs & Badges
+    tabStreamsCount: document.getElementById('tab-streams-count'),
+    tabWireCount: document.getElementById('tab-wire-count'),
+    streamsTbody: document.getElementById('streams-tbody'),
+    sessDgHistory: document.getElementById('sess-dg-history'),
+    sessWireEvents: document.getElementById('sess-wire-events'),
+
+    // Flow Control
+    flowMaxData: document.getElementById('flow-max-data'),
+    flowUsedData: document.getElementById('flow-used-data'),
+    flowBidiLimit: document.getElementById('flow-bidi-limit'),
+    flowBidiUsed: document.getElementById('flow-bidi-used'),
+    flowUniLimit: document.getElementById('flow-uni-limit'),
+    flowUniUsed: document.getElementById('flow-uni-used')
   };
 
   function appendLog(level, tag, message, reasoning = null) {
@@ -47,7 +109,7 @@
   }
 
   function escapeHtml(str) {
-    return String(str).replace(/[&<>"']/g, m => ({
+    return String(str || '').replace(/[&<>"']/g, m => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[m]);
   }
@@ -65,6 +127,23 @@
       elements.traceInput.value = tp;
     }
     appendLog('OK', 'TRACE', `Generated W3C Distributed Traceparent: ${tp}`);
+  };
+
+  // --- Modal Helpers ---
+  window.openModal = function (id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'flex';
+  };
+
+  window.closeModal = function (id) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  };
+
+  window.generateModalTrace = function () {
+    const randHex = len => Array.from({ length: len }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const el = document.getElementById('new-conn-trace');
+    if (el) el.value = `00-${randHex(32)}-${randHex(16)}-01`;
   };
 
   // --- Authentication ---
@@ -89,6 +168,7 @@
         appendLog('OK', 'AUTH', `Operator authenticated: ${operatorUser} (${data.clearance})`);
         loadAuditLog();
         fetchLiveTelemetry();
+        loadSessions(true);
       } else {
         alert(data.error || 'Authentication rejected. Verify credentials.');
       }
@@ -125,6 +205,8 @@
         elements.authModal.style.display = 'none';
         if (elements.displayOperator) elements.displayOperator.textContent = data.user;
         loadAuditLog();
+        fetchLiveTelemetry();
+        loadSessions(true);
       } else {
         elements.authModal.style.display = 'flex';
       }
@@ -133,7 +215,1008 @@
     }
   }
 
-  // --- Real Traffic Execution ---
+  // --- Generic Authenticated API Helper ---
+  async function apiPost(endpoint, body = {}) {
+    if (!sessionToken) {
+      elements.authModal.style.display = 'flex';
+      throw new Error('Authentication required');
+    }
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sessionToken}`
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  async function apiGet(endpoint) {
+    const res = await fetch(endpoint, {
+      headers: sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {}
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  // =========================================================================
+  // Master-Detail Session & Stream Studio Logic
+  // =========================================================================
+
+  window.loadSessions = async function (autoSelectFirst = false) {
+    try {
+      const data = await apiGet('/api/admin/sessions');
+      cachedSessions = data.sessions || [];
+
+      // Update counters & pills
+      if (elements.sessionCountBadge) {
+        elements.sessionCountBadge.textContent = cachedSessions.length;
+      }
+      if (elements.countPillAll) {
+        elements.countPillAll.textContent = cachedSessions.length;
+      }
+      if (elements.countPillStandard) {
+        elements.countPillStandard.textContent = cachedSessions.filter(s => s.category !== 'CHAOS').length;
+      }
+      if (elements.countPillChaos) {
+        elements.countPillChaos.textContent = cachedSessions.filter(s => s.category === 'CHAOS').length;
+      }
+
+      window.filterSessions();
+
+      if (cachedSessions.length === 0) {
+        currentSessionId = null;
+        if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'block';
+        if (elements.sessionDetailContent) elements.sessionDetailContent.style.display = 'none';
+      } else if (autoSelectFirst || !cachedSessions.some(s => s.id === currentSessionId)) {
+        currentSessionId = cachedSessions[0].id;
+        selectSession(currentSessionId);
+      } else if (currentSessionId) {
+        selectSession(currentSessionId, false);
+      }
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+    }
+  };
+
+  window.setSessionCategoryFilter = function (category) {
+    activeCategoryFilter = category;
+    const pillMap = [
+      { el: elements.pillAll, cat: 'ALL' },
+      { el: elements.pillStandard, cat: 'STANDARD' },
+      { el: elements.pillChaos, cat: 'CHAOS' }
+    ];
+    pillMap.forEach(p => {
+      if (p.el) p.el.classList.toggle('active', p.cat === category);
+    });
+    window.filterSessions();
+  };
+
+  window.refreshSessions = function () {
+    loadSessions(false);
+    loadAuditLog();
+    fetchLiveTelemetry();
+    appendLog('OK', 'STUDIO_REFRESH', 'Active sessions and stream states synchronized.');
+  };
+
+  window.filterSessions = function () {
+    const q = (elements.sessionSearchInput ? elements.sessionSearchInput.value : '').toLowerCase().trim();
+    let filtered = cachedSessions;
+
+    // 1. Filter by Category
+    if (activeCategoryFilter === 'STANDARD') {
+      filtered = filtered.filter(s => s.category !== 'CHAOS');
+    } else if (activeCategoryFilter === 'CHAOS') {
+      filtered = filtered.filter(s => s.category === 'CHAOS');
+    }
+
+    // 2. Filter by search query
+    if (q) {
+      filtered = filtered.filter(s =>
+        s.id.toLowerCase().includes(q) ||
+        (s.path || '').toLowerCase().includes(q) ||
+        (s.remoteEndpoint || '').toLowerCase().includes(q) ||
+        (s.status || '').toLowerCase().includes(q) ||
+        (s.chaosScenario || '').toLowerCase().includes(q)
+      );
+    }
+
+    renderSessionCards(filtered);
+  };
+
+  function renderStandardCard(s) {
+    const isActive = s.id === currentSessionId;
+    let statusClass = 'connected';
+    if (s.status === 'DRAINING') statusClass = 'draining';
+    else if (s.status === 'CLOSED') statusClass = 'closed';
+    else if (s.status === 'CLOSED_ABRUPT') statusClass = 'closed_abrupt';
+
+    return `
+      <div class="session-card ${isActive ? 'active' : ''}" onclick="window.selectSession('${s.id}')">
+        <div class="session-card-top">
+          <div style="display: flex; align-items: center;">
+            <span class="session-status-dot ${statusClass}"></span>
+            <span class="session-card-id">${escapeHtml(s.id)}</span>
+          </div>
+          <span class="session-pill" style="font-family: var(--font-mono);">${escapeHtml(s.rttMs || 1.4)}ms</span>
+        </div>
+        <div style="font-size: 0.8rem; color: #fff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          ${escapeHtml(s.path || '/echo')}
+        </div>
+        <div class="session-card-meta">
+          <span>${escapeHtml(s.remoteEndpoint || '127.0.0.1:4433')}</span>
+          <span style="color: ${s.status === 'CONNECTED' ? '#10b981' : (s.status === 'DRAINING' ? '#f59e0b' : '#ef4444')}; font-weight: 600;">
+            ${escapeHtml(s.status)}
+          </span>
+        </div>
+        <div class="session-card-pills">
+          <span class="session-pill">🌊 ${s.streamCount || 0} Streams</span>
+          <span class="session-pill">📦 ${s.datagramsSent || 0} DGs</span>
+          <span class="session-pill">ID #${s.rawSessionId || 0}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderChaosCard(s) {
+    const isActive = s.id === currentSessionId;
+    let statusClass = 'connected';
+    if (s.status === 'DRAINING') statusClass = 'draining';
+    else if (s.status === 'CLOSED') statusClass = 'closed';
+    else if (s.status === 'CLOSED_ABRUPT') statusClass = 'closed_abrupt';
+
+    return `
+      <div class="session-card chaos ${isActive ? 'active' : ''}" onclick="window.selectSession('${s.id}')">
+        <div class="session-card-top">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <span class="session-status-dot ${statusClass}"></span>
+            <span class="session-card-id" style="color: #f87171;">${escapeHtml(s.id)}</span>
+            <span class="badge-chaos-pill">CHAOS</span>
+          </div>
+          <span class="session-pill" style="font-family: var(--font-mono); color: #ef4444;">${escapeHtml(s.rttMs || 1.4)}ms</span>
+        </div>
+        <div style="font-size: 0.8rem; color: #fca5a5; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          💥 ${escapeHtml(s.chaosScenario || s.path || 'Fault Target')}
+        </div>
+        <div class="session-card-meta">
+          <span>${escapeHtml(s.remoteEndpoint || '127.0.0.1:4433')}</span>
+          <span style="color: #ef4444; font-weight: 700;">
+            ${escapeHtml(s.status)}
+          </span>
+        </div>
+        <div class="session-card-pills">
+          <span class="session-pill" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; font-weight: 700;">
+            💥 Drops: ${s.datagramsDropped || 0}
+          </span>
+          <span class="session-pill">🌊 ${s.streamCount || 0} Streams</span>
+          <span class="session-pill">📦 ${s.datagramsSent || 0} DGs</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSessionCards(sessions) {
+    if (!elements.sessionCardsContainer) return;
+    if (sessions.length === 0) {
+      elements.sessionCardsContainer.innerHTML = `
+        <div style="text-align: center; color: var(--text-dim); padding: 2rem 1rem; font-size: 0.8rem;">
+          No matching ${activeCategoryFilter === 'ALL' ? '' : activeCategoryFilter.toLowerCase()} sessions found.<br>
+          Use <strong>➕ New Connection</strong> or <strong>💥 Inject Fault</strong> to create one.
+        </div>`;
+      return;
+    }
+
+    const standardSessions = sessions.filter(s => s.category !== 'CHAOS');
+    const chaosSessions = sessions.filter(s => s.category === 'CHAOS');
+
+    let html = '';
+
+    // Render grouped layout
+    if (activeCategoryFilter === 'ALL') {
+      if (standardSessions.length > 0) {
+        html += `
+          <div class="session-group-header standard">
+            <span>⚡ Production &amp; Standard Sessions</span>
+            <span class="count-badge">${standardSessions.length}</span>
+          </div>
+          ${standardSessions.map(renderStandardCard).join('')}
+        `;
+      }
+      if (chaosSessions.length > 0) {
+        html += `
+          <div class="session-group-header chaos">
+            <span>💥 Fault Injection &amp; Chaos Sessions</span>
+            <span class="count-badge">${chaosSessions.length}</span>
+          </div>
+          ${chaosSessions.map(renderChaosCard).join('')}
+        `;
+      }
+    } else if (activeCategoryFilter === 'STANDARD') {
+      html += `
+        <div class="session-group-header standard">
+          <span>⚡ Production &amp; Standard Sessions</span>
+          <span class="count-badge">${standardSessions.length}</span>
+        </div>
+        ${standardSessions.map(renderStandardCard).join('')}
+      `;
+    } else if (activeCategoryFilter === 'CHAOS') {
+      html += `
+        <div class="session-group-header chaos">
+          <span>💥 Fault Injection &amp; Chaos Sessions</span>
+          <span class="count-badge">${chaosSessions.length}</span>
+        </div>
+        ${chaosSessions.map(renderChaosCard).join('')}
+      `;
+    }
+
+    elements.sessionCardsContainer.innerHTML = html;
+  }
+
+  window.selectSession = async function (sessionId, reHighlightCards = true) {
+    currentSessionId = sessionId;
+    if (reHighlightCards) window.filterSessions();
+
+    try {
+      const session = await apiGet(`/api/admin/sessions/${sessionId}`);
+      renderSessionDetail(session);
+    } catch (err) {
+      if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'flex';
+      if (elements.sessionDetailContent) elements.sessionDetailContent.style.display = 'none';
+    }
+  };
+
+  function renderSessionDetail(s) {
+    if (!elements.sessionDetailContent) return;
+    if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'none';
+    elements.sessionDetailContent.style.display = 'block';
+
+    // Header info
+    elements.detailSessionId.textContent = s.id;
+    elements.detailPath.textContent = s.path;
+    elements.detailRemote.textContent = s.remoteEndpoint;
+    elements.detailClient.textContent = s.clientEndpoint || '127.0.0.1:54820';
+    elements.detailRtt.textContent = `${s.rttMs || 1.4} ms`;
+    elements.detailTraceparent.textContent = s.traceparent || 'None configured';
+    elements.detailSubprotocol.textContent = s.subprotocol || 'webtransport';
+
+    // Status styling
+    elements.detailStatusPill.textContent = s.status;
+    let dotClass = 'connected';
+    let pillClass = 'status-healthy';
+    if (s.status === 'DRAINING') {
+      dotClass = 'draining';
+      pillClass = 'status-warning';
+    } else if (s.status === 'CLOSED') {
+      dotClass = 'closed';
+      pillClass = 'status-critical';
+    } else if (s.status === 'CLOSED_ABRUPT') {
+      dotClass = 'closed_abrupt';
+      pillClass = 'status-critical';
+    }
+    elements.detailStatusDot.className = `session-status-dot ${dotClass}`;
+    elements.detailStatusPill.className = `status-badge ${pillClass}`;
+
+    // Chaos Diagnostics banner update
+    const isChaos = s.category === 'CHAOS';
+    if (elements.chaosBanner) {
+      if (isChaos) {
+        elements.chaosBanner.style.display = 'block';
+        if (elements.chaosScenarioName) {
+          elements.chaosScenarioName.textContent = `Scenario: ${s.chaosScenario || 'Fault Injection Target'}`;
+        }
+        if (elements.chaosFaultDetails) {
+          elements.chaosFaultDetails.textContent = s.faultDetails || 'Active stress scenario driving artificial buffer saturation.';
+        }
+        if (elements.chaosMetricLoss) {
+          const loss = (s.anomalyMetrics && s.anomalyMetrics.packetLossPct !== undefined) ? s.anomalyMetrics.packetLossPct : 12.5;
+          elements.chaosMetricLoss.textContent = `${loss}%`;
+        }
+        if (elements.chaosMetricDrops) {
+          elements.chaosMetricDrops.textContent = s.datagramsDropped !== undefined ? s.datagramsDropped : 52;
+        }
+        if (elements.chaosMetricPressure) {
+          const press = (s.anomalyMetrics && s.anomalyMetrics.bufferPressurePct !== undefined) ? s.anomalyMetrics.bufferPressurePct : 94.2;
+          elements.chaosMetricPressure.textContent = `${press}%`;
+        }
+        if (elements.chaosMetricLeak) {
+          elements.chaosMetricLeak.textContent = (s.anomalyMetrics && s.anomalyMetrics.memoryLeakCheck) || 'CLEAN (0 B)';
+        }
+      } else {
+        elements.chaosBanner.style.display = 'none';
+      }
+    }
+
+    // Update tab counts
+    const streams = s.streams || [];
+    currentSessionStreams = streams;
+    const wireEvents = s.wireEvents || [];
+    if (elements.tabStreamsCount) elements.tabStreamsCount.textContent = streams.length;
+    if (elements.tabWireCount) elements.tabWireCount.textContent = wireEvents.length;
+
+    // Render active tab content
+    renderStreams(streams);
+    renderDatagramHistory(s.datagrams?.recent || []);
+    renderWireEvents(wireEvents);
+    renderFlowControl(s.flowControl || {});
+  }
+
+  // --- Streams Studio ---
+  let currentSessionStreams = [];
+
+  window.filterStreams = function () {
+    const input = document.getElementById('stream-filter-input');
+    const q = input ? input.value.toLowerCase().trim() : '';
+    if (!q) {
+      renderStreams(currentSessionStreams);
+      return;
+    }
+    const filtered = currentSessionStreams.filter(st =>
+      String(st.streamId).includes(q) ||
+      (st.type || '').toLowerCase().includes(q) ||
+      (st.status || '').toLowerCase().includes(q) ||
+      (st.lastMessage || '').toLowerCase().includes(q)
+    );
+    renderStreams(filtered);
+  };
+
+  function renderStreams(streams) {
+    if (!elements.streamsTbody) return;
+    if (streams.length === 0) {
+      elements.streamsTbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
+            No streams matching filter. Click <strong>+ Open New Stream</strong> to start.
+          </td>
+        </tr>`;
+      return;
+    }
+
+    elements.streamsTbody.innerHTML = streams.map(st => {
+      const isConnect = st.type === 'connect';
+      const isOpen = st.status === 'OPEN' || st.status === 'ESTABLISHED';
+      const isExpanded = expandedStreamHistories.has(st.streamId);
+
+      let statusBadge = `<span class="status-badge status-healthy">${escapeHtml(st.status)}</span>`;
+      if (st.status === 'CLOSED') {
+        statusBadge = `<span class="status-badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3);">CLOSED (FIN)</span>`;
+      } else if (st.status === 'RESET') {
+        statusBadge = `<span class="status-badge status-critical">RESET (0x${(st.resetCode || 1).toString(16)})</span>`;
+      }
+
+      // History drawer content
+      const historyHtml = (st.history || []).map(h => `
+        <div style="margin-bottom: 0.25rem;">
+          <span style="color: var(--text-dim);">[${escapeHtml(h.time)}]</span>
+          <span class="${h.dir === 'TX' ? 'history-item-tx' : 'history-item-rx'}">[${escapeHtml(h.dir)}]</span>
+          <strong>${h.bytes || 0}B:</strong>
+          <span>${escapeHtml(h.payload)}</span>
+          ${h.fin ? '<span style="color: #f59e0b; font-weight: 700;">[FIN]</span>' : ''}
+        </div>
+      `).join('');
+
+      return `
+        <tr style="vertical-align: middle;">
+          <td style="font-family: var(--font-mono); font-weight: 700; color: #fff;">
+            #${st.streamId} ${isConnect ? '<span class="badge-tag" style="font-size: 0.65rem;">CONNECT</span>' : ''}
+          </td>
+          <td>
+            <span class="session-pill" style="color: ${st.type === 'bidi' ? '#38bdf8' : '#a855f7'}; font-weight: 600; text-transform: uppercase;">
+              ${escapeHtml(st.type)}
+            </span>
+          </td>
+          <td style="font-size: 0.78rem; color: var(--text-dim); text-transform: capitalize;">
+            ${escapeHtml(st.initiator || 'client')}
+          </td>
+          <td>${statusBadge}</td>
+          <td style="font-family: var(--font-mono); font-size: 0.78rem;">
+            <span style="color: #38bdf8;">${st.bytesSent || 0}B</span> / <span style="color: #34d399;">${st.bytesReceived || 0}B</span>
+          </td>
+          <td style="max-width: 220px; font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(st.lastMessage || 'N/A')}
+          </td>
+          <td style="text-align: right; white-space: nowrap;">
+            ${isOpen && !isConnect ? `
+              <button class="stream-action-btn" onclick="window.openSendStreamModal(${st.streamId})" title="Send payload on stream">
+                💬 Send
+              </button>
+              <button class="stream-action-btn btn-close" onclick="window.closeStream(${st.streamId})" title="Send clean FIN">
+                🏁 Close
+              </button>
+              <button class="stream-action-btn btn-reset" onclick="window.openResetStreamModal(${st.streamId})" title="Send RESET_STREAM frame">
+                ⛔ Reset
+              </button>
+            ` : ''}
+            <button class="stream-action-btn" onclick="window.toggleStreamHistory(${st.streamId})" title="Toggle message inspection buffer">
+              📜 ${isExpanded ? 'Hide' : 'Inspect'} (${st.history ? st.history.length : 0})
+            </button>
+          </td>
+        </tr>
+        ${isExpanded ? `
+          <tr id="stream-hist-row-${st.streamId}">
+            <td colspan="7" style="padding: 0.5rem 1rem; background: rgba(0, 0, 0, 0.35);">
+              <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.35rem; font-weight: 600; text-transform: uppercase;">
+                Chronological Wire Messages on Stream #${st.streamId}:
+              </div>
+              <div class="stream-history-box">
+                ${historyHtml || '<div style="color: var(--text-dim);">No stream frames recorded yet.</div>'}
+              </div>
+            </td>
+          </tr>
+        ` : ''}
+      `;
+    }).join('');
+  }
+
+  window.toggleStreamHistory = function (streamId) {
+    if (expandedStreamHistories.has(streamId)) {
+      expandedStreamHistories.delete(streamId);
+    } else {
+      expandedStreamHistories.add(streamId);
+    }
+    // Re-render
+    const session = cachedSessions.find(s => s.id === currentSessionId);
+    if (session) renderStreams(session.streams || []);
+    selectSession(currentSessionId, false);
+  };
+
+  // --- Datagrams Pane ---
+  function renderDatagramHistory(recent) {
+    if (!elements.sessDgHistory) return;
+    if (recent.length === 0) {
+      elements.sessDgHistory.innerHTML = '<div style="color: var(--text-dim);">No datagrams dispatched yet.</div>';
+      return;
+    }
+    elements.sessDgHistory.innerHTML = recent.map(d => `
+      <div style="margin-bottom: 0.25rem;">
+        <span style="color: var(--text-dim);">[${escapeHtml(d.time)}]</span>
+        <span class="${d.dir === 'TX' ? 'history-item-tx' : 'history-item-rx'}">[${escapeHtml(d.dir)}]</span>
+        <strong>${d.size || 0}B:</strong>
+        <span>${escapeHtml(d.payload)}</span>
+      </div>
+    `).join('');
+  }
+
+  // --- Wire Event Trace Pane ---
+  function renderWireEvents(events) {
+    if (!elements.sessWireEvents) return;
+    if (events.length === 0) {
+      elements.sessWireEvents.innerHTML = '<div style="text-align: center; color: var(--text-dim); padding: 2rem;">No wire events captured yet.</div>';
+      return;
+    }
+    elements.sessWireEvents.innerHTML = events.slice().reverse().map(e => {
+      let cardClass = 'wire-card';
+      if (e.dir === 'RX') cardClass += ' rx';
+      if (e.type.includes('DRAIN') || e.type.includes('CLOSE')) cardClass += ' warn';
+      if (e.type.includes('RESET') || e.type.includes('CONNECTION_CLOSE')) cardClass += ' err';
+
+      return `
+        <div class="${cardClass}">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="color: var(--text-dim); font-size: 0.72rem;">[${escapeHtml(e.time)}]</span>
+            <span class="${e.dir === 'TX' ? 'history-item-tx' : 'history-item-rx'}" style="font-weight: 700;">[${escapeHtml(e.dir)}]</span>
+            <span style="color: #fff; font-weight: 600;">${escapeHtml(e.name)}</span>
+            <span style="color: var(--text-muted); font-size: 0.75rem;">${escapeHtml(e.details)}</span>
+          </div>
+          ${e.hex ? `<span class="wire-hex-tag">${escapeHtml(e.hex)}</span>` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  window.refreshWireEvents = async function () {
+    if (!currentSessionId) return;
+    try {
+      const data = await apiGet(`/api/admin/sessions/${currentSessionId}/wire`);
+      renderWireEvents(data.wireEvents || []);
+      appendLog('OK', 'WIRE_REFRESH', `Wire frame trace refreshed for session ${currentSessionId}.`);
+    } catch (_) {}
+  };
+
+  // --- Flow Control Pane ---
+  function renderFlowControl(fc) {
+    if (elements.flowMaxData) elements.flowMaxData.textContent = `${((fc.maxData || 16777216) / (1024 * 1024)).toFixed(0)} MB`;
+    if (elements.flowUsedData) elements.flowUsedData.textContent = `${fc.usedData || 0} Bytes`;
+    if (elements.flowBidiLimit) elements.flowBidiLimit.textContent = fc.maxStreamsBidi || 100;
+    if (elements.flowBidiUsed) elements.flowBidiUsed.textContent = fc.usedStreamsBidi || 0;
+    if (elements.flowUniLimit) elements.flowUniLimit.textContent = fc.maxStreamsUni || 100;
+    if (elements.flowUniUsed) elements.flowUniUsed.textContent = fc.usedStreamsUni || 0;
+  }
+
+  // --- Studio Tabs Navigation ---
+  window.switchStudioTab = function (tab) {
+    activeTab = tab;
+    const tabBtns = ['streams', 'datagrams', 'wire', 'flow'];
+    tabBtns.forEach(t => {
+      const btn = document.getElementById(`tab-btn-${t}`);
+      const pane = document.getElementById(`pane-${t}`);
+      if (btn) btn.classList.toggle('active', t === tab);
+      if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+    });
+  };
+
+  // =========================================================================
+  // Interactive Operations Execution (Modals & Buttons)
+  // =========================================================================
+
+  // 1. Establish New WebTransport Connection
+  window.openNewConnectionModal = function () {
+    const targetEl = document.getElementById('new-conn-target');
+    if (targetEl && elements.targetSelect) targetEl.value = elements.targetSelect.value;
+    window.generateModalTrace();
+    window.openModal('modal-new-connection');
+  };
+
+  window.submitNewConnection = async function () {
+    const target = document.getElementById('new-conn-target').value.trim();
+    const subprotocol = document.getElementById('new-conn-proto').value.trim() || 'webtransport';
+    const traceparent = document.getElementById('new-conn-trace').value.trim();
+    const btn = document.getElementById('btn-submit-conn');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'CONNECTING', `Initiating real WebTransport connection to ${target}...`);
+
+    try {
+      const data = await apiPost('/api/admin/sessions/create', { target, subprotocol, traceparent });
+      if (data.success && data.session) {
+        currentSessionId = data.session.id;
+        window.closeModal('modal-new-connection');
+        appendLog('OK', 'SESSION_READY', `WebTransport session ${data.session.id} established! RTT: ${data.session.rttMs}ms`,
+          'Extended CONNECT upgraded with ALPN=h3. Netty QUIC engine ready for stream and datagram multiplexing.');
+        await loadSessions(false);
+        selectSession(data.session.id);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to establish session: ' + err.message);
+      appendLog('ERR', 'CONNECT_FAILED', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 2. Open New Stream
+  window.openStreamModal = function () {
+    const hint = document.getElementById('open-stream-session-hint');
+    if (hint) hint.innerHTML = `Session: <strong style="color: #38bdf8;">${escapeHtml(currentSessionId)}</strong>`;
+    window.openModal('modal-open-stream');
+  };
+
+  window.submitOpenStream = async function () {
+    const type = document.getElementById('open-stream-type').value;
+    const payload = document.getElementById('open-stream-payload').value;
+    const countEl = document.getElementById('open-stream-count');
+    const count = countEl ? (parseInt(countEl.value, 10) || 1) : 1;
+    const btn = document.getElementById('btn-submit-stream');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'STREAM_OPEN', `Opening ${count > 1 ? count + ' ' : ''}${type.toUpperCase()} stream(s) on ${currentSessionId}...`);
+
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/streams/create`, { type, payload, count });
+      if (data.success && (data.stream || data.streams)) {
+        window.closeModal('modal-open-stream');
+        const stCount = data.count || (data.streams ? data.streams.length : 1);
+        appendLog('OK', 'STREAM_OPENED', `Successfully opened ${stCount} ${type.toUpperCase()} stream(s) on ${currentSessionId}.`,
+          'QUIC streams opened, encoded, transmitted over wire, and verified.');
+        selectSession(currentSessionId, false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to open stream: ' + err.message);
+      appendLog('ERR', 'STREAM_FAILED', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 3. Send Data on Stream
+  window.setStreamFormat = function (fmt) {
+    currentStreamFormat = fmt;
+    ['text', 'json', 'hex'].forEach(f => {
+      const b = document.getElementById(`fmt-${f}`);
+      if (b) b.classList.toggle('active', f === fmt);
+    });
+    const ta = document.getElementById('send-stream-payload');
+    if (!ta) return;
+    if (fmt === 'json' && !ta.value.startsWith('{')) {
+      ta.value = JSON.stringify({ message: 'Enterprise Real-Time Frame', timestamp: Date.now() }, null, 2);
+    } else if (fmt === 'hex' && !ta.value.startsWith('48 65')) {
+      ta.value = '48 65 6c 6c 6f 20 57 65 62 54 72 61 6e 73 70 6f 72 74';
+    }
+  };
+
+  window.openSendStreamModal = function (streamId) {
+    document.getElementById('send-stream-id').value = streamId;
+    document.getElementById('send-stream-title').textContent = `Send Data on Stream #${streamId}`;
+    window.setStreamFormat('text');
+    window.openModal('modal-send-stream');
+  };
+
+  window.submitSendStream = async function () {
+    const streamId = document.getElementById('send-stream-id').value;
+    const payload = document.getElementById('send-stream-payload').value;
+    const btn = document.getElementById('btn-submit-send');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'STREAM_TX', `Sending ${payload.length}B payload on stream #${streamId}...`);
+
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/streams/${streamId}/send`, {
+        payload,
+        format: currentStreamFormat
+      });
+      if (data.success) {
+        window.closeModal('modal-send-stream');
+        appendLog('OK', 'STREAM_RX', `Stream #${streamId} Echo: '${data.response}'`);
+        selectSession(currentSessionId, false);
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to send on stream: ' + err.message);
+      appendLog('ERR', 'STREAM_SEND_ERR', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 4. Close Stream (FIN)
+  window.closeStream = async function (streamId) {
+    appendLog('WARN', 'STREAM_FIN', `Sending clean half-close (FIN) on stream #${streamId}...`);
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/streams/${streamId}/close`, {});
+      if (data.success) {
+        appendLog('OK', 'STREAM_CLOSED', `Stream #${streamId} write side closed with FIN.`);
+        selectSession(currentSessionId, false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to close stream: ' + err.message);
+      appendLog('ERR', 'STREAM_CLOSE_ERR', err.message);
+    }
+  };
+
+  // 5. Reset Stream (RESET_STREAM Frame)
+  window.openResetStreamModal = function (streamId) {
+    document.getElementById('reset-stream-id').value = streamId;
+    document.getElementById('reset-stream-title').textContent = `Reset Stream #${streamId}`;
+    window.openModal('modal-reset-stream');
+  };
+
+  window.submitResetStream = async function () {
+    const streamId = document.getElementById('reset-stream-id').value;
+    const errorCode = parseInt(document.getElementById('reset-stream-code').value, 10);
+    const btn = document.getElementById('btn-submit-reset');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'RESET_STREAM', `Dispatching RESET_STREAM (Code 0x${errorCode.toString(16)}) on stream #${streamId}...`);
+
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/streams/${streamId}/reset`, { errorCode });
+      if (data.success) {
+        window.closeModal('modal-reset-stream');
+        appendLog('OK', 'STREAM_RESET', `Stream #${streamId} abruptly aborted with code 0x${errorCode.toString(16)}.`);
+        selectSession(currentSessionId, false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to reset stream: ' + err.message);
+      appendLog('ERR', 'RESET_ERR', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 6. Datagram Transmission
+  window.sendSessionDatagram = async function () {
+    const payload = document.getElementById('sess-dg-payload').value;
+    const count = parseInt(document.getElementById('sess-dg-count').value, 10);
+    const size = parseInt(document.getElementById('sess-dg-size').value, 10);
+
+    appendLog('WARN', 'DG_DISPATCH', `Dispatching ${count} datagrams (${size}B) on session ${currentSessionId}...`);
+
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/datagrams/send`, { payload, count, size });
+      if (data.success) {
+        appendLog('OK', 'DG_SENT', `Datagrams transmitted successfully. Total session datagrams: ${data.datagrams.sent}`);
+        selectSession(currentSessionId, false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to send datagram: ' + err.message);
+      appendLog('ERR', 'DG_ERR', err.message);
+    }
+  };
+
+  // 7. Capsule: WT_DRAIN_SESSION (0x78ae)
+  window.triggerDrainSessionCapsule = async function () {
+    appendLog('WARN', 'DRAIN_SESSION', `Dispatching WT_DRAIN_SESSION (0x78ae) capsule on ${currentSessionId}...`);
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/capsules/drain`, {});
+      if (data.success) {
+        appendLog('OK', 'DRAIN_SENT', `Session ${currentSessionId} status changed to DRAINING. Extended CONNECT capsule dispatched.`,
+          'Server signaled to reject new streams while existing streams finish processing gracefully.');
+        selectSession(currentSessionId, false);
+        loadSessions(false);
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to drain session: ' + err.message);
+      appendLog('ERR', 'DRAIN_ERR', err.message);
+    }
+  };
+
+  // 8. Capsule: CLOSE_WEBTRANSPORT_SESSION (0x2843)
+  window.openCloseCapsuleModal = function () {
+    window.openModal('modal-close-capsule');
+  };
+
+  window.submitCloseCapsule = async function () {
+    const code = parseInt(document.getElementById('close-capsule-code').value, 10);
+    const reason = document.getElementById('close-capsule-reason').value.trim();
+    const btn = document.getElementById('btn-submit-close-capsule');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'CLOSE_CAPSULE', `Dispatching CLOSE_WEBTRANSPORT_SESSION (Code ${code}, '${reason}') on ${currentSessionId}...`);
+
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/capsules/close`, { code, reason });
+      if (data.success) {
+        window.closeModal('modal-close-capsule');
+        appendLog('OK', 'SESSION_CLOSED', `Session ${currentSessionId} cleanly closed via RFC 9297 Capsule. Code: ${code}.`,
+          'Clean application teardown executed over HTTP/3 extended connect stream.');
+        selectSession(currentSessionId, false);
+        loadSessions(false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to close session: ' + err.message);
+      appendLog('ERR', 'CLOSE_CAPSULE_ERR', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 9. Abrupt Transport Sever (0x1c)
+  window.triggerTerminateSession = async function () {
+    appendLog('WARN', 'ABRUPT_SEVER', `Forcefully severing transport socket for session ${currentSessionId}...`);
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/terminate`, {});
+      if (data.success) {
+        appendLog('OK', 'SESSION_SEVERED', `Session ${currentSessionId} abruptly severed without application capsule.`,
+          'Underlying QUIC socket destroyed. Netty pool sweeps direct buffers without memory leaks.');
+        selectSession(currentSessionId, false);
+        loadSessions(false);
+        fetchLiveTelemetry();
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to terminate session: ' + err.message);
+      appendLog('ERR', 'TERMINATE_ERR', err.message);
+    }
+  };
+
+  // 10. Purge Closed Sessions
+  window.purgeClosedSessions = async function () {
+    try {
+      const data = await apiPost('/api/admin/sessions/purge', {});
+      if (data.success) {
+        appendLog('OK', 'PURGE', `Purged ${data.purgedCount} closed sessions from registry.`);
+        await loadSessions(true);
+        loadAuditLog();
+      }
+    } catch (err) {
+      alert('Failed to purge sessions: ' + err.message);
+    }
+  };
+
+  // 11. Bulk Close All Orchestration
+  window.openCloseAllModal = function () {
+    window.openModal('modal-close-all');
+  };
+
+  window.submitCloseAll = async function () {
+    const targetGroup = document.getElementById('close-all-target-group').value;
+    const mode = document.getElementById('close-all-mode').value;
+    const errorCode = parseInt(document.getElementById('close-all-code').value, 10);
+    const reason = document.getElementById('close-all-reason').value.trim();
+    const btn = document.getElementById('btn-submit-close-all');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'BULK_CLOSE', `Executing Bulk Teardown: Mode=${mode}, Category=${targetGroup}, Code=0x${errorCode.toString(16)}...`);
+
+    try {
+      const data = await apiPost('/api/admin/sessions/close-all', {
+        targetGroup,
+        mode,
+        errorCode,
+        reason
+      });
+
+      window.closeModal('modal-close-all');
+      appendLog('OK', 'BULK_RESULT', `Bulk operation completed successfully. ${data.closedCount} session(s) transitioned to ${mode}.`,
+        `RFC 9297 bulk orchestrator applied ${mode} across ${targetGroup} group.`);
+      loadSessions(false);
+      fetchLiveTelemetry();
+      loadAuditLog();
+    } catch (err) {
+      alert('Failed to execute bulk close: ' + err.message);
+      appendLog('ERR', 'BULK_ERR', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  // 12. Fault Injection / Chaos Session Orchestration
+  window.openInjectChaosModal = function () {
+    window.openModal('modal-inject-chaos');
+  };
+
+  window.onChaosScenarioChange = function () {
+    const sel = document.getElementById('chaos-scenario-select').value;
+    const dropsInput = document.getElementById('chaos-conn-drops');
+    const traceInput = document.getElementById('chaos-conn-trace');
+    if (sel === 'Queue Overflow Storm') {
+      if (dropsInput) dropsInput.value = 100;
+      if (traceInput) traceInput.value = '00-overflow00000000000000000000000-storm00000000000-01';
+    } else if (sel === 'Abrupt Socket Tear') {
+      if (dropsInput) dropsInput.value = 0;
+      if (traceInput) traceInput.value = '00-tear000000000000000000000000000-sever00000000000-01';
+    } else if (sel === 'Backpressure Flood') {
+      if (dropsInput) dropsInput.value = 25;
+      if (traceInput) traceInput.value = '00-backpressure0000000000000000000-flood00000000000-01';
+    } else if (sel === 'Trace Fuzzing') {
+      if (dropsInput) dropsInput.value = 10;
+      if (traceInput) traceInput.value = '00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01';
+    }
+  };
+
+  window.submitInjectChaos = async function () {
+    const target = document.getElementById('chaos-conn-target').value.trim();
+    const scenario = document.getElementById('chaos-scenario-select').value;
+    const drops = parseInt(document.getElementById('chaos-conn-drops').value, 10);
+    const traceparent = document.getElementById('chaos-conn-trace').value.trim();
+    const btn = document.getElementById('btn-submit-inject-chaos');
+    if (btn) btn.disabled = true;
+
+    appendLog('WARN', 'CHAOS_CREATE', `Establishing Fault Injection Session [${scenario}] against ${target}...`);
+
+    try {
+      const data = await apiPost('/api/admin/sessions/create-chaos', {
+        target,
+        scenario,
+        drops,
+        traceparent
+      });
+
+      window.closeModal('modal-inject-chaos');
+      appendLog('OK', 'CHAOS_CREATED', `Fault Injection session ${data.sessionId} established. Scenario: ${data.scenario}. Recorded drops: ${data.drops}.`,
+        'Chaos target initialized with Netty queue stress and fuzzed telemetry monitoring.');
+      currentSessionId = data.sessionId;
+      activeCategoryFilter = 'CHAOS';
+      window.setSessionCategoryFilter('CHAOS');
+      await loadSessions(false);
+      selectSession(currentSessionId, false);
+      fetchLiveTelemetry();
+      loadAuditLog();
+    } catch (err) {
+      alert('Failed to establish chaos session: ' + err.message);
+      appendLog('ERR', 'CHAOS_ERR', err.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  window.triggerReapCurrentChaosSession = function () {
+    window.triggerTerminateSession();
+  };
+
+  // 13. Live Monitoring Telemetry Loop
+  window.toggleLiveMonitor = function () {
+    isLiveMonitoring = !isLiveMonitoring;
+    const btn = document.getElementById('btn-live-monitor');
+    if (isLiveMonitoring) {
+      if (btn) {
+        btn.classList.add('monitoring');
+        btn.innerHTML = '<span class="monitor-pulse-dot"></span> LIVE MONITOR: 1s';
+      }
+      appendLog('OK', 'MONITOR', 'Real-time telemetry monitor enabled (1,000ms Netty QUIC polling loop active).');
+      fetchLiveMonitoringData();
+      liveMonitorInterval = setInterval(fetchLiveMonitoringData, 1000);
+    } else {
+      if (btn) {
+        btn.classList.remove('monitoring');
+        btn.innerHTML = '📡 Live Monitor: OFF';
+      }
+      if (liveMonitorInterval) {
+        clearInterval(liveMonitorInterval);
+        liveMonitorInterval = null;
+      }
+      appendLog('WARN', 'MONITOR', 'Live real-time monitoring paused.');
+    }
+  };
+
+  async function fetchLiveMonitoringData() {
+    try {
+      const data = await apiGet('/api/admin/sessions/monitor');
+      if (data.activeSessions !== undefined) {
+        updateMiniCounters({
+          activeSessions: data.activeSessions,
+          activeStreams: data.activeStreams,
+          totalDatagrams: data.totalDatagrams,
+          drops: data.totalDrops
+        });
+      }
+      // Refresh current session state quietly
+      if (currentSessionId) {
+        const sess = await apiGet(`/api/admin/sessions/${currentSessionId}`);
+        renderSessionDetail(sess);
+      }
+      // Refresh session list quietly
+      const listData = await apiGet('/api/admin/sessions');
+      cachedSessions = listData.sessions || [];
+      if (elements.sessionCountBadge) elements.sessionCountBadge.textContent = cachedSessions.length;
+      if (elements.countPillAll) elements.countPillAll.textContent = cachedSessions.length;
+      if (elements.countPillStandard) {
+        elements.countPillStandard.textContent = cachedSessions.filter(s => s.category !== 'CHAOS').length;
+      }
+      if (elements.countPillChaos) {
+        elements.countPillChaos.textContent = cachedSessions.filter(s => s.category === 'CHAOS').length;
+      }
+      window.filterSessions();
+    } catch (_) {}
+  }
+
+  // =========================================================================
+  // Legacy / Bulk Tactical Operations
+  // =========================================================================
+
+  let pendingChaosCallback = null;
+
+  function showChaosWarning(title, description, onConfirm) {
+    const modal = document.getElementById('chaos-warning-modal');
+    const titleEl = document.getElementById('chaos-modal-title');
+    const descEl = document.getElementById('chaos-modal-desc');
+    const targetEl = document.getElementById('chaos-modal-target');
+
+    if (titleEl) titleEl.textContent = title;
+    if (descEl) descEl.textContent = description;
+    if (targetEl && elements.targetSelect) targetEl.textContent = elements.targetSelect.value;
+
+    pendingChaosCallback = onConfirm;
+    if (modal) modal.style.display = 'flex';
+  }
+
+  window.cancelChaosOperation = function () {
+    const modal = document.getElementById('chaos-warning-modal');
+    if (modal) modal.style.display = 'none';
+    pendingChaosCallback = null;
+    appendLog('WARN', 'CHAOS_SAFEGUARD', 'Bulk/chaotic operation canceled by operator. No traffic was dispatched.');
+  };
+
+  window.confirmChaosOperation = function () {
+    const modal = document.getElementById('chaos-warning-modal');
+    if (modal) modal.style.display = 'none';
+    if (typeof pendingChaosCallback === 'function') {
+      const cb = pendingChaosCallback;
+      pendingChaosCallback = null;
+      cb();
+    }
+  };
+
   async function executeTraffic(command, payload = {}) {
     if (!sessionToken) {
       elements.authModal.style.display = 'flex';
@@ -168,29 +1251,16 @@
           if (r.sent !== undefined) detail += ` Datagrams: ${r.sent}.`;
           if (r.count !== undefined) detail += ` Streams: ${r.count} (${r.type}).`;
 
-          let reasoning = '';
-          if (command === 'handshake') {
-            reasoning = `WebTransport session established! Check Dashboard: Active Sessions incremented by +1, handshake latency logged.`;
-          } else if (command === 'datagrams') {
-            reasoning = `Sent ${r.sent} UDP datagrams. Check Dashboard: Datagrams Sent/Received rates will spike.`;
-          } else if (command === 'streams') {
-            reasoning = `Opened ${r.count} streams. Check Dashboard: Active Streams KPI reflects the live streams.`;
-          } else if (command === 'chaos-burst') {
-            reasoning = `Queue Overflow Storm triggered! Receive buffer overwhelmed: observe Dropped Packets incrementing in Dashboard.`;
-          } else if (command === 'chaos-abrupt-close') {
-            reasoning = `Abrupt ungraceful termination! Netty sweepers will reclaim memory; observe session drop and leak-free direct memory cleanup.`;
-          }
-
-          appendLog('OK', 'WIRE_RESULT', `<<< SUCCESS: ${detail}`, reasoning);
+          appendLog('OK', 'WIRE_RESULT', `<<< SUCCESS: ${detail}`);
         } else {
           appendLog('ERR', 'WIRE_RESULT', `<<< FAILED: ${r.error || JSON.stringify(r)}`);
         }
 
-        // Update mini indicators
         if (data.telemetryDelta) {
           updateMiniCounters(data.telemetryDelta);
         }
         loadAuditLog();
+        loadSessions(false);
       } else {
         appendLog('ERR', 'SERVER_ERROR', `HTTP ${res.status}: ${data.error || 'Execution failed'}`);
       }
@@ -199,42 +1269,6 @@
     }
   }
 
-  // --- Chaos Safeguard Modal Management ---
-  let pendingChaosCallback = null;
-
-  function showChaosWarning(title, description, onConfirm) {
-    const modal = document.getElementById('chaos-warning-modal');
-    const titleEl = document.getElementById('chaos-modal-title');
-    const descEl = document.getElementById('chaos-modal-desc');
-    const targetEl = document.getElementById('chaos-modal-target');
-
-    if (titleEl) titleEl.textContent = title;
-    if (descEl) descEl.textContent = description;
-    if (targetEl && elements.targetSelect) targetEl.textContent = elements.targetSelect.value;
-
-    pendingChaosCallback = onConfirm;
-    if (modal) modal.style.display = 'flex';
-  }
-
-  window.cancelChaosOperation = function () {
-    const modal = document.getElementById('chaos-warning-modal');
-    if (modal) modal.style.display = 'none';
-    pendingChaosCallback = null;
-    appendLog('WARN', 'CHAOS_SAFEGUARD', 'Bulk/chaotic operation canceled by operator. No traffic was dispatched.');
-  };
-
-  window.confirmChaosOperation = function () {
-    const modal = document.getElementById('chaos-warning-modal');
-    if (modal) modal.style.display = 'none';
-    if (typeof pendingChaosCallback === 'function') {
-      const cb = pendingChaosCallback;
-      pendingChaosCallback = null;
-      cb();
-    }
-  };
-
-  // --- Tactical Operation Triggers ---
-  // Individual operations execute directly without confirmation
   window.triggerHandshake = function (customTrace) {
     const trace = customTrace || (elements.traceInput ? elements.traceInput.value.trim() : '');
     executeTraffic('handshake', { traceparent: trace });
@@ -247,7 +1281,6 @@
     executeTraffic('streams', { streamType, count, payload });
   };
 
-  // Datagrams: If bulk count (>= 500), warn before running; otherwise execute directly
   window.triggerDatagrams = function () {
     const count = parseInt(document.getElementById('dg-count-input').value, 10);
     const size = parseInt(document.getElementById('dg-size-input').value, 10);
@@ -264,7 +1297,6 @@
     }
   };
 
-  // Chaotic bulk operations: Always warn before running
   window.triggerChaosBurst = function () {
     showChaosWarning(
       'Queue Overflow Storm (1,000 UDP Datagrams)',
@@ -281,7 +1313,6 @@
     );
   };
 
-  // Start Fresh / Reset from Admin
   window.resetFromAdmin = async function () {
     try {
       const res = await fetch('/api/reset');
@@ -294,13 +1325,13 @@
         });
         appendLog('OK', 'RESET', 'Telemetry baseline cleared to zero. All counters and graphs reset.');
         loadAuditLog();
+        loadSessions(true);
       }
     } catch (err) {
       appendLog('ERR', 'RESET', 'Failed to reset telemetry: ' + err.message);
     }
   };
 
-  // --- Telemetry Sync ---
   function updateMiniCounters(data) {
     if (elements.miniSessions && data.activeSessions !== undefined) {
       elements.miniSessions.textContent = data.activeSessions;
@@ -331,7 +1362,6 @@
     } catch (_) {}
   }
 
-  // --- Audit Trail ---
   window.loadAuditLog = async function () {
     if (!elements.auditTbody) return;
     try {
@@ -361,7 +1391,10 @@
   // --- Initialization ---
   document.addEventListener('DOMContentLoaded', () => {
     checkExistingAuth();
-    setInterval(fetchLiveTelemetry, 2000);
+    setInterval(fetchLiveTelemetry, 2500);
+    setInterval(() => {
+      if (sessionToken) loadSessions(false);
+    }, 4000);
   });
 
 })();

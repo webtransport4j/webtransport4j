@@ -231,6 +231,265 @@
     </div>
   </div>
 
+  <!-- Modal 1: New WebTransport Connection -->
+  <div class="auth-overlay" id="modal-new-connection" style="display: none;">
+    <div class="auth-modal" style="border-color: var(--accent-cyan); max-width: 500px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">🔗</span>
+          <h2 style="font-size: 1.2rem; color: #fff; margin: 0;">Establish WebTransport Session</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-new-connection')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+        Executes a real TLS 1.3 / QUIC handshake and sends an HTTP/3 Extended CONNECT request to upgrade to WebTransport.
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitNewConnection();">
+        <div class="param-group">
+          <label for="new-conn-target">Target Endpoint URL</label>
+          <input type="text" id="new-conn-target" value="https://localhost:4433/echo" required>
+        </div>
+        <div class="param-group">
+          <label for="new-conn-proto">Subprotocol</label>
+          <input type="text" id="new-conn-proto" value="webtransport" placeholder="webtransport">
+        </div>
+        <div class="param-group">
+          <label for="new-conn-trace">W3C Distributed Traceparent</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="new-conn-trace" placeholder="Auto-generated if empty" style="flex: 1;">
+            <button type="button" class="btn-secondary" style="font-size: 0.75rem;" onclick="window.generateModalTrace()">🎲</button>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-new-connection')">Cancel</button>
+          <button type="submit" class="btn-action-primary" id="btn-submit-conn">⚡ Connect Now</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Open New Stream -->
+  <div class="auth-overlay" id="modal-open-stream" style="display: none;">
+    <div class="auth-modal" style="border-color: #38bdf8; max-width: 500px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">🌊</span>
+          <h2 style="font-size: 1.2rem; color: #fff; margin: 0;">Open WebTransport Stream</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-open-stream')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;" id="open-stream-session-hint">
+        Session: <strong style="color: #38bdf8;">wt-sess-001</strong>
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitOpenStream();">
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem;">
+          <div class="param-group">
+            <label for="open-stream-type">Stream Type</label>
+            <select id="open-stream-type">
+              <option value="bidi">Bidirectional Stream (Client &rarr; Server Echo)</option>
+              <option value="uni">Unidirectional Stream (Client &rarr; Server Only)</option>
+            </select>
+          </div>
+          <div class="param-group">
+            <label for="open-stream-count">Concurrency (Count)</label>
+            <input type="number" id="open-stream-count" value="1" min="1" max="100">
+          </div>
+        </div>
+        <div class="param-group">
+          <label for="open-stream-payload">Initial Stream Payload</label>
+          <textarea id="open-stream-payload" rows="3" style="resize: vertical;">WebTransport4J Interactive Stream Init Payload</textarea>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-open-stream')">Cancel</button>
+          <button type="submit" class="btn-action-primary" id="btn-submit-stream">📤 Open Stream</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Send Data on Stream -->
+  <div class="auth-overlay" id="modal-send-stream" style="display: none;">
+    <div class="auth-modal" style="border-color: #38bdf8; max-width: 520px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">💬</span>
+          <h2 style="font-size: 1.2rem; color: #fff; margin: 0;" id="send-stream-title">Send Data on Stream #4</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-send-stream')">✕</button>
+      </div>
+      <form onsubmit="event.preventDefault(); window.submitSendStream();">
+        <input type="hidden" id="send-stream-id" value="">
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.85rem;">
+          <button type="button" class="btn-secondary btn-format active" id="fmt-text" onclick="window.setStreamFormat('text')" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">Text (UTF-8)</button>
+          <button type="button" class="btn-secondary btn-format" id="fmt-json" onclick="window.setStreamFormat('json')" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">JSON Object</button>
+          <button type="button" class="btn-secondary btn-format" id="fmt-hex" onclick="window.setStreamFormat('hex')" style="font-size: 0.75rem; padding: 0.25rem 0.6rem;">Raw Hex</button>
+        </div>
+        <div class="param-group">
+          <label for="send-stream-payload">Stream Payload</label>
+          <textarea id="send-stream-payload" rows="4" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; resize: vertical;" placeholder="Type data to transmit on stream..."></textarea>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-send-stream')">Cancel</button>
+          <button type="submit" class="btn-action-primary" id="btn-submit-send">🚀 Transmit Frame</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Close Capsule Modal -->
+  <div class="auth-overlay" id="modal-close-capsule" style="display: none;">
+    <div class="auth-modal" style="border-color: #f59e0b; max-width: 480px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">🛑</span>
+          <h2 style="font-size: 1.2rem; color: #f59e0b; margin: 0;">Close WebTransport Session Capsule</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-close-capsule')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+        Sends Draft-16 / RFC 9297 Capsule <strong style="color: #c084fc;">CLOSE_WEBTRANSPORT_SESSION (0x2843)</strong> on the Extended CONNECT stream with 32-bit error code and UTF-8 reason phrase.
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitCloseCapsule();">
+        <div class="param-group">
+          <label for="close-capsule-code">Application Error Code (Uint32)</label>
+          <input type="number" id="close-capsule-code" value="0" min="0" max="4294967295">
+        </div>
+        <div class="param-group">
+          <label for="close-capsule-reason">Reason Phrase (UTF-8)</label>
+          <input type="text" id="close-capsule-reason" value="Operator Graceful Teardown" maxlength="1024">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-close-capsule')">Cancel</button>
+          <button type="submit" class="btn-fire-chaos" style="background: linear-gradient(135deg, #f59e0b, #d97706);" id="btn-submit-close-capsule">
+            🛑 Dispatch Close Capsule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 5: Reset Stream Modal -->
+  <div class="auth-overlay" id="modal-reset-stream" style="display: none;">
+    <div class="auth-modal" style="border-color: #ef4444; max-width: 480px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">⛔</span>
+          <h2 style="font-size: 1.2rem; color: #ef4444; margin: 0;" id="reset-stream-title">Reset Stream #4</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-reset-stream')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+        Sends QUIC <strong style="color: #ef4444;">RESET_STREAM (0x04)</strong> frame to abruptly terminate write side with application error code.
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitResetStream();">
+        <input type="hidden" id="reset-stream-id" value="">
+        <div class="param-group">
+          <label for="reset-stream-code">Stream Error Code (e.g. 1 = App Error, 2 = Backpressure)</label>
+          <input type="number" id="reset-stream-code" value="1" min="0" max="65535">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-reset-stream')">Cancel</button>
+          <button type="submit" class="btn-fire-chaos" id="btn-submit-reset">
+            ⛔ Send RESET_STREAM
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 6: Bulk Close All Sessions -->
+  <div class="auth-overlay" id="modal-close-all" style="display: none;">
+    <div class="auth-modal" style="border-color: #ef4444; max-width: 520px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">🛑</span>
+          <h2 style="font-size: 1.2rem; color: #ef4444; margin: 0;">Bulk Session Teardown Orchestrator</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-close-all')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+        Execute emergency bulk teardown operations across all active WebTransport connections or targeted by category.
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitCloseAll();">
+        <div class="param-group">
+          <label for="close-all-target-group">Target Category</label>
+          <select id="close-all-target-group">
+            <option value="all">All Active Sessions (Standard + Fault Injection)</option>
+            <option value="standard">Standard Sessions Only</option>
+            <option value="chaos">Fault Injection / Chaos Sessions Only</option>
+          </select>
+        </div>
+        <div class="param-group">
+          <label for="close-all-mode">Teardown Protocol Mode</label>
+          <select id="close-all-mode">
+            <option value="DRAIN">Graceful Drain Capsule (WT_DRAIN_SESSION 0x78ae)</option>
+            <option value="CLOSE">Clean Capsule Close (CLOSE_WEBTRANSPORT_SESSION 0x2843)</option>
+            <option value="SEVER">Force Socket Sever (QUIC CONNECTION_CLOSE 0x1c)</option>
+          </select>
+        </div>
+        <div class="param-group">
+          <label for="close-all-code">Application Error Code (Uint32)</label>
+          <input type="number" id="close-all-code" value="0" min="0" max="4294967295">
+        </div>
+        <div class="param-group">
+          <label for="close-all-reason">Reason Phrase (UTF-8)</label>
+          <input type="text" id="close-all-reason" value="Bulk Operator Teardown" maxlength="1024">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-close-all')">Cancel</button>
+          <button type="submit" class="btn-fire-chaos" id="btn-submit-close-all">
+            🛑 Execute Bulk Teardown
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 7: Inject Fault / Chaos Connection -->
+  <div class="auth-overlay" id="modal-inject-chaos" style="display: none;">
+    <div class="auth-modal" style="border-color: #ef4444; max-width: 520px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 1.5rem;">💥</span>
+          <h2 style="font-size: 1.2rem; color: #ef4444; margin: 0;">Inject Fault / Chaos Connection</h2>
+        </div>
+        <button type="button" class="btn-secondary" style="padding: 0.2rem 0.5rem;" onclick="window.closeModal('modal-inject-chaos')">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
+        Establish a dedicated Fault Injection connection tracked in the Chaos session group to validate resilience, alert rules, and leak-free Netty buffers.
+      </p>
+      <form onsubmit="event.preventDefault(); window.submitInjectChaos();">
+        <div class="param-group">
+          <label for="chaos-conn-target">Target Endpoint URL</label>
+          <input type="text" id="chaos-conn-target" value="https://localhost:4433/echo" required>
+        </div>
+        <div class="param-group">
+          <label for="chaos-scenario-select">Fault Injection Scenario</label>
+          <select id="chaos-scenario-select" onchange="window.onChaosScenarioChange()">
+            <option value="Queue Overflow Storm">Queue Overflow Storm (Flood QUIC datagram buffer)</option>
+            <option value="Abrupt Socket Tear">Abrupt Socket Tear (Sever socket without CLOSE frame)</option>
+            <option value="Backpressure Flood">Backpressure Flood (50 Concurrent unread bidi streams)</option>
+            <option value="Trace Fuzzing">Trace Fuzzing (Corrupted W3C distributed traceparent)</option>
+          </select>
+        </div>
+        <div class="param-group">
+          <label for="chaos-conn-drops">Target Artificial Drop Count</label>
+          <input type="number" id="chaos-conn-drops" value="50" min="0" max="5000">
+        </div>
+        <div class="param-group">
+          <label for="chaos-conn-trace">Fuzzed / Custom W3C Traceparent</label>
+          <input type="text" id="chaos-conn-trace" value="00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+          <button type="button" class="btn-secondary" onclick="window.closeModal('modal-inject-chaos')">Cancel</button>
+          <button type="submit" class="btn-fire-chaos" id="btn-submit-inject-chaos">
+            💥 Establish Chaos Session
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Admin Header -->
   <header class="top-header admin-header">
     <div class="header-container">
@@ -319,6 +578,322 @@
         <span style="font-family: 'JetBrains Mono', monospace; color: #10b981; font-weight: 600;">ACTIVE (HMAC-SHA256)</span>
       </div>
     </div>
+
+    <!-- ======================================================================
+         MASTER-DETAIL INTERACTIVE SESSION & STREAM STUDIO (ENTERPRISE GRADE)
+         ====================================================================== -->
+    <section class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+      <div class="card-header" style="margin-bottom: 0.5rem;">
+        <div class="card-title">
+          <span style="font-size: 1.3rem;">⚡</span>
+          <div>
+            <h2 style="font-size: 1.15rem; color: #fff; margin: 0;">Interactive Session &amp; Stream Studio</h2>
+            <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: 0.2rem;">
+              Full lifecycle orchestration: inspect active WebTransport connections, individual streams, send/receive stream buffers, FIN closes, error resets, capsules, and wire events.
+            </p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button class="btn-action-primary" style="font-size: 0.8rem; padding: 0.45rem 0.85rem;" onclick="window.openNewConnectionModal()">
+            ➕ New Connection
+          </button>
+          <button class="btn-fire-chaos" style="font-size: 0.8rem; padding: 0.45rem 0.85rem;" onclick="window.openInjectChaosModal()" title="Inject fault connection">
+            💥 Inject Fault...
+          </button>
+          <button class="stream-action-btn btn-reset" style="font-size: 0.8rem; padding: 0.45rem 0.85rem;" onclick="window.openCloseAllModal()" title="Bulk drain or terminate active sessions">
+            🛑 Close All...
+          </button>
+          <button class="btn-secondary" style="font-size: 0.8rem; padding: 0.45rem 0.85rem;" onclick="window.refreshSessions()">
+            🔄 Refresh
+          </button>
+          <button class="btn-secondary" style="font-size: 0.8rem; padding: 0.45rem 0.85rem;" onclick="window.purgeClosedSessions()" title="Purge dead sessions">
+            🧹 Purge Closed
+          </button>
+          <button class="monitor-switch-btn" id="btn-live-monitor" onclick="window.toggleLiveMonitor()" title="Toggle 1-second live telemetry polling loop">
+            📡 Live Monitor: OFF
+          </button>
+        </div>
+      </div>
+
+      <div class="studio-grid">
+        <!-- Master Panel: Session Selector -->
+        <div class="session-master-panel">
+          <div class="session-master-header">
+            <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-dim); text-transform: uppercase;">
+              Active Sessions (<span id="session-count-badge">0</span>)
+            </span>
+          </div>
+
+          <div class="session-filter-pills">
+            <button class="filter-pill active" id="pill-filter-all" onclick="window.setSessionCategoryFilter('ALL')">All (<span id="count-pill-all">0</span>)</button>
+            <button class="filter-pill" id="pill-filter-standard" onclick="window.setSessionCategoryFilter('STANDARD')">Standard (<span id="count-pill-standard">0</span>)</button>
+            <button class="filter-pill pill-chaos" id="pill-filter-chaos" onclick="window.setSessionCategoryFilter('CHAOS')">Fault Injection (<span id="count-pill-chaos">0</span>)</button>
+          </div>
+
+          <input type="text" class="session-search-box" id="session-search-input" placeholder="🔍 Filter by ID, path, or IP..." oninput="window.filterSessions()">
+          
+          <div class="session-cards-scroll" id="session-cards-container">
+            <div style="text-align: center; color: var(--text-dim); padding: 2rem 1rem; font-size: 0.8rem;">
+              Loading active sessions...
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail Panel: Selected Session Studio -->
+        <div class="session-detail-panel" id="session-detail-panel">
+          <!-- Shown when no session selected -->
+          <div id="session-detail-empty" style="display: none; flex: 1; align-items: center; justify-content: center; text-align: center; color: var(--text-dim); padding: 3rem;">
+            <div>
+              <div style="font-size: 3rem; margin-bottom: 1rem;">🔌</div>
+              <h3 style="color: #fff; font-size: 1.1rem; margin-bottom: 0.5rem;">No Connection Selected</h3>
+              <p style="font-size: 0.85rem; max-width: 400px; margin: 0 auto 1.5rem auto;">
+                Select an active WebTransport session from the left panel or establish a new connection to inspect and control streams.
+              </p>
+              <button class="btn-action-primary" onclick="window.openNewConnectionModal()">
+                ➕ Establish New Connection
+              </button>
+            </div>
+          </div>
+
+          <!-- Main Detail Content -->
+          <div id="session-detail-content">
+            <!-- Header Summary Banner -->
+            <div class="detail-header-card">
+              <div class="detail-top-row">
+                <div class="detail-title-group">
+                  <span class="session-status-dot connected" id="detail-status-dot"></span>
+                  <h3 style="font-size: 1.15rem; color: #fff; font-family: var(--font-mono); margin: 0;" id="detail-session-id">wt-sess-001</h3>
+                  <span class="status-badge status-healthy" id="detail-status-pill">CONNECTED</span>
+                  <span class="badge-tag" id="detail-subprotocol">webtransport</span>
+                </div>
+                <div class="detail-actions-group">
+                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;" onclick="window.openStreamModal()">
+                    ➕ Open Stream
+                  </button>
+                  <button class="stream-action-btn" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #f59e0b;" onclick="window.triggerDrainSessionCapsule()" title="RFC 9297 WT_DRAIN_SESSION (0x78ae)">
+                    ⚠️ Drain (0x78ae)
+                  </button>
+                  <button class="stream-action-btn btn-close" onclick="window.openCloseCapsuleModal()" title="Capsule CLOSE_WEBTRANSPORT_SESSION (0x2843)">
+                    🛑 Close Capsule (0x2843)
+                  </button>
+                  <button class="stream-action-btn btn-reset" onclick="window.triggerTerminateSession()" title="QUIC CONNECTION_CLOSE (0x1c)">
+                    💥 Abrupt Sever
+                  </button>
+                </div>
+              </div>
+
+              <div class="detail-meta-grid">
+                <div>
+                  <div class="meta-item-label">Target URL / Path</div>
+                  <div class="meta-item-value" id="detail-path">/echo</div>
+                </div>
+                <div>
+                  <div class="meta-item-label">Remote Cluster Gateway</div>
+                  <div class="meta-item-value" id="detail-remote">127.0.0.1:4433</div>
+                </div>
+                <div>
+                  <div class="meta-item-label">Client Local Endpoint</div>
+                  <div class="meta-item-value" id="detail-client">127.0.0.1:54820</div>
+                </div>
+                <div>
+                  <div class="meta-item-label">QUIC Round-Trip (RTT)</div>
+                  <div class="meta-item-value" style="color: #38bdf8;" id="detail-rtt">1.4 ms</div>
+                </div>
+              </div>
+
+              <div style="margin-top: 0.75rem; font-size: 0.72rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.5rem;">
+                <span style="text-transform: uppercase; font-weight: 600;">W3C Traceparent:</span>
+                <span style="font-family: var(--font-mono); color: #cbd5e1;" id="detail-traceparent">00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01</span>
+              </div>
+            </div>
+
+            <!-- Chaos Diagnostics Banner (shown only when selected session is in CHAOS category) -->
+            <div id="chaos-diagnostics-banner" class="chaos-diagnostics-card" style="display: none;">
+              <div class="chaos-card-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span style="font-size: 1.3rem;">💥</span>
+                  <div>
+                    <h4 style="margin: 0; color: #f87171; font-size: 0.95rem;" id="chaos-diagnostics-title">Fault Injection Target</h4>
+                    <div style="font-size: 0.72rem; color: var(--text-dim);" id="chaos-scenario-name">Scenario: Queue Overflow Storm</div>
+                  </div>
+                </div>
+                <span class="badge-chaos-pill">CHAOS ACTIVE</span>
+              </div>
+              <div class="chaos-impact-grid">
+                <div class="chaos-metric-box">
+                  <div class="chaos-metric-lbl">Simulated Packet Loss</div>
+                  <div class="chaos-metric-num" id="chaos-metric-loss">12.5%</div>
+                </div>
+                <div class="chaos-metric-box">
+                  <div class="chaos-metric-lbl">Forced Drops</div>
+                  <div class="chaos-metric-num" style="color: #ef4444;" id="chaos-metric-drops">52</div>
+                </div>
+                <div class="chaos-metric-box">
+                  <div class="chaos-metric-lbl">Buffer Pressure</div>
+                  <div class="chaos-metric-num" style="color: #f59e0b;" id="chaos-metric-pressure">94.2%</div>
+                </div>
+                <div class="chaos-metric-box">
+                  <div class="chaos-metric-lbl">Leak Detection</div>
+                  <div class="chaos-metric-num" style="color: #10b981;" id="chaos-metric-leak">CLEAN (0 B)</div>
+                </div>
+              </div>
+              <div style="margin-top: 0.75rem; font-size: 0.75rem; color: #fca5a5; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <span id="chaos-fault-details">Active stress scenario driving artificial buffer saturation.</span>
+                <button class="btn-fire-chaos" style="font-size: 0.72rem; padding: 0.3rem 0.6rem;" onclick="window.triggerTerminateSession()">
+                  🛑 Sever Fault Session (0x1c)
+                </button>
+              </div>
+            </div>
+
+            <!-- Studio Tabs Navigation -->
+            <div class="studio-tabs">
+              <button class="studio-tab-btn active" id="tab-btn-streams" onclick="window.switchStudioTab('streams')">
+                🌊 Streams Studio (<span id="tab-streams-count">0</span>)
+              </button>
+              <button class="studio-tab-btn" id="tab-btn-datagrams" onclick="window.switchStudioTab('datagrams')">
+                🔨 Datagram Studio
+              </button>
+              <button class="studio-tab-btn" id="tab-btn-wire" onclick="window.switchStudioTab('wire')">
+                🖥️ Wire Event Trace (<span id="tab-wire-count">0</span>)
+              </button>
+              <button class="studio-tab-btn" id="tab-btn-flow" onclick="window.switchStudioTab('flow')">
+                📊 Flow Control &amp; Limits
+              </button>
+            </div>
+
+            <!-- Tab Pane 1: Streams Studio -->
+            <div class="studio-content-pane" id="pane-streams">
+              <div class="stream-toolbar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="window.openStreamModal()">
+                    ➕ Open New Stream
+                  </button>
+                  <span style="font-size: 0.75rem; color: var(--text-dim);">
+                    Interactive stream send/receive, clean FIN, and reset commands.
+                  </span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <input type="text" class="session-search-box" id="stream-filter-input" placeholder="🔍 Search streams (ID, status, payload)..." style="width: 250px; margin: 0; padding: 0.3rem 0.6rem; font-size: 0.75rem;" oninput="window.filterStreams()">
+                </div>
+              </div>
+
+              <div class="stream-table-wrap">
+                <table class="data-table" style="margin: 0;">
+                  <thead>
+                    <tr>
+                      <th>Stream ID</th>
+                      <th>Type</th>
+                      <th>Initiator</th>
+                      <th>Status</th>
+                      <th>Bytes Sent / Recv</th>
+                      <th>Last Frame / Activity</th>
+                      <th style="text-align: right;">Operations &amp; Controls</th>
+                    </tr>
+                  </thead>
+                  <tbody id="streams-tbody">
+                    <tr>
+                      <td colspan="7" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
+                        No streams open on this session. Click &quot;Open New Stream&quot; above.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Tab Pane 2: Datagram Studio -->
+            <div class="studio-content-pane" id="pane-datagrams" style="display: none;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-md); padding: 1.25rem;">
+                  <h4 style="font-size: 0.95rem; color: #fff; margin-bottom: 0.5rem;">🚀 Send Custom Datagram</h4>
+                  <p style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 1rem;">
+                    Transmit unreliable WebTransport datagrams directly on this QUIC connection.
+                  </p>
+                  <div class="param-group">
+                    <label for="sess-dg-payload">Datagram Payload Text</label>
+                    <input type="text" id="sess-dg-payload" value="DG_INTERACTIVE_HEARTBEAT_PAYLOAD">
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <div class="param-group">
+                      <label for="sess-dg-count">Packet Count</label>
+                      <input type="number" id="sess-dg-count" value="1" min="1" max="1000">
+                    </div>
+                    <div class="param-group">
+                      <label for="sess-dg-size">Packet Size (Bytes)</label>
+                      <input type="number" id="sess-dg-size" value="64" min="16" max="1350">
+                    </div>
+                  </div>
+                  <button class="btn-action-primary" style="margin-top: 0.5rem; width: 100%; justify-content: center;" onclick="window.sendSessionDatagram()">
+                    🚀 Transmit Datagram Frame
+                  </button>
+                </div>
+
+                <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-md); padding: 1.25rem;">
+                  <h4 style="font-size: 0.95rem; color: #fff; margin-bottom: 0.5rem;">📜 Recent Datagram Frames</h4>
+                  <p style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.75rem;">
+                    Chronological buffer of datagram packets transmitted/received.
+                  </p>
+                  <div class="stream-history-box" id="sess-dg-history" style="max-height: 220px;">
+                    <div style="color: var(--text-dim);">No datagrams dispatched yet.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab Pane 3: Wire Event Trace -->
+            <div class="studio-content-pane" id="pane-wire" style="display: none;">
+              <div style="margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-size: 0.78rem; color: var(--text-dim);">
+                  Real-time wire frame progression: Extended CONNECT, Session Upgrade, Data Frames, Capsules.
+                </span>
+                <button class="btn-secondary" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" onclick="window.refreshWireEvents()">
+                  🔄 Refresh Wire
+                </button>
+              </div>
+              <div id="sess-wire-events" style="max-height: 380px; overflow-y: auto;">
+                <div style="text-align: center; color: var(--text-dim); padding: 2rem;">No wire events captured yet.</div>
+              </div>
+            </div>
+
+            <!-- Tab Pane 4: Flow Control & Limits -->
+            <div class="studio-content-pane" id="pane-flow" style="display: none;">
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Max Data Window</div>
+                  <div class="mini-metric-val" id="flow-max-data">16 MB</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Used: <span id="flow-used-data">256 B</span></div>
+                </div>
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Bidi Stream Credit</div>
+                  <div class="mini-metric-val" id="flow-bidi-limit">100</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Active: <span id="flow-bidi-used">1</span></div>
+                </div>
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Uni Stream Credit</div>
+                  <div class="mini-metric-val" id="flow-uni-limit">100</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Active: <span id="flow-uni-used">0</span></div>
+                </div>
+              </div>
+
+              <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-md); padding: 1.25rem;">
+                <h4 style="font-size: 0.95rem; color: #fff; margin-bottom: 0.85rem;">QUIC Transport Parameters Negotiated</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.8rem; font-family: var(--font-mono);">
+                  <div><span style="color: var(--text-dim);">initial_max_data:</span> <span style="color: #38bdf8;">16,777,216 bytes</span></div>
+                  <div><span style="color: var(--text-dim);">initial_max_stream_data_bidi_local:</span> <span style="color: #38bdf8;">1,048,576 bytes</span></div>
+                  <div><span style="color: var(--text-dim);">initial_max_stream_data_bidi_remote:</span> <span style="color: #38bdf8;">1,048,576 bytes</span></div>
+                  <div><span style="color: var(--text-dim);">initial_max_stream_data_uni:</span> <span style="color: #38bdf8;">1,048,576 bytes</span></div>
+                  <div><span style="color: var(--text-dim);">max_datagram_frame_size:</span> <span style="color: #10b981;">1,350 bytes</span></div>
+                  <div><span style="color: var(--text-dim);">max_idle_timeout:</span> <span style="color: #10b981;">30,000 ms</span></div>
+                  <div><span style="color: var(--text-dim);">active_connection_id_limit:</span> <span style="color: #10b981;">8 IDs</span></div>
+                  <div><span style="color: var(--text-dim);">webtransport_draft:</span> <span style="color: #c084fc;">Draft-16 / RFC 9297</span></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- Admin Operations Grid -->
     <div class="admin-grid">
