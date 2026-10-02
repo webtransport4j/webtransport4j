@@ -16,7 +16,6 @@
   let currentStreamFormat = 'text';
   let activeTab = 'streams';
   let expandedStreamHistories = new Set();
-  let activeCategoryFilter = 'ALL'; // 'ALL' | 'STANDARD' | 'CHAOS'
   let isLiveMonitoring = false;
   let liveMonitorInterval = null;
 
@@ -40,14 +39,6 @@
     sessionCardsContainer: document.getElementById('session-cards-container'),
     sessionDetailEmpty: document.getElementById('session-detail-empty'),
     sessionDetailContent: document.getElementById('session-detail-content'),
-
-    // Filter Pills
-    pillAll: document.getElementById('pill-filter-all'),
-    pillStandard: document.getElementById('pill-filter-standard'),
-    pillChaos: document.getElementById('pill-filter-chaos'),
-    countPillAll: document.getElementById('count-pill-all'),
-    countPillStandard: document.getElementById('count-pill-standard'),
-    countPillChaos: document.getElementById('count-pill-chaos'),
     btnLiveMonitor: document.getElementById('btn-live-monitor'),
 
     // Detail Header
@@ -60,15 +51,6 @@
     detailClient: document.getElementById('detail-client'),
     detailRtt: document.getElementById('detail-rtt'),
     detailTraceparent: document.getElementById('detail-traceparent'),
-
-    // Chaos Diagnostics Banner
-    chaosBanner: document.getElementById('chaos-diagnostics-banner'),
-    chaosScenarioName: document.getElementById('chaos-scenario-name'),
-    chaosMetricLoss: document.getElementById('chaos-metric-loss'),
-    chaosMetricDrops: document.getElementById('chaos-metric-drops'),
-    chaosMetricPressure: document.getElementById('chaos-metric-pressure'),
-    chaosMetricLeak: document.getElementById('chaos-metric-leak'),
-    chaosFaultDetails: document.getElementById('chaos-fault-details'),
 
     // Studio Tabs & Badges
     tabStreamsCount: document.getElementById('tab-streams-count'),
@@ -256,25 +238,15 @@
       const data = await apiGet('/api/admin/sessions');
       cachedSessions = data.sessions || [];
 
-      // Update counters & pills
       if (elements.sessionCountBadge) {
         elements.sessionCountBadge.textContent = cachedSessions.length;
-      }
-      if (elements.countPillAll) {
-        elements.countPillAll.textContent = cachedSessions.length;
-      }
-      if (elements.countPillStandard) {
-        elements.countPillStandard.textContent = cachedSessions.filter(s => s.category !== 'CHAOS').length;
-      }
-      if (elements.countPillChaos) {
-        elements.countPillChaos.textContent = cachedSessions.filter(s => s.category === 'CHAOS').length;
       }
 
       window.filterSessions();
 
       if (cachedSessions.length === 0) {
         currentSessionId = null;
-        if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'block';
+        if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'flex';
         if (elements.sessionDetailContent) elements.sessionDetailContent.style.display = 'none';
       } else if (autoSelectFirst || !cachedSessions.some(s => s.id === currentSessionId)) {
         currentSessionId = cachedSessions[0].id;
@@ -285,19 +257,6 @@
     } catch (err) {
       console.error('Failed to load sessions:', err);
     }
-  };
-
-  window.setSessionCategoryFilter = function (category) {
-    activeCategoryFilter = category;
-    const pillMap = [
-      { el: elements.pillAll, cat: 'ALL' },
-      { el: elements.pillStandard, cat: 'STANDARD' },
-      { el: elements.pillChaos, cat: 'CHAOS' }
-    ];
-    pillMap.forEach(p => {
-      if (p.el) p.el.classList.toggle('active', p.cat === category);
-    });
-    window.filterSessions();
   };
 
   window.refreshSessions = function () {
@@ -311,28 +270,19 @@
     const q = (elements.sessionSearchInput ? elements.sessionSearchInput.value : '').toLowerCase().trim();
     let filtered = cachedSessions;
 
-    // 1. Filter by Category
-    if (activeCategoryFilter === 'STANDARD') {
-      filtered = filtered.filter(s => s.category !== 'CHAOS');
-    } else if (activeCategoryFilter === 'CHAOS') {
-      filtered = filtered.filter(s => s.category === 'CHAOS');
-    }
-
-    // 2. Filter by search query
     if (q) {
       filtered = filtered.filter(s =>
         s.id.toLowerCase().includes(q) ||
         (s.path || '').toLowerCase().includes(q) ||
         (s.remoteEndpoint || '').toLowerCase().includes(q) ||
-        (s.status || '').toLowerCase().includes(q) ||
-        (s.chaosScenario || '').toLowerCase().includes(q)
+        (s.status || '').toLowerCase().includes(q)
       );
     }
 
     renderSessionCards(filtered);
   };
 
-  function renderStandardCard(s) {
+  function renderSessionCard(s) {
     const isActive = s.id === currentSessionId;
     let statusClass = 'connected';
     if (s.status === 'DRAINING') statusClass = 'draining';
@@ -360,44 +310,7 @@
         <div class="session-card-pills">
           <span class="session-pill">🌊 ${s.streamCount || 0} Streams</span>
           <span class="session-pill">📦 ${s.datagramsSent || 0} DGs</span>
-          <span class="session-pill">ID #${s.rawSessionId || 0}</span>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderChaosCard(s) {
-    const isActive = s.id === currentSessionId;
-    let statusClass = 'connected';
-    if (s.status === 'DRAINING') statusClass = 'draining';
-    else if (s.status === 'CLOSED') statusClass = 'closed';
-    else if (s.status === 'CLOSED_ABRUPT') statusClass = 'closed_abrupt';
-
-    return `
-      <div class="session-card chaos ${isActive ? 'active' : ''}" onclick="window.selectSession('${s.id}')">
-        <div class="session-card-top">
-          <div style="display: flex; align-items: center; gap: 0.35rem;">
-            <span class="session-status-dot ${statusClass}"></span>
-            <span class="session-card-id" style="color: #f87171;">${escapeHtml(s.id)}</span>
-            <span class="badge-chaos-pill">CHAOS</span>
-          </div>
-          <span class="session-pill" style="font-family: var(--font-mono); color: #ef4444;">${escapeHtml(s.rttMs || 1.4)}ms</span>
-        </div>
-        <div style="font-size: 0.8rem; color: #fca5a5; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-          💥 ${escapeHtml(s.chaosScenario || s.path || 'Fault Target')}
-        </div>
-        <div class="session-card-meta">
-          <span>${escapeHtml(s.remoteEndpoint || '127.0.0.1:4433')}</span>
-          <span style="color: #ef4444; font-weight: 700;">
-            ${escapeHtml(s.status)}
-          </span>
-        </div>
-        <div class="session-card-pills">
-          <span class="session-pill" style="border-color: rgba(239, 68, 68, 0.4); color: #f87171; font-weight: 700;">
-            💥 Drops: ${s.datagramsDropped || 0}
-          </span>
-          <span class="session-pill">🌊 ${s.streamCount || 0} Streams</span>
-          <span class="session-pill">📦 ${s.datagramsSent || 0} DGs</span>
+          <span class="session-pill">ID #${s.rawSessionId !== undefined ? s.rawSessionId : 0}</span>
         </div>
       </div>
     `;
@@ -407,57 +320,14 @@
     if (!elements.sessionCardsContainer) return;
     if (sessions.length === 0) {
       elements.sessionCardsContainer.innerHTML = `
-        <div style="text-align: center; color: var(--text-dim); padding: 2rem 1rem; font-size: 0.8rem;">
-          No matching ${activeCategoryFilter === 'ALL' ? '' : activeCategoryFilter.toLowerCase()} sessions found.<br>
-          Use <strong>➕ New Connection</strong> or <strong>💥 Inject Fault</strong> to create one.
+        <div style="text-align: center; color: var(--text-dim); padding: 2.5rem 1rem; font-size: 0.8rem;">
+          No active WebTransport connections.<br>
+          Use <strong>➕ New Connection</strong> to establish a real session with the cluster.
         </div>`;
       return;
     }
 
-    const standardSessions = sessions.filter(s => s.category !== 'CHAOS');
-    const chaosSessions = sessions.filter(s => s.category === 'CHAOS');
-
-    let html = '';
-
-    // Render grouped layout
-    if (activeCategoryFilter === 'ALL') {
-      if (standardSessions.length > 0) {
-        html += `
-          <div class="session-group-header standard">
-            <span>⚡ Production &amp; Standard Sessions</span>
-            <span class="count-badge">${standardSessions.length}</span>
-          </div>
-          ${standardSessions.map(renderStandardCard).join('')}
-        `;
-      }
-      if (chaosSessions.length > 0) {
-        html += `
-          <div class="session-group-header chaos">
-            <span>💥 Fault Injection &amp; Chaos Sessions</span>
-            <span class="count-badge">${chaosSessions.length}</span>
-          </div>
-          ${chaosSessions.map(renderChaosCard).join('')}
-        `;
-      }
-    } else if (activeCategoryFilter === 'STANDARD') {
-      html += `
-        <div class="session-group-header standard">
-          <span>⚡ Production &amp; Standard Sessions</span>
-          <span class="count-badge">${standardSessions.length}</span>
-        </div>
-        ${standardSessions.map(renderStandardCard).join('')}
-      `;
-    } else if (activeCategoryFilter === 'CHAOS') {
-      html += `
-        <div class="session-group-header chaos">
-          <span>💥 Fault Injection &amp; Chaos Sessions</span>
-          <span class="count-badge">${chaosSessions.length}</span>
-        </div>
-        ${chaosSessions.map(renderChaosCard).join('')}
-      `;
-    }
-
-    elements.sessionCardsContainer.innerHTML = html;
+    elements.sessionCardsContainer.innerHTML = sessions.map(renderSessionCard).join('');
   }
 
   window.selectSession = async function (sessionId, reHighlightCards = true) {
@@ -482,7 +352,7 @@
     elements.detailSessionId.textContent = s.id;
     elements.detailPath.textContent = s.path;
     elements.detailRemote.textContent = s.remoteEndpoint;
-    elements.detailClient.textContent = s.clientEndpoint || '127.0.0.1:54820';
+    elements.detailClient.textContent = s.clientEndpoint || '127.0.0.1:50000';
     elements.detailRtt.textContent = `${s.rttMs || 1.4} ms`;
     elements.detailTraceparent.textContent = s.traceparent || 'None configured';
     elements.detailSubprotocol.textContent = s.subprotocol || 'webtransport';
@@ -503,36 +373,6 @@
     }
     elements.detailStatusDot.className = `session-status-dot ${dotClass}`;
     elements.detailStatusPill.className = `status-badge ${pillClass}`;
-
-    // Chaos Diagnostics banner update
-    const isChaos = s.category === 'CHAOS';
-    if (elements.chaosBanner) {
-      if (isChaos) {
-        elements.chaosBanner.style.display = 'block';
-        if (elements.chaosScenarioName) {
-          elements.chaosScenarioName.textContent = `Scenario: ${s.chaosScenario || 'Fault Injection Target'}`;
-        }
-        if (elements.chaosFaultDetails) {
-          elements.chaosFaultDetails.textContent = s.faultDetails || 'Active stress scenario driving artificial buffer saturation.';
-        }
-        if (elements.chaosMetricLoss) {
-          const loss = (s.anomalyMetrics && s.anomalyMetrics.packetLossPct !== undefined) ? s.anomalyMetrics.packetLossPct : 12.5;
-          elements.chaosMetricLoss.textContent = `${loss}%`;
-        }
-        if (elements.chaosMetricDrops) {
-          elements.chaosMetricDrops.textContent = s.datagramsDropped !== undefined ? s.datagramsDropped : 52;
-        }
-        if (elements.chaosMetricPressure) {
-          const press = (s.anomalyMetrics && s.anomalyMetrics.bufferPressurePct !== undefined) ? s.anomalyMetrics.bufferPressurePct : 94.2;
-          elements.chaosMetricPressure.textContent = `${press}%`;
-        }
-        if (elements.chaosMetricLeak) {
-          elements.chaosMetricLeak.textContent = (s.anomalyMetrics && s.anomalyMetrics.memoryLeakCheck) || 'CLEAN (0 B)';
-        }
-      } else {
-        elements.chaosBanner.style.display = 'none';
-      }
-    }
 
     // Update tab counts
     const streams = s.streams || [];
@@ -771,7 +611,7 @@
         appendLog('OK', 'SESSION_READY', `WebTransport session ${data.session.id} established! RTT: ${data.session.rttMs}ms`,
           'Extended CONNECT upgraded with ALPN=h3. Netty QUIC engine ready for stream and datagram multiplexing.');
         await loadSessions(false);
-        selectSession(data.session.id);
+        selectSession(data.session.id, true);
         fetchLiveTelemetry();
         loadAuditLog();
       }
@@ -786,7 +626,7 @@
   // 2. Open New Stream
   window.openStreamModal = function () {
     const hint = document.getElementById('open-stream-session-hint');
-    if (hint) hint.innerHTML = `Session: <strong style="color: #38bdf8;">${escapeHtml(currentSessionId)}</strong>`;
+    if (hint) hint.innerHTML = `Target Session: <strong style="color: #38bdf8;">${escapeHtml(currentSessionId || 'None')}</strong>`;
     window.openModal('modal-open-stream');
   };
 
@@ -1029,27 +869,25 @@
   };
 
   window.submitCloseAll = async function () {
-    const targetGroup = document.getElementById('close-all-target-group').value;
     const mode = document.getElementById('close-all-mode').value;
-    const errorCode = parseInt(document.getElementById('close-all-code').value, 10);
-    const reason = document.getElementById('close-all-reason').value.trim();
+    const errorCode = parseInt(document.getElementById('close-all-code').value, 10) || 0;
+    const reason = document.getElementById('close-all-reason').value.trim() || 'Bulk Operator Action';
     const btn = document.getElementById('btn-submit-close-all');
     if (btn) btn.disabled = true;
 
-    appendLog('WARN', 'BULK_CLOSE', `Executing Bulk Teardown: Mode=${mode}, Category=${targetGroup}, Code=0x${errorCode.toString(16)}...`);
+    appendLog('WARN', 'BULK_CLOSE', `Executing Bulk Teardown: Mode=${mode}, Code=0x${errorCode.toString(16)}...`);
 
     try {
       const data = await apiPost('/api/admin/sessions/close-all', {
-        targetGroup,
         mode,
         errorCode,
         reason
       });
 
       window.closeModal('modal-close-all');
-      appendLog('OK', 'BULK_RESULT', `Bulk operation completed successfully. ${data.closedCount} session(s) transitioned to ${mode}.`,
-        `RFC 9297 bulk orchestrator applied ${mode} across ${targetGroup} group.`);
-      loadSessions(false);
+      appendLog('OK', 'BULK_RESULT', `Bulk operation completed successfully. ${data.closedCount || data.affectedCount || 0} session(s) transitioned to ${mode}.`,
+        `RFC 9297 bulk orchestrator applied ${mode} across all active connections.`);
+      await loadSessions(true);
       fetchLiveTelemetry();
       loadAuditLog();
     } catch (err) {
@@ -1058,70 +896,6 @@
     } finally {
       if (btn) btn.disabled = false;
     }
-  };
-
-  // 12. Fault Injection / Chaos Session Orchestration
-  window.openInjectChaosModal = function () {
-    window.openModal('modal-inject-chaos');
-  };
-
-  window.onChaosScenarioChange = function () {
-    const sel = document.getElementById('chaos-scenario-select').value;
-    const dropsInput = document.getElementById('chaos-conn-drops');
-    const traceInput = document.getElementById('chaos-conn-trace');
-    if (sel === 'Queue Overflow Storm') {
-      if (dropsInput) dropsInput.value = 100;
-      if (traceInput) traceInput.value = '00-overflow00000000000000000000000-storm00000000000-01';
-    } else if (sel === 'Abrupt Socket Tear') {
-      if (dropsInput) dropsInput.value = 0;
-      if (traceInput) traceInput.value = '00-tear000000000000000000000000000-sever00000000000-01';
-    } else if (sel === 'Backpressure Flood') {
-      if (dropsInput) dropsInput.value = 25;
-      if (traceInput) traceInput.value = '00-backpressure0000000000000000000-flood00000000000-01';
-    } else if (sel === 'Trace Fuzzing') {
-      if (dropsInput) dropsInput.value = 10;
-      if (traceInput) traceInput.value = '00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01';
-    }
-  };
-
-  window.submitInjectChaos = async function () {
-    const target = document.getElementById('chaos-conn-target').value.trim();
-    const scenario = document.getElementById('chaos-scenario-select').value;
-    const drops = parseInt(document.getElementById('chaos-conn-drops').value, 10);
-    const traceparent = document.getElementById('chaos-conn-trace').value.trim();
-    const btn = document.getElementById('btn-submit-inject-chaos');
-    if (btn) btn.disabled = true;
-
-    appendLog('WARN', 'CHAOS_CREATE', `Establishing Fault Injection Session [${scenario}] against ${target}...`);
-
-    try {
-      const data = await apiPost('/api/admin/sessions/create-chaos', {
-        target,
-        scenario,
-        drops,
-        traceparent
-      });
-
-      window.closeModal('modal-inject-chaos');
-      appendLog('OK', 'CHAOS_CREATED', `Fault Injection session ${data.sessionId} established. Scenario: ${data.scenario}. Recorded drops: ${data.drops}.`,
-        'Chaos target initialized with Netty queue stress and fuzzed telemetry monitoring.');
-      currentSessionId = data.sessionId;
-      activeCategoryFilter = 'CHAOS';
-      window.setSessionCategoryFilter('CHAOS');
-      await loadSessions(false);
-      selectSession(currentSessionId, false);
-      fetchLiveTelemetry();
-      loadAuditLog();
-    } catch (err) {
-      alert('Failed to establish chaos session: ' + err.message);
-      appendLog('ERR', 'CHAOS_ERR', err.message);
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  };
-
-  window.triggerReapCurrentChaosSession = function () {
-    window.triggerTerminateSession();
   };
 
   // 13. Live Monitoring Telemetry Loop
@@ -1169,13 +943,6 @@
       const listData = await apiGet('/api/admin/sessions');
       cachedSessions = listData.sessions || [];
       if (elements.sessionCountBadge) elements.sessionCountBadge.textContent = cachedSessions.length;
-      if (elements.countPillAll) elements.countPillAll.textContent = cachedSessions.length;
-      if (elements.countPillStandard) {
-        elements.countPillStandard.textContent = cachedSessions.filter(s => s.category !== 'CHAOS').length;
-      }
-      if (elements.countPillChaos) {
-        elements.countPillChaos.textContent = cachedSessions.filter(s => s.category === 'CHAOS').length;
-      }
       window.filterSessions();
     } catch (_) {}
   }

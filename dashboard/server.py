@@ -98,17 +98,32 @@ def spawn_persistent_session(target_url, stream_count=0, stream_type="bidi", pay
     lib_dir = os.path.join(PROJECT_ROOT, "target", "lib")
     classes_dir = os.path.join(PROJECT_ROOT, "target", "classes")
     cp_sep = os.pathsep
-    cmd_args = [get_java_cmd(), "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+    cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                 "io.github.webtransport4j.example.RealTrafficGenerator", "session",
                 target_url, str(stream_count), stream_type, "3600", payload]
     proc = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=PROJECT_ROOT)
-    first_line = ""
-    try:
-        first_line = proc.stdout.readline().strip()
-        data = json.loads(first_line)
+    data = None
+    first_lines = []
+    start_wait = time.time()
+    while time.time() - start_wait < 15:
+        line = proc.stdout.readline()
+        if not line:
+            if proc.poll() is not None:
+                break
+            time.sleep(0.05)
+            continue
+        line_str = line.strip()
+        first_lines.append(line_str)
+        if line_str.startswith('{') and line_str.endswith('}'):
+            try:
+                data = json.loads(line_str)
+                break
+            except Exception:
+                continue
+    if data is not None:
         return proc, data
-    except Exception as e:
-        return proc, {"status": "ERROR", "error": str(e), "raw": first_line}
+    err = proc.stderr.read() if proc.poll() is not None else ""
+    return proc, {"status": "ERROR", "error": "No JSON status received from RealTrafficGenerator", "raw": "\n".join(first_lines), "stderr": err}
 
 def close_server_session(raw_sid, sess_id=None):
     """Sends close request to server and cleans up any client subprocess"""
@@ -179,19 +194,15 @@ def sync_live_server_sessions():
                     MANAGED_SESSIONS[sess_id] = {
                         "id": sess_id,
                         "rawSessionId": ss.get("rawSessionId", 0),
-                        "category": existing.get("category", "STANDARD"),
-                        "chaosScenario": existing.get("chaosScenario"),
-                        "faultDetails": existing.get("faultDetails"),
                         "targetUrl": existing.get("targetUrl", f"https://localhost:4433{ss.get('path', '/echo')}"),
                         "path": ss.get("path", "/echo"),
                         "remoteEndpoint": ss.get("localEndpoint", "127.0.0.1:4433"),
                         "clientEndpoint": ss.get("clientEndpoint", "127.0.0.1:50000"),
-                        "status": existing.get("status", "CONNECTED"),
+                        "status": ss.get("status", "CONNECTED"),
                         "subprotocol": ss.get("subprotocol", "webtransport"),
                         "traceparent": existing.get("traceparent", ""),
                         "connectedAt": existing.get("connectedAt", time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())),
                         "rttMs": existing.get("rttMs", 1.2),
-                        "datagramsDropped": existing.get("datagramsDropped", 0),
                         "anomalyMetrics": existing.get("anomalyMetrics", {
                             "packetLossPct": 0.0,
                             "latencySpikeMs": existing.get("rttMs", 1.2),
@@ -234,39 +245,33 @@ def sync_live_server_sessions():
     except Exception:
         pass
 
-def create_managed_session(target_url, subprotocol="webtransport", traceparent=None, user="secops-admin", category="STANDARD", chaos_scenario=None, fault_details=None, datagrams_dropped=0, stream_count=0, stream_type="bidi", stream_payload=None):
+def create_managed_session(target_url, subprotocol="webtransport", traceparent=None, user="secops-admin", stream_count=0, stream_type="bidi", stream_payload=None):
     """Establishes real WebTransport connection via RealTrafficGenerator, registers on server, and fetches live server state"""
     global SESSION_COUNTER, SESSION_PROCESSES
-    payload = stream_payload or ("CHAOS_BACKPRESSURE_BURST" if category == "CHAOS" else "WebTransport Echo Ping")
+    payload = stream_payload or "WebTransport Echo Ping"
     proc, result = spawn_persistent_session(target_url, stream_count, stream_type, payload)
     
-    time.sleep(0.3)
+    time.sleep(0.4)
     sync_live_server_sessions()
     
     raw_sid = int(result.get("sessionId", 0)) if result.get("status") == "CONNECTED" else 0
-    sess_id = f"wt-sess-{raw_sid}" if category != "CHAOS" else f"wt-chaos-{raw_sid:03d}"
-    server_sess_id = f"wt-sess-{raw_sid}"
+    sess_id = f"wt-sess-{raw_sid}"
     
-    if server_sess_id in MANAGED_SESSIONS:
-        MANAGED_SESSIONS[server_sess_id]["category"] = category
-        MANAGED_SESSIONS[server_sess_id]["chaosScenario"] = chaos_scenario
-        MANAGED_SESSIONS[server_sess_id]["faultDetails"] = fault_details
-        MANAGED_SESSIONS[server_sess_id]["datagramsDropped"] = datagrams_dropped
-        if category == "CHAOS":
-            MANAGED_SESSIONS[server_sess_id]["id"] = sess_id
-            MANAGED_SESSIONS[sess_id] = MANAGED_SESSIONS.pop(server_sess_id)
+    if sess_id in MANAGED_SESSIONS:
+        MANAGED_SESSIONS[sess_id]["status"] = "CONNECTED"
+        if traceparent:
+            MANAGED_SESSIONS[sess_id]["traceparent"] = traceparent
+        if result.get("rttMs"):
+            MANAGED_SESSIONS[sess_id]["rttMs"] = float(result.get("rttMs"))
         SESSION_PROCESSES[sess_id] = proc
-        log_audit(user, "CREATE_SESSION", target_url, f"Session {sess_id} established on {target_url} (Group: {category})")
+        log_audit(user, "CREATE_SESSION", target_url, f"Session {sess_id} established on {target_url}")
         return MANAGED_SESSIONS[sess_id]
         
     SESSION_COUNTER += 1
-    fallback_id = f"wt-chaos-{SESSION_COUNTER:03d}" if category == "CHAOS" else f"wt-sess-{SESSION_COUNTER:03d}"
+    fallback_id = f"wt-sess-{raw_sid}" if raw_sid >= 0 else f"wt-sess-{SESSION_COUNTER}"
     fallback_data = {
         "id": fallback_id,
         "rawSessionId": raw_sid,
-        "category": category,
-        "chaosScenario": chaos_scenario,
-        "faultDetails": fault_details,
         "targetUrl": target_url,
         "path": urllib.parse.urlparse(target_url).path or "/echo",
         "remoteEndpoint": "127.0.0.1:4433",
@@ -277,16 +282,16 @@ def create_managed_session(target_url, subprotocol="webtransport", traceparent=N
         "connectedAt": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
         "rttMs": float(result.get("rttMs", 1.5)),
         "streams": [{"streamId": raw_sid, "type": "connect", "initiator": "client", "status": "ESTABLISHED", "bytesSent": 0, "bytesReceived": 0}],
-        "datagrams": {"sent": 0, "received": 0, "dropped": datagrams_dropped, "recent": []},
+        "datagrams": {"sent": 0, "received": 0, "dropped": 0, "recent": []},
         "flowControl": {"maxData": 16777216, "maxStreamsBidi": 100, "maxStreamsUni": 100, "usedStreamsBidi": stream_count, "usedStreamsUni": 0},
         "bytesSent": 0,
         "bytesReceived": 0,
-        "nextStreamId": 4,
+        "nextStreamId": raw_sid + 4,
         "wireEvents": []
     }
     MANAGED_SESSIONS[fallback_id] = fallback_data
     SESSION_PROCESSES[fallback_id] = proc
-    log_audit(user, "CREATE_SESSION", target_url, f"Session {fallback_id} established on {target_url} (Group: {category})")
+    log_audit(user, "CREATE_SESSION", target_url, f"Session {fallback_id} established on {target_url}")
     return fallback_data
 
 
@@ -602,15 +607,12 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             init_default_session()
             if CURRENT_DATASOURCE.get("type") == "prometheus":
                 scrape_real_prometheus()
-            standard_count = len([s for s in MANAGED_SESSIONS.values() if s.get("category", "STANDARD") == "STANDARD"])
-            chaos_count = len([s for s in MANAGED_SESSIONS.values() if s.get("category") == "CHAOS"])
-            active_count = len([s for s in MANAGED_SESSIONS.values() if s["status"] in ("CONNECTED", "DRAINING", "FAULT_INJECTED")])
+            active_count = len([s for s in MANAGED_SESSIONS.values() if s["status"] in ("CONNECTED", "DRAINING")])
 
             sessions_summary = []
             for s in MANAGED_SESSIONS.values():
                 sessions_summary.append({
                     "id": s["id"],
-                    "category": s.get("category", "STANDARD"),
                     "status": s["status"],
                     "path": s["path"],
                     "rttMs": s["rttMs"],
@@ -620,7 +622,6 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                     "datagramsRecv": s["datagrams"]["received"],
                     "datagramsDropped": s["datagrams"].get("dropped", 0),
                     "packetLossPct": s.get("anomalyMetrics", {}).get("packetLossPct", 0.0),
-                    "chaosScenario": s.get("chaosScenario"),
                     "lastWireTime": s["wireEvents"][-1]["time"] if s["wireEvents"] else ""
                 })
 
@@ -632,8 +633,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
 
             self.send_json(200, {
                 "activeSessions": active_count,
-                "standardSessions": standard_count,
-                "chaosSessions": chaos_count,
+                "totalSessions": len(MANAGED_SESSIONS),
                 "activeStreams": LIVE_TELEMETRY["activeStreams"],
                 "totalDatagrams": LIVE_TELEMETRY["totalDatagramsProcessed"],
                 "totalDrops": LIVE_TELEMETRY["datagramsDroppedRate"],
@@ -641,8 +641,6 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                 "telemetry": LIVE_TELEMETRY,
                 "summary": {
                     "totalSessions": len(MANAGED_SESSIONS),
-                    "standardSessions": standard_count,
-                    "chaosSessions": chaos_count,
                     "activeSessions": active_count,
                     "activeStreams": LIVE_TELEMETRY["activeStreams"],
                     "totalDatagrams": LIVE_TELEMETRY["totalDatagramsProcessed"],
@@ -664,9 +662,6 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                 sessions_list.append({
                     "id": s["id"],
                     "rawSessionId": s["rawSessionId"],
-                    "category": s.get("category", "STANDARD"),
-                    "chaosScenario": s.get("chaosScenario"),
-                    "faultDetails": s.get("faultDetails"),
                     "anomalyMetrics": s.get("anomalyMetrics", {}),
                     "path": s["path"],
                     "status": s["status"],
@@ -936,11 +931,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         if command == "chaos-burst":
                             forced_drops = max(1, int(sent * 0.05))
                             LIVE_TELEMETRY["datagramsDroppedRate"] += forced_drops
-                            create_managed_session(
-                                target_url, "webtransport", "00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01",
-                                user, category="CHAOS", chaos_scenario="Queue Overflow Storm",
-                                fault_details=f"Flooded receive queue with {sent} datagrams at {pps} PPS. {forced_drops} packet drops forced."
-                            )
                     elif command == "streams":
                         stype = result.get("type", "bidi")
                         c = int(result.get("count", count))
@@ -974,22 +964,9 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                                 target_session["flowControl"]["usedStreamsBidi"] += c
                             else:
                                 target_session["flowControl"]["usedStreamsUni"] += c
-                        elif "CHAOS" in payload_text or req_data.get('category') == "CHAOS":
-                            create_managed_session(
-                                target_url, "webtransport", None, user,
-                                category="CHAOS", chaos_scenario=f"Concurrency Overload Storm ({c} Streams)",
-                                fault_details=f"Opened {c} high-concurrency streams with '{payload_text}'",
-                                stream_count=c, stream_type=stype, stream_payload=payload_text
-                            )
                     elif command == "chaos-abrupt-close":
                         if LIVE_TELEMETRY["activeSessions"] > 0:
                             LIVE_TELEMETRY["activeSessions"] -= 1
-                        s_abrupt = create_managed_session(
-                            target_url, "webtransport", None, user,
-                            category="CHAOS", chaos_scenario="Abrupt Socket Tear",
-                            fault_details="Forceful transport socket sever without application connection close."
-                        )
-                        s_abrupt["status"] = "CLOSED_ABRUPT"
 
                     # Always append W3C trace span to telemetry traces table
                     t_id = traceparent.split('-')[1] if (traceparent and '-' in traceparent) else uuid.uuid4().hex
@@ -1032,52 +1009,25 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             target_url = req_data.get('target', 'https://localhost:4433/echo')
             subprotocol = req_data.get('subprotocol', 'webtransport')
             traceparent = req_data.get('traceparent', '')
-            session_data = create_managed_session(target_url, subprotocol, traceparent, user, category="STANDARD")
+            session_data = create_managed_session(target_url, subprotocol, traceparent, user)
             self.send_json(200, {"success": True, "session": session_data})
             return
 
-        # Explicit Fault Injection / Chaos Session Creator
+        # Explicit Fault Injection / Chaos Session Creator (delegates to standard session)
         if self.path == '/api/admin/sessions/create-chaos':
             user = self.is_authenticated()
             if not user:
                 self.send_json(401, {"error": "Authentication required."})
                 return
-            scenario = req_data.get('scenario', 'Queue Overflow Storm')
+            scenario = req_data.get('scenario', 'Fault Injection')
             target_url = req_data.get('target', 'https://localhost:4433/echo')
-            traceparent = req_data.get('traceparent', '00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01')
-            drops = int(req_data.get('drops', 50))
+            traceparent = req_data.get('traceparent', '')
+            drops = int(req_data.get('drops', 0))
 
-            fault_desc = ""
-            if "Queue Overflow" in scenario:
-                run_traffic_command("chaos-burst", target_url, ["1000"])
-                fault_desc = f"Flooded receive queue with 1,000 UDP datagrams to force packet drops. {drops} drops recorded."
-                LIVE_TELEMETRY["datagramsDroppedRate"] += drops
-                LIVE_TELEMETRY["totalDatagramsProcessed"] += 1000
-            elif "Abrupt Socket" in scenario:
-                run_traffic_command("chaos-abrupt-close", target_url, [])
-                fault_desc = "Abrupt socket reset without CONNECTION_CLOSE application frame."
-            elif "Backpressure" in scenario:
-                run_traffic_command("streams", target_url, ["bidi", "50", "CHAOS_BACKPRESSURE_BURST"])
-                fault_desc = "50 high-concurrency streams opened simultaneously to test backpressure."
-                LIVE_TELEMETRY["activeStreams"] += 50
-                LIVE_TELEMETRY["bidiStreams"] += 50
-                stream_count = 50
-                stream_payload = "CHAOS_BACKPRESSURE_BURST"
-            else:
-                run_traffic_command("handshake", target_url, [traceparent])
-                fault_desc = f"Fuzzed W3C distributed traceparent injected: {traceparent}"
-
-            session_data = create_managed_session(
-                target_url, "webtransport", traceparent, user,
-                category="CHAOS", chaos_scenario=scenario, fault_details=fault_desc, datagrams_dropped=drops,
-                stream_count=stream_count if 'stream_count' in locals() else 1,
-                stream_type="bidi",
-                stream_payload=stream_payload if 'stream_payload' in locals() else None
-            )
+            session_data = create_managed_session(target_url, "webtransport", traceparent, user)
             self.send_json(200, {
                 "success": True,
                 "sessionId": session_data["id"],
-                "category": session_data["category"],
                 "scenario": scenario,
                 "drops": drops,
                 "session": session_data
@@ -1091,16 +1041,12 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                 self.send_json(401, {"error": "Authentication required."})
                 return
             mode = (req_data.get('mode') or 'drain').lower()  # "drain", "close", "sever"
-            target_group = (req_data.get('category') or req_data.get('targetGroup') or 'all').lower()  # "all", "standard", "chaos"
             code = int(req_data.get('errorCode') or req_data.get('code') or 0)
             reason = req_data.get('reason', 'Bulk Emergency Action')
 
             affected_count = 0
             for sid, s in list(MANAGED_SESSIONS.items()):
-                s_cat = s.get("category", "STANDARD").lower()
-                if target_group != "all" and s_cat != target_group:
-                    continue
-                if s["status"] not in ("CONNECTED", "DRAINING", "FAULT_INJECTED"):
+                if s["status"] not in ("CONNECTED", "DRAINING"):
                     continue
 
                 target_url = s["targetUrl"]
@@ -1112,7 +1058,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         "type": "WT_DRAIN_SESSION",
                         "name": "Capsule WT_DRAIN_SESSION (0x78ae) [BULK]",
                         "dir": "TX",
-                        "details": f"Bulk {target_group.upper()} drain executed by {user}",
+                        "details": f"Bulk drain executed by {user}",
                         "hex": "80 00 78 ae 00"
                     })
                 elif mode == "close":
@@ -1142,13 +1088,12 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                 affected_count += 1
 
             sync_live_server_sessions()
-            log_audit(user, f"BULK_{mode.upper()}_SESSIONS", f"Category={target_group}", f"Affected {affected_count} sessions. Mode={mode}")
+            log_audit(user, f"BULK_{mode.upper()}_SESSIONS", "AllSessions", f"Affected {affected_count} sessions. Mode={mode}")
             self.send_json(200, {
                 "success": True,
                 "mode": mode.upper(),
                 "closedCount": affected_count,
                 "affectedCount": affected_count,
-                "category": target_group,
                 "remainingActive": LIVE_TELEMETRY["activeSessions"]
             })
             return
