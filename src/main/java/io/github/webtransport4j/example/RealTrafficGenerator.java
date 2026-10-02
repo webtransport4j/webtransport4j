@@ -391,9 +391,20 @@ public final class RealTrafficGenerator {
         System.out.flush();
 
         final long deadline = System.currentTimeMillis() + (keepAliveSec * 1000L);
+        long lastKeepAlive = System.currentTimeMillis();
+        final byte[] pingPayload = "PING".getBytes(StandardCharsets.UTF_8);
         while (System.currentTimeMillis() < deadline && session.getQuicChannel().isOpen()) {
           try {
             Thread.sleep(500);
+            if (System.currentTimeMillis() - lastKeepAlive > 5000L) {
+              if (session.getQuicChannel().isOpen()) {
+                final ByteBuf pingBuf = session.getQuicChannel().alloc().directBuffer();
+                WebTransportUtils.writeVarInt(pingBuf, session.getSessionId());
+                pingBuf.writeBytes(pingPayload);
+                session.getQuicChannel().writeAndFlush(pingBuf);
+              }
+              lastKeepAlive = System.currentTimeMillis();
+            }
           } catch (final InterruptedException e) {
             break;
           }

@@ -205,13 +205,21 @@ def sync_live_server_sessions():
                             "dropped": 0,
                             "recent": []
                         }),
-                        "flowControl": ss.get("flowControl", {
-                            "maxData": 16777216,
-                            "maxStreamsBidi": 100,
-                            "maxStreamsUni": 100,
-                            "usedStreamsBidi": bidi_streams,
-                            "usedStreamsUni": uni_streams
-                        }),
+                        "flowControl": {
+                            "enabled": ss.get("flowControl", {}).get("enabled", True),
+                            "maxData": ss.get("flowControl", {}).get("maxData", 16777216),
+                            "maxStreamsBidi": ss.get("flowControl", {}).get("maxStreamsBidi", 100),
+                            "maxStreamsUni": ss.get("flowControl", {}).get("maxStreamsUni", 100),
+                            "peerMaxData": ss.get("flowControl", {}).get("peerMaxData", 16777216),
+                            "peerMaxStreamsBidi": ss.get("flowControl", {}).get("peerMaxStreamsBidi", 100),
+                            "peerMaxStreamsUni": ss.get("flowControl", {}).get("peerMaxStreamsUni", 100),
+                            "usedData": existing.get("flowControl", {}).get("usedData", 0),
+                            "usedStreamsBidi": existing.get("flowControl", {}).get("usedStreamsBidi", bidi_streams),
+                            "usedStreamsUni": existing.get("flowControl", {}).get("usedStreamsUni", uni_streams)
+                        },
+                        "bytesSent": ss.get("bytesSent", existing.get("bytesSent", 0)),
+                        "bytesReceived": ss.get("bytesReceived", existing.get("bytesReceived", 0)),
+                        "nextStreamId": existing.get("nextStreamId", max([st.get("streamId", 0) for st in streams] + [0]) + 4),
                         "wireEvents": existing.get("wireEvents", [])
                     }
 
@@ -271,6 +279,9 @@ def create_managed_session(target_url, subprotocol="webtransport", traceparent=N
         "streams": [{"streamId": raw_sid, "type": "connect", "initiator": "client", "status": "ESTABLISHED", "bytesSent": 0, "bytesReceived": 0}],
         "datagrams": {"sent": 0, "received": 0, "dropped": datagrams_dropped, "recent": []},
         "flowControl": {"maxData": 16777216, "maxStreamsBidi": 100, "maxStreamsUni": 100, "usedStreamsBidi": stream_count, "usedStreamsUni": 0},
+        "bytesSent": 0,
+        "bytesReceived": 0,
+        "nextStreamId": 4,
         "wireEvents": []
     }
     MANAGED_SESSIONS[fallback_id] = fallback_data
@@ -422,21 +433,26 @@ def parse_prometheus_text(text):
         except ValueError:
             continue
 
+        is_prom = CURRENT_DATASOURCE.get("type") == "prometheus"
         if "webtransport_sessions_active" in metric_name:
-            LIVE_TELEMETRY["activeSessions"] = int(val)
-            LIVE_TELEMETRY["last_seen_ts"] = time.time()
-            LIVE_TELEMETRY["source_type"] = "live-prometheus"
+            if val > 0 or is_prom:
+                LIVE_TELEMETRY["activeSessions"] = int(val)
+                LIVE_TELEMETRY["last_seen_ts"] = time.time()
+                LIVE_TELEMETRY["source_type"] = "live-prometheus"
         elif "webtransport_streams_active" in metric_name:
-            if 'type="bidi"' in metric_name:
-                LIVE_TELEMETRY["bidiStreams"] = int(val)
-            elif 'type="uni"' in metric_name:
-                LIVE_TELEMETRY["uniStreams"] = int(val)
-            else:
-                LIVE_TELEMETRY["activeStreams"] = int(val)
+            if val > 0 or is_prom:
+                if 'type="bidi"' in metric_name:
+                    LIVE_TELEMETRY["bidiStreams"] = int(val)
+                elif 'type="uni"' in metric_name:
+                    LIVE_TELEMETRY["uniStreams"] = int(val)
+                else:
+                    LIVE_TELEMETRY["activeStreams"] = int(val)
         elif "webtransport_datagrams_dropped_total" in metric_name:
-            LIVE_TELEMETRY["datagramsDroppedRate"] = int(val)
+            if val > 0 or is_prom:
+                LIVE_TELEMETRY["datagramsDroppedRate"] = int(val)
         elif "webtransport_datagrams_sent_total" in metric_name:
-            LIVE_TELEMETRY["totalDatagramsProcessed"] = int(val)
+            if val > 0 or is_prom:
+                LIVE_TELEMETRY["totalDatagramsProcessed"] = int(val)
 
 def reset_telemetry():
     """Resets all live telemetry counters, traces, and metrics to clean initial zero state while preserving datasource config."""
@@ -506,9 +522,10 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         # 1. API: Live Telemetry
         if self.path == '/api/live-telemetry':
-            sync_live_server_info()
+            node_info = sync_live_server_info()
             sync_live_server_sessions()
-            scrape_real_prometheus()
+            if not node_info or CURRENT_DATASOURCE.get("type") == "prometheus":
+                scrape_real_prometheus()
             record_telemetry_sample()
             resp_data = dict(LIVE_TELEMETRY)
             resp_data["history"] = TELEMETRY_HISTORY
@@ -525,7 +542,8 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == '/api/cluster/status':
             node_info = sync_live_server_info()
             sync_live_server_sessions()
-            scrape_real_prometheus()
+            if not node_info or CURRENT_DATASOURCE.get("type") == "prometheus":
+                scrape_real_prometheus()
 
             node_statuses = []
             if node_info:
@@ -582,7 +600,8 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         # API: Real-Time Session & Cluster Live Monitor
         if self.path == '/api/admin/sessions/monitor':
             init_default_session()
-            scrape_real_prometheus()
+            if CURRENT_DATASOURCE.get("type") == "prometheus":
+                scrape_real_prometheus()
             standard_count = len([s for s in MANAGED_SESSIONS.values() if s.get("category", "STANDARD") == "STANDARD"])
             chaos_count = len([s for s in MANAGED_SESSIONS.values() if s.get("category") == "CHAOS"])
             active_count = len([s for s in MANAGED_SESSIONS.values() if s["status"] in ("CONNECTED", "DRAINING", "FAULT_INJECTED")])
@@ -792,6 +811,15 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             self.send_json(200, {"success": True})
             return
 
+        # Verify Session Auth
+        if self.path == '/api/admin/verify':
+            user = self.is_authenticated()
+            if user:
+                self.send_json(200, {"authenticated": True, "user": user, "clearance": "Tier-3 SecOps & Chaos Admin"})
+            else:
+                self.send_json(401, {"authenticated": False, "error": "Invalid or expired session token"})
+            return
+
         # API: Set / Switch Datasource Configuration
         if self.path == '/api/datasource':
             user = self.is_authenticated()
@@ -891,14 +919,20 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                     LIVE_TELEMETRY["source_type"] = "admin-real-traffic"
 
                     if command == "handshake":
+                        rtt = float(result.get("rttMs", 2.0))
+                        LIVE_TELEMETRY["quicRttMeanMs"] = rtt
+                        LIVE_TELEMETRY["quicRttP99Ms"] = round(rtt * 1.25, 1)
+                        LIVE_TELEMETRY["sessionHandshakeLatencyMs"] = rtt
                         LIVE_TELEMETRY["activeSessions"] += 1
                         LIVE_TELEMETRY["totalSessionsProcessed"] += 1
-                        LIVE_TELEMETRY["quicRttMeanMs"] = float(result.get("rttMs", 2.0))
+                        create_managed_session(target_url, "webtransport", traceparent=traceparent, user=user)
                     elif command == "datagrams" or command == "chaos-burst":
                         sent = int(result.get("sent", count))
                         LIVE_TELEMETRY["totalDatagramsProcessed"] += sent
                         LIVE_TELEMETRY["datagramsSentRate"] = pps if pps > 0 else sent * 10
                         LIVE_TELEMETRY["datagramsRecvRate"] = sent
+                        dur_sec = max(0.001, float(result.get("durationMs", 100)) / 1000.0)
+                        LIVE_TELEMETRY["datagramThroughputMbps"] = round((sent * size * 8) / (dur_sec * 1_000_000), 2)
                         if command == "chaos-burst":
                             forced_drops = max(1, int(sent * 0.05))
                             LIVE_TELEMETRY["datagramsDroppedRate"] += forced_drops
@@ -957,18 +991,22 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         )
                         s_abrupt["status"] = "CLOSED_ABRUPT"
 
-                    # Append trace
-                    if traceparent:
-                        LIVE_TELEMETRY["traces"].insert(0, {
-                            "traceId": traceparent.split('-')[1] if '-' in traceparent else uuid.uuid4().hex,
-                            "spanId": traceparent.split('-')[2] if '-' in traceparent else uuid.uuid4().hex[:16],
-                            "path": target_url,
-                            "status": "OK",
-                            "durationMs": result.get("rttMs", result.get("durationMs", 4)),
-                            "timestamp": time.strftime("%H:%M:%S")
-                        })
-                        if len(LIVE_TELEMETRY["traces"]) > 50:
-                            LIVE_TELEMETRY["traces"].pop()
+                    # Always append W3C trace span to telemetry traces table
+                    t_id = traceparent.split('-')[1] if (traceparent and '-' in traceparent) else uuid.uuid4().hex
+                    s_id = traceparent.split('-')[2] if (traceparent and '-' in traceparent and len(traceparent.split('-')) > 2) else uuid.uuid4().hex[:16]
+                    dur_val = float(result.get("rttMs", result.get("durationMs", 4)))
+                    st_val = "OK" if result.get("status") == "SUCCESS" else "ERROR"
+                    LIVE_TELEMETRY["traces"].insert(0, {
+                        "traceId": t_id,
+                        "spanId": s_id,
+                        "path": target_url,
+                        "operation": f"wt.{command}",
+                        "status": st_val,
+                        "durationMs": round(dur_val, 2),
+                        "timestamp": time.strftime("%H:%M:%S")
+                    })
+                    if len(LIVE_TELEMETRY["traces"]) > 50:
+                        LIVE_TELEMETRY["traces"].pop()
 
                 self.send_json(200, {
                     "result": result,
@@ -1173,12 +1211,12 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                             ]
                         }
                         session["streams"].append(new_stream)
-                        session["flowControl"]["usedData"] += (bytes_out + bytes_in)
+                        session["flowControl"]["usedData"] = session["flowControl"].get("usedData", 0) + (bytes_out + bytes_in)
                         if stype == 'bidi':
-                            session["flowControl"]["usedStreamsBidi"] += 1
+                            session["flowControl"]["usedStreamsBidi"] = session["flowControl"].get("usedStreamsBidi", 0) + 1
                             LIVE_TELEMETRY["bidiStreams"] += 1
                         else:
-                            session["flowControl"]["usedStreamsUni"] += 1
+                            session["flowControl"]["usedStreamsUni"] = session["flowControl"].get("usedStreamsUni", 0) + 1
                             LIVE_TELEMETRY["uniStreams"] += 1
                         LIVE_TELEMETRY["activeStreams"] += 1
 
@@ -1225,12 +1263,12 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                             }
                             session["streams"].append(nst)
                             created_streams.append(nst)
-                        session["flowControl"]["usedData"] += count * 512
+                        session["flowControl"]["usedData"] = session["flowControl"].get("usedData", 0) + (count * 512)
                         if stype == 'bidi':
-                            session["flowControl"]["usedStreamsBidi"] += count
+                            session["flowControl"]["usedStreamsBidi"] = session["flowControl"].get("usedStreamsBidi", 0) + count
                             LIVE_TELEMETRY["bidiStreams"] += count
                         else:
-                            session["flowControl"]["usedStreamsUni"] += count
+                            session["flowControl"]["usedStreamsUni"] = session["flowControl"].get("usedStreamsUni", 0) + count
                             LIVE_TELEMETRY["uniStreams"] += count
                         LIVE_TELEMETRY["activeStreams"] += count
                         session["wireEvents"].append({
@@ -1277,7 +1315,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         stream["lastMessage"] = payload
                         stream["history"].append({"time": time.strftime("%H:%M:%S"), "dir": "TX", "bytes": bytes_out, "payload": payload, "fin": False})
                         stream["history"].append({"time": time.strftime("%H:%M:%S"), "dir": "RX", "bytes": bytes_in, "payload": resp_text, "fin": False})
-                        session["flowControl"]["usedData"] += (bytes_out + bytes_in)
+                        session["flowControl"]["usedData"] = session["flowControl"].get("usedData", 0) + (bytes_out + bytes_in)
 
                         session["wireEvents"].append({
                             "time": time.strftime("%H:%M:%S"),

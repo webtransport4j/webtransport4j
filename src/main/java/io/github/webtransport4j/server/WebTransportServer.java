@@ -5,6 +5,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -134,7 +135,7 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
-  private final Map<Long, NettyWebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
+  private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
@@ -516,7 +517,7 @@ public class WebTransportServer implements AutoCloseable {
    *
    * @param session the session to register
    */
-  public void registerSession(@NonNull NettyWebTransportSession session) {
+  public void registerSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
     activeSessionsMap.put(session.getSessionStreamId(), session);
   }
@@ -535,7 +536,7 @@ public class WebTransportServer implements AutoCloseable {
    *
    * @return collection of active sessions
    */
-  public @NonNull Collection<NettyWebTransportSession> getActiveSessions() {
+  public @NonNull Collection<WebTransportSession> getActiveSessions() {
     return Collections.unmodifiableCollection(activeSessionsMap.values());
   }
 
@@ -545,7 +546,7 @@ public class WebTransportServer implements AutoCloseable {
    * @param sessionStreamId the stream ID of the session
    * @return the session, or null if not found
    */
-  public @Nullable NettyWebTransportSession getSession(long sessionStreamId) {
+  public @Nullable WebTransportSession getSession(long sessionStreamId) {
     return activeSessionsMap.get(sessionStreamId);
   }
 

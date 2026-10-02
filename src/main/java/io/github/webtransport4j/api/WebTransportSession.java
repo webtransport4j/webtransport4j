@@ -1,5 +1,8 @@
 package io.github.webtransport4j.api;
 
+import java.net.SocketAddress;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -167,4 +170,114 @@ public interface WebTransportSession {
   default int getCloseCode() {
     return 0;
   }
+
+  /**
+   * Returns the remote network address of the connected peer, or {@code null} if unknown.
+   *
+   * @return the remote socket address, or null
+   */
+  default @Nullable SocketAddress getRemoteAddress() {
+    return null;
+  }
+
+  /**
+   * Returns the local network address the session is bound to, or {@code null} if unknown.
+   *
+   * @return the local socket address, or null
+   */
+  default @Nullable SocketAddress getLocalAddress() {
+    return null;
+  }
+
+  /**
+   * Returns the cumulative total of payload bytes transmitted over this session.
+   *
+   * @return bytes sent
+   */
+  default long getCumulativeBytesSent() {
+    return 0L;
+  }
+
+  /**
+   * Returns the cumulative total of payload bytes received over this session.
+   *
+   * @return bytes received
+   */
+  default long getCumulativeBytesReceived() {
+    return 0L;
+  }
+
+  /**
+   * Returns true if session-level flow control is enabled.
+   *
+   * @return true if flow control is enabled
+   */
+  default boolean isFlowControlEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns our local maximum unidirectional streams limit advertised to the peer.
+   *
+   * @return local max uni streams limit
+   */
+  default long getSettingsMaxStreamsUni() {
+    return 0L;
+  }
+
+  /**
+   * Returns our local maximum bidirectional streams limit advertised to the peer.
+   *
+   * @return local max bidi streams limit
+   */
+  default long getSettingsMaxStreamsBidi() {
+    return 0L;
+  }
+
+  /**
+   * Returns our local maximum data limit in bytes advertised to the peer.
+   *
+   * @return local max data limit
+   */
+  default long getSettingsMaxData() {
+    return 0L;
+  }
+
+  /**
+   * Returns the peer's maximum unidirectional streams limit.
+   *
+   * @return peer max uni streams limit
+   */
+  default long getPeerSettingsMaxStreamsUni() {
+    return 0L;
+  }
+
+  /**
+   * Returns the peer's maximum bidirectional streams limit.
+   *
+   * @return peer max bidi streams limit
+   */
+  default long getPeerSettingsMaxStreamsBidi() {
+    return 0L;
+  }
+
+  /**
+   * Returns the peer's maximum data limit in bytes.
+   *
+   * @return peer max data limit
+   */
+  default long getPeerSettingsMaxData() {
+    return 0L;
+  }
+
+  /**
+   * Returns an unmodifiable collection of all active WebTransport stream summaries,
+   * or an empty collection if stream enumeration is not supported.
+   *
+   * @return collection of stream summaries
+   */
+  default @NonNull Collection<WebTransportStreamSummary> getActiveStreams() {
+    return Collections.emptyList();
+  }
 }
+

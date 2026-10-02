@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.api.WebTransportStreamSummary;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
@@ -16,6 +17,11 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.net.SocketAddress;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -196,6 +202,64 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     webTransportStreams.addAll(getActiveClientInitiatedBi());
     webTransportStreams.addAll(getActiveServerInitiatedBi());
     return webTransportStreams;
+  }
+
+  @Override
+  public @Nullable SocketAddress getRemoteAddress() {
+    QuicStreamChannel ch = this.connectStream;
+    if (ch != null && ch.parent() != null) {
+      return ch.parent().remoteSocketAddress();
+    }
+    return null;
+  }
+
+  @Override
+  public @Nullable SocketAddress getLocalAddress() {
+    QuicStreamChannel ch = this.connectStream;
+    if (ch != null && ch.parent() != null) {
+      return ch.parent().localSocketAddress();
+    }
+    return null;
+  }
+
+  @Override
+  public @NonNull Collection<WebTransportStreamSummary> getActiveStreams() {
+    Set<QuicStreamChannel> channels = getAllActiveWebTransportStreams();
+    List<WebTransportStreamSummary> list = new ArrayList<>(channels.size());
+    for (final QuicStreamChannel ch : channels) {
+      list.add(new WebTransportStreamSummary() {
+        @Override
+        public long streamId() {
+          return ch.streamId();
+        }
+
+        @Override
+        public boolean isBidirectional() {
+          return ch.type() == QuicStreamType.BIDIRECTIONAL;
+        }
+
+        @Override
+        public boolean isLocalCreated() {
+          return ch.isLocalCreated();
+        }
+
+        @Override
+        public boolean isActive() {
+          return ch.isActive();
+        }
+
+        @Override
+        public boolean isOpen() {
+          return ch.isOpen();
+        }
+
+        @Override
+        public boolean isWritable() {
+          return ch.isWritable();
+        }
+      });
+    }
+    return Collections.unmodifiableList(list);
   }
 
   /**

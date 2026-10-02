@@ -1,17 +1,19 @@
 package io.github.webtransport4j.example;
 
 import com.sun.net.httpserver.HttpServer;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.api.WebTransportStreamSummary;
 import io.github.webtransport4j.observability.otlp.WebTransportOtlpConfig;
 import io.github.webtransport4j.observability.otlp.WebTransportOtlpMetricsListener;
 import io.github.webtransport4j.server.HmacQuicTokenHandler;
-import io.github.webtransport4j.server.NettyWebTransportSession;
 import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.server.WebTransportServerBuilder;
-import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.codec.quic.QuicStreamType;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
@@ -41,6 +43,16 @@ public class ClusterNodeSample {
         .replace("\n", "\\n")
         .replace("\r", "\\r")
         .replace("\t", "\\t");
+  }
+
+  private static byte[] readBytes(InputStream is) throws java.io.IOException {
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    byte[] data = new byte[1024];
+    int bytesRead;
+    while ((bytesRead = is.read(data, 0, data.length)) != -1) {
+      buffer.write(data, 0, bytesRead);
+    }
+    return buffer.toByteArray();
   }
 
   /**
@@ -123,12 +135,12 @@ public class ClusterNodeSample {
 
       String json = String.format(
           "{\"status\":\"HEALTHY\",\"nodeId\":\"%s\",\"nodeName\":\"%s\",\"quicPort\":%d,\"healthPort\":%d,"
-              + "\"isStarted\":%b,\"activeSessions\":%d,\"uptimeMs\":%d,"
+              + "\"isStarted\":%b,\"activeSessions\":%d,\"uptimeMs\":%d,\"uptimeSeconds\":%d,"
               + "\"jvm\":{\"version\":\"%s\",\"vendor\":\"%s\",\"vmName\":\"%s\"},"
               + "\"os\":{\"name\":\"%s\",\"arch\":\"%s\",\"processors\":%d},"
               + "\"memory\":{\"used\":%d,\"total\":%d,\"max\":%d,\"free\":%d}}",
           escapeJson(nodeName), escapeJson(nodeName), quicPort, healthPort,
-          server.isStarted(), server.getActiveSessionCount(), uptime,
+          server.isStarted(), server.getActiveSessionCount(), uptime, uptime / 1000L,
           escapeJson(System.getProperty("java.version", "unknown")),
           escapeJson(System.getProperty("java.vendor", "unknown")),
           escapeJson(System.getProperty("java.vm.name", "unknown")),
@@ -151,7 +163,7 @@ public class ClusterNodeSample {
       StringBuilder sb = new StringBuilder();
       sb.append("{\"sessions\":[");
       boolean firstSess = true;
-      for (NettyWebTransportSession session : server.getActiveSessions()) {
+      for (WebTransportSession session : server.getActiveSessions()) {
         if (!firstSess) {
           sb.append(",");
         }
@@ -160,16 +172,10 @@ public class ClusterNodeSample {
         final long sid = session.getSessionStreamId();
         final String path = session.path();
         final String subproto = session.getSubprotocol() != null ? session.getSubprotocol() : "webtransport";
-        String remote = "unknown";
-        String local = "0.0.0.0:" + quicPort;
-        if (session.getConnectStream() != null && session.getConnectStream().parent() != null) {
-          if (session.getConnectStream().parent().remoteSocketAddress() != null) {
-            remote = session.getConnectStream().parent().remoteSocketAddress().toString().replaceFirst("^/", "");
-          }
-          if (session.getConnectStream().parent().localSocketAddress() != null) {
-            local = session.getConnectStream().parent().localSocketAddress().toString().replaceFirst("^/", "");
-          }
-        }
+        final SocketAddress remoteAddr = session.getRemoteAddress();
+        final String remote = remoteAddr != null ? remoteAddr.toString().replaceFirst("^/", "") : "unknown";
+        final SocketAddress localAddr = session.getLocalAddress();
+        final String local = localAddr != null ? localAddr.toString().replaceFirst("^/", "") : "0.0.0.0:" + quicPort;
 
         sb.append("{");
         sb.append("\"id\":\"wt-sess-").append(sid).append("\",");
@@ -195,23 +201,21 @@ public class ClusterNodeSample {
 
         sb.append("\"streams\":[");
         // Extended CONNECT stream
-        final boolean connectActive = session.getConnectStream() != null && session.getConnectStream().isActive();
-        final String connectStatus = connectActive ? "ESTABLISHED" : "CLOSED";
         sb.append("{");
         sb.append("\"streamId\":").append(sid).append(",");
         sb.append("\"type\":\"connect\",");
         sb.append("\"initiator\":\"client\",");
-        sb.append("\"status\":\"").append(connectStatus).append("\",");
+        sb.append("\"status\":\"ESTABLISHED\",");
         sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
         sb.append("\"bytesReceived\":").append(session.getCumulativeBytesReceived()).append(",");
         sb.append("\"lastMessage\":\"CONNECT ").append(escapeJson(path)).append(" HTTP/3 :protocol=webtransport\"");
         sb.append("}");
 
         // Active bidirectional and unidirectional streams
-        for (QuicStreamChannel st : session.getAllActiveWebTransportStreams()) {
+        for (WebTransportStreamSummary st : session.getActiveStreams()) {
           sb.append(",{");
           sb.append("\"streamId\":").append(st.streamId()).append(",");
-          sb.append("\"type\":\"").append(st.type() == QuicStreamType.BIDIRECTIONAL ? "bidi" : "uni").append("\",");
+          sb.append("\"type\":\"").append(st.isBidirectional() ? "bidi" : "uni").append("\",");
           sb.append("\"initiator\":\"").append(st.isLocalCreated() ? "server" : "client").append("\",");
           sb.append("\"status\":\"").append(st.isActive() ? "OPEN" : "CLOSED").append("\",");
           sb.append("\"isOpen\":").append(st.isOpen()).append(",");
@@ -242,7 +246,7 @@ public class ClusterNodeSample {
         return;
       }
       if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
         long targetSessionId = -1;
         Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
         if (m.find()) {
@@ -255,7 +259,7 @@ public class ClusterNodeSample {
         }
         boolean closed = false;
         if (targetSessionId >= 0) {
-          NettyWebTransportSession sess = server.getSession(targetSessionId);
+          WebTransportSession sess = server.getSession(targetSessionId);
           if (sess != null) {
             sess.close();
             closed = true;
