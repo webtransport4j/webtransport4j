@@ -547,7 +547,7 @@ public class JolokiaHttpHandler implements HttpHandler {
       gcType = "Serial GC";
     }
 
-    int javaFeature = Runtime.version().feature();
+    int javaFeature = io.netty.util.internal.PlatformDependent.javaVersion();
     final String javaVersion = System.getProperty("java.version", String.valueOf(javaFeature));
     final String javaVmName = System.getProperty("java.vm.name", "Java HotSpot");
     final String javaVendor = System.getProperty("java.vendor", "Oracle Corporation");
@@ -590,10 +590,10 @@ public class JolokiaHttpHandler implements HttpHandler {
     argsJson.append("]");
 
     String envGc = System.getenv("JAVA_GC");
-    if (envGc == null || envGc.isBlank()) {
+    if (envGc == null || envGc.trim().isEmpty()) {
       envGc = System.getenv("WT4J_GC");
     }
-    if (envGc == null || envGc.isBlank()) {
+    if (envGc == null || envGc.trim().isEmpty()) {
       envGc = "ZGC";
     }
 
@@ -677,13 +677,21 @@ public class JolokiaHttpHandler implements HttpHandler {
 
       Thread.State state = ti.getThreadState();
       switch (state) {
-        case RUNNABLE -> runnable++;
-        case WAITING -> waiting++;
-        case TIMED_WAITING -> timedWaiting++;
-        case BLOCKED -> blocked++;
-        default -> {
+        case RUNNABLE:
+          runnable++;
+          break;
+        case WAITING:
+          waiting++;
+          break;
+        case TIMED_WAITING:
+          timedWaiting++;
+          break;
+        case BLOCKED:
+          blocked++;
+          break;
+        default:
           // Other thread states do not contribute to these counters.
-        }
+          break;
       }
 
       sb.append("{\"id\":")
@@ -735,7 +743,8 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("\"").append(escapeJson((String) obj)).append("\"");
     } else if (obj instanceof Number || obj instanceof Boolean) {
       sb.append(obj);
-    } else if (obj instanceof CompositeData cd) {
+    } else if (obj instanceof CompositeData) {
+      CompositeData cd = (CompositeData) obj;
       sb.append("{");
       boolean first = true;
       for (String key : cd.getCompositeType().keySet()) {
@@ -747,7 +756,8 @@ public class JolokiaHttpHandler implements HttpHandler {
         serializeValueToJson(cd.get(key), sb);
       }
       sb.append("}");
-    } else if (obj instanceof TabularData td) {
+    } else if (obj instanceof TabularData) {
+      TabularData td = (TabularData) obj;
       sb.append("[");
       boolean first = true;
       for (Object row : td.values()) {
@@ -758,7 +768,8 @@ public class JolokiaHttpHandler implements HttpHandler {
         serializeValueToJson(row, sb);
       }
       sb.append("]");
-    } else if (obj instanceof Map<?, ?> map) {
+    } else if (obj instanceof Map<?, ?>) {
+      Map<?, ?> map = (Map<?, ?>) obj;
       sb.append("{");
       boolean first = true;
       for (Map.Entry<?, ?> entry : map.entrySet()) {
@@ -770,7 +781,8 @@ public class JolokiaHttpHandler implements HttpHandler {
         serializeValueToJson(entry.getValue(), sb);
       }
       sb.append("}");
-    } else if (obj instanceof Collection<?> col) {
+    } else if (obj instanceof Collection<?>) {
+      Collection<?> col = (Collection<?>) obj;
       sb.append("[");
       boolean first = true;
       for (Object item : col) {

@@ -331,17 +331,17 @@ public class ClusterNodeSample {
             gcType = "Serial GC";
           }
 
-          int javaFeature = Runtime.version().feature();
+          int javaFeature = io.netty.util.internal.PlatformDependent.javaVersion();
           String javaVersion = System.getProperty("java.version", String.valueOf(javaFeature));
           String javaVmName = System.getProperty("java.vm.name", "Java HotSpot");
           String javaVendor = System.getProperty("java.vendor", "Oracle Corporation");
           String jvmDisplayName = String.format("Java %d · %s", javaFeature, gcType);
 
           String envGc = System.getenv("JAVA_GC");
-          if (envGc == null || envGc.isBlank()) {
+          if (envGc == null || envGc.trim().isEmpty()) {
             envGc = System.getenv("WT4J_GC");
           }
-          if (envGc == null || envGc.isBlank()) {
+          if (envGc == null || envGc.trim().isEmpty()) {
             envGc = "ZGC";
           }
 
