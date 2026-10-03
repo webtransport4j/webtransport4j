@@ -116,7 +116,7 @@ public class ClusterNodeSample {
     byte[] hmacKey = hmacKeyStr.getBytes(StandardCharsets.UTF_8);
     HmacQuicTokenHandler tokenHandler = new HmacQuicTokenHandler(hmacKey, 60000L);
 
-    WebTransportServerBuilder serverBuilder =
+    final WebTransportServerBuilder serverBuilder =
         WebTransportServer.builder()
             .port(quicPort)
             .host("0.0.0.0")
@@ -245,12 +245,14 @@ public class ClusterNodeSample {
                       try {
                         s.drain();
                       } catch (Exception ignored) {
+                        // Continue best-effort diagnostics or cleanup if this operation is unavailable.
                       }
                     }
                     Thread.sleep(150);
                     server.close();
                     healthHttpServer.stop(1);
                   } catch (Exception ignored) {
+                    // Continue best-effort diagnostics or cleanup if this operation is unavailable.
                   }
                 }));
 
@@ -266,9 +268,9 @@ public class ClusterNodeSample {
           Runtime rt = Runtime.getRuntime();
           long totalMem = rt.totalMemory();
           long freeMem = rt.freeMemory();
-          long usedMem = totalMem - freeMem;
-          long maxMem = rt.maxMemory();
-          long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+          final long usedMem = totalMem - freeMem;
+          final long maxMem = rt.maxMemory();
+          final long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
           // Real-time Garbage Collector & Generational ZGC introspection from JVM
           java.util.List<java.lang.management.GarbageCollectorMXBean> gcBeans =
@@ -283,20 +285,32 @@ public class ClusterNodeSample {
           for (int i = 0; i < gcBeans.size(); i++) {
             java.lang.management.GarbageCollectorMXBean b = gcBeans.get(i);
             String name = b.getName();
-            if (i > 0) gcBeansJson.append(",");
+            if (i > 0) {
+              gcBeansJson.append(",");
+            }
             gcBeansJson.append(
                 String.format(
                     "{\"name\":\"%s\",\"collections\":%d,\"timeMs\":%d}",
                     escapeJson(name), b.getCollectionCount(), b.getCollectionTime()));
             String lower = name.toLowerCase();
-            if (lower.contains("zgc minor")) isZgcMinor = true;
-            if (lower.contains("zgc major")) isZgcMajor = true;
+            if (lower.contains("zgc minor")) {
+              isZgcMinor = true;
+            }
+            if (lower.contains("zgc major")) {
+              isZgcMajor = true;
+            }
             if (lower.contains("zgc") && !lower.contains("minor") && !lower.contains("major")) {
               isZgcSingle = true;
             }
-            if (lower.contains("g1")) isG1 = true;
-            if (lower.contains("parallel")) isParallel = true;
-            if (lower.contains("shenandoah")) isShenandoah = true;
+            if (lower.contains("g1")) {
+              isG1 = true;
+            }
+            if (lower.contains("parallel")) {
+              isParallel = true;
+            }
+            if (lower.contains("shenandoah")) {
+              isShenandoah = true;
+            }
           }
           gcBeansJson.append("]");
 

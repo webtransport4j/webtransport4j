@@ -61,7 +61,7 @@ public class JolokiaHttpHandler implements HttpHandler {
 
   @Override
   public void handle(HttpExchange exchange) throws IOException {
-    String method = exchange.getRequestMethod();
+    final String method = exchange.getRequestMethod();
 
     // CORS preflight support for Hawtio web consoles
     exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
@@ -118,7 +118,7 @@ public class JolokiaHttpHandler implements HttpHandler {
     }
 
     if (subPath.equalsIgnoreCase("list")) {
-      String listJson = buildMBeansListJson(timestamp);
+      String listJson = buildMbeansListJson(timestamp);
       sendJson(exchange, 200, listJson);
       return;
     }
@@ -182,7 +182,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       List<String> items = parseSimpleJsonArray(body);
       StringBuilder sb = new StringBuilder("[");
       for (int i = 0; i < items.size(); i++) {
-        if (i > 0) sb.append(",");
+        if (i > 0) {
+          sb.append(",");
+        }
         sb.append(processSingleRequest(items.get(i), timestamp));
       }
       sb.append("]");
@@ -209,7 +211,7 @@ public class JolokiaHttpHandler implements HttpHandler {
     }
 
     if ("list".equalsIgnoreCase(type)) {
-      return buildMBeansListJson(timestamp);
+      return buildMbeansListJson(timestamp);
     }
 
     if ("search".equalsIgnoreCase(type)) {
@@ -267,14 +269,19 @@ public class JolokiaHttpHandler implements HttpHandler {
             .append(",\"value\":{");
         boolean first = true;
         for (MBeanAttributeInfo attrInfo : info.getAttributes()) {
-          if (!attrInfo.isReadable()) continue;
+          if (!attrInfo.isReadable()) {
+            continue;
+          }
           try {
-            Object val = mbeanServer.getAttribute(on, attrInfo.getName());
-            if (!first) sb.append(",");
+            final Object val = mbeanServer.getAttribute(on, attrInfo.getName());
+            if (!first) {
+              sb.append(",");
+            }
             first = false;
             sb.append("\"").append(escapeJson(attrInfo.getName())).append("\":");
             serializeValueToJson(val, sb);
           } catch (Exception ignored) {
+            // Continue best-effort diagnostics or cleanup if this operation is unavailable.
           }
         }
         sb.append("}}");
@@ -300,7 +307,9 @@ public class JolokiaHttpHandler implements HttpHandler {
           .append(",\"value\":[");
       boolean first = true;
       for (ObjectName on : names) {
-        if (!first) sb.append(",");
+        if (!first) {
+          sb.append(",");
+        }
         first = false;
         sb.append("\"").append(escapeJson(on.getCanonicalName())).append("\"");
       }
@@ -366,7 +375,9 @@ public class JolokiaHttpHandler implements HttpHandler {
   }
 
   private Object parseArg(String val, String type) {
-    if (val == null) return null;
+    if (val == null) {
+      return null;
+    }
     if ("boolean".equals(type) || "java.lang.Boolean".equals(type)) {
       return Boolean.parseBoolean(val);
     }
@@ -379,7 +390,7 @@ public class JolokiaHttpHandler implements HttpHandler {
     return val;
   }
 
-  private String buildMBeansListJson(long timestamp) {
+  private String buildMbeansListJson(long timestamp) {
     try {
       Set<ObjectName> names = mbeanServer.queryNames(null, null);
       Map<String, Map<String, Object>> domains = new TreeMap<>();
@@ -422,6 +433,7 @@ public class JolokiaHttpHandler implements HttpHandler {
           }
           mbeanData.put("op", ops);
         } catch (Exception ignored) {
+          // Continue best-effort diagnostics or cleanup if this operation is unavailable.
         }
         domains.get(domain).put(keyProps, mbeanData);
       }
@@ -445,12 +457,12 @@ public class JolokiaHttpHandler implements HttpHandler {
    * status, heap/non-heap memory, direct buffer pool, thread stats, and OS load.
    */
   public String buildDiagnosticsOverviewJson(long timestamp) {
-    Runtime rt = Runtime.getRuntime();
+    final Runtime rt = Runtime.getRuntime();
     MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
-    MemoryUsage heap = memBean.getHeapMemoryUsage();
-    MemoryUsage nonHeap = memBean.getNonHeapMemoryUsage();
-    RuntimeMXBean runtimeBean = ManagementFactory.getRuntimeMXBean();
-    ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
+    final MemoryUsage heap = memBean.getHeapMemoryUsage();
+    final MemoryUsage nonHeap = memBean.getNonHeapMemoryUsage();
+    final RuntimeMXBean runtimeBean = ManagementFactory.getRuntimeMXBean();
+    final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
     OperatingSystemMXBean osBean = ManagementFactory.getOperatingSystemMXBean();
 
     // Inspect real Garbage Collectors
@@ -468,13 +480,19 @@ public class JolokiaHttpHandler implements HttpHandler {
 
     for (int i = 0; i < gcBeans.size(); i++) {
       GarbageCollectorMXBean b = gcBeans.get(i);
-      String name = b.getName();
+      final String name = b.getName();
       long count = b.getCollectionCount();
       long time = b.getCollectionTime();
-      if (count > 0) totalGcCollections += count;
-      if (time > 0) totalGcPausesMs += time;
+      if (count > 0) {
+        totalGcCollections += count;
+      }
+      if (time > 0) {
+        totalGcPausesMs += time;
+      }
 
-      if (i > 0) gcBeansJson.append(",");
+      if (i > 0) {
+        gcBeansJson.append(",");
+      }
       gcBeansJson.append(
           String.format(
               "{\"name\":\"%s\",\"collections\":%d,\"timeMs\":%d,\"memoryPools\":[",
@@ -482,21 +500,33 @@ public class JolokiaHttpHandler implements HttpHandler {
       String[] pools = b.getMemoryPoolNames();
       if (pools != null) {
         for (int p = 0; p < pools.length; p++) {
-          if (p > 0) gcBeansJson.append(",");
+          if (p > 0) {
+            gcBeansJson.append(",");
+          }
           gcBeansJson.append("\"").append(escapeJson(pools[p])).append("\"");
         }
       }
       gcBeansJson.append("]}");
 
       String lower = name.toLowerCase();
-      if (lower.contains("zgc minor")) isZgcMinor = true;
-      if (lower.contains("zgc major")) isZgcMajor = true;
+      if (lower.contains("zgc minor")) {
+        isZgcMinor = true;
+      }
+      if (lower.contains("zgc major")) {
+        isZgcMajor = true;
+      }
       if (lower.contains("zgc") && !lower.contains("minor") && !lower.contains("major")) {
         isZgcSingle = true;
       }
-      if (lower.contains("g1")) isG1 = true;
-      if (lower.contains("parallel")) isParallel = true;
-      if (lower.contains("shenandoah")) isShenandoah = true;
+      if (lower.contains("g1")) {
+        isG1 = true;
+      }
+      if (lower.contains("parallel")) {
+        isParallel = true;
+      }
+      if (lower.contains("shenandoah")) {
+        isShenandoah = true;
+      }
     }
     gcBeansJson.append("]");
 
@@ -518,10 +548,10 @@ public class JolokiaHttpHandler implements HttpHandler {
     }
 
     int javaFeature = Runtime.version().feature();
-    String javaVersion = System.getProperty("java.version", String.valueOf(javaFeature));
-    String javaVmName = System.getProperty("java.vm.name", "Java HotSpot");
-    String javaVendor = System.getProperty("java.vendor", "Oracle Corporation");
-    String jvmDisplayName = String.format("Java %d · %s", javaFeature, gcType);
+    final String javaVersion = System.getProperty("java.version", String.valueOf(javaFeature));
+    final String javaVmName = System.getProperty("java.vm.name", "Java HotSpot");
+    final String javaVendor = System.getProperty("java.vendor", "Oracle Corporation");
+    final String jvmDisplayName = String.format("Java %d · %s", javaFeature, gcType);
 
     // Direct memory (Netty byte buffers)
     long directMemUsed = 0;
@@ -545,13 +575,16 @@ public class JolokiaHttpHandler implements HttpHandler {
         cpuLoad = (Double) val * 100.0;
       }
     } catch (Exception ignored) {
+      // Continue best-effort diagnostics or cleanup if this operation is unavailable.
     }
 
     // JVM Input Arguments
     List<String> inputArgs = runtimeBean.getInputArguments();
     StringBuilder argsJson = new StringBuilder("[");
     for (int i = 0; i < inputArgs.size(); i++) {
-      if (i > 0) argsJson.append(",");
+      if (i > 0) {
+        argsJson.append(",");
+      }
       argsJson.append("\"").append(escapeJson(inputArgs.get(i))).append("\"");
     }
     argsJson.append("]");
@@ -614,7 +647,7 @@ public class JolokiaHttpHandler implements HttpHandler {
         cpuLoad);
   }
 
-  /** Generates real-time thread dump and thread state visualizer for Hawtio console */
+  /** Generates real-time thread dump and thread state visualizer for Hawtio console. */
   public String buildThreadsDumpJson(long timestamp) {
     ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
     ThreadInfo[] threads = threadBean.dumpAllThreads(true, true);
@@ -635,8 +668,12 @@ public class JolokiaHttpHandler implements HttpHandler {
 
     for (int i = 0; i < threads.length; i++) {
       ThreadInfo ti = threads[i];
-      if (ti == null) continue;
-      if (i > 0) sb.append(",");
+      if (ti == null) {
+        continue;
+      }
+      if (i > 0) {
+        sb.append(",");
+      }
 
       Thread.State state = ti.getThreadState();
       switch (state) {
@@ -644,7 +681,9 @@ public class JolokiaHttpHandler implements HttpHandler {
         case WAITING -> waiting++;
         case TIMED_WAITING -> timedWaiting++;
         case BLOCKED -> blocked++;
-        default -> {}
+        default -> {
+          // Other thread states do not contribute to these counters.
+        }
       }
 
       sb.append("{\"id\":")
@@ -663,7 +702,9 @@ public class JolokiaHttpHandler implements HttpHandler {
 
       StackTraceElement[] st = ti.getStackTrace();
       for (int s = 0; s < Math.min(st.length, 12); s++) {
-        if (s > 0) sb.append(",");
+        if (s > 0) {
+          sb.append(",");
+        }
         sb.append("\"").append(escapeJson(st[s].toString())).append("\"");
       }
       sb.append("]}");
@@ -698,7 +739,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("{");
       boolean first = true;
       for (String key : cd.getCompositeType().keySet()) {
-        if (!first) sb.append(",");
+        if (!first) {
+          sb.append(",");
+        }
         first = false;
         sb.append("\"").append(escapeJson(key)).append("\":");
         serializeValueToJson(cd.get(key), sb);
@@ -708,7 +751,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("[");
       boolean first = true;
       for (Object row : td.values()) {
-        if (!first) sb.append(",");
+        if (!first) {
+          sb.append(",");
+        }
         first = false;
         serializeValueToJson(row, sb);
       }
@@ -717,7 +762,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("{");
       boolean first = true;
       for (Map.Entry<?, ?> entry : map.entrySet()) {
-        if (!first) sb.append(",");
+        if (!first) {
+          sb.append(",");
+        }
         first = false;
         sb.append("\"").append(escapeJson(String.valueOf(entry.getKey()))).append("\":");
         serializeValueToJson(entry.getValue(), sb);
@@ -727,7 +774,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("[");
       boolean first = true;
       for (Object item : col) {
-        if (!first) sb.append(",");
+        if (!first) {
+          sb.append(",");
+        }
         first = false;
         serializeValueToJson(item, sb);
       }
@@ -736,7 +785,9 @@ public class JolokiaHttpHandler implements HttpHandler {
       sb.append("[");
       int len = Array.getLength(obj);
       for (int i = 0; i < len; i++) {
-        if (i > 0) sb.append(",");
+        if (i > 0) {
+          sb.append(",");
+        }
         serializeValueToJson(Array.get(obj, i), sb);
       }
       sb.append("]");
@@ -746,7 +797,9 @@ public class JolokiaHttpHandler implements HttpHandler {
   }
 
   private static String escapeJson(String s) {
-    if (s == null) return "";
+    if (s == null) {
+      return "";
+    }
     return s.replace("\\", "\\\\")
         .replace("\"", "\\\"")
         .replace("\b", "\\b")
@@ -804,16 +857,22 @@ public class JolokiaHttpHandler implements HttpHandler {
     int start = 1;
     for (int i = 1; i < trimmed.length() - 1; i++) {
       char c = trimmed.charAt(i);
-      if (c == '{' || c == '[') depth++;
-      else if (c == '}' || c == ']') depth--;
-      else if (c == ',' && depth == 0) {
+      if (c == '{' || c == '[') {
+        depth++;
+      } else if (c == '}' || c == ']') {
+        depth--;
+      } else if (c == ',' && depth == 0) {
         String item = trimmed.substring(start, i).trim();
-        if (!item.isEmpty()) list.add(item);
+        if (!item.isEmpty()) {
+          list.add(item);
+        }
         start = i + 1;
       }
     }
     String last = trimmed.substring(start, trimmed.length() - 1).trim();
-    if (!last.isEmpty()) list.add(last);
+    if (!last.isEmpty()) {
+      list.add(last);
+    }
     return list;
   }
 }
