@@ -138,6 +138,12 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
+  @Override
+  public void drain() {
+    markDraining();
+  }
+
+  /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
   public void markDraining() {
     draining.set(true);
   }

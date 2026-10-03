@@ -19,8 +19,8 @@ The dashboard strictly visualizes **genuine real-world metrics** from active clu
 A dedicated enterprise administration and traffic generator console is available at **[`/admin.html`](http://localhost:8085/admin.html)**.
 
 ### Access Credentials & Security:
-- **Operator ID**: `secops-admin`
-- **Secret Passkey**: `webtransport2026!`
+- **Operator ID**: configured with `WT4J_ADMIN_USERNAME`
+- **Secret Passkey**: required through `WT4J_ADMIN_PASSWORD`; no password is shipped with the service
 - **Clearance Level**: `Tier-3 Production Operations Admin`
 - **Authentication Security**: 
   - Login form requires manual credential entry (no pre-filled passwords in DOM or scripts).
@@ -96,18 +96,20 @@ All core settings are configurable via environment variables:
 | Environment Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `WT4J_ADMIN_PORT` | `8085` | Port for the Admin & Telemetry HTTP Server |
-| `WT4J_BIND_HOST` | `0.0.0.0` | Listen host interface (use `127.0.0.1` for local-only binding) |
+| `WT4J_BIND_HOST` | `127.0.0.1` | Listen host interface; non-local exposure requires TLS configuration |
 | `WT4J_ADMIN_USERNAME` | `secops-admin` | Operator username for admin authorization |
-| `WT4J_ADMIN_PASSWORD` | `webtransport2026!` | Admin password (auto-hashed with PBKDF2-HMAC-SHA256) |
-| `WT4J_ADMIN_SALT` | `wt4j-enterprise-secops-salt-2026` | Cryptographic salt used for PBKDF2 password derivation |
+| `WT4J_ADMIN_PASSWORD` | unset | Required admin password (hashed with PBKDF2-HMAC-SHA256) |
+| `WT4J_ADMIN_SALT` | random per process | Cryptographic salt; configure a stable secret for persistent deployments |
 | `WT4J_SESSION_TTL_SEC`| `3600` (1 hour) | Bearer session token time-to-live before automatic expiration |
 | `WT4J_CLUSTER_HOST` | `127.0.0.1` | Target hostname or IP for WebTransport cluster nodes |
 | `WT4J_CLUSTER_PORTS` | `8081,8082,8083` | Comma-delimited list of HTTP/Prometheus ports to scrape |
+| `WT4J_NODE_MANAGEMENT_TOKEN` | unset | Bearer token forwarded to node drain/close APIs; must equal each node's `MANAGEMENT_AUTH_TOKEN` |
 | `WT4J_PROMETHEUS_TARGETS` | `http://127.0.0.1:8081/metrics,...` | Comma-delimited Prometheus targets for metrics aggregation |
-| `WT4J_CORS_ORIGIN` | `*` | Allowed CORS origin header for cross-origin management |
+| `WT4J_CORS_ORIGIN` | unset | Optional explicit allowed CORS origin; cross-origin management is disabled by default |
 | `WT4J_MAX_AUDIT_LOG` | `500` | Maximum retention capacity for in-memory SecOps audit trail |
 | `WT4J_MAX_PAYLOAD_BYTES` | `1048576` (1 MB) | Maximum accepted JSON body size to prevent memory exhaustion |
 | `WT4J_SCRAPE_TIMEOUT_SEC` | `2.0` | Socket timeout when probing cluster nodes or scraping metrics |
+| `WT4J_TLS_CERT_FILE` / `WT4J_TLS_KEY_FILE` | unset | Required certificate and key paths when binding the dashboard beyond loopback |
 
 ---
 

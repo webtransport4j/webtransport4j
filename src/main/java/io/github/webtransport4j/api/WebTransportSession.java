@@ -63,6 +63,16 @@ public interface WebTransportSession {
   boolean isDraining();
 
   /**
+   * Begins graceful draining. Implementations must reject new application streams while allowing
+   * existing streams to finish.
+   *
+   * @throws UnsupportedOperationException when the implementation does not support draining
+   */
+  default void drain() {
+    throw new UnsupportedOperationException("Session draining is not supported");
+  }
+
+  /**
    * Returns true if this session has completed draining (is draining and 0 active streams remain).
    *
    * @return true if the session is fully drained

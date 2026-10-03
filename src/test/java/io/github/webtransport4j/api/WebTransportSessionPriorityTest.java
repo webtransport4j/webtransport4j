@@ -55,6 +55,7 @@ public class WebTransportSessionPriorityTest {
 
     when(mockConnectStream.parent()).thenReturn(mockQuicChannel);
     when(mockConnectStream.streamId()).thenReturn(0L);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     when(mockQuicChannel.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.newPromise())

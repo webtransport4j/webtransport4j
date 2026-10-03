@@ -15,6 +15,7 @@ import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +33,7 @@ import org.slf4j.LoggerFactory;
 public class ClusterNodeSample {
 
   private static final Logger log = LoggerFactory.getLogger(ClusterNodeSample.class);
+  private static final int MAX_MANAGEMENT_REQUEST_BYTES = 16 * 1024;
 
   private static String escapeJson(String s) {
     if (s == null) {
@@ -51,9 +53,31 @@ public class ClusterNodeSample {
     byte[] data = new byte[1024];
     int bytesRead;
     while ((bytesRead = is.read(data, 0, data.length)) != -1) {
+      if (buffer.size() + bytesRead > MAX_MANAGEMENT_REQUEST_BYTES) {
+        throw new java.io.IOException("Management request exceeds maximum size");
+      }
       buffer.write(data, 0, bytesRead);
     }
     return buffer.toByteArray();
+  }
+
+  private static boolean isAuthorized(com.sun.net.httpserver.HttpExchange exchange, String token)
+      throws java.io.IOException {
+    if (token == null || token.trim().isEmpty()) {
+      exchange.sendResponseHeaders(503, -1);
+      return false;
+    }
+    String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+    String expected = "Bearer " + token;
+    if (authorization == null
+        || !MessageDigest.isEqual(
+            expected.getBytes(StandardCharsets.UTF_8),
+            authorization.getBytes(StandardCharsets.UTF_8))) {
+      exchange.getResponseHeaders().set("WWW-Authenticate", "Bearer");
+      exchange.sendResponseHeaders(401, -1);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -66,6 +90,9 @@ public class ClusterNodeSample {
     final int quicPort = Integer.parseInt(System.getenv().getOrDefault("PORT", "4433"));
     final int healthPort = Integer.parseInt(System.getenv().getOrDefault("METRICS_PORT", "8080"));
     final String nodeName = System.getenv().getOrDefault("POD_NAME", "wt-node-local");
+    final String managementBindHost =
+        System.getenv().getOrDefault("MANAGEMENT_BIND_HOST", "127.0.0.1");
+    final String managementToken = System.getenv("MANAGEMENT_AUTH_TOKEN");
     final String otlpEndpoint = System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT");
     final String hmacKeyStr =
         System.getenv().getOrDefault("CLUSTER_HMAC_KEY", "default-cluster-secret-key-32b-min");
@@ -112,6 +139,7 @@ public class ClusterNodeSample {
           serverId);
       serverBuilder.serverId(serverId);
     }
+    final int configuredServerId = serverId;
 
     // 2. Attach OTLP metrics listener if collector endpoint is configured
     WebTransportOtlpMetricsListener otlpListener = null;
@@ -131,7 +159,12 @@ public class ClusterNodeSample {
     final WebTransportServer server = serverBuilder.build();
 
     // 3. Start auxiliary HTTP server for Kubernetes probes and live management API
-    HttpServer healthHttpServer = HttpServer.create(new InetSocketAddress(healthPort), 0);
+    HttpServer healthHttpServer =
+        HttpServer.create(new InetSocketAddress(managementBindHost, healthPort), 0);
+    if (managementToken == null || managementToken.trim().isEmpty()) {
+      log.warn(
+          "Management mutation endpoints are disabled: MANAGEMENT_AUTH_TOKEN is not configured.");
+    }
     healthHttpServer.createContext(
         "/healthz",
         exchange -> {
@@ -139,7 +172,6 @@ public class ClusterNodeSample {
               ("{\"status\":\"UP\",\"node\":\"" + escapeJson(nodeName) + "\"}")
                   .getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
-          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
@@ -151,7 +183,6 @@ public class ClusterNodeSample {
         exchange -> {
           byte[] resp = "{\"ready\":true}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
-          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
@@ -197,7 +228,6 @@ public class ClusterNodeSample {
 
           byte[] resp = json.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
-          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
@@ -230,17 +260,17 @@ public class ClusterNodeSample {
                     ? localAddr.toString().replaceFirst("^/", "")
                     : "0.0.0.0:" + quicPort;
 
-            String uniqueId = String.valueOf(Math.abs(System.identityHashCode(session)));
+            String uniqueId = String.valueOf(sid);
             sb.append("{");
             sb.append("\"id\":\"wt-sess-").append(uniqueId).append("\",");
             sb.append("\"nodeId\":\"").append(escapeJson(nodeName)).append("\",");
             sb.append("\"nodeName\":\"").append(escapeJson(nodeName)).append("\",");
-            sb.append("\"serverId\":").append(serverId).append(",");
+            sb.append("\"serverId\":").append(configuredServerId).append(",");
             sb.append("\"quicPort\":").append(quicPort).append(",");
             sb.append("\"serverNode\":\"")
                 .append(escapeJson(nodeName))
                 .append(" (Server ID: ")
-                .append(serverId)
+                .append(configuredServerId)
                 .append(" · Port ")
                 .append(quicPort)
                 .append(")\",");
@@ -323,7 +353,6 @@ public class ClusterNodeSample {
 
           byte[] resp = sb.toString().getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
-          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
@@ -335,14 +364,24 @@ public class ClusterNodeSample {
         "/api/node/sessions/drain",
         exchange -> {
           if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+            exchange
+                .getResponseHeaders()
+                .set("Access-Control-Allow-Headers", "Content-Type, Authorization");
             exchange.sendResponseHeaders(204, -1);
             return;
           }
           if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            if (!isAuthorized(exchange, managementToken)) {
+              return;
+            }
+            String body;
+            try {
+              body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            } catch (java.io.IOException e) {
+              exchange.sendResponseHeaders(413, -1);
+              return;
+            }
             long targetSessionId = -1;
             Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
             if (m.find()) {
@@ -361,9 +400,7 @@ public class ClusterNodeSample {
             if (drainAll) {
               for (WebTransportSession s : server.getActiveSessions()) {
                 try {
-                  if (s instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
-                    ((io.github.webtransport4j.server.DefaultWebTransportSession) s).markDraining();
-                  }
+                  s.drain();
                 } catch (Exception expected) {
                 }
               }
@@ -379,14 +416,13 @@ public class ClusterNodeSample {
                   }
                 }
               }
-              if (sess instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
-                ((io.github.webtransport4j.server.DefaultWebTransportSession) sess).markDraining();
+              if (sess != null) {
+                sess.drain();
                 drained = true;
               }
             }
             String res = "{\"success\":true,\"drained\":" + drained + "}";
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.sendResponseHeaders(200, res.length());
             try (OutputStream os = exchange.getResponseBody()) {
               os.write(res.getBytes(StandardCharsets.UTF_8));
@@ -399,14 +435,24 @@ public class ClusterNodeSample {
         "/api/node/sessions/close",
         exchange -> {
           if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+            exchange
+                .getResponseHeaders()
+                .set("Access-Control-Allow-Headers", "Content-Type, Authorization");
             exchange.sendResponseHeaders(204, -1);
             return;
           }
           if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            if (!isAuthorized(exchange, managementToken)) {
+              return;
+            }
+            String body;
+            try {
+              body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            } catch (java.io.IOException e) {
+              exchange.sendResponseHeaders(413, -1);
+              return;
+            }
             long targetSessionId = -1;
             Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
             if (m.find()) {
@@ -457,7 +503,6 @@ public class ClusterNodeSample {
                     closed, targetSessionId, closeAll);
             byte[] resp = respJson.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.sendResponseHeaders(200, resp.length);
             try (OutputStream os = exchange.getResponseBody()) {
               os.write(resp);

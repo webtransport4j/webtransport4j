@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.AsyncWebTransportMetricsListener;
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
@@ -264,7 +265,7 @@ public class WebTransportServer implements AutoCloseable {
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
 
     if (builder.getMetricsListener() != null) {
-      this.metricsListener = builder.getMetricsListener();
+      this.metricsListener = isolateMetricsListener(builder.getMetricsListener());
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
@@ -365,11 +366,28 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Sets a custom metrics listener for observability export. */
   public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
-    this.metricsListener = Objects.requireNonNull(listener, "listener");
+    WebTransportMetricsListener previous = this.metricsListener;
+    this.metricsListener = isolateMetricsListener(Objects.requireNonNull(listener, "listener"));
+    closeMetricsListener(previous);
   }
 
   public @NonNull WebTransportMetricsListener getMetricsListener() {
     return metricsListener;
+  }
+
+  private static @NonNull WebTransportMetricsListener isolateMetricsListener(
+      @NonNull WebTransportMetricsListener listener) {
+    if (listener == NoOpWebTransportMetricsListener.INSTANCE
+        || listener instanceof AsyncWebTransportMetricsListener) {
+      return listener;
+    }
+    return new AsyncWebTransportMetricsListener(listener);
+  }
+
+  private static void closeMetricsListener(@Nullable WebTransportMetricsListener listener) {
+    if (listener instanceof AsyncWebTransportMetricsListener) {
+      ((AsyncWebTransportMetricsListener) listener).close();
+    }
   }
 
   public void setMessageDispatcher(@NonNull MessageDispatcher dispatcher) {
@@ -2105,6 +2123,7 @@ public class WebTransportServer implements AutoCloseable {
   @Override
   public void close() {
     stop(5, TimeUnit.SECONDS, true, true);
+    closeMetricsListener(metricsListener);
   }
 
   @Override

@@ -14,6 +14,10 @@ import os
 import sys
 import urllib.parse
 
+os.environ.setdefault("WT4J_ADMIN_USERNAME", "secops-admin")
+os.environ.setdefault("WT4J_ADMIN_PASSWORD", "webtransport2026!")
+os.environ.setdefault("WT4J_ADMIN_SALT", "test-only-salt")
+
 # Ensure dashboard module is importable
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, DASHBOARD_DIR)
@@ -300,10 +304,10 @@ class TestConfigurationAndSecurityUnit(unittest.TestCase):
 
     def test_runtime_configuration_defaults(self):
         """Verifies default server configuration parameters are set and valid."""
-        self.assertEqual(server.BIND_HOST, "0.0.0.0")
+        self.assertEqual(server.BIND_HOST, "127.0.0.1")
         self.assertIn(server.PORT, [8085, int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8085])
         self.assertEqual(server.ADMIN_USERNAME, "secops-admin")
-        self.assertEqual(server.SESSION_TTL_SECONDS, 86400)
+        self.assertEqual(server.SESSION_TTL_SECONDS, 3600)
         self.assertEqual(server.MAX_PAYLOAD_BYTES, 10485760)
         self.assertGreaterEqual(server.MAX_AUDIT_LOG_ENTRIES, 100)
         self.assertIn(8081, server.CLUSTER_PORTS)
@@ -636,5 +640,3 @@ webtransport_datagrams_sent_total 100
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
-

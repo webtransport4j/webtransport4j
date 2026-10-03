@@ -21,6 +21,8 @@ import hmac
 import http.server
 import socketserver
 import threading
+import ssl
+import secrets
 
 if sys.platform.startswith("win"):
     try:
@@ -31,24 +33,25 @@ if sys.platform.startswith("win"):
 
 # Environment & Command Line Configurable Parameters
 PORT = int(os.getenv("WT4J_ADMIN_PORT", sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].isdigit() else "8085"))
-BIND_HOST = os.getenv("WT4J_BIND_HOST", "0.0.0.0")
+BIND_HOST = os.getenv("WT4J_BIND_HOST", "127.0.0.1")
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(DIRECTORY, ".."))
 
 # Cryptographically Hashed Admin Credentials (PBKDF2-HMAC-SHA256, 100,000 iterations)
 ADMIN_USERNAME = os.getenv("WT4J_ADMIN_USERNAME", "secops-admin")
-ADMIN_PASSWORD_SALT = os.getenv("WT4J_ADMIN_SALT", "wt4j-enterprise-secops-salt-2026").encode("utf-8")
+ADMIN_PASSWORD_SALT = os.getenv("WT4J_ADMIN_SALT", "").encode("utf-8") or secrets.token_bytes(32)
 _custom_password = os.getenv("WT4J_ADMIN_PASSWORD")
 if _custom_password:
     ADMIN_PASSWORD_PBKDF2_HEX = hashlib.pbkdf2_hmac("sha256", _custom_password.encode("utf-8"), ADMIN_PASSWORD_SALT, 100000).hex()
 else:
-    ADMIN_PASSWORD_PBKDF2_HEX = "52f2b2c3180b0c13d412fbebf7da65abc35559151724b9e66d2f3b14c9144df6"
+    ADMIN_PASSWORD_PBKDF2_HEX = None
 
-SESSION_TTL_SECONDS = int(os.getenv("WT4J_SESSION_TTL_SEC", "86400"))
-CORS_ORIGIN = os.getenv("WT4J_CORS_ORIGIN", "*")
+SESSION_TTL_SECONDS = int(os.getenv("WT4J_SESSION_TTL_SEC", "3600"))
+CORS_ORIGIN = os.getenv("WT4J_CORS_ORIGIN", "")
 MAX_AUDIT_LOG_ENTRIES = int(os.getenv("WT4J_MAX_AUDIT_LOG", "1000"))
 MAX_PAYLOAD_BYTES = int(os.getenv("WT4J_MAX_PAYLOAD_BYTES", "10485760"))  # 10MB
 CLUSTER_HOST = os.getenv("WT4J_CLUSTER_HOST", "127.0.0.1")
+NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "")
 SCRAPE_TIMEOUT_SEC = float(os.getenv("WT4J_SCRAPE_TIMEOUT_SEC", "1.0"))
 
 _ports_env = os.getenv("WT4J_CLUSTER_PORTS", "8081,8082,8083")
@@ -158,13 +161,19 @@ CLUSTER_PORTS = [8081, 8082, 8083]
 CLUSTER_NODES = []
 CLUSTER_ACTIVE_SESSIONS_COUNT = 0
 
+def management_headers():
+    headers = {"Content-Type": "application/json", "User-Agent": "WT4J-Admin"}
+    if NODE_MANAGEMENT_TOKEN:
+        headers["Authorization"] = f"Bearer {NODE_MANAGEMENT_TOKEN}"
+    return headers
+
 def close_all_server_sessions():
     """Sends close request with {"all": True} to all cluster nodes and terminates all client subprocesses"""
     for port in CLUSTER_PORTS:
         try:
             req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/close",
                                          data=json.dumps({"all": True, "closeAll": True, "sessionId": 0}).encode('utf-8'),
-                                         headers={"Content-Type": "application/json", "User-Agent": "WT4J-Admin"})
+                                         headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 pass
         except Exception:
@@ -186,7 +195,7 @@ def drain_server_session(raw_sid, sess_id=None):
         try:
             req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/drain",
                                          data=json.dumps(payload).encode('utf-8'),
-                                         headers={"Content-Type": "application/json", "User-Agent": "WT4J-Admin"})
+                                         headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 pass
         except Exception:
@@ -201,7 +210,7 @@ def close_server_session(raw_sid, sess_id=None):
         try:
             req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/close",
                                          data=json.dumps(payload).encode('utf-8'),
-                                         headers={"Content-Type": "application/json", "User-Agent": "WT4J-Admin"})
+                                         headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 pass
         except Exception:
@@ -1153,8 +1162,9 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         try:
             self.send_response(status_code)
             self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate')
+            if CORS_ORIGIN:
+                self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate')
             self.end_headers()
             self.wfile.write(json.dumps(data).encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
@@ -1169,6 +1179,9 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
 
         # API: Runtime Configuration Inspector
         if self.path == '/api/config':
+            if not self.is_authenticated():
+                self.send_json(401, {"error": "Authentication required."})
+                return
             self.send_json(200, {
                 "port": PORT,
                 "bindHost": BIND_HOST,
@@ -1207,6 +1220,9 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
 
         # API: Datasource Configuration
         if self.path == '/api/datasource':
+            if not self.is_authenticated():
+                self.send_json(401, {"error": "Authentication required."})
+                return
             self.send_json(200, CURRENT_DATASOURCE)
             return
 
@@ -1419,6 +1435,9 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
         # 1. Admin Authentication Login
         if self.path == '/api/admin/login':
+            if ADMIN_PASSWORD_PBKDF2_HEX is None:
+                self.send_json(503, {"success": False, "error": "WT4J_ADMIN_PASSWORD must be configured."})
+                return
             username = req_data.get('username', '').strip()
             password = req_data.get('password', '').strip()
 
@@ -1426,7 +1445,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             supplied_hash = hashlib.pbkdf2_hmac(
                 "sha256", password.encode("utf-8"), ADMIN_PASSWORD_SALT, 100000
             ).hex()
-            is_valid_user = username in (ADMIN_USERNAME, "admin")
+            is_valid_user = hmac.compare_digest(username, ADMIN_USERNAME)
             is_valid_pass = hmac.compare_digest(supplied_hash, ADMIN_PASSWORD_PBKDF2_HEX)
 
             if is_valid_user and is_valid_pass:
@@ -1474,6 +1493,9 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
         # API: Set / Switch Datasource Configuration
         if self.path == '/api/datasource':
             user = self.is_authenticated()
+            if not user:
+                self.send_json(401, {"error": "Authentication required."})
+                return
             ds_type = req_data.get('type', 'live-cluster')
             ds_name = req_data.get('name', 'Real Live Cluster')
             ds_url = req_data.get('url', 'http://localhost:4433')
@@ -2416,9 +2438,10 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate')
+        if CORS_ORIGIN:
+            self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate')
         self.end_headers()
 
 import socket
@@ -2434,13 +2457,27 @@ class DualStackThreadingServer(http.server.ThreadingHTTPServer):
         super().server_bind()
 
 def run():
+    non_local_bind = BIND_HOST not in ("127.0.0.1", "::1", "localhost")
+    cert_file = os.getenv("WT4J_TLS_CERT_FILE")
+    key_file = os.getenv("WT4J_TLS_KEY_FILE")
+    if non_local_bind and (not cert_file or not key_file):
+        raise RuntimeError("WT4J_TLS_CERT_FILE and WT4J_TLS_KEY_FILE are required for non-local binds.")
+    if non_local_bind and ADMIN_PASSWORD_PBKDF2_HEX is None:
+        raise RuntimeError("WT4J_ADMIN_PASSWORD is required for non-local binds.")
     try:
-        httpd = DualStackThreadingServer(("", PORT), EnterpriseObservabilityHandler)
+        httpd = DualStackThreadingServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)
     except Exception:
-        httpd = http.server.ThreadingHTTPServer(("", PORT), EnterpriseObservabilityHandler)
+        httpd = http.server.ThreadingHTTPServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)
 
     httpd.allow_reuse_address = True
-    print(f"🚀 WebTransport4J Enterprise Observability & Admin Console running at http://localhost:{PORT}")
+    if cert_file and key_file:
+        tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.load_cert_chain(cert_file, key_file)
+        httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True)
+        scheme = "https"
+    else:
+        scheme = "http"
+    print(f"🚀 WebTransport4J Enterprise Observability & Admin Console running at {scheme}://{BIND_HOST}:{PORT}")
     print(f"🔐 Authenticated Admin Console: http://localhost:{PORT}/admin.html")
     print(f"📊 Live Telemetry endpoint: http://localhost:{PORT}/api/live-telemetry")
     print(f"📈 Prometheus scrape endpoint: http://localhost:{PORT}/metrics")
