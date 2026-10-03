@@ -141,14 +141,29 @@ public class ClusterNodeSample {
       } catch (NumberFormatException expected) {
       }
     }
-    if (serverId >= 0) {
-      log.info(
-          "🎯 Configured QUIC Connection ID Routing (QUIC-LB) for node '{}' with Server ID: {}",
-          nodeName,
-          serverId);
-      serverBuilder.serverId(serverId);
+    if (serverId < 0) {
+      serverId = Math.abs(nodeName.hashCode()) % 254 + 1;
     }
+    log.info(
+        "🎯 Configured QUIC Connection ID Routing (QUIC-LB) for node '{}' with Server ID: {}",
+        nodeName,
+        serverId);
+    serverBuilder.serverId(serverId);
     final int configuredServerId = serverId;
+
+    // Optional Production TLS Certificate Configuration
+    final String sslKeyPath =
+        System.getenv("SSL_KEY_PATH") != null
+            ? System.getenv("SSL_KEY_PATH")
+            : System.getProperty("webtransport4j.ssl.key.path");
+    final String sslCertPath =
+        System.getenv("SSL_CERT_PATH") != null
+            ? System.getenv("SSL_CERT_PATH")
+            : System.getProperty("webtransport4j.ssl.cert.path");
+    if (sslKeyPath != null && sslCertPath != null && !sslKeyPath.trim().isEmpty() && !sslCertPath.trim().isEmpty()) {
+      log.info("🔒 Loaded TLS certificate: key={}, cert={}", sslKeyPath, sslCertPath);
+      serverBuilder.ssl(sslKeyPath.trim(), sslCertPath.trim());
+    }
 
     // 2. Attach OTLP metrics listener if collector endpoint is configured
     WebTransportOtlpMetricsListener otlpListener = null;
@@ -198,6 +213,52 @@ public class ClusterNodeSample {
           }
         });
 
+    // Kubernetes preStop hook endpoint (RFC 9297 Section 5.3 graceful draining)
+    healthHttpServer.createContext(
+        "/prestop",
+        exchange -> {
+          log.info("🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'", nodeName);
+          for (WebTransportSession s : server.getActiveSessions()) {
+            try {
+              s.drain();
+            } catch (Exception expected) {
+            }
+          }
+          byte[] resp = "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
+
+    // JVM graceful shutdown hook
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  log.info(
+                      "🛑 JVM shutdown hook triggered for node '{}': draining and stopping server",
+                      nodeName);
+                  try {
+                    for (WebTransportSession s : server.getActiveSessions()) {
+                      try {
+                        s.drain();
+                      } catch (Exception ignored) {
+                      }
+                    }
+                    Thread.sleep(150);
+                    server.close();
+                    healthHttpServer.stop(1);
+                  } catch (Exception ignored) {
+                  }
+                }));
+
+    // Jolokia / Hawtio JMX management HTTP handlers
+    JolokiaHttpHandler jolokiaHandler = new JolokiaHttpHandler(nodeName);
+    healthHttpServer.createContext("/jolokia", jolokiaHandler);
+    healthHttpServer.createContext("/api/node/jmx", jolokiaHandler);
+
     // Node runtime info endpoint: strictly real values from JVM and Netty server
     healthHttpServer.createContext(
         "/api/node/info",
@@ -209,11 +270,75 @@ public class ClusterNodeSample {
           long maxMem = rt.maxMemory();
           long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
+          // Real-time Garbage Collector & Generational ZGC introspection from JVM
+          java.util.List<java.lang.management.GarbageCollectorMXBean> gcBeans =
+              ManagementFactory.getGarbageCollectorMXBeans();
+          boolean isZgcMinor = false;
+          boolean isZgcMajor = false;
+          boolean isZgcSingle = false;
+          boolean isG1 = false;
+          boolean isParallel = false;
+          boolean isShenandoah = false;
+          StringBuilder gcBeansJson = new StringBuilder("[");
+          for (int i = 0; i < gcBeans.size(); i++) {
+            java.lang.management.GarbageCollectorMXBean b = gcBeans.get(i);
+            String name = b.getName();
+            if (i > 0) gcBeansJson.append(",");
+            gcBeansJson.append(
+                String.format(
+                    "{\"name\":\"%s\",\"collections\":%d,\"timeMs\":%d}",
+                    escapeJson(name), b.getCollectionCount(), b.getCollectionTime()));
+            String lower = name.toLowerCase();
+            if (lower.contains("zgc minor")) isZgcMinor = true;
+            if (lower.contains("zgc major")) isZgcMajor = true;
+            if (lower.contains("zgc") && !lower.contains("minor") && !lower.contains("major")) {
+              isZgcSingle = true;
+            }
+            if (lower.contains("g1")) isG1 = true;
+            if (lower.contains("parallel")) isParallel = true;
+            if (lower.contains("shenandoah")) isShenandoah = true;
+          }
+          gcBeansJson.append("]");
+
+          String gcType;
+          if (isZgcMinor || isZgcMajor) {
+            gcType = "Generational ZGC";
+          } else if (isZgcSingle) {
+            gcType = "ZGC";
+          } else if (isG1) {
+            gcType = "G1 GC";
+          } else if (isParallel) {
+            gcType = "Parallel GC";
+          } else if (isShenandoah) {
+            gcType = "Shenandoah GC";
+          } else if (!gcBeans.isEmpty()) {
+            gcType = gcBeans.get(0).getName();
+          } else {
+            gcType = "Serial GC";
+          }
+
+          int javaFeature = Runtime.version().feature();
+          String javaVersion = System.getProperty("java.version", String.valueOf(javaFeature));
+          String javaVmName = System.getProperty("java.vm.name", "Java HotSpot");
+          String javaVendor = System.getProperty("java.vendor", "Oracle Corporation");
+          String jvmDisplayName = String.format("Java %d · %s", javaFeature, gcType);
+
+          String envGc = System.getenv("JAVA_GC");
+          if (envGc == null || envGc.isBlank()) {
+            envGc = System.getenv("WT4J_GC");
+          }
+          if (envGc == null || envGc.isBlank()) {
+            envGc = "ZGC";
+          }
+
           String json =
               String.format(
                   "{\"status\":\"HEALTHY\",\"nodeId\":\"%s\",\"nodeName\":\"%s\",\"quicPort\":%d,\"healthPort\":%d,"
                       + "\"isStarted\":%b,\"activeSessions\":%d,\"uptimeMs\":%d,\"uptimeSeconds\":%d,"
-                      + "\"jvm\":{\"version\":\"%s\",\"vendor\":\"%s\",\"vmName\":\"%s\"},"
+                      + "\"jolokiaUrl\":\"http://127.0.0.1:%d/jolokia\","
+                      + "\"jvm\":{\"displayName\":\"%s\",\"gc\":\"%s\",\"gcType\":\"%s\",\"isGenerationalZgc\":%b,"
+                      + "\"configuredGc\":\"%s\","
+                      + "\"version\":\"%s\",\"feature\":%d,\"vendor\":\"%s\",\"vmName\":\"%s\",\"gcBeans\":%s},"
                       + "\"os\":{\"name\":\"%s\",\"arch\":\"%s\",\"processors\":%d},"
                       + "\"memory\":{\"used\":%d,\"total\":%d,\"max\":%d,\"free\":%d}}",
                   escapeJson(nodeName),
@@ -224,9 +349,17 @@ public class ClusterNodeSample {
                   server.getActiveSessionCount(),
                   uptime,
                   uptime / 1000L,
-                  escapeJson(System.getProperty("java.version", "unknown")),
-                  escapeJson(System.getProperty("java.vendor", "unknown")),
-                  escapeJson(System.getProperty("java.vm.name", "unknown")),
+                  healthPort,
+                  escapeJson(jvmDisplayName),
+                  escapeJson(gcType),
+                  escapeJson(gcType),
+                  (isZgcMinor || isZgcMajor),
+                  escapeJson(envGc),
+                  escapeJson(javaVersion),
+                  javaFeature,
+                  escapeJson(javaVendor),
+                  escapeJson(javaVmName),
+                  gcBeansJson,
                   escapeJson(System.getProperty("os.name", "unknown")),
                   escapeJson(System.getProperty("os.arch", "unknown")),
                   rt.availableProcessors(),

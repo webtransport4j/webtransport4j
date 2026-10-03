@@ -30,6 +30,8 @@ WORKDIR /app
 # Copy application artifacts from builder
 COPY --from=builder /build/target/webtransport4j-*.jar /app/webtransport4j.jar
 COPY --from=builder /build/target/lib /app/lib
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 RUN chown -R wtuser:wtgroup /app
 USER wtuser
@@ -38,14 +40,13 @@ USER wtuser
 EXPOSE 4433/udp
 EXPOSE 8080/tcp
 
-# JVM Ergonomics for Ultra-Low Latency HTTP/3 with Generational ZGC on Java 25
-ENV JAVA_OPTS="-XX:+UseZGC \
-               -XX:MaxRAMPercentage=75.0 \
+# JVM Garbage Collection configuration from environment (defaults to ZGC on Java 25)
+ENV JAVA_GC="ZGC"
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 \
                -XX:+ExitOnOutOfMemoryError \
                -Dio.netty.leakDetection.level=SIMPLE \
                -Dio.netty.allocator.type=pooled \
                -Djava.net.preferIPv4Stack=true"
-
 
 ENV PORT=4433
 ENV METRICS_PORT=8080
@@ -55,5 +56,5 @@ ENV POD_NAME="webtransport-node"
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -fsS http://localhost:8080/healthz || exit 1
 
-ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -cp '/app/webtransport4j.jar:/app/lib/*' io.github.webtransport4j.example.ClusterNodeSample"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 

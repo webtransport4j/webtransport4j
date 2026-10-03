@@ -55,14 +55,49 @@ SESSION_TTL_SECONDS = int(os.getenv("WT4J_SESSION_TTL_SEC", "3600"))
 CORS_ORIGIN = os.getenv("WT4J_CORS_ORIGIN", "")
 MAX_AUDIT_LOG_ENTRIES = int(os.getenv("WT4J_MAX_AUDIT_LOG", "1000"))
 MAX_PAYLOAD_BYTES = int(os.getenv("WT4J_MAX_PAYLOAD_BYTES", "10485760"))  # 10MB
-CLUSTER_HOST = os.getenv("WT4J_CLUSTER_HOST", "127.0.0.1")
+def parse_cluster_targets():
+    """
+    Parses configured cluster nodes from environment or defaults.
+    Supports:
+      - WT4J_CLUSTER_NODES: comma-separated list of host:port or URLs (e.g. "wt-node-1:8081,wt-node-2:8082" or "10.0.0.1:8080")
+      - WT4J_CLUSTER_HOST and WT4J_CLUSTER_PORTS: traditional host and comma-separated ports (e.g. 127.0.0.1 and 8081,8082,8083)
+    """
+    env_nodes = os.getenv("WT4J_CLUSTER_NODES")
+    targets = []
+    if env_nodes:
+        for idx, item in enumerate(env_nodes.split(",")):
+            item = item.strip()
+            if not item:
+                continue
+            if "://" not in item:
+                item = f"http://{item}"
+            parsed = urllib.parse.urlparse(item)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or 8080
+            targets.append({
+                "idx": idx,
+                "host": host,
+                "healthPort": port,
+                "baseUrl": f"http://{host}:{port}"
+            })
+    if not targets:
+        host = os.getenv("WT4J_CLUSTER_HOST", "127.0.0.1")
+        ports_env = os.getenv("WT4J_CLUSTER_PORTS", "8081,8082,8083")
+        ports = [int(p.strip()) for p in ports_env.split(",") if p.strip().isdigit()] or [8081, 8082, 8083]
+        for idx, port in enumerate(ports):
+            targets.append({
+                "idx": idx,
+                "host": host,
+                "healthPort": port,
+                "baseUrl": f"http://{host}:{port}"
+            })
+    return targets
+
+CLUSTER_TARGETS = parse_cluster_targets()
+CLUSTER_PORTS = [t["healthPort"] for t in CLUSTER_TARGETS]
+CLUSTER_HOST = CLUSTER_TARGETS[0]["host"] if CLUSTER_TARGETS else "127.0.0.1"
 NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "wt4j-cluster-mgmt-token-2026")
 SCRAPE_TIMEOUT_SEC = float(os.getenv("WT4J_SCRAPE_TIMEOUT_SEC", "1.0"))
-
-_ports_env = os.getenv("WT4J_CLUSTER_PORTS", "8081,8082,8083")
-CLUSTER_PORTS = [int(p.strip()) for p in _ports_env.split(",") if p.strip().isdigit()]
-if not CLUSTER_PORTS:
-    CLUSTER_PORTS = [8081, 8082, 8083]
 
 _prom_env = os.getenv("WT4J_PROMETHEUS_TARGETS", "")
 if _prom_env:
@@ -93,6 +128,74 @@ def get_java_cmd():
         return jdk_java
     return "java"
 
+def get_configured_gc_name():
+    """
+    Returns configured GC name from environment variable JAVA_GC, WT4J_GC, or GC.
+    Defaults to 'ZGC' (Generational ZGC on Java 25).
+    """
+    java_opts = os.getenv("JAVA_OPTS", "").strip()
+    if "-XX:+Use" in java_opts:
+        for token in java_opts.split():
+            if token.startswith("-XX:+Use") and token.endswith("GC"):
+                return token[len("-XX:+Use"):-len("GC")].upper()
+
+    raw = os.getenv("JAVA_GC", os.getenv("WT4J_GC", os.getenv("GC", "ZGC"))).strip()
+    if not raw:
+        return "ZGC"
+    cleaned = raw.upper().replace("-", "_").replace(" ", "_")
+    if cleaned in ("ZGC", "GENERATIONAL_ZGC", "GEN_ZGC", "GENZGC"):
+        return "ZGC"
+    elif cleaned in ("G1", "G1GC", "G1_GC"):
+        return "G1"
+    elif cleaned in ("PARALLEL", "PARALLELGC", "PARALLEL_GC"):
+        return "PARALLEL"
+    elif cleaned in ("SERIAL", "SERIALGC", "SERIAL_GC"):
+        return "SERIAL"
+    elif cleaned in ("SHENANDOAH", "SHENANDOAHGC", "SHENANDOAH_GC"):
+        return "SHENANDOAH"
+    return raw
+
+def get_gc_jvm_flags():
+    """
+    Returns JVM GC flags list parsed from environment variable JAVA_GC, WT4J_GC, or GC.
+    Defaults to Generational ZGC (['-XX:+UseZGC']) if unspecified.
+    Honors explicit GC flags in JAVA_OPTS if present.
+    """
+    java_opts = os.getenv("JAVA_OPTS", "").strip()
+    if "-XX:+Use" in java_opts:
+        flags = [t for t in java_opts.split() if t.startswith("-XX:+Use") and t.endswith("GC")]
+        if flags:
+            return flags
+
+    name = get_configured_gc_name().upper()
+    if name == "ZGC":
+        return ["-XX:+UseZGC"]
+    elif name == "G1":
+        return ["-XX:+UseG1GC"]
+    elif name == "PARALLEL":
+        return ["-XX:+UseParallelGC"]
+    elif name == "SERIAL":
+        return ["-XX:+UseSerialGC"]
+    elif name == "SHENANDOAH":
+        return ["-XX:+UseShenandoahGC"]
+    elif name.startswith("-XX:+USE"):
+        return [name]
+    return ["-XX:+UseZGC"]
+
+def get_jvm_args():
+    """
+    Returns list of JVM flags to use when launching Java processes,
+    combining GC flags (default ZGC) and native access flags.
+    """
+    flags = get_gc_jvm_flags()
+    flags.append("--enable-native-access=ALL-UNNAMED")
+    java_opts = os.getenv("JAVA_OPTS", "").strip()
+    if java_opts:
+        for opt in java_opts.split():
+            if opt not in flags and not (opt.startswith("-XX:+Use") and opt.endswith("GC")):
+                flags.append(opt)
+    return flags
+
 def run_traffic_command(command, target_url, extra_args=None):
     """Executes RealTrafficGenerator and returns parsed JSON output"""
     if extra_args is None:
@@ -102,7 +205,7 @@ def run_traffic_command(command, target_url, extra_args=None):
     cp_sep = os.pathsep
     java_bin = get_java_cmd()
     if os.path.isdir(lib_dir):
-        cmd_args = [java_bin, "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+        cmd_args = [java_bin] + get_jvm_args() + ["-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                     "io.github.webtransport4j.example.RealTrafficGenerator", command, target_url] + extra_args
     else:
         mvn_cmd = "mvn.cmd" if sys.platform.startswith("win") or os.name == "nt" else "mvn"
@@ -136,7 +239,7 @@ def spawn_persistent_session(target_url, stream_count=0, stream_type="bidi", pay
     classes_dir = os.path.join(PROJECT_ROOT, "target", "classes")
     cp_sep = os.pathsep
     if os.path.isdir(lib_dir):
-        cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+        cmd_args = [get_java_cmd()] + get_jvm_args() + ["-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                     "io.github.webtransport4j.example.RealTrafficGenerator", "session",
                     target_url, str(stream_count), stream_type, "3600", payload]
     else:
@@ -180,9 +283,9 @@ def management_headers():
 
 def close_all_server_sessions():
     """Sends close request with {"all": True} to all cluster nodes and terminates all client subprocesses"""
-    for port in CLUSTER_PORTS:
+    for target in parse_cluster_targets():
         try:
-            req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/close",
+            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/close",
                                          data=json.dumps({"all": True, "closeAll": True, "sessionId": 0}).encode('utf-8'),
                                          headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
@@ -208,9 +311,9 @@ def drain_server_session(raw_sid, sess_id=None):
     payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
-    for port in CLUSTER_PORTS:
+    for target in parse_cluster_targets():
         try:
-            req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/drain",
+            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/drain",
                                          data=json.dumps(payload).encode('utf-8'),
                                          headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
@@ -229,9 +332,9 @@ def close_server_session(raw_sid, sess_id=None):
     payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
-    for port in CLUSTER_PORTS:
+    for target in parse_cluster_targets():
         try:
-            req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions/close",
+            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/close",
                                          data=json.dumps(payload).encode('utf-8'),
                                          headers=management_headers())
             with urllib.request.urlopen(req, timeout=1.0) as resp:
@@ -246,14 +349,25 @@ def close_server_session(raw_sid, sess_id=None):
         except Exception:
             pass
 
-def probe_node_info(idx, port):
+def probe_node_info(target_or_idx, port=None):
+    if isinstance(target_or_idx, dict):
+        idx = target_or_idx["idx"]
+        port = target_or_idx["healthPort"]
+        host = target_or_idx["host"]
+        base_url = target_or_idx["baseUrl"]
+    else:
+        idx = target_or_idx
+        port = port or 8081
+        host = CLUSTER_HOST
+        base_url = f"http://{host}:{port}"
+
     node_num = idx + 1
     default_node_id = f"wt-node-{node_num}"
     quic_port = 4432 + node_num
     role = f"Active Peer {node_num} (QUIC-LB ID: {node_num})"
     info = None
     try:
-        req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/info", headers={"User-Agent": "WT4J-Admin"})
+        req = urllib.request.Request(f"{base_url}/api/node/info", headers={"User-Agent": "WT4J-Admin"})
         with urllib.request.urlopen(req, timeout=0.3) as resp:
             if resp.status == 200:
                 info = json.loads(resp.read().decode('utf-8'))
@@ -264,7 +378,19 @@ def probe_node_info(idx, port):
         node_sessions = int(info.get("activeSessions", 0))
         used_bytes = info.get("memory", {}).get("used", 0)
         jvm_info = info.get("jvm", {})
-        jvm_str = f"{jvm_info.get('vmName', '')} ({jvm_info.get('version', '')})".strip()
+        # Real dynamic JVM and GC inspection
+        display_name = jvm_info.get("displayName")
+        if not display_name:
+            gc_name = jvm_info.get("gc") or jvm_info.get("gcType")
+            ver = jvm_info.get("version", "")
+            feat = jvm_info.get("feature") or (ver.split(".")[0] if ver else "")
+            if feat and gc_name:
+                display_name = f"Java {feat} · {gc_name}"
+            elif jvm_info.get("vmName"):
+                display_name = f"{jvm_info.get('vmName')} ({ver})"
+            else:
+                display_name = "Java Runtime"
+
         status_entry = {
             "id": info.get("nodeId", default_node_id),
             "name": info.get("nodeName", default_node_id),
@@ -272,13 +398,15 @@ def probe_node_info(idx, port):
             "healthPort": port,
             "role": role,
             "status": "HEALTHY",
-            "jvm": jvm_str or LIVE_TELEMETRY.get("jvmGcType", "OpenJDK 25 (Generational ZGC)"),
+            "jvm": display_name,
+            "jvmDetails": jvm_info,
+            "jolokiaUrl": info.get("jolokiaUrl", f"http://{host}:{port}/jolokia"),
             "memory": info.get("memory", {}),
             "uptimeSeconds": info.get("uptimeSeconds", 0),
             "activeSessions": node_sessions,
             "protocol": "HTTP/3 / QUIC RFC 9297"
         }
-        return status_entry, node_sessions, used_bytes, info, jvm_str
+        return status_entry, node_sessions, used_bytes, info, display_name
     else:
         status_entry = {
             "id": default_node_id,
@@ -287,7 +415,9 @@ def probe_node_info(idx, port):
             "healthPort": port,
             "role": role,
             "status": "OFFLINE",
-            "jvm": LIVE_TELEMETRY.get("jvmGcType", "Unknown (unreachable)"),
+            "jvm": LIVE_TELEMETRY.get("jvmGcType") or "Offline",
+            "jvmDetails": {},
+            "jolokiaUrl": f"http://{host}:{port}/jolokia",
             "memory": {},
             "uptimeSeconds": 0,
             "activeSessions": 0,
@@ -299,23 +429,24 @@ def sync_live_server_info():
     """Queries real ClusterNodeSample on all nodes to aggregate cluster telemetry and topology"""
     global LIVE_TELEMETRY, CLUSTER_NODES, CLUSTER_ACTIVE_SESSIONS_COUNT
     
+    targets = parse_cluster_targets()
     total_active_sessions = 0
     total_used_memory = 0
     primary_node_info = None
     node_statuses = []
 
-    with ThreadPoolExecutor(max_workers=max(1, len(CLUSTER_PORTS))) as pool:
-        futures = [pool.submit(probe_node_info, idx, port) for idx, port in enumerate(CLUSTER_PORTS)]
+    with ThreadPoolExecutor(max_workers=max(1, len(targets))) as pool:
+        futures = [pool.submit(probe_node_info, t) for t in targets]
         results = [f.result() for f in futures]
 
-    for status_entry, node_sessions, used_bytes, info, jvm_str in results:
+    for status_entry, node_sessions, used_bytes, info, display_name in results:
         node_statuses.append(status_entry)
         total_active_sessions += node_sessions
         total_used_memory += used_bytes
         if info and primary_node_info is None:
             primary_node_info = info
-        if jvm_str and not LIVE_TELEMETRY.get("jvmGcType"):
-            LIVE_TELEMETRY["jvmGcType"] = jvm_str
+        if display_name:
+            LIVE_TELEMETRY["jvmGcType"] = display_name
 
     CLUSTER_NODES = node_statuses
 
@@ -332,14 +463,17 @@ def sync_live_server_sessions():
     global MANAGED_SESSIONS, LIVE_TELEMETRY, CLUSTER_ACTIVE_SESSIONS_COUNT
     
     all_server_sessions = []
+    targets = parse_cluster_targets()
+    target_by_port = {t["healthPort"]: t for t in targets}
     healthy_ports = [(idx, n["healthPort"]) for idx, n in enumerate(CLUSTER_NODES) if n.get("status") == "HEALTHY"]
     
     for idx, port in healthy_ports:
+        target = target_by_port.get(port, {"host": CLUSTER_HOST, "baseUrl": f"http://{CLUSTER_HOST}:{port}"})
         node_num = idx + 1
         default_node_id = f"wt-node-{node_num}"
         quic_port = 4432 + node_num
         try:
-            req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions", headers={"User-Agent": "WT4J-Admin"})
+            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions", headers={"User-Agent": "WT4J-Admin"})
             with urllib.request.urlopen(req, timeout=0.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode('utf-8'))
@@ -1202,11 +1336,102 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
 
+    def handle_jolokia_proxy(self):
+        """Proxies Jolokia / Hawtio REST requests to target cluster node across multi-host topologies"""
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        target_node = None
+        target_port = 8081
+        target_host = CLUSTER_HOST
+
+        if "node" in qs:
+            node_id = qs["node"][0]
+            for n in CLUSTER_NODES:
+                if n.get("id") == node_id or n.get("name") == node_id:
+                    target_node = n
+                    break
+        if not target_node and "port" in qs and qs["port"][0].isdigit():
+            port_num = int(qs["port"][0])
+            for n in CLUSTER_NODES:
+                if n.get("healthPort") == port_num:
+                    target_node = n
+                    break
+            target_port = port_num
+        if not target_node and CLUSTER_NODES:
+            healthy = [n for n in CLUSTER_NODES if n.get("status") == "HEALTHY"]
+            target_node = healthy[0] if healthy else CLUSTER_NODES[0]
+
+        if target_node:
+            target_base = target_node.get("baseUrl")
+            if not target_base:
+                h = target_node.get("host") or target_host
+                p = target_node.get("healthPort") or target_port
+                target_base = f"http://{h}:{p}"
+        else:
+            target_base = f"http://{target_host}:{target_port}"
+
+        subpath = parsed.path
+        for prefix in ("/api/node/jolokia", "/jolokia"):
+            if subpath.startswith(prefix):
+                subpath = subpath[len(prefix):]
+                break
+        if not subpath.startswith("/"):
+            subpath = "/" + subpath
+
+        target_url = f"{target_base}/jolokia{subpath}"
+        if parsed.query:
+            forward_params = {k: v for k, v in qs.items() if k not in ("port", "node")}
+            if forward_params:
+                target_url += "?" + urllib.parse.urlencode(forward_params, doseq=True)
+
+        method = self.command
+        body = None
+        if method == "POST":
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = self.rfile.read(min(content_length, MAX_PAYLOAD_BYTES))
+
+        try:
+            req = urllib.request.Request(target_url, data=body, method=method)
+            req.add_header("User-Agent", "WT4J-Hawtio-Bridge")
+            if NODE_MANAGEMENT_TOKEN:
+                req.add_header("Authorization", f"Bearer {NODE_MANAGEMENT_TOKEN}")
+            if body:
+                req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                resp_bytes = resp.read()
+                self.send_response(resp.status)
+                self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json; charset=utf-8'))
+                self.send_header('Content-Length', str(len(resp_bytes)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin, Accept')
+                self.end_headers()
+                self.wfile.write(resp_bytes)
+        except Exception as e:
+            err_json = json.dumps({
+                "status": 502,
+                "error": f"Failed to forward to Jolokia node on port {target_port}: {str(e)}",
+                "timestamp": int(time.time()),
+                "targetPort": target_port
+            }).encode('utf-8')
+            self.send_response(502)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(err_json)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(err_json)
+
     def do_GET(self):
         # 0. Path Traversal Security Check
         clean_translated = self.translate_path(self.path)
         if clean_translated is None:
             self.send_error(403, "Access Denied: Path Traversal Forbidden")
+            return
+
+        # Hawtio / Jolokia JMX Management Proxy
+        if self.path.startswith('/api/node/jolokia') or self.path.startswith('/jolokia'):
+            self.handle_jolokia_proxy()
             return
 
         # API: Runtime Configuration Inspector
@@ -1269,6 +1494,8 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json(200, {
                 "clusterName": "webtransport4j-production",
                 "jvmEngine": LIVE_TELEMETRY.get("jvmGcType", ""),
+                "configuredGc": get_configured_gc_name(),
+                "gcFlags": get_gc_jvm_flags(),
                 "nodes": nodes_data,
                 "activeSessions": LIVE_TELEMETRY["activeSessions"],
                 "activeStreams": LIVE_TELEMETRY["activeStreams"],
@@ -1454,6 +1681,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
 
     def do_POST(self):
+        # Hawtio / Jolokia JMX Management Proxy
+        if self.path.startswith('/api/node/jolokia') or self.path.startswith('/jolokia'):
+            self.handle_jolokia_proxy()
+            return
+
         content_len = int(self.headers.get('Content-Length', 0))
         if content_len > MAX_PAYLOAD_BYTES:
             self.send_error(413, f"Payload Too Large: Maximum allowed is {MAX_PAYLOAD_BYTES} bytes.")
@@ -1569,7 +1801,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             classes_dir = os.path.join(PROJECT_ROOT, "target", "classes")
             cp_sep = os.pathsep
             if os.path.isdir(lib_dir):
-                cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+                cmd_args = [get_java_cmd()] + get_jvm_args() + ["-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                             "io.github.webtransport4j.example.RealTrafficGenerator", command, target_url]
             else:
                 mvn_cmd = "mvn.cmd" if sys.platform.startswith("win") or os.name == "nt" else "mvn"
@@ -2470,10 +2702,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
     def do_OPTIONS(self):
         self.send_response(204)
-        if CORS_ORIGIN:
-            self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate')
+        allow_origin = CORS_ORIGIN if CORS_ORIGIN else '*'
+        self.send_header('Access-Control-Allow-Origin', allow_origin)
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate, X-Requested-With, Origin, Accept')
+        self.send_header('Access-Control-Max-Age', '86400')
         self.end_headers()
 
 import socket

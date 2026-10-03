@@ -1420,6 +1420,9 @@
           totalDatagrams: data.totalDatagramsProcessed,
           drops: data.datagramsDroppedRate
         });
+        if (data.jvmGcType || data.jvm) {
+          updateLiveJvmBadge(data.jvmGcType || data.jvm);
+        }
       }
     } catch (_) {}
   }
@@ -1484,6 +1487,370 @@
         loadSessions(false);
       }
     }, 2000);
+
+    // Initial Hawtio & dynamic JVM diagnostics load
+    setTimeout(() => {
+      syncClusterNodesDropdown();
+      window.refreshHawtioDiagnostics();
+    }, 500);
+    setInterval(window.refreshHawtioDiagnostics, 4000);
+    setInterval(syncClusterNodesDropdown, 6000);
   });
+
+  // --- Hawtio JVM Diagnostics & JMX Console ---
+  let cachedHawtioDiagnostics = null;
+  let cachedThreadDump = [];
+
+  function updateLiveJvmBadge(jvmStr) {
+    if (!jvmStr) return;
+    const textSpan = document.getElementById('live-jvm-text');
+    const badge = document.getElementById('live-jvm-badge');
+    const subSpan = document.getElementById('banner-jvm-sub');
+    if (textSpan) {
+      textSpan.textContent = jvmStr;
+    } else if (badge) {
+      badge.textContent = jvmStr;
+    }
+    if (subSpan) {
+      subSpan.textContent = `${jvmStr} Telemetry`;
+    }
+    const hawtioChip = document.getElementById('hawtio-live-gc-chip');
+    if (hawtioChip) {
+      hawtioChip.textContent = jvmStr;
+    }
+  }
+
+  function updateHawtioNodeSelect(nodes) {
+    const sel = document.getElementById('hawtio-node-select');
+    if (!sel || !nodes || nodes.length === 0) return;
+    const currentVal = sel.value;
+    const optionsHtml = nodes.map(n => {
+      const val = n.id || n.name || String(n.healthPort);
+      const host = n.host || '127.0.0.1';
+      const port = n.healthPort || 8080;
+      const label = `${n.name || n.id} (${host}:${port} · QUIC ${n.quicPort || 4433})`;
+      return `<option value="${escapeHtml(String(val))}" data-port="${port}" data-host="${escapeHtml(host)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    if (sel.innerHTML !== optionsHtml) {
+      sel.innerHTML = optionsHtml;
+      if (currentVal && [...sel.options].some(o => o.value === currentVal)) {
+        sel.value = currentVal;
+      }
+    }
+  }
+
+  function getSelectedHawtioTarget() {
+    const sel = document.getElementById('hawtio-node-select');
+    if (!sel || !sel.selectedOptions || sel.selectedOptions.length === 0) {
+      return { val: '8081', port: '8081', host: '127.0.0.1' };
+    }
+    const opt = sel.selectedOptions[0];
+    const val = sel.value || '8081';
+    const port = opt?.dataset?.port || (val.match(/^\d+$/) ? val : '8081');
+    const host = opt?.dataset?.host || '127.0.0.1';
+    return { val, port, host };
+  }
+
+  window.onHawtioNodeChange = function() {
+    const target = getSelectedHawtioTarget();
+    const endpointSpan = document.getElementById('hawtio-endpoint-direct');
+    if (endpointSpan) {
+      endpointSpan.textContent = `http://${target.host}:${target.port}/jolokia`;
+    }
+    window.refreshHawtioDiagnostics();
+  };
+
+  window.switchHawtioTab = function(tabName) {
+    document.querySelectorAll('.hawtio-tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('[id^="tab-hawtio-"][id$="-btn"]').forEach(btn => btn.classList.remove('active'));
+
+    const activeEl = document.getElementById(`hawtio-tab-${tabName}`);
+    const activeBtn = document.getElementById(`tab-hawtio-${tabName}-btn`);
+    if (activeEl) activeEl.style.display = 'block';
+    if (activeBtn) activeBtn.classList.add('active');
+
+    if (tabName === 'mbeans' && !window._mbeansLoaded) {
+      window.loadMBeansTree();
+    } else if (tabName === 'threads' && cachedThreadDump.length === 0) {
+      window.generateThreadDump();
+    }
+  };
+
+  window.refreshHawtioDiagnostics = async function() {
+    const target = getSelectedHawtioTarget();
+    try {
+      const res = await fetch(`/api/node/jolokia/overview?node=${encodeURIComponent(target.val)}&port=${target.port}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      cachedHawtioDiagnostics = data;
+      renderHawtioDiagnostics(data);
+    } catch (err) {
+      // Graceful fallback to general live-telemetry if node is restarting
+    }
+  };
+
+  function renderHawtioDiagnostics(data) {
+    if (!data) return;
+    const jvm = data.jvm || {};
+    const mem = data.memory || {};
+    const gc = data.gc || {};
+    const threads = data.threads || {};
+    const os = data.os || {};
+
+    const displayName = jvm.displayName || `${jvm.vmName || 'Java'} · ${jvm.gcType || 'ZGC'}`;
+    updateLiveJvmBadge(displayName);
+
+    // GC & Runtime
+    const gcNameEl = document.getElementById('hawtio-gc-name');
+    if (gcNameEl) gcNameEl.textContent = jvm.gcType || 'Generational ZGC';
+    const jvmVerEl = document.getElementById('hawtio-jvm-version');
+    if (jvmVerEl) jvmVerEl.textContent = `${jvm.vmName || 'Java HotSpot'} (${jvm.version || '25'})`;
+    const gcPausesEl = document.getElementById('hawtio-gc-pauses');
+    if (gcPausesEl) gcPausesEl.textContent = `${gc.totalPauseMs || 0} ms`;
+    const gcColsEl = document.getElementById('hawtio-gc-collections');
+    if (gcColsEl) gcColsEl.textContent = `${gc.totalCollections || 0} cycles`;
+
+    // Heap Memory
+    const heapUsedMb = Math.round((mem.heapUsed || 0) / (1024 * 1024));
+    const heapMaxMb = Math.round((mem.heapMax || 0) / (1024 * 1024));
+    const heapCommittedMb = Math.round((mem.heapCommitted || 0) / (1024 * 1024));
+    const heapPct = heapMaxMb > 0 ? Math.round((heapUsedMb / heapMaxMb) * 100) : 0;
+
+    const heapUsedEl = document.getElementById('hawtio-heap-used');
+    if (heapUsedEl) heapUsedEl.textContent = `${heapUsedMb} MB`;
+    const heapMaxEl = document.getElementById('hawtio-heap-max');
+    if (heapMaxEl) heapMaxEl.textContent = `of ${heapMaxMb} MB Max (Committed: ${heapCommittedMb} MB)`;
+    const heapBarEl = document.getElementById('hawtio-heap-bar');
+    if (heapBarEl) heapBarEl.style.width = `${Math.min(100, Math.max(2, heapPct))}%`;
+    const heapPctEl = document.getElementById('hawtio-heap-pct');
+    if (heapPctEl) heapPctEl.textContent = `${heapPct}%`;
+
+    // Direct Memory & Non-Heap
+    const directMb = Math.round((mem.directMemoryUsed || 0) / (1024 * 1024));
+    const nonHeapMb = Math.round((mem.nonHeapUsed || 0) / (1024 * 1024));
+    const totalJvmMb = Math.round((mem.jvmTotal || 0) / (1024 * 1024));
+
+    const directUsedEl = document.getElementById('hawtio-direct-used');
+    if (directUsedEl) directUsedEl.textContent = `${directMb} MB`;
+    const directBufEl = document.getElementById('hawtio-direct-buffers');
+    if (directBufEl) directBufEl.textContent = `${mem.directBufferCount || 0} active direct buffers`;
+    const nonHeapEl = document.getElementById('hawtio-nonheap-used');
+    if (nonHeapEl) nonHeapEl.textContent = `${nonHeapMb} MB`;
+    const jvmTotalEl = document.getElementById('hawtio-jvm-total');
+    if (jvmTotalEl) jvmTotalEl.textContent = `${totalJvmMb} MB`;
+
+    // Threads & CPU
+    const thActEl = document.getElementById('hawtio-threads-active');
+    if (thActEl) thActEl.textContent = threads.active || 0;
+    const thPeakEl = document.getElementById('hawtio-threads-peak');
+    if (thPeakEl) thPeakEl.textContent = threads.peak || 0;
+    const cpuEl = document.getElementById('hawtio-cpu-pct');
+    if (cpuEl) cpuEl.textContent = `${(os.cpuPercent || 0).toFixed(1)}%`;
+
+    // Render GC beans table
+    const gcTbody = document.getElementById('hawtio-gc-tbody');
+    if (gcTbody && jvm.gcBeans) {
+      gcTbody.innerHTML = jvm.gcBeans.map(b => {
+        let typePill = '<span class="badge-tag">GC Collector</span>';
+        const nameLower = (b.name || '').toLowerCase();
+        if (nameLower.includes('minor')) {
+          typePill = '<span class="badge-tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">ZGC Minor (Young)</span>';
+        } else if (nameLower.includes('major')) {
+          typePill = '<span class="badge-tag" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">ZGC Major (Old)</span>';
+        } else if (nameLower.includes('g1 young')) {
+          typePill = '<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">G1 Young</span>';
+        } else if (nameLower.includes('g1 old')) {
+          typePill = '<span class="badge-tag" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">G1 Old</span>';
+        }
+        const pools = (b.memoryPools || []).join(', ') || 'Global Heap';
+        return `<tr>
+          <td><strong style="color: #fff; font-family: 'JetBrains Mono', monospace;">${escapeHtml(b.name)}</strong></td>
+          <td>${typePill}</td>
+          <td style="color: #38bdf8; font-weight: 600;">${b.collections}</td>
+          <td style="color: #fff;">${b.timeMs} ms</td>
+          <td style="font-size: 0.75rem; color: var(--text-dim);">${escapeHtml(pools)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // JVM Args
+    const argsEl = document.getElementById('hawtio-jvm-args');
+    if (argsEl && jvm.inputArguments) {
+      argsEl.innerHTML = jvm.inputArguments.length > 0
+        ? jvm.inputArguments.map(a => `<div>${escapeHtml(a)}</div>`).join('')
+        : '<div style="color: var(--text-dim);">No special JVM flags passed (running standard ergonomics)</div>';
+    }
+  }
+
+  window.loadMBeansTree = async function() {
+    const target = getSelectedHawtioTarget();
+    const treeEl = document.getElementById('hawtio-mbean-tree');
+    if (!treeEl) return;
+    treeEl.innerHTML = '<div style="color: var(--text-dim); padding: 0.5rem;">Querying Jolokia MBeans tree...</div>';
+    try {
+      const res = await fetch(`/api/node/jolokia/list?node=${encodeURIComponent(target.val)}&port=${target.port}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const domains = data.value || {};
+      window._mbeansLoaded = true;
+
+      let html = '';
+      for (const [domain, mbeans] of Object.entries(domains)) {
+        html += `<div style="margin-bottom: 0.4rem;">
+          <div style="font-weight: 700; color: #38bdf8; padding: 0.2rem 0; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none';">
+            📁 ${escapeHtml(domain)}
+          </div>
+          <div style="padding-left: 0.75rem;">`;
+        for (const [keyProps, info] of Object.entries(mbeans)) {
+          const mbeanName = `${domain}:${keyProps}`;
+          html += `<div style="padding: 0.15rem 0.3rem; border-radius: 4px; cursor: pointer; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
+            class="mbean-item-hover" 
+            onclick="window.inspectMBean('${escapeHtml(mbeanName)}')" 
+            title="${escapeHtml(mbeanName)}">
+            ☕ ${escapeHtml(keyProps)}
+          </div>`;
+        }
+        html += `</div></div>`;
+      }
+      treeEl.innerHTML = html;
+    } catch (err) {
+      treeEl.innerHTML = `<div style="color: #ef4444; padding: 0.5rem;">Failed to load MBeans: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+
+  window.inspectMBean = async function(mbeanName) {
+    const target = getSelectedHawtioTarget();
+    const nameEl = document.getElementById('hawtio-selected-mbean-name');
+    const container = document.getElementById('hawtio-mbean-attributes-container');
+    if (nameEl) nameEl.textContent = mbeanName;
+    if (container) container.innerHTML = '<div style="color: var(--text-dim); padding: 1rem; text-align: center;">Reading MBean attributes via Jolokia...</div>';
+
+    try {
+      const enc = encodeURIComponent(mbeanName);
+      const res = await fetch(`/api/node/jolokia/read/${enc}?node=${encodeURIComponent(target.val)}&port=${target.port}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const values = data.value || {};
+
+      let html = `<table class="data-table" style="font-size: 0.75rem;">
+        <thead><tr><th>Attribute</th><th>Value</th></tr></thead><tbody>`;
+      for (const [attr, val] of Object.entries(values)) {
+        let valStr = typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val);
+        html += `<tr>
+          <td style="font-weight: 600; color: #38bdf8; font-family: 'JetBrains Mono', monospace;">${escapeHtml(attr)}</td>
+          <td style="font-family: 'JetBrains Mono', monospace; word-break: break-all; color: #fff;">${escapeHtml(valStr)}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+      if (container) container.innerHTML = html;
+    } catch (err) {
+      if (container) container.innerHTML = `<div style="color: #ef4444; padding: 1rem;">Error reading MBean: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+
+  window.generateThreadDump = async function() {
+    const target = getSelectedHawtioTarget();
+    const container = document.getElementById('hawtio-threads-list-container');
+    if (container) container.innerHTML = '<div style="color: var(--text-dim); padding: 1rem; text-align: center;">Capturing JVM thread dump via Jolokia...</div>';
+
+    try {
+      const res = await fetch(`/api/node/jolokia/threads?node=${encodeURIComponent(target.val)}&port=${target.port}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      cachedThreadDump = data.threads || [];
+      const sum = data.summary || {};
+
+      const thR = document.getElementById('hawtio-th-runnable');
+      if (thR) thR.textContent = sum.runnable || 0;
+      const thW = document.getElementById('hawtio-th-waiting');
+      if (thW) thW.textContent = sum.waiting || 0;
+      const thTW = document.getElementById('hawtio-th-timed');
+      if (thTW) thTW.textContent = sum.timedWaiting || 0;
+      const thB = document.getElementById('hawtio-th-blocked');
+      if (thB) thB.textContent = sum.blocked || 0;
+
+      renderThreadList(cachedThreadDump);
+      appendLog('OK', 'THREAD_DUMP', `Captured live thread dump on port ${port}: ${cachedThreadDump.length} threads active.`);
+    } catch (err) {
+      if (container) container.innerHTML = `<div style="color: #ef4444; padding: 1rem;">Failed to capture thread dump: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+
+  function renderThreadList(threads) {
+    const container = document.getElementById('hawtio-threads-list-container');
+    if (!container) return;
+    if (threads.length === 0) {
+      container.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 1rem;">No threads found matching filter.</div>';
+      return;
+    }
+
+    container.innerHTML = threads.map(t => {
+      let stateBadge = `<span class="badge-tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">RUNNABLE</span>`;
+      if (t.state === 'WAITING') stateBadge = `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">WAITING</span>`;
+      else if (t.state === 'TIMED_WAITING') stateBadge = `<span class="badge-tag" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">TIMED_WAITING</span>`;
+      else if (t.state === 'BLOCKED') stateBadge = `<span class="badge-tag" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">BLOCKED</span>`;
+
+      const isNetty = t.name.toLowerCase().includes('eventloop') || t.name.toLowerCase().includes('quic') || t.name.toLowerCase().includes('nio');
+      const nameColor = isNetty ? '#10b981' : '#fff';
+
+      const stackHtml = (t.stackTrace || []).map(s => `<div style="padding-left: 1rem; color: var(--text-dim); font-size: 0.7rem;">at ${escapeHtml(s)}</div>`).join('');
+
+      return `<div style="border-bottom: 1px solid rgba(255,255,255,0.06); padding: 0.5rem 0.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--text-dim);">#${t.id}</span>
+            <strong style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: ${nameColor};">${escapeHtml(t.name)}</strong>
+          </div>
+          <div>${stateBadge}</div>
+        </div>
+        ${stackHtml ? `<div style="margin-top: 0.25rem; font-family: 'JetBrains Mono', monospace;">${stackHtml}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  window.filterThreadDump = function() {
+    const q = (document.getElementById('hawtio-thread-search')?.value || '').toLowerCase().trim();
+    if (!q) {
+      renderThreadList(cachedThreadDump);
+      return;
+    }
+    const filtered = cachedThreadDump.filter(t => t.name.toLowerCase().includes(q) || t.state.toLowerCase().includes(q));
+    renderThreadList(filtered);
+  };
+
+  window.copyThreadDumpToClipboard = function() {
+    if (!cachedThreadDump.length) return;
+    const text = cachedThreadDump.map(t => `"${t.name}" #${t.id} ${t.state}\n` + (t.stackTrace || []).map(s => `    at ${s}`).join('\n')).join('\n\n');
+    navigator.clipboard.writeText(text).then(() => {
+      appendLog('OK', 'HAWTIO', 'Thread dump copied to clipboard.');
+    });
+  };
+
+  window.triggerSystemGc = async function() {
+    const target = getSelectedHawtioTarget();
+    if (!confirm(`Invoke java.lang:type=Memory.gc() on node '${target.val}' (${target.host}:${target.port})? This will trigger immediate garbage collection.`)) {
+      return;
+    }
+    appendLog('WARN', 'JMX_GC', `Invoking System.gc() on node '${target.val}' via Jolokia JMX bridge...`);
+    try {
+      const res = await fetch(`/api/node/jolokia/exec/java.lang:type=Memory/gc?node=${encodeURIComponent(target.val)}&port=${target.port}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 200) {
+        appendLog('OK', 'JMX_GC', `System.gc() successfully executed on port ${port}.`);
+        window.refreshHawtioDiagnostics();
+      } else {
+        appendLog('ERR', 'JMX_GC', `GC failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      appendLog('ERR', 'JMX_GC', `GC execution error: ${err.message}`);
+    }
+  };
+
+  window.openHawtioHelpModal = function() {
+    const m = document.getElementById('modal-hawtio-help');
+    if (m) m.style.display = 'flex';
+  };
 
 })();

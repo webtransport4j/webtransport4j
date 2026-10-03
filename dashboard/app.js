@@ -37,7 +37,7 @@
       sessionHandshakeLatencyMs: 0.0,
       availabilitySlo: 100.0,
       errorBudgetBurnRate: 0.0,
-      jvmGcType: 'Generational ZGC (Java 25)',
+      jvmGcType: 'Connecting...',
       zgcPauseMs: 0.04
     },
 
@@ -113,6 +113,12 @@
       if (res.ok) {
         const data = await res.json();
         Object.assign(state.metrics, data);
+        if (data.jvmGcType || data.jvm) {
+          const jvmStr = data.jvmGcType || data.jvm;
+          state.metrics.jvmGcType = jvmStr;
+          const engineEl = document.getElementById('cockpit-jvm-engine');
+          if (engineEl) engineEl.textContent = jvmStr;
+        }
 
         // Throughput calculation: (datagrams sent/recv * ~512 bytes * 8) / 1,000,000 Mbps
         const totalPps = (state.metrics.datagramsSentRate || 0) + (state.metrics.datagramsRecvRate || 0);
@@ -233,7 +239,7 @@
         id: 'alt-sessions',
         severity: 'info',
         title: 'Active QUIC WebTransport Sessions',
-        desc: `${state.metrics.activeSessions} client session(s) active on cluster. Generational ZGC active.`,
+        desc: `${state.metrics.activeSessions} client session(s) active on cluster. ${state.metrics.jvmGcType || 'Live JVM'} active.`,
         time: 'Just now'
       });
     }
@@ -243,7 +249,7 @@
         id: 'alt-nominal',
         severity: 'success',
         title: 'Cluster Nominal & Awaiting Traffic',
-        desc: 'WebTransport4J cluster nodes healthy with Java 25 Generational ZGC. Ready for load generation.',
+        desc: `WebTransport4J cluster nodes healthy with ${state.metrics.jvmGcType || 'Live JVM'}. Ready for load generation.`,
         time: 'Nominal'
       });
     }
@@ -544,7 +550,7 @@
     const payload = {
       exportTimestamp: new Date().toISOString(),
       service: 'webtransport4j-observability',
-      jvm: 'Java 25 (Generational ZGC)',
+      jvm: state.metrics.jvmGcType || 'Java Runtime',
       metrics: state.metrics,
       traces: state.traces,
       alerts: state.alerts
