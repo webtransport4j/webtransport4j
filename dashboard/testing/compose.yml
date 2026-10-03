@@ -1,0 +1,109 @@
+name: wt4j-portal-test
+
+x-node: &node
+  image: wt4j-portal-test-node
+  build:
+    context: ../..
+    dockerfile: dashboard/testing/node.Dockerfile
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:exec,size=128m"]
+  mem_limit: 768m
+  volumes:
+    - ./.runtime:/run/tls:ro
+  environment: &node-env
+    PORT: "4433"
+    METRICS_PORT: "8080"
+    MANAGEMENT_BIND_HOST: "0.0.0.0"
+    MANAGEMENT_AUTH_TOKEN: ${TEST_NODE_TOKEN:?Run run.py up first}
+    CLUSTER_HMAC_KEY: ${TEST_HMAC_KEY:?Run run.py up first}
+    SSL_KEY_PATH: /run/tls/tls.key
+    SSL_CERT_PATH: /run/tls/tls.crt
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318/v1/metrics
+    WEBTRANSPORT4J_DEV_MODE: "false"
+  healthcheck:
+    test: [CMD, python3, -c, "import pathlib, urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).read(); rows = pathlib.Path('/proc/net/udp').read_text().splitlines()[1:] + pathlib.Path('/proc/net/udp6').read_text().splitlines()[1:]; assert any(row.split()[1].rsplit(':', 1)[1] == '1151' for row in rows), 'QUIC UDP port 4433 is not bound'"]
+    interval: 5s
+    timeout: 3s
+    retries: 24
+    start_period: 10s
+
+services:
+  node-1:
+    <<: *node
+    environment:
+      <<: *node-env
+      POD_NAME: node-1
+      SERVER_ID: "1"
+  node-2:
+    <<: *node
+    environment:
+      <<: *node-env
+      POD_NAME: node-2
+      SERVER_ID: "2"
+  node-3:
+    <<: *node
+    environment:
+      <<: *node-env
+      POD_NAME: node-3
+      SERVER_ID: "3"
+
+  portal:
+    image: wt4j-portal-test-dashboard
+    build:
+      context: ..
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    ports:
+      - "127.0.0.1:${TEST_PORTAL_PORT:-18443}:8085"
+    environment:
+      WT4J_ADMIN_USERNAME: test-operator
+      WT4J_ADMIN_PASSWORD: ${TEST_ADMIN_PASSWORD:?Run run.py up first}
+      WT4J_NODE_MANAGEMENT_TOKEN: ${TEST_NODE_TOKEN}
+      WT4J_OTLP_TOKEN: ${TEST_OTLP_TOKEN:?Run run.py up first}
+      WT4J_CLUSTER_NODES: http://node-1:8080,http://node-2:8080,http://node-3:8080
+      WT4J_PROMETHEUS_TARGETS: http://collector:8889/metrics
+      WT4J_MAX_PAYLOAD_BYTES: "1048576"
+    volumes:
+      - ./.runtime:/run/tls:ro
+    mem_limit: 512m
+    depends_on:
+      node-1: {condition: service_healthy}
+      node-2: {condition: service_healthy}
+      node-3: {condition: service_healthy}
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    command: ["--config=/etc/collector.yaml"]
+    volumes:
+      - ../otel-collector-config.yaml:/etc/collector.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-test-data:/prometheus
+
+  verify:
+    image: wt4j-portal-test-node
+    profiles: [verify]
+    command: [python3, /tests/verify_stack.py]
+    read_only: true
+    cap_drop: [ALL]
+    tmpfs: ["/tmp:exec,size=128m"]
+    environment:
+      TEST_ADMIN_PASSWORD: ${TEST_ADMIN_PASSWORD}
+      TEST_NODE_TOKEN: ${TEST_NODE_TOKEN}
+      TEST_OTLP_TOKEN: ${TEST_OTLP_TOKEN}
+    volumes:
+      - ./.runtime:/run/tls:ro
+      - ./verify_stack.py:/tests/verify_stack.py:ro
+    depends_on:
+      portal: {condition: service_healthy}
+
+volumes:
+  prometheus-test-data:

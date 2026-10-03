@@ -23,6 +23,7 @@ import socketserver
 import threading
 import ssl
 import secrets
+import math
 from concurrent.futures import ThreadPoolExecutor
 
 if sys.platform.startswith("win"):
@@ -73,12 +74,14 @@ def parse_cluster_targets():
                 item = f"http://{item}"
             parsed = urllib.parse.urlparse(item)
             host = parsed.hostname or "127.0.0.1"
-            port = parsed.port or 8080
+            if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+                raise ValueError("WT4J_CLUSTER_NODES must contain HTTP(S) origins without credentials or paths")
+            port = parsed.port or (443 if parsed.scheme == "https" else 8080)
             targets.append({
                 "idx": idx,
                 "host": host,
                 "healthPort": port,
-                "baseUrl": f"http://{host}:{port}"
+                "baseUrl": f"{parsed.scheme}://{parsed.netloc}"
             })
     if not targets:
         host = os.getenv("WT4J_CLUSTER_HOST", "127.0.0.1")
@@ -96,7 +99,13 @@ def parse_cluster_targets():
 CLUSTER_TARGETS = parse_cluster_targets()
 CLUSTER_PORTS = [t["healthPort"] for t in CLUSTER_TARGETS]
 CLUSTER_HOST = CLUSTER_TARGETS[0]["host"] if CLUSTER_TARGETS else "127.0.0.1"
-NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "wt4j-cluster-mgmt-token-2026")
+NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "")
+OTLP_TOKEN = os.getenv("WT4J_OTLP_TOKEN", "")
+PRODUCTION = os.getenv("WT4J_ENV", "development") == "production"
+AUTH_LOCK = threading.Lock()
+LOGIN_ATTEMPTS = {}
+MAX_ADMIN_SESSIONS = 1000
+STATIC_PATHS = ('/', '/index.html', '/admin.html', '/app.js', '/admin.js', '/styles.css')
 SCRAPE_TIMEOUT_SEC = float(os.getenv("WT4J_SCRAPE_TIMEOUT_SEC", "1.0"))
 
 _prom_env = os.getenv("WT4J_PROMETHEUS_TARGETS", "")
@@ -311,7 +320,13 @@ def drain_server_session(raw_sid, sess_id=None):
     payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
-    for target in parse_cluster_targets():
+    origin = MANAGED_SESSIONS.get(sess_id, {}).get("managementOrigin")
+    targets = parse_cluster_targets()
+    if PRODUCTION and not origin:
+        raise ValueError("Session management origin is unavailable; refusing cross-node mutation")
+    for target in targets:
+        if origin and target["baseUrl"] != origin:
+            continue
         try:
             req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/drain",
                                          data=json.dumps(payload).encode('utf-8'),
@@ -332,7 +347,13 @@ def close_server_session(raw_sid, sess_id=None):
     payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
-    for target in parse_cluster_targets():
+    origin = MANAGED_SESSIONS.get(sess_id, {}).get("managementOrigin")
+    targets = parse_cluster_targets()
+    if PRODUCTION and not origin:
+        raise ValueError("Session management origin is unavailable; refusing cross-node mutation")
+    for target in targets:
+        if origin and target["baseUrl"] != origin:
+            continue
         try:
             req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/close",
                                          data=json.dumps(payload).encode('utf-8'),
@@ -367,7 +388,7 @@ def probe_node_info(target_or_idx, port=None):
     role = f"Active Peer {node_num} (QUIC-LB ID: {node_num})"
     info = None
     try:
-        req = urllib.request.Request(f"{base_url}/api/node/info", headers={"User-Agent": "WT4J-Admin"})
+        req = urllib.request.Request(f"{base_url}/api/node/info", headers=management_headers())
         with urllib.request.urlopen(req, timeout=0.3) as resp:
             if resp.status == 200:
                 info = json.loads(resp.read().decode('utf-8'))
@@ -395,6 +416,8 @@ def probe_node_info(target_or_idx, port=None):
             "id": info.get("nodeId", default_node_id),
             "name": info.get("nodeName", default_node_id),
             "quicPort": info.get("quicPort", quic_port),
+            "host": host,
+            "baseUrl": base_url,
             "healthPort": port,
             "role": role,
             "status": "HEALTHY",
@@ -412,6 +435,8 @@ def probe_node_info(target_or_idx, port=None):
             "id": default_node_id,
             "name": default_node_id,
             "quicPort": quic_port,
+            "host": host,
+            "baseUrl": base_url,
             "healthPort": port,
             "role": role,
             "status": "OFFLINE",
@@ -435,7 +460,7 @@ def sync_live_server_info():
     primary_node_info = None
     node_statuses = []
 
-    with ThreadPoolExecutor(max_workers=max(1, len(targets))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(16, len(targets)))) as pool:
         futures = [pool.submit(probe_node_info, t) for t in targets]
         results = [f.result() for f in futures]
 
@@ -464,20 +489,25 @@ def sync_live_server_sessions():
     
     all_server_sessions = []
     targets = parse_cluster_targets()
-    target_by_port = {t["healthPort"]: t for t in targets}
-    healthy_ports = [(idx, n["healthPort"]) for idx, n in enumerate(CLUSTER_NODES) if n.get("status") == "HEALTHY"]
-    
-    for idx, port in healthy_ports:
-        target = target_by_port.get(port, {"host": CLUSTER_HOST, "baseUrl": f"http://{CLUSTER_HOST}:{port}"})
+    target_by_origin = {t["baseUrl"]: t for t in targets}
+    healthy_nodes = [(idx, n) for idx, n in enumerate(CLUSTER_NODES) if n.get("status") == "HEALTHY"]
+
+    for idx, node in healthy_nodes:
+        target = target_by_origin.get(node.get("baseUrl"))
+        if target is None:
+            continue
+        port = target["healthPort"]
         node_num = idx + 1
         default_node_id = f"wt-node-{node_num}"
         quic_port = 4432 + node_num
         try:
-            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions", headers={"User-Agent": "WT4J-Admin"})
+            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions", headers=management_headers())
             with urllib.request.urlopen(req, timeout=0.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode('utf-8'))
                     for sess_item in data.get("sessions", []):
+                        sess_item["managementOrigin"] = target["baseUrl"]
+                        sess_item["host"] = target["host"]
                         if not sess_item.get("nodeId"):
                             sess_item["nodeId"] = default_node_id
                             sess_item["nodeName"] = default_node_id
@@ -518,7 +548,7 @@ def sync_live_server_sessions():
                         ss_st["status"] = "DRAINED"
                     elif existing.get("status") == "DRAINING" and ss_st.get("type") == "connect":
                         ss_st["status"] = "DRAINING"
-                if ss_st.get("type") == "connect" and not ss_st.get("history"):
+                if not PRODUCTION and ss_st.get("type") == "connect" and not ss_st.get("history"):
                     path_str = ss.get("path", "/echo")
                     ss_st["history"] = [
                         {
@@ -626,6 +656,7 @@ def sync_live_server_sessions():
 
             MANAGED_SESSIONS[sess_id] = {
                 "id": sess_id,
+                "managementOrigin": ss.get("managementOrigin"),
                 "rawSessionId": ss.get("rawSessionId", 0),
                 "nodeId": node_id,
                 "nodeName": node_name,
@@ -633,7 +664,7 @@ def sync_live_server_sessions():
                 "serverPort": quic_p,
                 "quicPort": quic_p,
                 "serverNode": server_node,
-                "targetUrl": existing.get("targetUrl", f"https://localhost:{quic_p}{ss.get('path', '/echo')}"),
+                "targetUrl": existing.get("targetUrl", f"https://{ss.get('host', CLUSTER_HOST)}:{quic_p}{ss.get('path', '/echo')}"),
                 "path": ss.get("path", "/echo"),
                 "remoteEndpoint": ss.get("localEndpoint", f"0.0.0.0:{quic_p}"),
                 "clientEndpoint": ss.get("clientEndpoint", "127.0.0.1:50000"),
@@ -680,6 +711,16 @@ def sync_live_server_sessions():
                 "wireEvents": existing.get("wireEvents", []),
                 "heartbeat": existing_hb
             }
+            if PRODUCTION:
+                observed = MANAGED_SESSIONS[sess_id]
+                observed["rttMs"] = ss.get("rttMs")
+                observed["heartbeat"] = ss.get("heartbeat", {"status": "UNKNOWN", "recent": []})
+                observed["anomalyMetrics"] = ss.get("anomalyMetrics", {})
+                observed["wireEvents"] = ss.get("wireEvents", [])
+                for stream in observed["streams"]:
+                    source = next((item for item in ss.get("streams", []) if item.get("streamId") == stream.get("streamId")), {})
+                    stream["history"] = source.get("history", [])
+
 
         # Keep client subprocess-backed sessions alive as long as subprocess is running; prune ghost sessions
         for sid in list(MANAGED_SESSIONS.keys()):
@@ -771,7 +812,9 @@ def resolve_target_endpoint(target_url):
         
         parsed = urllib.parse.urlparse(target_url if "://" in target_url else f"https://{target_url}")
         path = parsed.path if parsed.path and parsed.path not in ("/", "/auto") else "/echo"
-        resolved_url = f"https://localhost:{port}{path}"
+        host = chosen.get("host", CLUSTER_HOST)
+        authority = f"[{host}]" if ":" in host else host
+        resolved_url = f"https://{authority}:{port}{path}"
         server_node = f"{node_id} (Server ID: {node_num} · Port {port} · Dynamic Auto-LB)"
         return resolved_url, node_num, port, server_node
 
@@ -1184,6 +1227,8 @@ def log_audit(operator, action, target, details, status="SUCCESS"):
         "details": details,
         "status": status
     }
+    if PRODUCTION:
+        print(json.dumps({"audit": entry}), flush=True)
     AUDIT_LOG.insert(0, entry)
     if len(AUDIT_LOG) > MAX_AUDIT_LOG_ENTRIES:
         AUDIT_LOG.pop()
@@ -1201,64 +1246,64 @@ def check_node_probe(url):
     except Exception:
         return False
 
-def scrape_real_prometheus():
+def scrape_real_prometheus(update_gauges=True):
     """Scrapes Prometheus endpoint if available (OTel Collector port 8889 or server)"""
     healthy_ports = {n["healthPort"] for n in CLUSTER_NODES if n.get("status") == "HEALTHY"}
     for ep in PROMETHEUS_ENDPOINTS:
         try:
             parsed = urllib.parse.urlparse(ep)
-            if parsed.port and parsed.port in CLUSTER_PORTS and parsed.port not in healthy_ports:
-                continue
             req = urllib.request.Request(ep, headers={"User-Agent": "WT4J-Scraper"})
             with urllib.request.urlopen(req, timeout=SCRAPE_TIMEOUT_SEC) as resp:
                 if resp.status == 200:
                     text = resp.read().decode('utf-8')
-                    parse_prometheus_text(text)
+                    parse_prometheus_text(text, update_gauges=update_gauges)
                     return True
         except Exception:
             continue
     return False
 
-def parse_prometheus_text(text):
-    """Parses real Prometheus exposition text and updates LIVE_TELEMETRY strictly from real numbers"""
+def parse_prometheus_text(text, update_gauges=True):
+    """Sum node-labelled exposition samples rather than retaining the last node."""
+    totals = {}
+    fields = {
+        "webtransport_sessions_active": "activeSessions",
+        "webtransport_streams_active": "activeStreams",
+        "webtransport_datagrams_dropped_total": "datagramsDroppedRate",
+        "webtransport_datagrams_sent_total": "totalDatagramsProcessed",
+    }
     for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
+        parts = line.strip().split()
+        if len(parts) < 2 or parts[0].startswith('#'):
             continue
-        parts = line.split()
-        if len(parts) < 2:
+        metric = parts[0]
+        name = metric.split('{', 1)[0]
+        field = fields.get(name)
+        if not field:
             continue
-        metric_name = parts[0]
         try:
-            val = float(parts[1])
+            value = float(parts[1])
         except ValueError:
             continue
+        if not math.isfinite(value) or value < 0:
+            continue
+        if name == "webtransport_streams_active":
+            if 'type="bidi"' in metric:
+                field = "bidiStreams"
+            elif 'type="uni"' in metric:
+                field = "uniStreams"
+        totals[field] = totals.get(field, 0) + value
+    for field, value in totals.items():
+        if not update_gauges and field in ("activeSessions", "activeStreams", "bidiStreams", "uniStreams"):
+            continue
+        LIVE_TELEMETRY[field] = int(value)
+    if totals:
+        LIVE_TELEMETRY["last_seen_ts"] = time.time()
+        LIVE_TELEMETRY["source_type"] = "live-prometheus"
 
-        is_prom = CURRENT_DATASOURCE.get("type") == "prometheus"
-        if "webtransport_sessions_active" in metric_name:
-            if val > 0 or is_prom:
-                LIVE_TELEMETRY["activeSessions"] = int(val)
-                LIVE_TELEMETRY["last_seen_ts"] = time.time()
-                LIVE_TELEMETRY["source_type"] = "live-prometheus"
-        elif "webtransport_streams_active" in metric_name:
-            if val > 0 or is_prom:
-                if 'type="bidi"' in metric_name:
-                    LIVE_TELEMETRY["bidiStreams"] = int(val)
-                elif 'type="uni"' in metric_name:
-                    LIVE_TELEMETRY["uniStreams"] = int(val)
-                else:
-                    LIVE_TELEMETRY["activeStreams"] = int(val)
-        elif "webtransport_datagrams_dropped_total" in metric_name:
-            if val > 0 or is_prom:
-                LIVE_TELEMETRY["datagramsDroppedRate"] = int(val)
-        elif "webtransport_datagrams_sent_total" in metric_name:
-            if val > 0 or is_prom:
-                LIVE_TELEMETRY["totalDatagramsProcessed"] = int(val)
 
 def reset_telemetry():
     """Resets all live telemetry counters, traces, and metrics to clean initial zero state while preserving datasource config."""
     global LIVE_TELEMETRY, AUDIT_LOG, MANAGED_SESSIONS, SESSION_COUNTER, TELEMETRY_HISTORY, CLUSTER_ACTIVE_SESSIONS_COUNT
-    close_all_server_sessions()
     CLUSTER_ACTIVE_SESSIONS_COUNT = 0
     LIVE_TELEMETRY.update({
         "activeSessions": 0,
@@ -1285,14 +1330,12 @@ def reset_telemetry():
         "last_seen_ts": time.time(),
         "source_type": CURRENT_DATASOURCE.get("type", "live-cluster")
     })
-    MANAGED_SESSIONS.clear()
-    SESSION_COUNTER = 0
     for n in CLUSTER_NODES:
         n["activeSessions"] = 0
     # Re-sync real state from server (populates jvmGcType, memory, sessions)
     sync_live_server_info()
     sync_live_server_sessions()
-    AUDIT_LOG.clear()
+    # Preserve the audit trail when telemetry is reset.
     for k in TELEMETRY_HISTORY:
         TELEMETRY_HISTORY[k].clear()
     init_telemetry_history()
@@ -1308,9 +1351,46 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         clean_path = super().translate_path(path)
         real_clean = os.path.realpath(clean_path)
         real_dir = os.path.realpath(DIRECTORY)
-        if not real_clean.startswith(real_dir):
+        if os.path.commonpath((real_clean, real_dir)) != real_dir:
             return None
         return clean_path
+
+    def setup(self):
+        self.request.settimeout(15)
+        if isinstance(self.request, ssl.SSLSocket):
+            self.request.do_handshake()
+        super().setup()
+
+    def do_HEAD(self):
+        if urllib.parse.urlsplit(self.path).path not in STATIC_PATHS:
+            self.send_error(404)
+            return
+        super().do_HEAD()
+
+    def end_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Referrer-Policy', 'same-origin')
+        self.send_header('Cache-Control', 'no-store')
+        if isinstance(self.connection, ssl.SSLSocket):
+            self.send_header('Strict-Transport-Security', 'max-age=31536000')
+        super().end_headers()
+
+    def authorize_request(self):
+        path = urllib.parse.urlsplit(self.path).path
+        if path in ('/v1/metrics', '/v1/traces'):
+            supplied = self.headers.get('Authorization', '')
+            if not OTLP_TOKEN or not hmac.compare_digest(supplied, 'Bearer ' + OTLP_TOKEN):
+                self.send_json(401, {"error": "OTLP authentication required"})
+                return False
+        elif (path.startswith('/api/') or path.startswith('/jolokia') or path == '/metrics') and path != '/api/admin/login':
+            if not self.is_authenticated():
+                self.send_json(401, {"error": "Authentication required"})
+                return False
+        if PRODUCTION and (path in ('/api/admin/execute-traffic', '/api/admin/sessions/create') or (self.command == 'POST' and path.startswith('/api/admin/sessions/') and ('/streams/' in path or '/datagrams' in path))):
+            self.send_json(403, {"error": "Traffic generation is disabled in production; use an independently secured load-test client"})
+            return False
+        return True
 
     def is_authenticated(self):
         auth_header = self.headers.get('Authorization', '')
@@ -1321,7 +1401,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                 if time.time() < session['expires_at']:
                     return session['user']
                 else:
-                    del ADMIN_SESSIONS[token]  # TTL expired cleanup
+                    ADMIN_SESSIONS.pop(token, None)  # TTL expired cleanup
         return None
 
     def send_json(self, status_code, data):
@@ -1385,11 +1465,14 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                 target_url += "?" + urllib.parse.urlencode(forward_params, doseq=True)
 
         method = self.command
+        if method == 'GET' and '/exec/' in subpath:
+            self.send_json(405, {"error": "JMX operations require POST"})
+            return
         body = None
         if method == "POST":
             content_length = int(self.headers.get('Content-Length', 0))
             if content_length > 0:
-                body = self.rfile.read(min(content_length, MAX_PAYLOAD_BYTES))
+                body = self._request_body
 
         try:
             req = urllib.request.Request(target_url, data=body, method=method)
@@ -1403,7 +1486,8 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_response(resp.status)
                 self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json; charset=utf-8'))
                 self.send_header('Content-Length', str(len(resp_bytes)))
-                self.send_header('Access-Control-Allow-Origin', '*')
+                if CORS_ORIGIN:
+                    self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
                 self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Origin, Accept')
                 self.end_headers()
@@ -1418,11 +1502,14 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             self.send_response(502)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Content-Length', str(len(err_json)))
-            self.send_header('Access-Control-Allow-Origin', '*')
+            if CORS_ORIGIN:
+                self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
             self.end_headers()
             self.wfile.write(err_json)
 
     def do_GET(self):
+        if not self.authorize_request():
+            return
         # 0. Path Traversal Security Check
         clean_translated = self.translate_path(self.path)
         if clean_translated is None:
@@ -1457,8 +1544,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == '/api/live-telemetry':
             node_info = sync_live_server_info()
             sync_live_server_sessions()
-            if not node_info or CURRENT_DATASOURCE.get("type") == "prometheus":
-                scrape_real_prometheus()
+            scrape_real_prometheus(update_gauges=not bool(node_info) or CURRENT_DATASOURCE.get("type") == "prometheus")
             record_telemetry_sample()
             resp_data = dict(LIVE_TELEMETRY)
             resp_data["history"] = TELEMETRY_HISTORY
@@ -1487,8 +1573,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         if self.path == '/api/cluster/status':
             node_info = sync_live_server_info()
             sync_live_server_sessions()
-            if not node_info or CURRENT_DATASOURCE.get("type") == "prometheus":
-                scrape_real_prometheus()
+            scrape_real_prometheus(update_gauges=not bool(node_info) or CURRENT_DATASOURCE.get("type") == "prometheus")
 
             nodes_data = CLUSTER_NODES if CLUSTER_NODES else []
             self.send_json(200, {
@@ -1628,7 +1713,8 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             scrape_real_prometheus()
             self.send_response(200)
             self.send_header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
-            self.send_header('Access-Control-Allow-Origin', '*')
+            if CORS_ORIGIN:
+                self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
             self.end_headers()
 
             metrics_payload = f"""# HELP webtransport_sessions_active Number of currently active WebTransport sessions
@@ -1662,11 +1748,9 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
         # 6. Reset & Start Fresh Endpoint
         if self.path == '/api/reset':
-            reset_telemetry()
-            self.send_json(200, {"success": True, "message": "Telemetry cleared and started fresh."})
+            self.send_json(405, {"error": "Use POST to reset telemetry"})
             return
 
-        # 7. Standard Health Check
         if self.path == '/health' or self.path == '/healthz':
             self.send_json(200, {
                 "status": "UP",
@@ -1677,42 +1761,86 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             return
 
         # Serve static dashboard/admin files
+        if urllib.parse.urlsplit(self.path).path not in STATIC_PATHS:
+            self.send_error(404)
+            return
         return super().do_GET()
 
 
     def do_POST(self):
+        try:
+            content_len = int(self.headers.get('Content-Length', 0))
+        except ValueError:
+            self.send_json(400, {"error": "Invalid Content-Length"})
+            return
+        if content_len < 0 or self.headers.get('Transfer-Encoding'):
+            self.send_json(400, {"error": "Invalid request framing"})
+            return
+        if content_len > MAX_PAYLOAD_BYTES:
+            self.send_json(413, {"error": "Payload too large"})
+            return
+        body = self.rfile.read(content_len) if content_len > 0 else b'{}'
+        self._request_body = body
+        if not self.authorize_request():
+            return
         # Hawtio / Jolokia JMX Management Proxy
         if self.path.startswith('/api/node/jolokia') or self.path.startswith('/jolokia'):
             self.handle_jolokia_proxy()
             return
 
-        content_len = int(self.headers.get('Content-Length', 0))
-        if content_len > MAX_PAYLOAD_BYTES:
-            self.send_error(413, f"Payload Too Large: Maximum allowed is {MAX_PAYLOAD_BYTES} bytes.")
+        try:
+            req_data = json.loads(body.decode('utf-8'))
+        except (ValueError, UnicodeDecodeError):
+            self.send_json(400, {"error": "Invalid JSON"})
+            return
+        if not isinstance(req_data, dict):
+            self.send_json(400, {"error": "JSON object required"})
             return
 
-        body = self.rfile.read(content_len) if content_len > 0 else b'{}'
-        try:
-            req_data = json.loads(body.decode('utf-8', errors='ignore'))
-        except Exception:
-            req_data = {}
+        if self.path == '/api/reset':
+            reset_telemetry()
+            self.send_json(200, {"success": True})
+            return
 
         # 1. Admin Authentication Login
         if self.path == '/api/admin/login':
+            now = time.monotonic()
+            peer = self.client_address[0]
+            with AUTH_LOCK:
+                for key in list(LOGIN_ATTEMPTS):
+                    if now - LOGIN_ATTEMPTS[key][0] >= 60:
+                        del LOGIN_ATTEMPTS[key]
+                started, count = LOGIN_ATTEMPTS.get(peer, (now, 0))
+                limited = count >= 10 or len(LOGIN_ATTEMPTS) >= 10000
+                if not limited:
+                    LOGIN_ATTEMPTS[peer] = (started, count + 1)
+            if limited:
+                self.send_json(429, {"error": "Too many login attempts; retry after 60 seconds"})
+                return
+            if not isinstance(req_data.get('username'), str) or not isinstance(req_data.get('password'), str):
+                self.send_json(400, {"error": "Username and password must be strings"})
+                return
             if ADMIN_PASSWORD_PBKDF2_HEX is None:
                 self.send_json(503, {"success": False, "error": "WT4J_ADMIN_PASSWORD must be configured."})
                 return
             username = req_data.get('username', '').strip()
-            password = req_data.get('password', '').strip()
+            password = req_data.get('password', '')
 
             # Cryptographic PBKDF2 hash verification (constant-time compare_digest)
             supplied_hash = hashlib.pbkdf2_hmac(
                 "sha256", password.encode("utf-8"), ADMIN_PASSWORD_SALT, 100000
             ).hex()
-            is_valid_user = hmac.compare_digest(username, ADMIN_USERNAME) or hmac.compare_digest(username, "admin")
+            is_valid_user = hmac.compare_digest(username, ADMIN_USERNAME)
             is_valid_pass = hmac.compare_digest(supplied_hash, ADMIN_PASSWORD_PBKDF2_HEX)
 
             if is_valid_user and is_valid_pass:
+                with AUTH_LOCK:
+                    for key in list(ADMIN_SESSIONS):
+                        if ADMIN_SESSIONS[key]['expires_at'] <= time.time():
+                            ADMIN_SESSIONS.pop(key, None)
+                    if len(ADMIN_SESSIONS) >= MAX_ADMIN_SESSIONS:
+                        self.send_json(503, {"error": "Session capacity reached"})
+                        return
                 token = f"wt-admin-{uuid.uuid4().hex}"
                 ADMIN_SESSIONS[token] = {
                     "user": username,
@@ -2644,7 +2772,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
         # 5. OpenTelemetry Protocol (OTLP/HTTP) metrics receiver
         if self.path == '/v1/metrics':
             try:
-                data = json.loads(body.decode('utf-8', errors='ignore'))
+                data = json.loads(body.decode('utf-8'))
                 LIVE_TELEMETRY['last_seen_ts'] = time.time()
                 LIVE_TELEMETRY['source_type'] = 'live-otlp'
                 # Parse OTLP resource metrics
@@ -2676,7 +2804,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
         # 5. OpenTelemetry Protocol (OTLP/HTTP) traces receiver
         if self.path == '/v1/traces':
             try:
-                data = json.loads(body.decode('utf-8', errors='ignore'))
+                data = json.loads(body.decode('utf-8'))
                 LIVE_TELEMETRY['last_seen_ts'] = time.time()
                 for rm in data.get('resourceSpans', []):
                     for ss in rm.get('scopeSpans', []):
@@ -2702,8 +2830,8 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
     def do_OPTIONS(self):
         self.send_response(204)
-        allow_origin = CORS_ORIGIN if CORS_ORIGIN else '*'
-        self.send_header('Access-Control-Allow-Origin', allow_origin)
+        if CORS_ORIGIN:
+            self.send_header('Access-Control-Allow-Origin', CORS_ORIGIN)
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, traceparent, tracestate, X-Requested-With, Origin, Accept')
         self.send_header('Access-Control-Max-Age', '86400')
@@ -2711,7 +2839,31 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
 import socket
 
-class DualStackThreadingServer(http.server.ThreadingHTTPServer):
+class BoundedThreadingServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        self.slots = threading.BoundedSemaphore(32)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
+class DualStackThreadingServer(BoundedThreadingServer):
     address_family = socket.AF_INET6
 
     def server_bind(self):
@@ -2725,31 +2877,48 @@ def run():
     non_local_bind = BIND_HOST not in ("127.0.0.1", "::1", "localhost")
     cert_file = os.getenv("WT4J_TLS_CERT_FILE")
     key_file = os.getenv("WT4J_TLS_KEY_FILE")
-    if non_local_bind and (not cert_file or not key_file):
+    if (non_local_bind or PRODUCTION) and (not cert_file or not key_file):
         raise RuntimeError("WT4J_TLS_CERT_FILE and WT4J_TLS_KEY_FILE are required for non-local binds.")
-    if non_local_bind and not os.getenv("WT4J_ADMIN_PASSWORD"):
+    if (non_local_bind or PRODUCTION) and not os.getenv("WT4J_ADMIN_PASSWORD"):
         raise RuntimeError("WT4J_ADMIN_PASSWORD is required for non-local binds.")
+    if PRODUCTION:
+        if not os.getenv("WT4J_CLUSTER_NODES") or not os.getenv("WT4J_PROMETHEUS_TARGETS"):
+            raise RuntimeError("Production requires explicit WT4J_CLUSTER_NODES and WT4J_PROMETHEUS_TARGETS")
+        if CORS_ORIGIN == '*':
+            raise RuntimeError("Wildcard CORS is forbidden in production")
+        if not NODE_MANAGEMENT_TOKEN or not OTLP_TOKEN:
+            raise RuntimeError("Production requires node management and OTLP ingestion tokens")
     try:
         httpd = DualStackThreadingServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)
     except Exception:
-        httpd = http.server.ThreadingHTTPServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)
+        httpd = BoundedThreadingServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)
 
     httpd.allow_reuse_address = True
     if cert_file and key_file:
         tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls_context.minimum_version = ssl.TLSVersion.TLSv1_2
         tls_context.load_cert_chain(cert_file, key_file)
-        httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True)
+        httpd.socket = tls_context.wrap_socket(httpd.socket, server_side=True, do_handshake_on_connect=False)
         scheme = "https"
     else:
         scheme = "http"
     print(f"🚀 WebTransport4J Enterprise Observability & Admin Console running at {scheme}://{BIND_HOST}:{PORT}")
-    print(f"🔐 Authenticated Admin Console: http://localhost:{PORT}/admin.html")
-    print(f"📊 Live Telemetry endpoint: http://localhost:{PORT}/api/live-telemetry")
-    print(f"📈 Prometheus scrape endpoint: http://localhost:{PORT}/metrics")
+    print(f"🔐 Authenticated Admin Console: {scheme}://{BIND_HOST}:{PORT}/admin.html")
+    print(f"📊 Live Telemetry endpoint: {scheme}://{BIND_HOST}:{PORT}/api/live-telemetry")
+    print(f"📈 Prometheus scrape endpoint: {scheme}://{BIND_HOST}:{PORT}/metrics")
+    import signal
+    def stop_server(signum, frame):
+        threading.Thread(target=httpd.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop_server)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down server...")
+    finally:
+        httpd.server_close()
+        for proc in list(SESSION_PROCESSES.values()):
+            if proc.poll() is None:
+                proc.terminate()
 
 if __name__ == '__main__':
     run()

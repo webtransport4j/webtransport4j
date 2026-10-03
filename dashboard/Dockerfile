@@ -1,60 +1,11 @@
-# Multi-stage production container for WebTransport4J Enterprise Dashboard
-FROM nginx:1.27-alpine
-
-# Set working directory and remove default nginx page
-WORKDIR /usr/share/nginx/html
-RUN rm -rf ./*
-
-# Copy dashboard & admin console static assets
-COPY index.html styles.css app.js admin.html admin.js README.md ./
-
-
-# Custom hardened Nginx configuration with gzip, security headers, and caching
-RUN cat <<'EOF' > /etc/nginx/conf.d/default.conf
-server {
-    listen 8080;
-    server_name _;
-
-    root /usr/share/nginx/html;
-    index index.html;
-
-    # Security headers
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-
-    # Gzip compression
-    gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_proxied any;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Health check for Kubernetes liveness/readiness probes
-    location /healthz {
-        access_log off;
-        return 200 '{"status":"UP"}';
-        add_header Content-Type application/json;
-    }
-
-    # Cache static assets
-    location ~* \.(css|js|jpg|jpeg|png|gif|ico|svg|woff2)$ {
-        expires 7d;
-        add_header Cache-Control "public, no-transform";
-    }
-}
-EOF
-
-# Container metadata & health check
-EXPOSE 8080
-HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8080/healthz || exit 1
-
-CMD ["nginx", "-g", "daemon off;"]
-
-
+FROM python:3.13-slim
+WORKDIR /app/dashboard
+COPY server.py index.html styles.css app.js admin.html admin.js ./
+USER 10001:10001
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 WT4J_ENV=production \
+    WT4J_BIND_HOST=0.0.0.0 WT4J_ADMIN_PORT=8085 \
+    WT4J_TLS_CERT_FILE=/run/tls/tls.crt WT4J_TLS_KEY_FILE=/run/tls/tls.key
+EXPOSE 8085
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import os, ssl, urllib.request; c=ssl.create_default_context(cafile=os.environ['WT4J_TLS_CERT_FILE']); c.check_hostname=False; urllib.request.urlopen('https://127.0.0.1:8085/healthz', context=c, timeout=3).read()"
+CMD ["python", "server.py"]

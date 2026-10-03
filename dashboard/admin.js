@@ -7,6 +7,25 @@
 (function () {
   'use strict';
 
+  const nativeFetch = window.fetch.bind(window);
+  async function fetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    const token = sessionStorage.getItem('wt_admin_token');
+    if (token && new URL(url, location.href).origin === location.origin) headers.set('Authorization', `Bearer ${token}`);
+    const response = await nativeFetch(url, { ...options, headers });
+    if (response.status === 401 && url !== '/api/admin/login') {
+      sessionStorage.removeItem('wt_admin_token');
+      sessionStorage.removeItem('wt_admin_user');
+      if (!location.pathname.endsWith('/admin.html')) location.assign('/admin.html');
+      else {
+        const modal = document.getElementById('auth-modal-overlay');
+        if (modal) modal.style.display = 'flex';
+      }
+    }
+    return response;
+  }
+
+
   let sessionToken = sessionStorage.getItem('wt_admin_token') || '';
   let operatorUser = sessionStorage.getItem('wt_admin_user') || '';
 
@@ -145,7 +164,7 @@
   // --- Authentication ---
   window.loginAdmin = async function () {
     const user = document.getElementById('login-username').value.trim();
-    const pass = document.getElementById('login-password').value.trim();
+    const pass = document.getElementById('login-password').value;
 
     try {
       const res = await fetch('/api/admin/login', {
@@ -314,7 +333,7 @@
             <span class="session-status-dot ${statusClass}"></span>
             <span class="session-card-id">${escapeHtml(s.id)}</span>
           </div>
-          <span class="session-pill" style="font-family: var(--font-mono);">${escapeHtml(s.rttMs || 1.4)}ms</span>
+          <span class="session-pill" style="font-family: var(--font-mono);">${s.rttMs == null ? "Unavailable" : `${escapeHtml(s.rttMs)}ms`}</span>
         </div>
         <div style="font-size: 0.8rem; color: #fff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
           ${escapeHtml(s.path || '/echo')}
@@ -376,7 +395,7 @@
     elements.detailPath.textContent = s.path;
     elements.detailRemote.textContent = s.remoteEndpoint;
     elements.detailClient.textContent = s.clientEndpoint || '127.0.0.1:50000';
-    elements.detailRtt.textContent = `${s.rttMs || 1.4} ms`;
+    elements.detailRtt.textContent = s.rttMs == null ? "Unavailable" : `${s.rttMs} ms`;
     elements.detailTraceparent.textContent = s.traceparent || 'None configured';
     elements.detailSubprotocol.textContent = s.subprotocol || 'webtransport';
 
@@ -584,7 +603,8 @@
             : `<span class="badge-tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">👤 Operator Manual</span>`;
 
           const dirClass = (p.dir === 'RX') ? 'dir-rx' : 'dir-tx';
-          const rtt = p.rttMs !== undefined ? `${Number(p.rttMs).toFixed(1)} ms` : `${Number(s.rttMs || 1.2).toFixed(1)} ms`;
+          const measuredRtt = p.rttMs ?? s.rttMs;
+          const rtt = measuredRtt == null ? "Unavailable" : `${Number(measuredRtt).toFixed(1)} ms`;
           const hex = p.hex || (isL4 ? '01' : '30 00 50 49 4e 47');
 
           return `
@@ -1377,7 +1397,7 @@
 
   window.resetFromAdmin = async function () {
     try {
-      const res = await fetch('/api/reset');
+      const res = await fetch('/api/reset', { method: 'POST' });
       if (res.ok) {
         updateMiniCounters({
           activeSessions: 0,
@@ -1529,7 +1549,7 @@
       const host = n.host || '127.0.0.1';
       const port = n.healthPort || 8080;
       const label = `${n.name || n.id} (${host}:${port} · QUIC ${n.quicPort || 4433})`;
-      return `<option value="${escapeHtml(String(val))}" data-port="${port}" data-host="${escapeHtml(host)}">${escapeHtml(label)}</option>`;
+      return `<option value="${escapeHtml(String(val))}" data-port="${port}" data-host="${escapeHtml(host)}" data-base-url="${escapeHtml(n.baseUrl || `http://${host}:${port}`)}">${escapeHtml(label)}</option>`;
     }).join('');
     if (sel.innerHTML !== optionsHtml) {
       sel.innerHTML = optionsHtml;
@@ -1548,14 +1568,14 @@
     const val = sel.value || '8081';
     const port = opt?.dataset?.port || (val.match(/^\d+$/) ? val : '8081');
     const host = opt?.dataset?.host || '127.0.0.1';
-    return { val, port, host };
+    return { val, port, host, baseUrl: opt?.dataset?.baseUrl };
   }
 
   window.onHawtioNodeChange = function() {
     const target = getSelectedHawtioTarget();
     const endpointSpan = document.getElementById('hawtio-endpoint-direct');
     if (endpointSpan) {
-      endpointSpan.textContent = `http://${target.host}:${target.port}/jolokia`;
+      endpointSpan.textContent = `${target.baseUrl || `http://${target.host}:${target.port}`}/jolokia`;
     }
     window.refreshHawtioDiagnostics();
   };

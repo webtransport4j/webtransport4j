@@ -7,6 +7,25 @@
 (function () {
   'use strict';
 
+  const nativeFetch = window.fetch.bind(window);
+  async function fetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    const token = sessionStorage.getItem('wt_admin_token');
+    if (token && new URL(url, location.href).origin === location.origin) headers.set('Authorization', `Bearer ${token}`);
+    const response = await nativeFetch(url, { ...options, headers });
+    if (response.status === 401 && url !== '/api/admin/login') {
+      sessionStorage.removeItem('wt_admin_token');
+      sessionStorage.removeItem('wt_admin_user');
+      if (!location.pathname.endsWith('/admin.html')) location.assign('/admin.html');
+      else {
+        const modal = document.getElementById('auth-modal-overlay');
+        if (modal) modal.style.display = 'flex';
+      }
+    }
+    return response;
+  }
+
+
   // --- Real-Only Telemetry State (Zero Synthetic Simulation) ---
   const state = {
     activeSource: 'live-cluster', // 'live-cluster' | 'prometheus' | 'otlp'
@@ -366,13 +385,13 @@
 
     tbody.innerHTML = state.traces.map(t => `
       <tr>
-        <td class="mono-cell" title="${escapeHtml(t.traceId)}">${t.traceId.slice(0, 16)}...</td>
-        <td class="mono-cell">${t.spanId ? t.spanId.slice(0, 8) : '0x00'}</td>
+        <td class="mono-cell" title="${escapeHtml(t.traceId)}">${escapeHtml(t.traceId.slice(0, 16))}...</td>
+        <td class="mono-cell">${escapeHtml(t.spanId ? t.spanId.slice(0, 8) : '0x00')}</td>
         <td><strong>${escapeHtml(t.path || '/echo')}</strong></td>
-        <td><span class="badge ${t.status === 'OK' ? 'success' : 'danger'}">${t.status || 'OK'}</span></td>
+        <td><span class="badge ${t.status === 'OK' ? 'success' : 'danger'}">${escapeHtml(t.status || 'OK')}</span></td>
         <td class="mono-cell">${t.durationMs || 1}ms</td>
         <td><span class="badge info">0x01 (Sampled)</span></td>
-        <td style="color: var(--text-dim);">${t.timestamp || 'Live'}</td>
+        <td style="color: var(--text-dim);">${escapeHtml(t.timestamp || 'Live')}</td>
       </tr>
     `).join('');
   }
@@ -388,7 +407,7 @@
         <td class="mono-cell">${p.streams}</td>
         <td class="mono-cell">${p.pps.toLocaleString()}</td>
         <td class="mono-cell">${p.dropRate}</td>
-        <td><span class="badge ${p.sessions > 0 ? 'success' : 'purple'}">${p.status}</span></td>
+        <td><span class="badge ${p.sessions > 0 ? 'success' : 'purple'}">${escapeHtml(p.status)}</span></td>
       </tr>
     `).join('');
   }
@@ -570,7 +589,7 @@
       const selectEl = document.getElementById('source-type-select');
       const inputEl = document.getElementById('source-endpoint-url');
       if (selectEl) selectEl.value = state.activeSource || 'live-cluster';
-      if (inputEl) inputEl.value = state.sourceEndpoint || 'http://localhost:8085/api/live-telemetry';
+      if (inputEl) inputEl.value = state.sourceEndpoint || '/api/live-telemetry';
       modal.classList.add('active');
     }
   };
@@ -585,9 +604,9 @@
     const inputEl = document.getElementById('source-endpoint-url');
     if (!selectEl || !inputEl) return;
     const val = selectEl.value;
-    if (val === 'live-cluster') inputEl.value = 'http://localhost:8085/api/live-telemetry';
-    else if (val === 'otlp') inputEl.value = 'http://localhost:8085/v1/metrics';
-    else if (val === 'prometheus') inputEl.value = 'http://localhost:8085/metrics';
+    if (val === 'live-cluster') inputEl.value = '/api/live-telemetry';
+    else if (val === 'otlp') inputEl.value = '/v1/metrics';
+    else if (val === 'prometheus') inputEl.value = '/metrics';
     else if (val === 'custom') inputEl.value = 'http://127.0.0.1:8080/healthz';
   };
 
@@ -595,7 +614,7 @@
     const selectEl = document.getElementById('source-type-select');
     const inputEl = document.getElementById('source-endpoint-url');
     const val = selectEl ? selectEl.value : 'live-cluster';
-    const url = inputEl ? inputEl.value.trim() : 'http://localhost:8085/api/live-telemetry';
+    const url = inputEl ? inputEl.value.trim() : '/api/live-telemetry';
     const text = selectEl && selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex].text : 'Real Live Cluster';
 
     state.activeSource = val;

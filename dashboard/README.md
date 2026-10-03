@@ -1,6 +1,11 @@
 # WebTransport4J Enterprise Observability & Operations Cockpit
 
-Production-grade real-time telemetry, distributed tracing, and authenticated admin operations console for WebTransport4J clusters powered by **Java 25 LTS** and **Generational ZGC**.
+Real-time telemetry, distributed tracing, and authenticated admin operations console for WebTransport4J clusters powered by **Java 25 LTS** and **Generational ZGC**.
+
+For remote production deployment, follow [PRODUCTION.md](PRODUCTION.md). The
+production image includes the API backend, requires HTTPS and explicit remote
+targets, and protects analytics and management endpoints with authentication.
+Development traffic-generation tools are disabled in production mode.
 
 ---
 
@@ -24,8 +29,8 @@ A dedicated enterprise administration and traffic generator console is available
 - **Clearance Level**: `Tier-3 Production Operations Admin`
 - **Authentication Security**: 
   - Login form requires manual credential entry (no pre-filled passwords in DOM or scripts).
-  - Credentials are cryptographically evaluated against a salted **PBKDF2-HMAC-SHA256** hash (100,000 iterations) with salt `wt4j-enterprise-secops-salt-2026`.
-  - Stored hash verification uses constant-time digest comparison (`hmac.compare_digest`) to protect against side-channel and timing attacks. Plaintext passwords are never stored or directly compared.
+  - Credentials are cryptographically evaluated against a salted **PBKDF2-HMAC-SHA256** hash (100,000 iterations) with a random per-process salt unless explicitly configured.
+  - Stored hash verification uses constant-time digest comparison (`hmac.compare_digest`) to protect against side-channel and timing attacks. Password verification uses the derived hash; provision the password through protected deployment secrets.
 
 ### Operational Capabilities:
 1. **Real Handshake Orchestrator**:
@@ -44,7 +49,7 @@ A dedicated enterprise administration and traffic generator console is available
    - 🏷️ **New W3C Traceparent**: generates standard W3C distributed trace context for tracing end-to-end sessions.
 5. **Live Execution Wire Terminal**:
    - Monospace real-time terminal showing wire results, round-trip time, session IDs, and operations diagnostics.
-6. **Immutable SecOps Audit Trail**:
+6. **SecOps Audit Trail**:
    - Records every administrative action, operator ID, target URL, and execution status.
 
 ---
@@ -95,20 +100,23 @@ All core settings are configurable via environment variables:
 
 | Environment Variable | Default Value | Description |
 | :--- | :--- | :--- |
+| `WT4J_ENV` | `development` | Set `production` to enforce deployment guardrails |
+| `WT4J_CLUSTER_NODES` | unset | Remote HTTP(S) management origins; required in production |
+| `WT4J_OTLP_TOKEN` | unset | Separate bearer token for JSON OTLP ingestion |
 | `WT4J_ADMIN_PORT` | `8085` | Port for the Admin & Telemetry HTTP Server |
 | `WT4J_BIND_HOST` | `127.0.0.1` | Listen host interface; non-local exposure requires TLS configuration |
 | `WT4J_ADMIN_USERNAME` | `secops-admin` | Operator username for admin authorization |
 | `WT4J_ADMIN_PASSWORD` | unset | Required admin password (hashed with PBKDF2-HMAC-SHA256) |
-| `WT4J_ADMIN_SALT` | random per process | Cryptographic salt; configure a stable secret for persistent deployments |
+| `WT4J_ADMIN_SALT` | random per process | Cryptographic salt for password hashing; sessions remain process-local |
 | `WT4J_SESSION_TTL_SEC`| `3600` (1 hour) | Bearer session token time-to-live before automatic expiration |
 | `WT4J_CLUSTER_HOST` | `127.0.0.1` | Target hostname or IP for WebTransport cluster nodes |
 | `WT4J_CLUSTER_PORTS` | `8081,8082,8083` | Comma-delimited list of HTTP/Prometheus ports to scrape |
 | `WT4J_NODE_MANAGEMENT_TOKEN` | unset | Bearer token forwarded to node drain/close APIs; must equal each node's `MANAGEMENT_AUTH_TOKEN` |
 | `WT4J_PROMETHEUS_TARGETS` | `http://127.0.0.1:8081/metrics,...` | Comma-delimited Prometheus targets for metrics aggregation |
 | `WT4J_CORS_ORIGIN` | unset | Optional explicit allowed CORS origin; cross-origin management is disabled by default |
-| `WT4J_MAX_AUDIT_LOG` | `500` | Maximum retention capacity for in-memory SecOps audit trail |
-| `WT4J_MAX_PAYLOAD_BYTES` | `1048576` (1 MB) | Maximum accepted JSON body size to prevent memory exhaustion |
-| `WT4J_SCRAPE_TIMEOUT_SEC` | `2.0` | Socket timeout when probing cluster nodes or scraping metrics |
+| `WT4J_MAX_AUDIT_LOG` | `1000` | Maximum retention capacity for in-memory SecOps audit trail |
+| `WT4J_MAX_PAYLOAD_BYTES` | `10485760` (10 MB; production manifests use 1 MB) | Maximum accepted JSON body size to prevent memory exhaustion |
+| `WT4J_SCRAPE_TIMEOUT_SEC` | `1.0` | Socket timeout when probing cluster nodes or scraping metrics |
 | `WT4J_TLS_CERT_FILE` / `WT4J_TLS_KEY_FILE` | unset | Required certificate and key paths when binding the dashboard beyond loopback |
 
 ---

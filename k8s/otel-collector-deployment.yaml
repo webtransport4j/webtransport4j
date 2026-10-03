@@ -22,7 +22,8 @@ data:
     exporters:
       prometheus:
         endpoint: 0.0.0.0:8889
-        namespace: "webtransport"
+        resource_to_telemetry_conversion:
+          enabled: true
       debug:
         verbosity: detailed
     service:
@@ -55,7 +56,7 @@ spec:
     spec:
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector-contrib:0.111.0
+          image: otel/opentelemetry-collector-contrib:0.118.0
           args: ["--config=/etc/otelcol/otel-collector-config.yaml"]
           volumeMounts:
             - name: config

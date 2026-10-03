@@ -1,51 +1,53 @@
-version: '3.8'
-
 services:
-  # 1. WebTransport4J Enterprise Observability Dashboard (Production UI)
   webtransport-dashboard:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: webtransport-dashboard
     restart: unless-stopped
+    init: true
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
     ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthz"]
-      interval: 15s
-      timeout: 3s
-      retries: 3
-    networks:
-      - telemetry-net
+      - "${WT4J_PORTAL_BIND_IP:-0.0.0.0}:${WT4J_PORTAL_PORT:-8443}:8085"
+    environment:
+      WT4J_ADMIN_USERNAME: ${WT4J_ADMIN_USERNAME:?Set the operator username}
+      WT4J_ADMIN_PASSWORD: ${WT4J_ADMIN_PASSWORD:?Set a unique strong password}
+      WT4J_NODE_MANAGEMENT_TOKEN: ${WT4J_NODE_MANAGEMENT_TOKEN:?Set the existing node management token}
+      WT4J_CLUSTER_NODES: ${WT4J_CLUSTER_NODES:?Set remote HTTP(S) node management origins}
+      WT4J_PROMETHEUS_TARGETS: ${WT4J_PROMETHEUS_TARGETS:-http://otel-collector:8889/metrics}
+      WT4J_OTLP_TOKEN: ${WT4J_OTLP_TOKEN:?Set a separate OTLP ingestion token}
+      WT4J_MAX_PAYLOAD_BYTES: "1048576"
+    volumes:
+      - ${WT4J_TLS_DIR:?Set the absolute TLS directory}:/run/tls:ro
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    networks: [telemetry]
 
-  # 2. OpenTelemetry Collector (Receives OTLP metrics & traces from WebTransport4J)
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.118.0
-    container_name: otel-collector
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
-    ports:
-      - "4317:4317" # OTLP gRPC
-      - "4318:4318" # OTLP HTTP
-      - "8889:8889" # Prometheus metrics exporter
-    networks:
-      - telemetry-net
+    # No host-published telemetry ports. Producers must join this private network.
+    networks: [telemetry]
 
-  # 3. Prometheus (Time-series metrics engine)
   prometheus:
     image: prom/prometheus:v3.1.0
-    container_name: prometheus
     restart: unless-stopped
     command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.retention.time=15d"
-    ports:
-      - "9090:9090"
-    networks:
-      - telemetry-net
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [telemetry]
 
 networks:
-  telemetry-net:
-    driver: bridge
+  telemetry:
+volumes:
+  prometheus-data:
