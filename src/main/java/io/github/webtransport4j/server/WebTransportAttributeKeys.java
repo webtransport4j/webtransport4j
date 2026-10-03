@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
@@ -105,5 +106,9 @@ public final class WebTransportAttributeKeys {
   // Datagram Mailbox Attribute Key
   public static final AttributeKey<DatagramMailbox> DATAGRAM_MAILBOX_KEY =
       AttributeKey.valueOf("wt.datagram.mailbox");
+
+  // Resilience & Overload Protection Attribute Key
+  public static final AttributeKey<OverloadProtectionPolicy> OVERLOAD_POLICY =
+      AttributeKey.valueOf("wt.overload.policy");
 }
 

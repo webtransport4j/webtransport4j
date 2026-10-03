@@ -5,6 +5,8 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
+import io.github.webtransport4j.resilience.UdpSocketTuner;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -130,6 +132,8 @@ public class WebTransportServer implements AutoCloseable {
   private Long initialMaxStreamsBidi;
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
+  private OverloadProtectionPolicy overloadProtectionPolicy;
+  private Boolean autoTuneUdpSocket;
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
@@ -253,6 +257,8 @@ public class WebTransportServer implements AutoCloseable {
     this.trafficShaperExternallySupplied = builderTrafficShaper != null;
     this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
+    this.overloadProtectionPolicy = builder.getOverloadProtectionPolicy();
+    this.autoTuneUdpSocket = builder.getAutoTuneUdpSocket();
 
     if (builder.getMetricsListener() != null) {
       this.metricsListener = builder.getMetricsListener();
@@ -402,6 +408,44 @@ public class WebTransportServer implements AutoCloseable {
         this.trafficShaperExternallySupplied = trafficShaper != null;
       }
     }
+  }
+
+  /**
+   * Sets the overload protection policy for this server instance.
+   *
+   * @param policy overload protection policy
+   */
+  public void setOverloadProtectionPolicy(@Nullable OverloadProtectionPolicy policy) {
+    this.overloadProtectionPolicy = policy;
+  }
+
+  /**
+   * Returns the configured overload protection policy, or null if not configured.
+   *
+   * @return overload protection policy or null
+   */
+  public @Nullable OverloadProtectionPolicy getOverloadProtectionPolicy() {
+    return overloadProtectionPolicy;
+  }
+
+  /**
+   * Returns whether OS UDP socket auto-tuning is enabled.
+   *
+   * @return true if UDP socket auto-tuning is enabled
+   */
+  public boolean isAutoTuneUdpSocket() {
+    return autoTuneUdpSocket != null
+        ? autoTuneUdpSocket
+        : WebTransportConfig.getBoolean("webtransport4j.server.socket.autotune", true);
+  }
+
+  /**
+   * Configures whether OS UDP socket auto-tuning is enabled.
+   *
+   * @param autoTune true to enable UDP socket auto-tuning
+   */
+  public void setAutoTuneUdpSocket(boolean autoTune) {
+    this.autoTuneUdpSocket = autoTune;
   }
 
   private static GlobalTrafficShapingHandler claimTrafficShaper(
@@ -1607,6 +1651,9 @@ public class WebTransportServer implements AutoCloseable {
         WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
+    }
+    if (isAutoTuneUdpSocket()) {
+      UdpSocketTuner.tune(bootstrap);
     }
     bootstrap.option(ChannelOption.SO_REUSEADDR, true);
 
