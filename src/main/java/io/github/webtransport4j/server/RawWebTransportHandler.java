@@ -293,6 +293,19 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     if (session == null) {
       return false;
     }
+    if (session.isDraining() || !session.isOpen()) {
+      logger.warn(
+          "❌ Rejecting incoming stream for session {}: session is {} (RFC 9297 Section 5.3). Resetting stream with WT_SESSION_GONE.",
+          sessionId,
+          session.isDraining() ? "DRAINING" : "CLOSED");
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) ctx.channel())
+            .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      } else {
+        ctx.close();
+      }
+      return false;
+    }
     boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
     long value =
         isBidi

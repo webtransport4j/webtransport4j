@@ -857,31 +857,6 @@ canvas.telemetry-chart {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-
-.btn-chaos {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: var(--transition);
-}
-
-.btn-chaos:hover {
-  color: #fff;
-  border-color: var(--border-focus);
-}
-
-.btn-chaos.active-chaos {
-  background: rgba(244, 63, 94, 0.15);
-  border-color: var(--accent-rose);
-  color: #fda4af;
-  box-shadow: 0 0 10px rgba(244, 63, 94, 0.3);
-}
-
 /* Modal Drawer */
 .modal-overlay {
   position: fixed;
@@ -1370,13 +1345,6 @@ canvas.telemetry-chart {
   box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
 }
 
-.filter-pill.active.pill-chaos {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: #ef4444;
-  color: #ef4444;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
-}
-
 .session-group-header {
   font-size: 0.68rem;
   font-weight: 800;
@@ -1395,93 +1363,6 @@ canvas.telemetry-chart {
   color: var(--accent-cyan);
   background: rgba(56, 189, 248, 0.08);
   border-left: 3px solid var(--accent-cyan);
-}
-
-.session-group-header.chaos {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-  border-left: 3px solid #ef4444;
-}
-
-/* Chaos Session Card Distinction */
-.session-card.chaos {
-  border-color: rgba(239, 68, 68, 0.25);
-  background: rgba(239, 68, 68, 0.03);
-}
-
-.session-card.chaos:hover {
-  border-color: rgba(239, 68, 68, 0.6);
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.session-card.chaos.active {
-  border-color: #ef4444;
-  background: linear-gradient(135deg, rgba(40, 20, 30, 0.95), rgba(15, 23, 42, 0.95));
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
-}
-
-.badge-chaos-pill {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  text-transform: uppercase;
-}
-
-/* Chaos Diagnostics Banner in Detail Panel */
-.chaos-diagnostics-card {
-  background: linear-gradient(135deg, rgba(40, 15, 25, 0.9), rgba(15, 23, 42, 0.95));
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  border-radius: var(--radius-md);
-  padding: 1rem 1.25rem;
-  margin-bottom: 1.25rem;
-  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.15);
-}
-
-.chaos-card-header, .chaos-diag-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.chaos-impact-grid, .chaos-diag-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.75rem;
-  margin-top: 0.75rem;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 0.65rem 0.85rem;
-  border-radius: 6px;
-  font-size: 0.75rem;
-}
-
-.chaos-metric-box {
-  background: rgba(20, 20, 35, 0.5);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 6px;
-  padding: 0.5rem 0.65rem;
-  text-align: center;
-}
-
-.chaos-metric-lbl {
-  font-size: 0.68rem;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.2rem;
-}
-
-.chaos-metric-num {
-  font-size: 1.1rem;
-  font-weight: 800;
-  font-family: var(--font-mono);
-  color: #38bdf8;
 }
 
 /* Live Monitor Switch with Pulse Beacon */
@@ -1538,6 +1419,85 @@ canvas.telemetry-chart {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
   70% { transform: scale(1.2); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* --- Real-Time Live vs Historical Analytics Mode Bar --- */
+.analytics-mode-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 1.25rem;
+  transition: all 0.3s ease;
+  flex-wrap: wrap;
+}
+
+.analytics-mode-bar.live-mode {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.05);
+}
+
+.analytics-mode-bar.history-mode {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.07);
+}
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+}
+
+.mode-pill.live {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.mode-pill.history {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+}
+
+.mode-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mode-desc {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.hist-summary-metrics {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hist-metric {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.hist-metric strong {
+  color: #f1f5f9;
+  font-weight: 700;
+  margin-left: 0.25rem;
 }
 
 

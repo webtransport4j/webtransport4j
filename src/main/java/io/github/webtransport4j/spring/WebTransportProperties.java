@@ -9,7 +9,8 @@ import java.util.List;
  */
 public class WebTransportProperties {
 
-  private int port = 4433;
+  private int port = Integer.parseInt(System.getProperty("webtransport4j.port",
+      System.getProperty("webtransport4j.server.port", "4433")));
   private String sslKeyPath;
   private String sslCertPath;
   private List<String> allowedOrigins = new ObjectArrayList<>();

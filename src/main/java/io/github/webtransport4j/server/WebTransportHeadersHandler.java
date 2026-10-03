@@ -40,6 +40,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public static final String UPGRADE_TOKEN_H3 = "webtransport-h3";
   public static final String UPGRADE_TOKEN_LEGACY = "webtransport";
+  public static final String HEADER_WT_AVAILABLE_PROTOCOLS = "wt-available-protocols";
+  public static final String HEADER_WT_PROTOCOL = "wt-protocol";
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
@@ -233,7 +235,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
               quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
         }
-        CharSequence availableProtocolsHeader = frame.headers().get("wt-available-protocols");
+        CharSequence availableProtocolsHeader = frame.headers().get(HEADER_WT_AVAILABLE_PROTOCOLS);
         String selectedProtocol = null;
         if (availableProtocolsHeader != null) {
           List<String> availableProtocols =
@@ -252,7 +254,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         responseHeaders.status(HttpResponseStatus.OK.codeAsText());
         if (selectedProtocol != null) {
           responseHeaders.add(
-              "wt-protocol", WebTransportUtils.formatProtocolHeader(selectedProtocol));
+              HEADER_WT_PROTOCOL, WebTransportUtils.formatProtocolHeader(selectedProtocol));
         }
 
         ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {

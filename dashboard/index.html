@@ -39,10 +39,11 @@
 
       <div class="header-controls">
         <div class="control-group" id="time-window-controls">
-          <button class="btn-toggle active" data-time="5m" id="btn-time-5m">5m</button>
-          <button class="btn-toggle" data-time="15m" id="btn-time-15m">15m</button>
-          <button class="btn-toggle" data-time="1h" id="btn-time-1h">1h</button>
-          <button class="btn-toggle" data-time="24h" id="btn-time-24h">24h</button>
+          <button class="btn-toggle active" data-time="live" id="btn-time-live" title="Streaming real-time 1s telemetry">⚡ Live</button>
+          <button class="btn-toggle" data-time="5m" id="btn-time-5m" title="Last 5 minutes history">5m</button>
+          <button class="btn-toggle" data-time="15m" id="btn-time-15m" title="Last 15 minutes history">15m</button>
+          <button class="btn-toggle" data-time="1h" id="btn-time-1h" title="Last 1 hour history">1h</button>
+          <button class="btn-toggle" data-time="24h" id="btn-time-24h" title="Last 24 hours history">24h</button>
         </div>
 
         <button class="btn-secondary" id="btn-refresh-analytics" onclick="window.refreshAnalytics()" title="Sync real telemetry without resetting datasource or chart history">
@@ -57,8 +58,8 @@
           📥 Export Telemetry
         </button>
 
-        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #ef4444, #dc2626); text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;" id="btn-header-admin">
-          🔐 Admin Chaos Console
+        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #0284c7, #2563eb); text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;" id="btn-header-admin">
+          🔐 Admin Operations Console
         </a>
       </div>
     </div>
@@ -107,6 +108,27 @@
   <!-- Main App Viewport -->
   <main class="app-container">
 
+    <!-- Analytics Mode & Time Range Status Banner (Real-Time Live vs Historical Range) -->
+    <div id="analytics-mode-bar" class="analytics-mode-bar live-mode">
+      <div class="mode-info">
+        <span class="mode-pill live" id="mode-pill-badge"><span class="pulse-beacon"></span> ⚡ REAL-TIME LIVE COCKPIT</span>
+        <span class="mode-desc" id="mode-status-desc">Streaming live metrics at 1-second ticks · Real-time socket events</span>
+      </div>
+      <div class="hist-summary-metrics" id="hist-summary-metrics" style="display: none;">
+        <div class="hist-metric"><span class="hm-label">Window:</span> <strong id="hm-window-label">15m</strong></div>
+        <div class="hist-metric"><span class="hm-label">Peak Sessions:</span> <strong id="hm-peak-sess">0</strong></div>
+        <div class="hist-metric"><span class="hm-label">Total Volume:</span> <strong id="hm-total-vol">0</strong></div>
+        <div class="hist-metric"><span class="hm-label">Avg RTT:</span> <strong id="hm-avg-rtt">0.0 ms</strong></div>
+        <div class="hist-metric"><span class="hm-label">P99 Latency:</span> <strong id="hm-p99-rtt">0.0 ms</strong></div>
+        <div class="hist-metric"><span class="hm-label">Queue Drops:</span> <strong id="hm-drops">0</strong></div>
+      </div>
+      <div class="mode-actions">
+        <button id="btn-return-live" class="btn-primary" onclick="window.selectTimeWindow('live')" style="display: none; padding: 0.35rem 0.8rem; font-size: 0.775rem; background: linear-gradient(135deg, #10b981, #059669); border: none; cursor: pointer; border-radius: 4px;">
+          ⚡ Back to Real-Time
+        </button>
+      </div>
+    </div>
+
     <!-- Production Real-Telemetry & Admin Bridge Banner -->
     <section class="slo-banner" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)); border: 1px solid rgba(56, 189, 248, 0.25);" aria-label="Production Telemetry Mode">
       <div class="slo-item-main">
@@ -120,8 +142,8 @@
       </div>
 
       <div style="display: flex; gap: 0.75rem; align-items: center;">
-        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #ef4444, #dc2626); text-decoration: none; padding: 0.65rem 1.25rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.25);">
-          ⚡ Open Admin Operations & Chaos Console →
+        <a href="admin.html" class="btn-primary" style="background: linear-gradient(135deg, #0284c7, #2563eb); text-decoration: none; padding: 0.65rem 1.25rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.25);">
+          ⚡ Open Admin Operations Console →
         </a>
       </div>
     </section>

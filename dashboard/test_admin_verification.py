@@ -6,7 +6,7 @@ import urllib.request
 import urllib.error
 
 BASE_URL = "http://localhost:8085"
-NODE_URL = "http://localhost:8080"
+NODE_URL = "http://localhost:8081"
 
 passed = 0
 failed = 0
@@ -45,7 +45,7 @@ print("--- 1. Static Web Assets & UI Availability ---")
 s, h = http_get("/index.html")
 test("Dashboard HTML accessible", s == 200 and "WebTransport4J" in h)
 s, h = http_get("/admin.html")
-test("Admin Console HTML accessible", s == 200 and "Mission Control" in h)
+test("Admin Console HTML accessible", s == 200 and "Enterprise Operations" in h)
 
 # 2. Cluster Node Probes
 print("\n--- 2. Live Cluster Node APIs (Port 8080) ---")
@@ -120,10 +120,33 @@ status, wire_res = http_get(f"/api/admin/sessions/{sess_id}/wire", token=token)
 wire_events = json.loads(wire_res).get("wireEvents", [])
 test("Capture Wire Events", len(wire_events) >= 3, f"Events Count: {len(wire_events)}")
 
+# 7b. Heartbeat & Liveness (L4 Transport & L7 Application)
+print("\n--- 7b. Dual-Layer Heartbeat (L4 & L7) ---")
+status, hb_inspect = http_get(f"/api/admin/sessions/{sess_id}")
+sess_obj = json.loads(hb_inspect)
+test("Session Heartbeat Object Present", "heartbeat" in sess_obj and sess_obj["heartbeat"].get("mode") == "DUAL_LAYER")
+test("Initial Pulse History Present", "recent" in sess_obj["heartbeat"] and len(sess_obj["heartbeat"]["recent"]) >= 2)
+
+status, sess_list_res = http_get("/api/admin/sessions")
+sess_list_data = json.loads(sess_list_res).get("sessions", [])
+target_sess = next((s for s in sess_list_data if s["id"] == sess_id), None)
+test("Sessions Endpoint Exposes Heartbeat", target_sess is not None and "heartbeat" in target_sess and target_sess["heartbeat"].get("mode") == "DUAL_LAYER")
+
+status, l7_res = http_post(f"/api/admin/sessions/{sess_id}/heartbeat/pulse", {"type": "l7"}, token=token)
+test("L7 Application Heartbeat Pulse (WT Datagram)", l7_res.get("success") is True and l7_res.get("pulseType") == "L7")
+
+status, l4_res = http_post(f"/api/admin/sessions/{sess_id}/heartbeat/pulse", {"type": "l4"}, token=token)
+test("L4 Transport Heartbeat Pulse (QUIC PING 0x01)", l4_res.get("success") is True and l4_res.get("pulseType") == "L4")
+
+status, hb_inspect_after = http_get(f"/api/admin/sessions/{sess_id}")
+sess_obj_after = json.loads(hb_inspect_after)
+test("Heartbeat Pulses Recorded in History", len(sess_obj_after["heartbeat"].get("recent", [])) >= 4)
+test("Heartbeat Pulses Tagged with Origin", any(p.get("trigger") in ("AUTOMATIC", "MANUAL") for p in sess_obj_after["heartbeat"].get("recent", [])))
+
 # 8. Capsules & Teardown
 print("\n--- 8. RFC 9297 Session Capsules ---")
 status, drain_res = http_post(f"/api/admin/sessions/{sess_id}/capsules/drain", {}, token=token)
-test("WT_DRAIN_SESSION Capsule (0x78ae)", drain_res.get("success") is True and drain_res.get("session", {}).get("status") == "DRAINING")
+test("WT_DRAIN_SESSION Capsule (0x78ae)", drain_res.get("success") is True and drain_res.get("session", {}).get("status") in ("DRAINING", "DRAINED"))
 
 status, close_sess_res = http_post(f"/api/admin/sessions/{sess_id}/capsules/close", {
     "code": 0,
@@ -132,7 +155,7 @@ status, close_sess_res = http_post(f"/api/admin/sessions/{sess_id}/capsules/clos
 test("CLOSE_WEBTRANSPORT_SESSION (0x2843)", close_sess_res.get("success") is True and close_sess_res.get("session", {}).get("status") == "CLOSED")
 
 # 9. Real Traffic Execution Engine
-print("\n--- 9. Real Traffic Engine & Chaos Injection ---")
+print("\n--- 9. Real Traffic Execution Engine ---")
 status, tf_handshake = http_post("/api/admin/execute-traffic", {
     "command": "handshake",
     "target": "https://localhost:4433/echo"
@@ -148,12 +171,14 @@ status, tf_dgrams = http_post("/api/admin/execute-traffic", {
 }, token=token)
 test("Traffic Engine Datagrams", tf_dgrams.get("result", {}).get("status") == "SUCCESS", f"Sent: {tf_dgrams.get('result', {}).get('sent')}")
 
-status, tf_chaos = http_post("/api/admin/execute-traffic", {
-    "command": "chaos-burst",
+status, tf_burst = http_post("/api/admin/execute-traffic", {
+    "command": "datagrams",
     "target": "https://localhost:4433/echo",
-    "count": 200
+    "count": 200,
+    "size": 512,
+    "pps": 5000
 }, token=token)
-test("Chaos Datagram Burst", tf_chaos.get("result", {}).get("status") == "SUCCESS", f"Sent: {tf_chaos.get('result', {}).get('sent')}")
+test("High-Throughput Datagram Burst", tf_burst.get("result", {}).get("status") == "SUCCESS", f"Sent: {tf_burst.get('result', {}).get('sent')}")
 
 # 10. Live Telemetry & OpenTelemetry Verification
 print("\n--- 10. Live Telemetry & Distributed Tracing ---")
@@ -172,7 +197,7 @@ print("\n--- 11. Cluster Topology Status ---")
 status, cluster_res = http_get("/api/cluster/status")
 cluster = json.loads(cluster_res)
 test("Cluster Topology Nodes", len(cluster.get("nodes", [])) > 0)
-test("Node Health Role", cluster.get("nodes", [])[0].get("role") == "Primary Gateway")
+test("Node Health Role", "Active Peer" in cluster.get("nodes", [])[0].get("role") or "Primary Gateway" in cluster.get("nodes", [])[0].get("role"))
 
 # 12. Audit Trail
 print("\n--- 12. Enterprise Audit Trail ---")

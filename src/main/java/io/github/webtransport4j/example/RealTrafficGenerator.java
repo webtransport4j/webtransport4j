@@ -38,9 +38,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Enterprise Real Traffic &amp; Chaos Generator for WebTransport4J.
+ * Enterprise Real Traffic Generator for WebTransport4J.
  * Connects to live WebTransport4J instances over UDP/QUIC and drives genuine
- * network traffic, streams, datagrams, and chaos scenarios.
+ * network traffic, streams, and high-throughput datagrams.
  */
 public final class RealTrafficGenerator {
 
@@ -313,7 +313,7 @@ public final class RealTrafficGenerator {
   public static void main(final String[] args) {
     if (args.length < 2) {
       System.err.println("Usage: RealTrafficGenerator <command> <url> [options...]");
-      System.err.println("Commands: handshake, datagrams, streams, chaos-burst, chaos-abrupt-close");
+      System.err.println("Commands: handshake, datagrams, streams, session, daemon");
       System.exit(1);
     }
 

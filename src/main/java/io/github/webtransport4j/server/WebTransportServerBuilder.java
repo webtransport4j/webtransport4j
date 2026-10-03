@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
@@ -32,6 +33,7 @@ public class WebTransportServerBuilder {
   private ExecutorService businessExecutor;
   private WebTransportMetricsListener metricsListener;
   private QuicTokenHandler quicTokenHandler;
+  private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
   private Long idleTimeoutSeconds;
   private Long initialMaxStreamsBidi;
@@ -110,6 +112,30 @@ public class WebTransportServerBuilder {
   /** Sets the custom QUIC token handler. */
   public @NonNull WebTransportServerBuilder quicTokenHandler(@Nullable QuicTokenHandler quicTokenHandler) {
     this.quicTokenHandler = quicTokenHandler;
+    return this;
+  }
+
+  /**
+   * Sets a custom {@link QuicConnectionIdGenerator} for generating server Destination Connection IDs (DCIDs).
+   *
+   * @param connectionIdGenerator custom connection ID generator
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder connectionIdGenerator(
+      @Nullable QuicConnectionIdGenerator connectionIdGenerator) {
+    this.connectionIdGenerator = connectionIdGenerator;
+    return this;
+  }
+
+  /**
+   * Configures QUIC-LB Server ID routing (draft-ietf-quic-load-balancers) with a single-byte
+   * server ID (0 to 255). Incoming packets can be routed by L4 balancers using the Connection ID prefix.
+   *
+   * @param serverId unique server ID (0 to 255)
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder serverId(int serverId) {
+    this.connectionIdGenerator = new ServerIdConnectionIdGenerator(serverId);
     return this;
   }
 
@@ -231,6 +257,10 @@ public class WebTransportServerBuilder {
 
   QuicTokenHandler getQuicTokenHandler() {
     return quicTokenHandler;
+  }
+
+  QuicConnectionIdGenerator getConnectionIdGenerator() {
+    return connectionIdGenerator;
   }
 
   String getTransportType() {

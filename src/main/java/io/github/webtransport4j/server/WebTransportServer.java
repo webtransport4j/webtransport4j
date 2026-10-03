@@ -25,6 +25,7 @@ import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicChannelOption;
 import io.netty.handler.codec.quic.QuicCongestionControlAlgorithm;
+import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
@@ -127,6 +128,7 @@ public class WebTransportServer implements AutoCloseable {
   private QuicSslContext sslContext;
   private List<String> allowedOrigins;
   private QuicTokenHandler quicTokenHandler;
+  private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
   private Long idleTimeoutSeconds;
   private Long initialMaxStreamsBidi;
@@ -246,6 +248,7 @@ public class WebTransportServer implements AutoCloseable {
     this.sslContext = builder.getSslContext();
     this.allowedOrigins = copyOrigins(builder.getAllowedOrigins());
     this.quicTokenHandler = builder.getQuicTokenHandler();
+    this.connectionIdGenerator = builder.getConnectionIdGenerator();
     this.transportType = builder.getTransportType();
     this.idleTimeoutSeconds = builder.getIdleTimeoutSeconds();
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
@@ -509,7 +512,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
-    return globalActiveSessions.get();
+    return activeSessionsMap.size();
   }
 
   /**
@@ -714,6 +717,11 @@ public class WebTransportServer implements AutoCloseable {
                       resolvedOrigins,
                       globalActiveSessions,
                       globalSessionSlots));
+
+      QuicConnectionIdGenerator cidGen = resolveConnectionIdGenerator();
+      if (cidGen != null) {
+        codecBuilder.connectionIdAddressGenerator(cidGen);
+      }
 
       configureOptionalQuicParams(codecBuilder);
 
@@ -1930,6 +1938,45 @@ public class WebTransportServer implements AutoCloseable {
       return this.quicTokenHandler;
     }
     return getTokenHandler();
+  }
+
+  private QuicConnectionIdGenerator resolveConnectionIdGenerator() {
+    if (this.connectionIdGenerator != null) {
+      return this.connectionIdGenerator;
+    }
+    String serverIdVal = WebTransportConfig.get("webtransport4j.quic.server.id", null);
+    if (serverIdVal == null) {
+      serverIdVal = System.getenv("SERVER_ID");
+    }
+    if (serverIdVal != null && !serverIdVal.trim().isEmpty()) {
+      int sId = Integer.parseInt(serverIdVal.trim());
+      logger.info(
+          "QUIC-LB Connection ID routing configured: ServerIdConnectionIdGenerator (Server ID: {})",
+          sId);
+      return new ServerIdConnectionIdGenerator(sId);
+    }
+    String generatorType =
+        WebTransportConfig.get("webtransport4j.quic.connection.id.generator", null);
+    if (generatorType != null && !generatorType.trim().isEmpty()) {
+      if ("random".equalsIgnoreCase(generatorType)) {
+        return QuicConnectionIdGenerator.randomGenerator();
+      } else if ("sign".equalsIgnoreCase(generatorType) || "hmac".equalsIgnoreCase(generatorType)) {
+        return QuicConnectionIdGenerator.signGenerator();
+      } else {
+        try {
+          Class<?> genClass = Class.forName(generatorType);
+          if (!QuicConnectionIdGenerator.class.isAssignableFrom(genClass)) {
+            throw new IllegalArgumentException(
+                generatorType + " does not implement " + QuicConnectionIdGenerator.class.getName());
+          }
+          return (QuicConnectionIdGenerator) genClass.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+          throw new IllegalStateException(
+              "Failed to load custom QuicConnectionIdGenerator: " + generatorType, e);
+        }
+      }
+    }
+    return null;
   }
 
   /** Returns the token handler. */

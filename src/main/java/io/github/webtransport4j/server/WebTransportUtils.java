@@ -45,12 +45,16 @@ public class WebTransportUtils {
   // WebTransport Bidirectional
   public static final long BI_STREAM_TYPE = 0x41;
 
-  // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-15 spec)
+  // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-16 / RFC 9297 spec)
   public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
 
   public static final int WT_SESSION_GONE = 0x170d7b68;
 
   public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
+
+  public static final int WT_ALPN_ERROR = 0x0817b3dd;
+
+  public static final int WT_REQUIREMENTS_NOT_MET = 0x212c0d48;
 
   /**
    * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream
@@ -136,6 +140,20 @@ public class WebTransportUtils {
     if (session == null) {
       promise.setFailure(
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
+      return promise;
+    }
+    if (session.isDraining()) {
+      promise.setFailure(
+          new IllegalStateException(
+              "Cannot create stream: session " + connectStreamChannel.streamId()
+                  + " is DRAINING (RFC 9297 Section 5.3)"));
+      return promise;
+    }
+    if (!session.isOpen()) {
+      promise.setFailure(
+          new IllegalStateException(
+              "Cannot create stream: session " + connectStreamChannel.streamId()
+                  + " is CLOSED"));
       return promise;
     }
     if (!byPassLimit && session.isFlowControlEnabled()) {

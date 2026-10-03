@@ -85,6 +85,25 @@ public class ClusterNodeSample {
             .handler("/chat", new WebTransportChatHandler())
             .handler("/test", new WebTransportTestHandler());
 
+    // Auto-detect Server ID for QUIC Connection ID Routing (QUIC-LB)
+    final String serverIdStr = System.getenv("SERVER_ID");
+    int serverId = -1;
+    if (serverIdStr != null && !serverIdStr.trim().isEmpty()) {
+      try {
+        serverId = Integer.parseInt(serverIdStr.trim());
+      } catch (NumberFormatException ignored) {}
+    } else if (nodeName.contains("-")) {
+      String suffix = nodeName.substring(nodeName.lastIndexOf('-') + 1);
+      try {
+        serverId = Integer.parseInt(suffix);
+      } catch (NumberFormatException ignored) {}
+    }
+    if (serverId >= 0) {
+      log.info("🎯 Configured QUIC Connection ID Routing (QUIC-LB) for node '{}' with Server ID: {}",
+          nodeName, serverId);
+      serverBuilder.serverId(serverId);
+    }
+
     // 2. Attach OTLP metrics listener if collector endpoint is configured
     WebTransportOtlpMetricsListener otlpListener = null;
     if (otlpEndpoint != null && !otlpEndpoint.isEmpty()) {
@@ -177,16 +196,31 @@ public class ClusterNodeSample {
         final SocketAddress localAddr = session.getLocalAddress();
         final String local = localAddr != null ? localAddr.toString().replaceFirst("^/", "") : "0.0.0.0:" + quicPort;
 
+        String uniqueId = String.valueOf(Math.abs(System.identityHashCode(session)));
         sb.append("{");
-        sb.append("\"id\":\"wt-sess-").append(sid).append("\",");
-        sb.append("\"sessionId\":").append(sid).append(",");
+        sb.append("\"id\":\"wt-sess-").append(uniqueId).append("\",");
+        sb.append("\"nodeId\":\"").append(escapeJson(nodeName)).append("\",");
+        sb.append("\"nodeName\":\"").append(escapeJson(nodeName)).append("\",");
+        sb.append("\"serverId\":").append(serverId).append(",");
+        sb.append("\"quicPort\":").append(quicPort).append(",");
+        sb.append("\"serverNode\":\"").append(escapeJson(nodeName)).append(" (Server ID: ").append(serverId).append(" · Port ").append(quicPort).append(")\",");
+        sb.append("\"sessionId\":").append(uniqueId).append(",");
         sb.append("\"rawSessionId\":").append(sid).append(",");
         sb.append("\"path\":\"").append(escapeJson(path)).append("\",");
         sb.append("\"subprotocol\":\"").append(escapeJson(subproto)).append("\",");
         sb.append("\"remoteEndpoint\":\"").append(escapeJson(remote)).append("\",");
         sb.append("\"clientEndpoint\":\"").append(escapeJson(remote)).append("\",");
         sb.append("\"localEndpoint\":\"").append(escapeJson(local)).append("\",");
-        sb.append("\"status\":\"CONNECTED\",");
+        final String sessStatus;
+        if (!session.isOpen()) {
+          sessStatus = "CLOSED";
+        } else if (session.isDraining()) {
+          sessStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+        } else {
+          sessStatus = "CONNECTED";
+        }
+        sb.append("\"status\":\"").append(sessStatus).append("\",");
+        sb.append("\"isDraining\":").append(session.isDraining()).append(",");
         sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
         sb.append("\"bytesReceived\":").append(session.getCumulativeBytesReceived()).append(",");
         sb.append("\"flowControl\":{");
@@ -201,11 +235,19 @@ public class ClusterNodeSample {
 
         sb.append("\"streams\":[");
         // Extended CONNECT stream
+        final String connectStreamStatus;
+        if (!session.isOpen()) {
+          connectStreamStatus = "CLOSED";
+        } else if (session.isDraining()) {
+          connectStreamStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+        } else {
+          connectStreamStatus = "ESTABLISHED";
+        }
         sb.append("{");
         sb.append("\"streamId\":").append(sid).append(",");
         sb.append("\"type\":\"connect\",");
         sb.append("\"initiator\":\"client\",");
-        sb.append("\"status\":\"ESTABLISHED\",");
+        sb.append("\"status\":\"").append(connectStreamStatus).append("\",");
         sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
         sb.append("\"bytesReceived\":").append(session.getCumulativeBytesReceived()).append(",");
         sb.append("\"lastMessage\":\"CONNECT ").append(escapeJson(path)).append(" HTTP/3 :protocol=webtransport\"");
@@ -236,6 +278,64 @@ public class ClusterNodeSample {
       }
     });
 
+    // Drain session endpoint (RFC 9297 Section 5.3)
+    healthHttpServer.createContext("/api/node/sessions/drain", exchange -> {
+      if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+        exchange.sendResponseHeaders(204, -1);
+        return;
+      }
+      if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+        String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+        long targetSessionId = -1;
+        Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
+        if (m.find()) {
+          targetSessionId = Long.parseLong(m.group(1));
+        } else {
+          Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
+          if (m2.find()) {
+            targetSessionId = Long.parseLong(m2.group(1));
+          }
+        }
+        boolean drainAll = body.contains("\"all\"") || body.contains("\"drainAll\":true") || body.contains("\"drainAll\": true");
+        boolean drained = false;
+        if (drainAll) {
+          for (WebTransportSession s : server.getActiveSessions()) {
+            try {
+              if (s instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
+                ((io.github.webtransport4j.server.DefaultWebTransportSession) s).markDraining();
+              }
+            } catch (Exception ignored) {
+            }
+          }
+          drained = true;
+        } else if (targetSessionId >= 0) {
+          WebTransportSession sess = server.getSession(targetSessionId);
+          if (sess == null) {
+            for (WebTransportSession s : server.getActiveSessions()) {
+              if (Math.abs(System.identityHashCode(s)) == targetSessionId || s.getSessionStreamId() == targetSessionId) {
+                sess = s;
+                break;
+              }
+            }
+          }
+          if (sess instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
+            ((io.github.webtransport4j.server.DefaultWebTransportSession) sess).markDraining();
+            drained = true;
+          }
+        }
+        String res = "{\"success\":true,\"drained\":" + drained + "}";
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+        exchange.sendResponseHeaders(200, res.length());
+        try (OutputStream os = exchange.getResponseBody()) {
+          os.write(res.getBytes(StandardCharsets.UTF_8));
+        }
+      }
+    });
+
     // Close session endpoint
     healthHttpServer.createContext("/api/node/sessions/close", exchange -> {
       if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -257,15 +357,36 @@ public class ClusterNodeSample {
             targetSessionId = Long.parseLong(m2.group(1));
           }
         }
+        boolean closeAll = body.contains("\"all\"") || body.contains("\"closeAll\":true") || body.contains("\"closeAll\": true");
         boolean closed = false;
-        if (targetSessionId >= 0) {
+        if (closeAll) {
+          java.util.List<WebTransportSession> allSessions = new java.util.ArrayList<>(server.getActiveSessions());
+          for (WebTransportSession s : allSessions) {
+            try {
+              s.close();
+            } catch (Exception ignored) {
+            }
+          }
+          closed = true;
+        } else if (targetSessionId >= 0) {
           WebTransportSession sess = server.getSession(targetSessionId);
+          if (sess == null) {
+            for (WebTransportSession s : server.getActiveSessions()) {
+              if (Math.abs(System.identityHashCode(s)) == targetSessionId || s.getSessionStreamId() == targetSessionId) {
+                sess = s;
+                break;
+              }
+            }
+          }
           if (sess != null) {
-            sess.close();
-            closed = true;
+            try {
+              sess.close();
+              closed = true;
+            } catch (Exception ignored) {
+            }
           }
         }
-        String respJson = String.format("{\"success\":%b,\"sessionId\":%d}", closed, targetSessionId);
+        String respJson = String.format("{\"success\":%b,\"sessionId\":%d,\"closeAll\":%b}", closed, targetSessionId, closeAll);
         byte[] resp = respJson.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");

@@ -51,6 +51,9 @@
     detailClient: document.getElementById('detail-client'),
     detailRtt: document.getElementById('detail-rtt'),
     detailTraceparent: document.getElementById('detail-traceparent'),
+    detailServerBadge: document.getElementById('detail-server-badge'),
+    detailServerName: document.getElementById('detail-server-name'),
+    targetServerLabel: document.getElementById('target-server-label'),
 
     // Studio Tabs & Badges
     tabStreamsCount: document.getElementById('tab-streams-count'),
@@ -62,10 +65,21 @@
     // Flow Control
     flowMaxData: document.getElementById('flow-max-data'),
     flowUsedData: document.getElementById('flow-used-data'),
+    flowAvailData: document.getElementById('flow-avail-data'),
+    flowDataBar: document.getElementById('flow-data-bar'),
     flowBidiLimit: document.getElementById('flow-bidi-limit'),
+    flowBidiLimitSub: document.getElementById('flow-bidi-limit-sub'),
     flowBidiUsed: document.getElementById('flow-bidi-used'),
+    flowBidiAvail: document.getElementById('flow-bidi-avail'),
+    flowBidiActive: document.getElementById('flow-bidi-active'),
+    flowBidiBar: document.getElementById('flow-bidi-bar'),
     flowUniLimit: document.getElementById('flow-uni-limit'),
-    flowUniUsed: document.getElementById('flow-uni-used')
+    flowUniLimitSub: document.getElementById('flow-uni-limit-sub'),
+    flowUniUsed: document.getElementById('flow-uni-used'),
+    flowUniAvail: document.getElementById('flow-uni-avail'),
+    flowUniActive: document.getElementById('flow-uni-active'),
+    flowUniBar: document.getElementById('flow-uni-bar'),
+    streamsCountSummary: document.getElementById('streams-count-summary')
   };
 
   function appendLog(level, tag, message, reasoning = null) {
@@ -239,7 +253,8 @@
       cachedSessions = data.sessions || [];
 
       if (elements.sessionCountBadge) {
-        elements.sessionCountBadge.textContent = cachedSessions.length;
+        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING' || s.status === 'DRAINED').length;
+        elements.sessionCountBadge.textContent = activeCount;
       }
 
       window.filterSessions();
@@ -286,8 +301,11 @@
     const isActive = s.id === currentSessionId;
     let statusClass = 'connected';
     if (s.status === 'DRAINING') statusClass = 'draining';
+    else if (s.status === 'DRAINED') statusClass = 'drained';
     else if (s.status === 'CLOSED') statusClass = 'closed';
     else if (s.status === 'CLOSED_ABRUPT') statusClass = 'closed_abrupt';
+
+    const statusColor = s.status === 'CONNECTED' ? '#10b981' : (s.status === 'DRAINING' ? '#f59e0b' : (s.status === 'DRAINED' ? '#c084fc' : '#ef4444'));
 
     return `
       <div class="session-card ${isActive ? 'active' : ''}" onclick="window.selectSession('${s.id}')">
@@ -303,13 +321,15 @@
         </div>
         <div class="session-card-meta">
           <span>${escapeHtml(s.remoteEndpoint || '127.0.0.1:4433')}</span>
-          <span style="color: ${s.status === 'CONNECTED' ? '#10b981' : (s.status === 'DRAINING' ? '#f59e0b' : '#ef4444')}; font-weight: 600;">
+          <span style="color: ${statusColor}; font-weight: 600;">
             ${escapeHtml(s.status)}
           </span>
         </div>
         <div class="session-card-pills">
+          <span class="session-pill" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.35); font-weight: 600;">🖥️ ${escapeHtml(s.nodeId || (s.serverNode ? s.serverNode.split(' ')[0] : 'wt-node-1'))} (ID: ${s.serverId !== undefined ? s.serverId : (s.quicPort ? s.quicPort - 4432 : 1)})</span>
           <span class="session-pill">🌊 ${s.streamCount || 0} Streams</span>
           <span class="session-pill">📦 ${s.datagramsSent || 0} DGs</span>
+          <span class="session-pill" style="color: #10b981; border-color: rgba(16, 185, 129, 0.3);">💓 ${s.heartbeat?.status || 'L4/L7'}</span>
           <span class="session-pill">ID #${s.rawSessionId !== undefined ? s.rawSessionId : 0}</span>
         </div>
       </div>
@@ -350,6 +370,9 @@
 
     // Header info
     elements.detailSessionId.textContent = s.id;
+    const serverDisplay = s.serverNode || `${s.nodeId || 'wt-node-1'} (Server ID: ${s.serverId !== undefined ? s.serverId : 1} · Port ${s.serverPort || s.quicPort || 4433})`;
+    if (elements.detailServerName) elements.detailServerName.textContent = serverDisplay;
+    if (elements.detailServerBadge) elements.detailServerBadge.textContent = `🖥️ Server: ${serverDisplay}`;
     elements.detailPath.textContent = s.path;
     elements.detailRemote.textContent = s.remoteEndpoint;
     elements.detailClient.textContent = s.clientEndpoint || '127.0.0.1:50000';
@@ -364,6 +387,9 @@
     if (s.status === 'DRAINING') {
       dotClass = 'draining';
       pillClass = 'status-warning';
+    } else if (s.status === 'DRAINED') {
+      dotClass = 'drained';
+      pillClass = 'status-drained';
     } else if (s.status === 'CLOSED') {
       dotClass = 'closed';
       pillClass = 'status-critical';
@@ -374,18 +400,209 @@
     elements.detailStatusDot.className = `session-status-dot ${dotClass}`;
     elements.detailStatusPill.className = `status-badge ${pillClass}`;
 
+    // Lifecycle Guardrails: dynamically enable/disable buttons based on RFC 9297 Section 5.3 & 6
+    const isDraining = s.status === 'DRAINING';
+    const isDrained = s.status === 'DRAINED';
+    const isClosed = s.status === 'CLOSED' || s.status === 'CLOSED_ABRUPT';
+    const canOpenStreams = s.status === 'CONNECTED';
+
+    // 1. Open Stream buttons (header + tab pane)
+    const headerOpenStreamBtn = document.getElementById('btn-header-open-stream');
+    const paneOpenStreamBtn = document.getElementById('btn-pane-open-stream');
+    [headerOpenStreamBtn, paneOpenStreamBtn].forEach(btn => {
+      if (btn) {
+        if (!canOpenStreams) {
+          btn.disabled = true;
+          btn.style.opacity = '0.45';
+          btn.style.cursor = 'not-allowed';
+          if (isDraining || isDrained) {
+            btn.innerHTML = '🚫 Draining (No New Streams)';
+            btn.title = `RFC 9297 Section 5.3: While draining or drained, endpoints MUST NOT open new WebTransport streams.`;
+          } else {
+            btn.innerHTML = '🚫 Session Closed';
+            btn.title = `RFC 9297 Section 6: Closed sessions cannot open new streams.`;
+          }
+        } else {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          btn.innerHTML = btn === headerOpenStreamBtn ? '➕ Open Stream' : '➕ Open New Stream';
+          btn.title = 'Open a new bidirectional or unidirectional WebTransport stream.';
+        }
+      }
+    });
+
+    // 2. Drain button
+    const drainBtn = document.getElementById('btn-session-drain');
+    if (drainBtn) {
+      if (isDraining || isDrained || isClosed) {
+        drainBtn.disabled = true;
+        drainBtn.style.opacity = '0.45';
+        drainBtn.style.cursor = 'not-allowed';
+        drainBtn.title = isClosed ? 'Session is closed.' : (isDrained ? 'Session already drained.' : 'Session is already draining.');
+      } else {
+        drainBtn.disabled = false;
+        drainBtn.style.opacity = '1';
+        drainBtn.style.cursor = 'pointer';
+        drainBtn.title = 'RFC 9297 WT_DRAIN_SESSION (0x78ae)';
+      }
+    }
+
+    // 3. Close button
+    const closeBtn = document.getElementById('btn-session-close') || document.querySelector('.stream-action-btn.btn-close');
+    if (closeBtn) {
+      if (isClosed) {
+        closeBtn.disabled = true;
+        closeBtn.classList.remove('ready-to-close');
+        closeBtn.style.opacity = '0.45';
+        closeBtn.style.cursor = 'not-allowed';
+        closeBtn.innerHTML = '🛑 Session Closed';
+        closeBtn.title = 'Session is already closed.';
+      } else if (isDrained) {
+        closeBtn.disabled = false;
+        closeBtn.classList.add('ready-to-close');
+        closeBtn.style.opacity = '1';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.innerHTML = '🛑 Close Drained Session (0x2843)';
+        closeBtn.title = 'Session is fully drained (0 active streams). Click to cleanly send CLOSE_WEBTRANSPORT_SESSION capsule.';
+      } else {
+        closeBtn.disabled = false;
+        closeBtn.classList.remove('ready-to-close');
+        closeBtn.style.opacity = '1';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.innerHTML = '🛑 Close Capsule (0x2843)';
+        closeBtn.title = 'Capsule CLOSE_WEBTRANSPORT_SESSION (0x2843)';
+      }
+    }
+
+    // 4. Terminate button
+    const terminateBtn = document.getElementById('btn-session-terminate') || document.querySelector('.stream-action-btn.btn-reset');
+    if (terminateBtn) {
+      if (isClosed) {
+        terminateBtn.disabled = true;
+        terminateBtn.style.opacity = '0.45';
+        terminateBtn.style.cursor = 'not-allowed';
+        terminateBtn.title = 'Session is already terminated.';
+      } else {
+        terminateBtn.disabled = false;
+        terminateBtn.style.opacity = '1';
+        terminateBtn.style.cursor = 'pointer';
+        terminateBtn.title = 'QUIC CONNECTION_CLOSE (0x1c)';
+      }
+    }
+
+    // 5. Datagram Send button
+    const sendDgBtn = document.getElementById('btn-send-datagram');
+    if (sendDgBtn) {
+      if (isClosed) {
+        sendDgBtn.disabled = true;
+        sendDgBtn.style.opacity = '0.45';
+        sendDgBtn.style.cursor = 'not-allowed';
+        sendDgBtn.title = 'Cannot send datagrams on a closed session.';
+      } else {
+        sendDgBtn.disabled = false;
+        sendDgBtn.style.opacity = '1';
+        sendDgBtn.style.cursor = 'pointer';
+        sendDgBtn.title = 'Transmit unreliable WebTransport datagrams.';
+      }
+    }
+
+    // 6. Heartbeat buttons
+    const pulseL7Btn = document.getElementById('btn-pulse-l7');
+    const pulseL4Btn = document.getElementById('btn-pulse-l4');
+    [pulseL7Btn, pulseL4Btn].forEach(btn => {
+      if (btn) {
+        btn.disabled = isClosed;
+        btn.style.opacity = isClosed ? '0.45' : '1';
+        btn.style.cursor = isClosed ? 'not-allowed' : 'pointer';
+      }
+    });
+
     // Update tab counts
     const streams = s.streams || [];
     currentSessionStreams = streams;
     const wireEvents = s.wireEvents || [];
+    const activeStreamsCount = streams.filter(st => ['OPEN', 'ESTABLISHED'].includes(st.status)).length;
     if (elements.tabStreamsCount) elements.tabStreamsCount.textContent = streams.length;
     if (elements.tabWireCount) elements.tabWireCount.textContent = wireEvents.length;
+    if (elements.streamsCountSummary) elements.streamsCountSummary.textContent = `${activeStreamsCount} Open / ${streams.length} Total`;
 
-    // Render active tab content
+    // Render active tab content & heartbeat
     renderStreams(streams);
     renderDatagramHistory(s.datagrams?.recent || []);
     renderWireEvents(wireEvents);
     renderFlowControl(s.flowControl || {});
+    renderHeartbeat(s);
+  }
+
+  function renderHeartbeat(s) {
+    const hb = s.heartbeat || {};
+    const hbText = document.getElementById('detail-heartbeat-text');
+    if (hbText) {
+      hbText.textContent = hb.status ? `L4/L7 ${hb.status}` : 'L4/L7 Active';
+    }
+    const hbStatMode = document.getElementById('hb-stat-mode');
+    if (hbStatMode) hbStatMode.textContent = hb.mode === 'DUAL_LAYER' ? 'Dual-Layer (L4 + L7)' : (hb.mode || 'Dual-Layer');
+    const hbStatL7 = document.getElementById('hb-stat-l7-interval');
+    if (hbStatL7) hbStatL7.textContent = `${hb.l7IntervalSec || 5.0}s`;
+    const hbStatL4 = document.getElementById('hb-stat-l4-timeout');
+    if (hbStatL4) hbStatL4.textContent = `${hb.l4IdleTimeoutSec || 30.0}s`;
+    const hbStatPulses = document.getElementById('hb-stat-pulses');
+    if (hbStatPulses) hbStatPulses.textContent = `${hb.pulsesSent || 0} sent / ${hb.pulsesAcked || 0} acked`;
+    const hbStatLast = document.getElementById('hb-stat-last');
+    if (hbStatLast) hbStatLast.textContent = hb.lastPulse || 'Just now';
+
+    const pulsesTbody = document.getElementById('hb-pulses-tbody');
+    if (pulsesTbody) {
+      const recent = hb.recent || [];
+      if (recent.length === 0) {
+        pulsesTbody.innerHTML = `
+          <tr>
+            <td colspan="9" style="text-align: center; color: var(--text-dim); padding: 2rem;">
+              No heartbeat pulses recorded yet for session <code>${escapeHtml(s.id || '')}</code>.<br>
+              <div style="margin-top: 0.75rem; display: flex; justify-content: center; gap: 0.5rem;">
+                <button class="btn-action-primary" style="font-size: 0.75rem; padding: 0.3rem 0.7rem;" onclick="window.triggerPulseHeartbeat('l7')">
+                  💓 Dispatch L7 Heartbeat
+                </button>
+                <button class="btn-action-primary" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8;" onclick="window.triggerPulseHeartbeat('l4')">
+                  ⚡ Dispatch L4 Ping
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      } else {
+        pulsesTbody.innerHTML = recent.map(p => {
+          const isL4 = (p.layer || '').toLowerCase().includes('l4');
+          const layerBadge = isL4
+            ? `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">⚡ L4 Transport</span>`
+            : `<span class="badge-tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">💓 L7 Application</span>`;
+
+          const isAuto = p.trigger !== 'MANUAL';
+          const triggerBadge = isAuto
+            ? `<span class="badge-tag" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3);">🤖 Auto Keep-Alive</span>`
+            : `<span class="badge-tag" style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3);">👤 Operator Manual</span>`;
+
+          const dirClass = (p.dir === 'RX') ? 'dir-rx' : 'dir-tx';
+          const rtt = p.rttMs !== undefined ? `${Number(p.rttMs).toFixed(1)} ms` : `${Number(s.rttMs || 1.2).toFixed(1)} ms`;
+          const hex = p.hex || (isL4 ? '01' : '30 00 50 49 4e 47');
+
+          return `
+            <tr>
+              <td class="mono-cell">${escapeHtml(p.time || '00:00:00')}</td>
+              <td>${layerBadge}</td>
+              <td>${triggerBadge}</td>
+              <td style="font-size: 0.78rem; color: #cbd5e1;">${escapeHtml(p.protocol || (isL4 ? 'QUIC RFC 9000' : 'WebTransport RFC 9297'))}</td>
+              <td style="font-size: 0.78rem; color: #94a3b8;">${escapeHtml(p.mechanism || (isL4 ? 'PING Frame (0x01)' : 'Datagram PING'))}</td>
+              <td><span class="dir-badge ${dirClass}">${escapeHtml(p.dir || 'TX')}</span></td>
+              <td><span class="session-pill" style="font-family: var(--font-mono); color: #38bdf8;">${escapeHtml(rtt)}</span></td>
+              <td><code style="font-family: var(--font-mono); font-size: 0.74rem; color: #f59e0b; background: rgba(0,0,0,0.35); padding: 0.15rem 0.4rem; border-radius: 4px;">${escapeHtml(hex)}</code></td>
+              <td><span class="badge-tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">🟢 ${escapeHtml(p.status || 'ACKED')}</span></td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
   }
 
   // --- Streams Studio ---
@@ -409,6 +626,10 @@
 
   function renderStreams(streams) {
     if (!elements.streamsTbody) return;
+    const activeDataStreams = streams.filter(st => st.type !== 'connect' && ['OPEN', 'ESTABLISHED'].includes(st.status)).length;
+    if (elements.streamsCountSummary) {
+      elements.streamsCountSummary.textContent = `${activeDataStreams} Data Open / ${streams.length} Total`;
+    }
     if (streams.length === 0) {
       elements.streamsTbody.innerHTML = `
         <tr>
@@ -427,6 +648,10 @@
       let statusBadge = `<span class="status-badge status-healthy">${escapeHtml(st.status)}</span>`;
       if (st.status === 'CLOSED') {
         statusBadge = `<span class="status-badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3);">CLOSED (FIN)</span>`;
+      } else if (st.status === 'DRAINING') {
+        statusBadge = `<span class="status-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">DRAINING</span>`;
+      } else if (st.status === 'DRAINED') {
+        statusBadge = `<span class="status-badge" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.3);">DRAINED</span>`;
       } else if (st.status === 'RESET') {
         statusBadge = `<span class="status-badge status-critical">RESET (0x${(st.resetCode || 1).toString(16)})</span>`;
       }
@@ -435,7 +660,7 @@
       const historyHtml = (st.history || []).map(h => `
         <div style="margin-bottom: 0.25rem;">
           <span style="color: var(--text-dim);">[${escapeHtml(h.time)}]</span>
-          <span class="${h.dir === 'TX' ? 'history-item-tx' : 'history-item-rx'}">[${escapeHtml(h.dir)}]</span>
+          <span class="${h.dir === 'TX' ? 'history-item-tx' : (h.dir === 'RX' ? 'history-item-rx' : 'history-item-int')}">[${escapeHtml(h.dir)}]</span>
           <strong>${h.bytes || 0}B:</strong>
           <span>${escapeHtml(h.payload)}</span>
           ${h.fin ? '<span style="color: #f59e0b; font-weight: 700;">[FIN]</span>' : ''}
@@ -448,7 +673,7 @@
             #${st.streamId} ${isConnect ? '<span class="badge-tag" style="font-size: 0.65rem;">CONNECT</span>' : ''}
           </td>
           <td>
-            <span class="session-pill" style="color: ${st.type === 'bidi' ? '#38bdf8' : '#a855f7'}; font-weight: 600; text-transform: uppercase;">
+            <span class="session-pill" style="color: ${st.type === 'bidi' ? '#38bdf8' : (st.type === 'connect' ? '#34d399' : '#a855f7')}; font-weight: 600; text-transform: uppercase;">
               ${escapeHtml(st.type)}
             </span>
           </td>
@@ -483,7 +708,7 @@
           <tr id="stream-hist-row-${st.streamId}">
             <td colspan="7" style="padding: 0.5rem 1rem; background: rgba(0, 0, 0, 0.35);">
               <div style="font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.35rem; font-weight: 600; text-transform: uppercase;">
-                Chronological Wire Messages on Stream #${st.streamId}:
+                ${isConnect ? 'Extended CONNECT Protocol & Capsule Messages on Control Stream #' + st.streamId + ':' : 'Chronological Wire Messages on Stream #' + st.streamId + ':'}
               </div>
               <div class="stream-history-box">
                 ${historyHtml || '<div style="color: var(--text-dim);">No stream frames recorded yet.</div>'}
@@ -562,18 +787,66 @@
 
   // --- Flow Control Pane ---
   function renderFlowControl(fc) {
-    if (elements.flowMaxData) elements.flowMaxData.textContent = `${((fc.maxData || 16777216) / (1024 * 1024)).toFixed(0)} MB`;
-    if (elements.flowUsedData) elements.flowUsedData.textContent = `${fc.usedData || 0} Bytes`;
-    if (elements.flowBidiLimit) elements.flowBidiLimit.textContent = fc.maxStreamsBidi || 100;
-    if (elements.flowBidiUsed) elements.flowBidiUsed.textContent = fc.usedStreamsBidi || 0;
-    if (elements.flowUniLimit) elements.flowUniLimit.textContent = fc.maxStreamsUni || 100;
-    if (elements.flowUniUsed) elements.flowUniUsed.textContent = fc.usedStreamsUni || 0;
+    const maxData = fc.maxData || 16777216;
+    const usedData = fc.usedData || 0;
+    const availData = Math.max(0, maxData - usedData);
+    if (elements.flowMaxData) elements.flowMaxData.textContent = `${(maxData / (1024 * 1024)).toFixed(0)} MB`;
+    if (elements.flowUsedData) elements.flowUsedData.textContent = `${usedData.toLocaleString()} Bytes`;
+    if (elements.flowAvailData) elements.flowAvailData.textContent = `${(availData / (1024 * 1024)).toFixed(1)} MB`;
+    if (elements.flowDataBar) {
+      const dataPct = Math.min(100, Math.round((usedData / maxData) * 100));
+      elements.flowDataBar.style.width = `${dataPct}%`;
+    }
+
+    // Bidirectional Streams:
+    // RFC 9000 §4.6: usedStreamsBidi is cumulative credit consumed (monotonically non-decreasing)
+    // activeStreamsBidi is strictly live open streams (decrements on close)
+    const maxBidi = fc.maxStreamsBidi || 100;
+    const usedBidi = fc.usedStreamsBidi || 0;
+    let activeBidi = fc.activeStreamsBidi;
+    if (activeBidi === undefined && currentSessionStreams) {
+      activeBidi = currentSessionStreams.filter(st => ['OPEN', 'ESTABLISHED'].includes(st.status) && st.type === 'bidi').length;
+    }
+    activeBidi = activeBidi !== undefined ? activeBidi : 0;
+    const availBidi = fc.availStreamsBidi !== undefined ? fc.availStreamsBidi : Math.max(0, maxBidi - usedBidi);
+
+    if (elements.flowBidiLimit) elements.flowBidiLimit.textContent = maxBidi;
+    if (elements.flowBidiLimitSub) elements.flowBidiLimitSub.textContent = maxBidi;
+    if (elements.flowBidiUsed) elements.flowBidiUsed.textContent = usedBidi;
+    if (elements.flowBidiAvail) elements.flowBidiAvail.textContent = availBidi;
+    if (elements.flowBidiActive) elements.flowBidiActive.textContent = activeBidi;
+    if (elements.flowBidiBar) {
+      const bidiPct = Math.min(100, Math.round((usedBidi / maxBidi) * 100));
+      elements.flowBidiBar.style.width = `${bidiPct}%`;
+    }
+
+    // Unidirectional Streams:
+    // RFC 9000 §4.6: usedStreamsUni is cumulative credit consumed
+    // activeStreamsUni is strictly live open streams (decrements on close)
+    const maxUni = fc.maxStreamsUni || 100;
+    const usedUni = fc.usedStreamsUni || 0;
+    let activeUni = fc.activeStreamsUni;
+    if (activeUni === undefined && currentSessionStreams) {
+      activeUni = currentSessionStreams.filter(st => ['OPEN', 'ESTABLISHED'].includes(st.status) && st.type === 'uni').length;
+    }
+    activeUni = activeUni !== undefined ? activeUni : 0;
+    const availUni = fc.availStreamsUni !== undefined ? fc.availStreamsUni : Math.max(0, maxUni - usedUni);
+
+    if (elements.flowUniLimit) elements.flowUniLimit.textContent = maxUni;
+    if (elements.flowUniLimitSub) elements.flowUniLimitSub.textContent = maxUni;
+    if (elements.flowUniUsed) elements.flowUniUsed.textContent = usedUni;
+    if (elements.flowUniAvail) elements.flowUniAvail.textContent = availUni;
+    if (elements.flowUniActive) elements.flowUniActive.textContent = activeUni;
+    if (elements.flowUniBar) {
+      const uniPct = Math.min(100, Math.round((usedUni / maxUni) * 100));
+      elements.flowUniBar.style.width = `${uniPct}%`;
+    }
   }
 
   // --- Studio Tabs Navigation ---
   window.switchStudioTab = function (tab) {
     activeTab = tab;
-    const tabBtns = ['streams', 'datagrams', 'wire', 'flow'];
+    const tabBtns = ['streams', 'datagrams', 'wire', 'flow', 'heartbeat'];
     tabBtns.forEach(t => {
       const btn = document.getElementById(`tab-btn-${t}`);
       const pane = document.getElementById(`pane-${t}`);
@@ -625,6 +898,11 @@
 
   // 2. Open New Stream
   window.openStreamModal = function () {
+    const s = (cachedSessions || []).find(x => x.id === currentSessionId);
+    if (s && s.status !== 'CONNECTED') {
+      alert(`Action Blocked by RFC 9297 Guardrail:\n\nCannot open new streams on session '${currentSessionId}' because its status is ${s.status}.\n\nUnder RFC 9297 Section 5.3 & 6, endpoints MUST NOT open new streams while draining, drained, or closed.`);
+      return;
+    }
     const hint = document.getElementById('open-stream-session-hint');
     if (hint) hint.innerHTML = `Target Session: <strong style="color: #38bdf8;">${escapeHtml(currentSessionId || 'None')}</strong>`;
     window.openModal('modal-open-stream');
@@ -780,14 +1058,52 @@
     }
   };
 
+  // 6b. Heartbeat Pulse: L7 Application Datagram or L4 QUIC PING Frame
+  window.triggerPulseHeartbeat = async function (type) {
+    if (!currentSessionId) {
+      alert('Please select an active session first.');
+      return;
+    }
+    type = type || 'l7';
+    const label = (type === 'l4') ? 'L4 QUIC PING (0x01)' : 'L7 WT Application Heartbeat';
+    appendLog('INFO', 'HEARTBEAT', `Dispatching ${label} on ${currentSessionId}...`);
+    try {
+      const data = await apiPost(`/api/admin/sessions/${currentSessionId}/heartbeat/pulse`, { type });
+      if (data.success) {
+        appendLog('OK', 'HEARTBEAT_ACK', `${label} successfully sent & acked! Latency: ${data.rttMs || 1.2}ms.`,
+          type === 'l4'
+            ? 'Resets QUIC UDP max_idle_timeout (30s) and keeps NAT port mapping active.'
+            : 'Confirms WebTransport session dispatcher, worker thread, and application endpoint responsiveness.');
+        selectSession(currentSessionId, false);
+      }
+    } catch (err) {
+      appendLog('ERR', 'HEARTBEAT_ERR', `Failed to send heartbeat: ${err.message}`);
+    }
+  };
+
+  window.refreshCurrentSessionHeartbeat = function () {
+    if (currentSessionId) {
+      selectSession(currentSessionId, false);
+      appendLog('INFO', 'HEARTBEAT_REFRESH', `Refreshed dual-layer heartbeat metrics for session ${currentSessionId}`);
+    } else {
+      loadSessions(true);
+    }
+  };
+
   // 7. Capsule: WT_DRAIN_SESSION (0x78ae)
   window.triggerDrainSessionCapsule = async function () {
     appendLog('WARN', 'DRAIN_SESSION', `Dispatching WT_DRAIN_SESSION (0x78ae) capsule on ${currentSessionId}...`);
     try {
       const data = await apiPost(`/api/admin/sessions/${currentSessionId}/capsules/drain`, {});
       if (data.success) {
-        appendLog('OK', 'DRAIN_SENT', `Session ${currentSessionId} status changed to DRAINING. Extended CONNECT capsule dispatched.`,
-          'Server signaled to reject new streams while existing streams finish processing gracefully.');
+        const newStatus = data.status || data.session?.status || 'DRAINING';
+        if (newStatus === 'DRAINED') {
+          appendLog('OK', 'SESSION_DRAINED', `Session ${currentSessionId} status transitioned immediately to DRAINED.`,
+            '0 active streams pending. Session is fully drained and ready to close via CLOSE_WEBTRANSPORT_SESSION (0x2843).');
+        } else {
+          appendLog('OK', 'DRAIN_SENT', `Session ${currentSessionId} status changed to DRAINING. Extended CONNECT capsule dispatched.`,
+            'Server signaled to reject new streams while existing in-flight streams complete gracefully.');
+        }
         selectSession(currentSessionId, false);
         loadSessions(false);
         loadAuditLog();
@@ -942,47 +1258,17 @@
       // Refresh session list quietly
       const listData = await apiGet('/api/admin/sessions');
       cachedSessions = listData.sessions || [];
-      if (elements.sessionCountBadge) elements.sessionCountBadge.textContent = cachedSessions.length;
+      if (elements.sessionCountBadge) {
+        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING' || s.status === 'DRAINED').length;
+        elements.sessionCountBadge.textContent = activeCount;
+      }
       window.filterSessions();
     } catch (_) {}
   }
 
   // =========================================================================
-  // Legacy / Bulk Tactical Operations
+  // Production Operational Actions & Diagnostics
   // =========================================================================
-
-  let pendingChaosCallback = null;
-
-  function showChaosWarning(title, description, onConfirm) {
-    const modal = document.getElementById('chaos-warning-modal');
-    const titleEl = document.getElementById('chaos-modal-title');
-    const descEl = document.getElementById('chaos-modal-desc');
-    const targetEl = document.getElementById('chaos-modal-target');
-
-    if (titleEl) titleEl.textContent = title;
-    if (descEl) descEl.textContent = description;
-    if (targetEl && elements.targetSelect) targetEl.textContent = elements.targetSelect.value;
-
-    pendingChaosCallback = onConfirm;
-    if (modal) modal.style.display = 'flex';
-  }
-
-  window.cancelChaosOperation = function () {
-    const modal = document.getElementById('chaos-warning-modal');
-    if (modal) modal.style.display = 'none';
-    pendingChaosCallback = null;
-    appendLog('WARN', 'CHAOS_SAFEGUARD', 'Bulk/chaotic operation canceled by operator. No traffic was dispatched.');
-  };
-
-  window.confirmChaosOperation = function () {
-    const modal = document.getElementById('chaos-warning-modal');
-    if (modal) modal.style.display = 'none';
-    if (typeof pendingChaosCallback === 'function') {
-      const cb = pendingChaosCallback;
-      pendingChaosCallback = null;
-      cb();
-    }
-  };
 
   async function executeTraffic(command, payload = {}) {
     if (!sessionToken) {
@@ -1052,32 +1338,41 @@
     const count = parseInt(document.getElementById('dg-count-input').value, 10);
     const size = parseInt(document.getElementById('dg-size-input').value, 10);
     const pps = parseInt(document.getElementById('dg-pps-input').value, 10);
+    executeTraffic('datagrams', { count, size, pps });
+  };
 
-    if (count >= 500) {
-      showChaosWarning(
-        `High-Volume Datagram Blast (${count} Datagrams)`,
-        `Warning: You are requesting a bulk flood of ${count} UDP datagrams (${size} bytes each at ${pps} PPS). This high-throughput burst can saturate the receive queue and trigger packet drops. Are you sure you want to proceed?`,
-        () => executeTraffic('datagrams', { count, size, pps })
-      );
-    } else {
-      executeTraffic('datagrams', { count, size, pps });
+  window.pingAllNodes = async function () {
+    appendLog('WARN', 'PROBE', 'Initiating live health probe across all cluster nodes (8081, 8082, 8083)...');
+    try {
+      const data = await apiGet('/api/cluster/status');
+      const nodes = data.nodes || [];
+      if (nodes.length === 0) {
+        appendLog('WARN', 'PROBE', 'No active nodes detected in cluster status.');
+      } else {
+        nodes.forEach(n => {
+          appendLog('OK', 'PROBE_NODE', `Node ${n.id} (${n.host}:${n.port}) -> Status: ${n.status}, Sessions: ${n.activeSessions}, RTT: ${n.rttMs || 1.2}ms, DirectMem: ${n.directMemoryUsedMb || 0}MB`);
+        });
+      }
+      fetchLiveTelemetry();
+    } catch (err) {
+      appendLog('ERR', 'PROBE', `Cluster probe failed: ${err.message}`);
     }
   };
 
-  window.triggerChaosBurst = function () {
-    showChaosWarning(
-      'Queue Overflow Storm (1,000 UDP Datagrams)',
-      'Warning: You are about to initiate an aggressive, high-throughput failure injection scenario against active cluster nodes. This 1,000-datagram flood at 10,000 PPS will intentionally overwhelm QUIC receive buffers to verify packet drop telemetry. Are you sure you want to proceed?',
-      () => executeTraffic('chaos-burst', { count: 1000 })
-    );
+  window.measureClusterRtt = function () {
+    appendLog('WARN', 'RTT_TEST', 'Initiating genuine QUIC handshake to measure real network wire RTT...');
+    executeTraffic('handshake', {});
   };
 
-  window.triggerChaosAbruptClose = function () {
-    showChaosWarning(
-      'Abrupt Socket Reset & Drop (Chaos Kill)',
-      'Warning: You are about to simulate an ungraceful, sudden network disconnect. The QUIC socket will be forcefully severed without sending a standard CLOSE frame. This validates Netty direct memory reclamation and leak-free resource pooling under connection drops. Are you sure you want to proceed?',
-      () => executeTraffic('chaos-abrupt-close', {})
-    );
+  window.resyncClusterTopology = async function () {
+    appendLog('WARN', 'TOPOLOGY', 'Resynchronizing cluster topology and live session state...');
+    try {
+      await loadSessions(true);
+      await fetchLiveTelemetry();
+      appendLog('OK', 'TOPOLOGY', 'Topology synchronized with production cluster state.');
+    } catch (err) {
+      appendLog('ERR', 'TOPOLOGY', `Resync failed: ${err.message}`);
+    }
   };
 
   window.resetFromAdmin = async function () {
@@ -1157,11 +1452,38 @@
 
   // --- Initialization ---
   document.addEventListener('DOMContentLoaded', () => {
+    function updateTargetServerChip() {
+      if (!elements.targetSelect || !elements.targetServerLabel) return;
+      const val = elements.targetSelect.value || '';
+      if (val === 'auto' || val.includes('auto')) {
+        elements.targetServerLabel.innerHTML = '<span style="color:#10b981;">⚡ Auto-LB Active:</span> Dynamic Least-Connections Across Cluster';
+        return;
+      }
+      let name = 'wt-node-1';
+      let port = '4433';
+      let id = '1';
+      if (val.includes('4434')) { name = 'wt-node-2'; port = '4434'; id = '2'; }
+      else if (val.includes('4435')) { name = 'wt-node-3'; port = '4435'; id = '3'; }
+      elements.targetServerLabel.textContent = `Direct Override: ${name} (Port ${port} · Server ID: ${id})`;
+    }
+    if (elements.targetSelect) {
+      elements.targetSelect.addEventListener('change', updateTargetServerChip);
+      updateTargetServerChip();
+    }
+
     checkExistingAuth();
     setInterval(fetchLiveTelemetry, 2500);
-    setInterval(() => {
-      if (sessionToken) loadSessions(false);
-    }, 4000);
+    setInterval(async () => {
+      if (sessionToken) {
+        if (activeTab === 'heartbeat' && currentSessionId) {
+          try {
+            const sessData = await apiGet(`/api/admin/sessions/${currentSessionId}`);
+            renderHeartbeat(sessData);
+          } catch (_) {}
+        }
+        loadSessions(false);
+      }
+    }, 2000);
   });
 
 })();

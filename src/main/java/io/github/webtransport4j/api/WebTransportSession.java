@@ -63,6 +63,24 @@ public interface WebTransportSession {
   boolean isDraining();
 
   /**
+   * Returns true if this session has completed draining (is draining and 0 active streams remain).
+   *
+   * @return true if the session is fully drained
+   */
+  default boolean isDrained() {
+    return isDraining() && getActiveStreams().isEmpty();
+  }
+
+  /**
+   * Returns true if this session is open and active.
+   *
+   * @return true if the session is open
+   */
+  default boolean isOpen() {
+    return true;
+  }
+
+  /**
    * Creates an outbound unidirectional stream with the default pipeline.
    *
    * @return a future that completes with the opened stream

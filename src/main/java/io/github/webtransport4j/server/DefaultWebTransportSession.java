@@ -125,6 +125,18 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return draining.get();
   }
 
+  /** Returns true if this session has completed draining (is draining and has 0 active streams). */
+  @Override
+  public boolean isDrained() {
+    return isDraining() && getAllActiveWebTransportStreams().isEmpty();
+  }
+
+  /** Returns true if the underlying CONNECT stream is present and open. */
+  @Override
+  public boolean isOpen() {
+    return connectStream != null && connectStream.isOpen();
+  }
+
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
   public void markDraining() {
     draining.set(true);

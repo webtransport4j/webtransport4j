@@ -43,7 +43,8 @@ ENV JAVA_OPTS="-XX:+UseZGC \
                -XX:MaxRAMPercentage=75.0 \
                -XX:+ExitOnOutOfMemoryError \
                -Dio.netty.leakDetection.level=SIMPLE \
-               -Dio.netty.allocator.type=pooled"
+               -Dio.netty.allocator.type=pooled \
+               -Djava.net.preferIPv4Stack=true"
 
 
 ENV PORT=4433

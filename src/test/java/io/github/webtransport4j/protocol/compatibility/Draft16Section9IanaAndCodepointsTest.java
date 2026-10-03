@@ -95,6 +95,13 @@ public class Draft16Section9IanaAndCodepointsTest {
         WebTransportUtils.WT_ERROR_LAST);
     assertTrue(WebTransportUtils.isWebTransportApplicationError(WebTransportUtils.WT_ERROR_FIRST));
     assertTrue(WebTransportUtils.isWebTransportApplicationError(WebTransportUtils.WT_ERROR_LAST));
+
+    // HTTP/3 Error Codes
+    assertEquals(0x3994bd84, WebTransportUtils.WT_BUFFERED_STREAM_REJECTED);
+    assertEquals(0x170d7b68, WebTransportUtils.WT_SESSION_GONE);
+    assertEquals(0x045d4487, WebTransportUtils.WT_FLOW_CONTROL_ERROR);
+    assertEquals(0x0817b3dd, WebTransportUtils.WT_ALPN_ERROR);
+    assertEquals(0x212c0d48, WebTransportUtils.WT_REQUIREMENTS_NOT_MET);
   }
 
   /**
@@ -134,10 +141,11 @@ public class Draft16Section9IanaAndCodepointsTest {
   /**
    * Section 9.7: Protocol Negotiation HTTP Header Fields.
    * "WT-Available-Protocols, WT-Protocol"
-   * OPTIONAL: Header field name definitions.
+   * Header field name definitions and parsing.
    */
   @Test
-  public void testSection9_7_ProtocolNegotiationHeaderFieldNames_Optional() {
-    // Optional feature: left empty without assertions per specification requirements
+  public void testSection9_7_ProtocolNegotiationHeaderFieldNames() {
+    assertEquals("wt-available-protocols", WebTransportHeadersHandler.HEADER_WT_AVAILABLE_PROTOCOLS);
+    assertEquals("wt-protocol", WebTransportHeadersHandler.HEADER_WT_PROTOCOL);
   }
 }

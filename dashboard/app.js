@@ -11,7 +11,8 @@
   const state = {
     activeSource: 'live-cluster', // 'live-cluster' | 'prometheus' | 'otlp'
     activeTab: 'overview',
-    timeWindow: '5m',
+    timeWindow: 'live',
+    isHistorical: false,
     refreshRate: 1000,
     isPaused: false,
     timerId: null,
@@ -117,8 +118,8 @@
         const totalPps = (state.metrics.datagramsSentRate || 0) + (state.metrics.datagramsRecvRate || 0);
         state.metrics.datagramThroughputMbps = +((totalPps * 512 * 8) / 1_000_000).toFixed(2);
 
-        // Synchronize server-side rolling history so refreshing analytics NEVER wipes data
-        if (data.history && data.history.timestamps && data.history.timestamps.length > 0) {
+        // Synchronize server-side rolling history so refreshing analytics NEVER wipes data (only in live mode)
+        if (!state.isHistorical && data.history && data.history.timestamps && data.history.timestamps.length > 0) {
           state.history.timestamps = data.history.timestamps.slice();
           state.history.sessions = data.history.sessions.slice();
           state.history.streams = data.history.streams.slice();
@@ -179,30 +180,32 @@
   }
 
   function updateHistoryAndRender() {
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    state.history.timestamps.push(timeStr);
-    state.history.timestamps.shift();
+    if (!state.isHistorical) {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      state.history.timestamps.push(timeStr);
+      state.history.timestamps.shift();
 
-    state.history.sessions.push(state.metrics.activeSessions || 0);
-    state.history.sessions.shift();
+      state.history.sessions.push(state.metrics.activeSessions || 0);
+      state.history.sessions.shift();
 
-    state.history.streams.push(state.metrics.activeStreams || 0);
-    state.history.streams.shift();
+      state.history.streams.push(state.metrics.activeStreams || 0);
+      state.history.streams.shift();
 
-    state.history.datagramsSent.push(state.metrics.datagramsSentRate || 0);
-    state.history.datagramsSent.shift();
+      state.history.datagramsSent.push(state.metrics.datagramsSentRate || 0);
+      state.history.datagramsSent.shift();
 
-    state.history.datagramsDropped.push(state.metrics.datagramsDroppedRate || 0);
-    state.history.datagramsDropped.shift();
+      state.history.datagramsDropped.push(state.metrics.datagramsDroppedRate || 0);
+      state.history.datagramsDropped.shift();
 
-    state.history.rttMean.push(state.metrics.quicRttMeanMs || 0);
-    state.history.rttMean.shift();
+      state.history.rttMean.push(state.metrics.quicRttMeanMs || 0);
+      state.history.rttMean.shift();
 
-    state.history.rttP99.push(state.metrics.quicRttP99Ms || 0);
-    state.history.rttP99.shift();
+      state.history.rttP99.push(state.metrics.quicRttP99Ms || 0);
+      state.history.rttP99.shift();
 
-    state.history.memoryMb.push(state.metrics.nettyDirectMemoryMb || 0);
-    state.history.memoryMb.shift();
+      state.history.memoryMb.push(state.metrics.nettyDirectMemoryMb || 0);
+      state.history.memoryMb.shift();
+    }
 
     evaluateRealAlerts();
     updateDomMetrics();
@@ -348,7 +351,7 @@
       tbody.innerHTML = `
         <tr>
           <td colspan="7" style="text-align: center; color: var(--text-dim); padding: 2rem;">
-            No real traces captured yet. Send a request or use the <strong>Admin Chaos Console</strong> to generate live W3C trace spans.
+            No real traces captured yet. Send a request or use the <strong>Admin Operations Console</strong> to generate live W3C trace spans.
           </td>
         </tr>
       `;
@@ -622,6 +625,88 @@
     }
   };
 
+  // --- Distinct Real-Time Live vs Historical Analytics Mode Switcher ---
+  window.selectTimeWindow = async function (windowName) {
+    state.timeWindow = windowName;
+    state.isHistorical = (windowName !== 'live');
+
+    document.querySelectorAll('#time-window-controls .btn-toggle').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-time') === windowName);
+    });
+
+    const modeBar = document.getElementById('analytics-mode-bar');
+    const badge = document.getElementById('mode-pill-badge');
+    const desc = document.getElementById('mode-status-desc');
+    const histSummary = document.getElementById('hist-summary-metrics');
+    const returnLiveBtn = document.getElementById('btn-return-live');
+
+    if (!state.isHistorical) {
+      if (modeBar) {
+        modeBar.className = 'analytics-mode-bar live-mode';
+      }
+      if (badge) {
+        badge.className = 'mode-pill live';
+        badge.innerHTML = '<span class="pulse-beacon"></span> ⚡ REAL-TIME LIVE COCKPIT';
+      }
+      if (desc) {
+        desc.textContent = 'Streaming live metrics at 1-second ticks · Real-time socket events';
+      }
+      if (histSummary) histSummary.style.display = 'none';
+      if (returnLiveBtn) returnLiveBtn.style.display = 'none';
+
+      await pollTelemetry();
+      renderAllCharts();
+    } else {
+      if (modeBar) {
+        modeBar.className = 'analytics-mode-bar history-mode';
+      }
+      if (badge) {
+        badge.className = 'mode-pill history';
+        badge.innerHTML = `📈 HISTORICAL ANALYTICS (${windowName.toUpperCase()})`;
+      }
+      if (desc) {
+        desc.textContent = `Aggregated historical series across the past ${windowName}`;
+      }
+      if (histSummary) histSummary.style.display = 'flex';
+      if (returnLiveBtn) returnLiveBtn.style.display = 'inline-block';
+
+      try {
+        const res = await fetch(`/api/telemetry/history?window=${encodeURIComponent(windowName)}`);
+        if (res.ok) {
+          const histData = await res.json();
+          if (histData.timestamps && histData.timestamps.length > 0) {
+            state.history.timestamps = histData.timestamps.slice();
+            state.history.sessions = histData.sessions.slice();
+            state.history.streams = histData.streams.slice();
+            state.history.datagramsSent = histData.datagramsSent.slice();
+            state.history.datagramsDropped = histData.datagramsDropped.slice();
+            state.history.rttMean = histData.rttMean.slice();
+            state.history.rttP99 = histData.rttP99.slice();
+            state.history.memoryMb = histData.memoryMb.slice();
+          }
+          if (histData.summary) {
+            const elWin = document.getElementById('hm-window-label');
+            const elPeak = document.getElementById('hm-peak-sess');
+            const elVol = document.getElementById('hm-total-vol');
+            const elAvgRtt = document.getElementById('hm-avg-rtt');
+            const elP99Rtt = document.getElementById('hm-p99-rtt');
+            const elDrops = document.getElementById('hm-drops');
+
+            if (elWin) elWin.textContent = histData.window;
+            if (elPeak) elPeak.textContent = histData.summary.peakSessions;
+            if (elVol) elVol.textContent = formatCompact(histData.summary.totalDatagrams);
+            if (elAvgRtt) elAvgRtt.textContent = `${histData.summary.avgRtt} ms`;
+            if (elP99Rtt) elP99Rtt.textContent = `${histData.summary.p99Rtt} ms`;
+            if (elDrops) elDrops.textContent = histData.summary.totalDrops;
+          }
+          renderAllCharts();
+        }
+      } catch (err) {
+        console.warn('Failed to load historical analytics:', err);
+      }
+    }
+  };
+
 
 
 
@@ -639,6 +724,14 @@
 
   // --- Initializer ---
   document.addEventListener('DOMContentLoaded', () => {
+    // Bind time window toggle controls
+    document.querySelectorAll('#time-window-controls .btn-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const win = btn.getAttribute('data-time') || 'live';
+        window.selectTimeWindow(win);
+      });
+    });
+
     pollTelemetry();
     state.timerId = setInterval(pollTelemetry, state.refreshRate);
     window.addEventListener('resize', () => renderAllCharts());

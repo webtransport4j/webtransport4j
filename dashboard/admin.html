@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="WebTransport4J Enterprise Admin Console & Chaos Engine. Real-world traffic generator, QUIC connection orchestrator, and failure injection testing.">
-  <title>WebTransport4J · Mission Control & Chaos Engine</title>
+  <meta name="description" content="WebTransport4J Enterprise Admin Console & Analytics Engine. Real-world traffic generator, QUIC connection orchestrator, and real-time cluster telemetry.">
+  <title>WebTransport4J · Enterprise Operations & Analytics Console</title>
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,13 +16,13 @@
     /* Admin Specific Styling */
     .admin-header {
       background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95));
-      border-bottom: 1px solid rgba(239, 68, 68, 0.3);
-      box-shadow: 0 4px 20px rgba(239, 68, 68, 0.08);
+      border-bottom: 1px solid rgba(56, 189, 248, 0.3);
+      box-shadow: 0 4px 20px rgba(56, 189, 248, 0.08);
     }
-    .badge-chaos-admin {
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      color: #ef4444;
+    .badge-operations {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
       font-size: 0.7rem;
       font-weight: 700;
       padding: 0.25rem 0.6rem;
@@ -36,15 +36,7 @@
       gap: 1.5rem;
       margin-top: 1.5rem;
     }
-    .card-chaos {
-      border: 1px solid rgba(239, 68, 68, 0.25);
-      background: rgba(239, 68, 68, 0.02);
-    }
-    .card-chaos:hover {
-      border-color: rgba(239, 68, 68, 0.5);
-      box-shadow: 0 8px 30px rgba(239, 68, 68, 0.12);
-    }
-    .btn-fire-chaos {
+    .btn-action-danger {
       background: linear-gradient(135deg, #ef4444, #dc2626);
       color: #fff;
       border: none;
@@ -59,10 +51,30 @@
       transition: all 0.2s ease;
       box-shadow: 0 2px 10px rgba(239, 68, 68, 0.3);
     }
-    .btn-fire-chaos:hover {
+    .btn-action-danger:hover {
       background: linear-gradient(135deg, #dc2626, #b91c1c);
       transform: translateY(-1px);
       box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+    }
+    .btn-action-warning {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem 1rem;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 10px rgba(245, 158, 11, 0.3);
+    }
+    .btn-action-warning:hover {
+      background: linear-gradient(135deg, #d97706, #b45309);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
     }
     .btn-action-primary {
       background: linear-gradient(135deg, var(--primary), #4f46e5);
@@ -158,7 +170,7 @@
     }
     .auth-modal {
       background: #0f172a;
-      border: 1px solid rgba(239, 68, 68, 0.4);
+      border: 1px solid rgba(56, 189, 248, 0.4);
       border-radius: 12px;
       padding: 2.5rem;
       max-width: 440px;
@@ -173,10 +185,10 @@
   <div class="auth-overlay" id="auth-modal-overlay">
     <div class="auth-modal">
       <div style="text-align: center; margin-bottom: 1.5rem;">
-        <span class="badge-chaos-admin">SEC-OPS ACCESS ONLY</span>
-        <h2 style="font-size: 1.35rem; margin-top: 0.75rem; color: #fff;">Enterprise Mission Control</h2>
+        <span class="badge-operations">AUTHENTICATED OPERATOR ACCESS</span>
+        <h2 style="font-size: 1.35rem; margin-top: 0.75rem; color: #fff;">Enterprise Operations Console</h2>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.35rem;">
-          Authenticate to trigger real WebTransport connections, streams, datagram bursts, and chaos failure injection.
+          Authenticate to manage live WebTransport sessions, streams, datagram transmission, and inspect real-time cluster telemetry.
         </p>
       </div>
 
@@ -203,34 +215,6 @@
     </div>
   </div>
 
-  <!-- Chaos Bulk Operation Warning Modal -->
-  <div class="auth-overlay" id="chaos-warning-modal" style="display: none;">
-    <div class="auth-modal" style="border-color: #ef4444; max-width: 480px;">
-      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-        <span style="font-size: 2.2rem;">🛑</span>
-        <div>
-          <span class="badge-chaos-admin">High Impact Chaos Operation</span>
-          <h2 style="font-size: 1.25rem; margin: 0.25rem 0 0 0; color: #ef4444;" id="chaos-modal-title">Confirm Chaos Operation</h2>
-        </div>
-      </div>
-      <p style="font-size: 0.85rem; color: #cbd5e1; line-height: 1.5;" id="chaos-modal-desc">
-        Warning: You are about to initiate an aggressive, high-throughput failure injection scenario against active cluster nodes.
-      </p>
-      <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 6px; padding: 0.75rem; margin: 1rem 0; font-size: 0.8rem;">
-        <div style="color: var(--text-dim); margin-bottom: 0.25rem;">Target Endpoint:</div>
-        <div style="font-family: 'JetBrains Mono', monospace; color: #38bdf8;" id="chaos-modal-target">https://localhost:4433/echo</div>
-      </div>
-      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-        <button type="button" class="btn-secondary" onclick="window.cancelChaosOperation()">
-          ✕ Cancel
-        </button>
-        <button type="button" class="btn-fire-chaos" id="btn-confirm-chaos" onclick="window.confirmChaosOperation()">
-          💥 Proceed &amp; Execute Chaos
-        </button>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal 1: New WebTransport Connection -->
   <div class="auth-overlay" id="modal-new-connection" style="display: none;">
     <div class="auth-modal" style="border-color: var(--accent-cyan); max-width: 500px;">
@@ -247,7 +231,13 @@
       <form onsubmit="event.preventDefault(); window.submitNewConnection();">
         <div class="param-group">
           <label for="new-conn-target">Target Endpoint URL</label>
-          <input type="text" id="new-conn-target" value="https://localhost:4433/echo" required>
+          <input type="text" id="new-conn-target" value="auto" placeholder="auto or https://localhost:4433/echo" required>
+          <div style="display: flex; gap: 0.35rem; margin-top: 0.35rem; flex-wrap: wrap;">
+            <button type="button" class="btn-action-primary" style="font-size: 0.68rem; padding: 2px 8px;" onclick="document.getElementById('new-conn-target').value='auto'">⚡ Auto-LB (Optimal Cluster Node)</button>
+            <button type="button" class="btn-secondary" style="font-size: 0.68rem; padding: 2px 6px;" onclick="document.getElementById('new-conn-target').value='https://localhost:4433/echo'">Direct Node 1 (:4433)</button>
+            <button type="button" class="btn-secondary" style="font-size: 0.68rem; padding: 2px 6px;" onclick="document.getElementById('new-conn-target').value='https://localhost:4434/chat'">Direct Node 2 (:4434)</button>
+            <button type="button" class="btn-secondary" style="font-size: 0.68rem; padding: 2px 6px;" onclick="document.getElementById('new-conn-target').value='https://localhost:4435/test'">Direct Node 3 (:4435)</button>
+          </div>
         </div>
         <div class="param-group">
           <label for="new-conn-proto">Subprotocol</label>
@@ -360,7 +350,7 @@
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
           <button type="button" class="btn-secondary" onclick="window.closeModal('modal-close-capsule')">Cancel</button>
-          <button type="submit" class="btn-fire-chaos" style="background: linear-gradient(135deg, #f59e0b, #d97706);" id="btn-submit-close-capsule">
+          <button type="submit" class="btn-action-warning" id="btn-submit-close-capsule">
             🛑 Dispatch Close Capsule
           </button>
         </div>
@@ -389,7 +379,7 @@
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
           <button type="button" class="btn-secondary" onclick="window.closeModal('modal-reset-stream')">Cancel</button>
-          <button type="submit" class="btn-fire-chaos" id="btn-submit-reset">
+          <button type="submit" class="btn-action-danger" id="btn-submit-reset">
             ⛔ Send RESET_STREAM
           </button>
         </div>
@@ -435,7 +425,7 @@
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
           <button type="button" class="btn-secondary" onclick="window.closeModal('modal-close-all')">Cancel</button>
-          <button type="submit" class="btn-fire-chaos" id="btn-submit-close-all">
+          <button type="submit" class="btn-action-danger" id="btn-submit-close-all">
             🛑 Execute Bulk Teardown
           </button>
         </div>
@@ -452,11 +442,11 @@
         </div>
         <div class="brand-text">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h1>WebTransport4J · Mission Control &amp; Chaos Engine</h1>
-            <span class="badge-chaos-admin">Tier-3 Clearance</span>
+            <h1>WebTransport4J · Enterprise Operations &amp; Analytics Console</h1>
+            <span class="badge-operations">Tier-3 Clearance</span>
           </div>
           <p class="brand-subtitle">
-            Real Traffic Injection · QUIC Stream &amp; Datagram Stress · Java 25 Generational ZGC Resilience Lab
+            Real QUIC Wire Traffic · Production Stream &amp; Datagram Analytics · Java 25 Generational ZGC Telemetry
           </p>
         </div>
       </div>
@@ -509,7 +499,7 @@
         <div class="mini-metric-val" id="mini-val-datagrams">0</div>
       </div>
       <div class="mini-metric-card">
-        <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Queue Drops Forced</div>
+        <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Datagram Discard Rate</div>
         <div class="mini-metric-val" style="color: #ef4444;" id="mini-val-drops">0</div>
       </div>
     </section>
@@ -517,18 +507,39 @@
     <!-- Global Target Selector -->
     <div class="card" style="padding: 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;">
       <div style="display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 300px;">
-        <label for="target-node-select" style="font-size: 0.8rem; font-weight: 700; color: #fff; text-transform: uppercase;">Target Cluster Node:</label>
+        <label for="target-node-select" style="font-size: 0.8rem; font-weight: 700; color: #fff; text-transform: uppercase;">Target Cluster Routing:</label>
         <select id="target-node-select" style="flex: 1; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; color: #fff; padding: 0.5rem 0.75rem;">
-          <option value="https://localhost:4433/echo">Cluster LoadBalancer Gateway (UDP 4433 · /echo)</option>
-          <option value="https://localhost:4433/chat">Cluster Node 1 (/chat)</option>
-          <option value="https://localhost:4434/test">Cluster Node 2 (UDP 4434 · /test)</option>
-          <option value="https://localhost:4435/echo">Cluster Node 3 (UDP 4435 · /echo)</option>
+          <option value="auto" selected>⚡ Auto-LB (Dynamic Least-Connections / Round-Robin Across Cluster)</option>
+          <optgroup label="Direct Diagnostic Overrides (Tier-3 Debugging · wt-node-1)">
+            <option value="https://localhost:4433/echo">Direct: wt-node-1 (UDP 4433 · /echo)</option>
+            <option value="https://localhost:4433/chat">Direct: wt-node-1 (UDP 4433 · /chat)</option>
+            <option value="https://localhost:4433/test">Direct: wt-node-1 (UDP 4433 · /test)</option>
+            <option value="https://localhost:4433/custom">Direct: wt-node-1 (UDP 4433 · /custom catch-all)</option>
+          </optgroup>
+          <optgroup label="Direct Diagnostic Overrides (Tier-3 Debugging · wt-node-2)">
+            <option value="https://localhost:4434/echo">Direct: wt-node-2 (UDP 4434 · /echo)</option>
+            <option value="https://localhost:4434/chat">Direct: wt-node-2 (UDP 4434 · /chat)</option>
+            <option value="https://localhost:4434/test">Direct: wt-node-2 (UDP 4434 · /test)</option>
+            <option value="https://localhost:4434/custom">Direct: wt-node-2 (UDP 4434 · /custom catch-all)</option>
+          </optgroup>
+          <optgroup label="Direct Diagnostic Overrides (Tier-3 Debugging · wt-node-3)">
+            <option value="https://localhost:4435/echo">Direct: wt-node-3 (UDP 4435 · /echo)</option>
+            <option value="https://localhost:4435/chat">Direct: wt-node-3 (UDP 4435 · /chat)</option>
+            <option value="https://localhost:4435/test">Direct: wt-node-3 (UDP 4435 · /test)</option>
+            <option value="https://localhost:4435/custom">Direct: wt-node-3 (UDP 4435 · /custom catch-all)</option>
+          </optgroup>
         </select>
+        <div id="target-connected-server-chip" style="display: flex; align-items: center; gap: 0.45rem; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px; padding: 0.45rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #38bdf8; white-space: nowrap;">
+          <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
+          <span id="target-server-label">Connected Target: ⚡ Auto-LB (Cluster-Wide Dynamic Load Balancer)</span>
+        </div>
       </div>
 
       <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.8rem;">
-        <span style="color: var(--text-dim);">QUIC Resumption Token:</span>
-        <span style="font-family: 'JetBrains Mono', monospace; color: #10b981; font-weight: 600;">ACTIVE (HMAC-SHA256)</span>
+        <span style="color: var(--text-dim);">Cluster Architecture:</span>
+        <span style="font-family: 'JetBrains Mono', monospace; color: #38bdf8; font-weight: 600;">ACTIVE-ACTIVE (LOAD BALANCED)</span>
+        <span style="color: var(--text-dim);">QUIC Resumption:</span>
+        <span style="font-family: 'JetBrains Mono', monospace; color: #10b981; font-weight: 600;">SHARED HMAC-SHA256</span>
       </div>
     </div>
 
@@ -604,44 +615,65 @@
             <!-- Header Summary Banner -->
             <div class="detail-header-card">
               <div class="detail-top-row">
-                <div class="detail-title-group">
+                <div class="detail-title-group" style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                   <span class="session-status-dot connected" id="detail-status-dot"></span>
                   <h3 style="font-size: 1.15rem; color: #fff; font-family: var(--font-mono); margin: 0;" id="detail-session-id">-</h3>
                   <span class="status-badge status-healthy" id="detail-status-pill">CONNECTED</span>
                   <span class="badge-tag" id="detail-subprotocol">webtransport</span>
+                  <span class="session-pill" id="detail-server-badge" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; font-weight: 600; padding: 0.25rem 0.65rem; font-size: 0.75rem;">🖥️ Server: wt-node-1 (Port 4433)</span>
                 </div>
                 <div class="detail-actions-group">
-                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;" onclick="window.openStreamModal()">
+                  <button class="btn-action-primary" id="btn-header-open-stream" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;" onclick="window.openStreamModal()">
                     ➕ Open Stream
                   </button>
-                  <button class="stream-action-btn" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #f59e0b;" onclick="window.triggerDrainSessionCapsule()" title="RFC 9297 WT_DRAIN_SESSION (0x78ae)">
+                  <button class="stream-action-btn" id="btn-pulse-l7" style="background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.4); color: #10b981;" onclick="window.triggerPulseHeartbeat('l7')" title="Dispatch L7 Application Heartbeat Datagram">
+                    💓 Pulse (L7)
+                  </button>
+                  <button class="stream-action-btn" id="btn-pulse-l4" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;" onclick="window.triggerPulseHeartbeat('l4')" title="Dispatch L4 QUIC PING Frame (0x01)">
+                    ⚡ Ping (L4)
+                  </button>
+                  <button class="stream-action-btn" id="btn-session-drain" style="background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.4); color: #f59e0b;" onclick="window.triggerDrainSessionCapsule()" title="RFC 9297 WT_DRAIN_SESSION (0x78ae)">
                     ⚠️ Drain (0x78ae)
                   </button>
-                  <button class="stream-action-btn btn-close" onclick="window.openCloseCapsuleModal()" title="Capsule CLOSE_WEBTRANSPORT_SESSION (0x2843)">
+                  <button class="stream-action-btn btn-close" id="btn-session-close" onclick="window.openCloseCapsuleModal()" title="Capsule CLOSE_WEBTRANSPORT_SESSION (0x2843)">
                     🛑 Close Capsule (0x2843)
                   </button>
-                  <button class="stream-action-btn btn-reset" onclick="window.triggerTerminateSession()" title="QUIC CONNECTION_CLOSE (0x1c)">
+                  <button class="stream-action-btn btn-reset" id="btn-session-terminate" onclick="window.triggerTerminateSession()" title="QUIC CONNECTION_CLOSE (0x1c)">
                     💥 Abrupt Sever
                   </button>
                 </div>
               </div>
 
-              <div class="detail-meta-grid">
+              <div class="detail-meta-grid" style="grid-template-columns: repeat(6, 1fr);">
+                <div>
+                  <div class="meta-item-label">Connected Server</div>
+                  <div class="meta-item-value" style="color: #38bdf8; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;" id="detail-server">
+                    <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#38bdf8; box-shadow:0 0 8px #38bdf8;"></span>
+                    <span id="detail-server-name">wt-node-1 (ID: 1)</span>
+                  </div>
+                </div>
                 <div>
                   <div class="meta-item-label">Target URL / Path</div>
                   <div class="meta-item-value" id="detail-path">-</div>
                 </div>
                 <div>
-                  <div class="meta-item-label">Remote Cluster Gateway</div>
+                  <div class="meta-item-label">Remote Gateway</div>
                   <div class="meta-item-value" id="detail-remote">-</div>
                 </div>
                 <div>
-                  <div class="meta-item-label">Client Local Endpoint</div>
+                  <div class="meta-item-label">Client Endpoint</div>
                   <div class="meta-item-value" id="detail-client">-</div>
                 </div>
                 <div>
-                  <div class="meta-item-label">QUIC Round-Trip (RTT)</div>
+                  <div class="meta-item-label">QUIC RTT</div>
                   <div class="meta-item-value" style="color: #38bdf8;" id="detail-rtt">-</div>
+                </div>
+                <div>
+                  <div class="meta-item-label">Heartbeat &amp; Liveness</div>
+                  <div class="meta-item-value" style="color: #10b981; display: flex; align-items: center; gap: 0.35rem;" id="detail-heartbeat">
+                    <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 8px #10b981;"></span>
+                    <span id="detail-heartbeat-text">L4/L7 Active</span>
+                  </div>
                 </div>
               </div>
 
@@ -665,15 +697,21 @@
               <button class="studio-tab-btn" id="tab-btn-flow" onclick="window.switchStudioTab('flow')">
                 📊 Flow Control &amp; Limits
               </button>
+              <button class="studio-tab-btn" id="tab-btn-heartbeat" onclick="window.switchStudioTab('heartbeat')">
+                💓 Heartbeat &amp; Liveness
+              </button>
             </div>
 
             <!-- Tab Pane 1: Streams Studio -->
             <div class="studio-content-pane" id="pane-streams">
               <div class="stream-toolbar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="window.openStreamModal()">
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <button class="btn-action-primary" id="btn-pane-open-stream" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="window.openStreamModal()">
                     ➕ Open New Stream
                   </button>
+                  <span id="streams-count-summary" style="font-size: 0.75rem; color: #38bdf8; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.25); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-family: var(--font-mono);">
+                    0 Open / 0 Total
+                  </span>
                   <span style="font-size: 0.75rem; color: var(--text-dim);">
                     Interactive stream send/receive, clean FIN, and reset commands.
                   </span>
@@ -729,7 +767,7 @@
                       <input type="number" id="sess-dg-size" value="64" min="16" max="1350">
                     </div>
                   </div>
-                  <button class="btn-action-primary" style="margin-top: 0.5rem; width: 100%; justify-content: center;" onclick="window.sendSessionDatagram()">
+                  <button class="btn-action-primary" id="btn-send-datagram" style="margin-top: 0.5rem; width: 100%; justify-content: center;" onclick="window.sendSessionDatagram()">
                     🚀 Transmit Datagram Frame
                   </button>
                 </div>
@@ -765,20 +803,61 @@
             <div class="studio-content-pane" id="pane-flow" style="display: none;">
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
                 <div class="mini-metric-card">
-                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Max Data Window</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Max Data Window</div>
+                    <span style="font-size: 0.65rem; color: #38bdf8; background: rgba(56, 189, 248, 0.1); padding: 1px 6px; border-radius: 4px; font-family: var(--font-mono);">RFC 9000</span>
+                  </div>
                   <div class="mini-metric-val" id="flow-max-data">16 MB</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Used: <span id="flow-used-data">256 B</span></div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; display: flex; justify-content: space-between;">
+                    <span>Window Used: <strong id="flow-used-data" style="color: #cbd5e1;">0 Bytes</strong></span>
+                    <span>Avail: <strong id="flow-avail-data" style="color: #34d399;">16 MB</strong></span>
+                  </div>
+                  <div class="credit-progress-track" style="margin-top: 0.5rem; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
+                    <div id="flow-data-bar" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s ease;"></div>
+                  </div>
                 </div>
+
                 <div class="mini-metric-card">
-                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Bidi Stream Credit</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Bidi Stream Credit</div>
+                    <span style="font-size: 0.65rem; color: #a855f7; background: rgba(168, 85, 247, 0.1); padding: 1px 6px; border-radius: 4px; font-family: var(--font-mono);" title="Cumulative limit usage per RFC 9000 §4.6 (never decreases on close)">Cumulative Credit</span>
+                  </div>
                   <div class="mini-metric-val" id="flow-bidi-limit">100</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Active: <span id="flow-bidi-used">1</span></div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; display: flex; justify-content: space-between;">
+                    <span>Limit Consumed: <strong id="flow-bidi-used" style="color: #f59e0b;">0</strong> / <span id="flow-bidi-limit-sub">100</span></span>
+                    <span>Avail: <strong id="flow-bidi-avail" style="color: #34d399;">100</strong></span>
+                  </div>
+                  <div style="font-size: 0.72rem; margin-top: 0.45rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.4rem;">
+                    <span style="color: var(--text-dim);">Active Open (Live):</span>
+                    <span style="font-weight: 700; color: #38bdf8; font-family: var(--font-mono);"><span id="flow-bidi-active">0</span> open</span>
+                  </div>
+                  <div class="credit-progress-track" style="margin-top: 0.45rem; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
+                    <div id="flow-bidi-bar" style="width: 0%; height: 100%; background: #f59e0b; transition: width 0.3s ease;"></div>
+                  </div>
                 </div>
+
                 <div class="mini-metric-card">
-                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Uni Stream Credit</div>
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Uni Stream Credit</div>
+                    <span style="font-size: 0.65rem; color: #a855f7; background: rgba(168, 85, 247, 0.1); padding: 1px 6px; border-radius: 4px; font-family: var(--font-mono);" title="Cumulative limit usage per RFC 9000 §4.6 (never decreases on close)">Cumulative Credit</span>
+                  </div>
                   <div class="mini-metric-val" id="flow-uni-limit">100</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Active: <span id="flow-uni-used">0</span></div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem; display: flex; justify-content: space-between;">
+                    <span>Limit Consumed: <strong id="flow-uni-used" style="color: #f59e0b;">0</strong> / <span id="flow-uni-limit-sub">100</span></span>
+                    <span>Avail: <strong id="flow-uni-avail" style="color: #34d399;">100</strong></span>
+                  </div>
+                  <div style="font-size: 0.72rem; margin-top: 0.45rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.4rem;">
+                    <span style="color: var(--text-dim);">Active Open (Live):</span>
+                    <span style="font-weight: 700; color: #38bdf8; font-family: var(--font-mono);"><span id="flow-uni-active">0</span> open</span>
+                  </div>
+                  <div class="credit-progress-track" style="margin-top: 0.45rem; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden;">
+                    <div id="flow-uni-bar" style="width: 0%; height: 100%; background: #f59e0b; transition: width 0.3s ease;"></div>
+                  </div>
                 </div>
+              </div>
+
+              <div style="font-size: 0.75rem; color: var(--text-dim); margin-top: -0.75rem; margin-bottom: 1.25rem; padding: 0.5rem 0.85rem; background: rgba(56, 189, 248, 0.05); border-left: 3px solid #38bdf8; border-radius: 4px;">
+                ℹ️ <strong>RFC 9000 §4.6 Stream Credit Semantics:</strong> Stream limits are cumulative lifetime credits. Closing or resetting a stream consumes from the credit limit without replenishing it. <em>Active Open</em> strictly reflects concurrent live streams and decrements to 0 upon stream closure or reset.
               </div>
 
               <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-md); padding: 1.25rem;">
@@ -792,6 +871,147 @@
                   <div><span style="color: var(--text-dim);">max_idle_timeout:</span> <span style="color: #10b981;">30,000 ms</span></div>
                   <div><span style="color: var(--text-dim);">active_connection_id_limit:</span> <span style="color: #10b981;">8 IDs</span></div>
                   <div><span style="color: var(--text-dim);">webtransport_draft:</span> <span style="color: #c084fc;">Draft-16 / RFC 9297</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab Pane 5: Heartbeat & Liveness Studio -->
+            <div class="studio-content-pane" id="pane-heartbeat" style="display: none;">
+              <!-- Quick Stats Banner -->
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Heartbeat Architecture</div>
+                  <div class="mini-metric-val" style="color: #10b981; font-size: 1.05rem;" id="hb-stat-mode">Dual-Layer (L4 + L7)</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">RFC 9000 &amp; RFC 9297</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">L7 Keep-Alive Interval</div>
+                  <div class="mini-metric-val" id="hb-stat-l7-interval">5.0s</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Application Datagram Pulse</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">L4 Transport Idle Timeout</div>
+                  <div class="mini-metric-val" style="color: #38bdf8;" id="hb-stat-l4-timeout">30.0s</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">QUIC max_idle_timeout</div>
+                </div>
+                <div class="mini-metric-card">
+                  <div style="font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase;">Total Pulses Exchanged</div>
+                  <div class="mini-metric-val" id="hb-stat-pulses">0</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.35rem;">Last pulse: <span id="hb-stat-last">-</span></div>
+                </div>
+              </div>
+
+              <!-- Dual-Layer Architecture Comparison -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem;">
+                <!-- Layer 4 Card -->
+                <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-md); padding: 1.25rem; position: relative;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 10px #38bdf8;"></span>
+                      <h4 style="font-size: 0.95rem; color: #fff; margin: 0;">Layer 4 (Transport): QUIC Keep-Alive</h4>
+                    </div>
+                    <span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">RFC 9000 §10.1</span>
+                  </div>
+                  <p style="font-size: 0.78rem; color: var(--text-dim); line-height: 1.45; margin-bottom: 0.85rem;">
+                    Operates directly over the raw UDP connection. Handled by the QUIC protocol stack using ACK-eliciting <strong>PING (0x01)</strong> frames.
+                  </p>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.76rem; font-family: var(--font-mono); margin-bottom: 1rem; background: rgba(0,0,0,0.25); padding: 0.75rem; border-radius: 6px;">
+                    <div><span style="color: var(--text-dim);">Frame Type:</span> <span style="color: #38bdf8;">PING (0x01)</span></div>
+                    <div><span style="color: var(--text-dim);">Payload:</span> <span style="color: #cbd5e1;">0 Bytes (Transport)</span></div>
+                    <div><span style="color: var(--text-dim);">Idle Timeout:</span> <span style="color: #38bdf8;">30,000 ms</span></div>
+                    <div><span style="color: var(--text-dim);">NAT Refresh:</span> <span style="color: #10b981;">Active</span></div>
+                  </div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    🛡️ <strong>Purpose:</strong> Keeps stateful firewall / NAT port bindings open and continuously measures raw UDP round-trip latency.
+                  </div>
+                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8;" onclick="window.triggerPulseHeartbeat('l4')">
+                    ⚡ Dispatch L4 QUIC PING Frame
+                  </button>
+                </div>
+
+                <!-- Layer 7 Card -->
+                <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 1.25rem; position: relative;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981;"></span>
+                      <h4 style="font-size: 0.95rem; color: #fff; margin: 0;">Layer 7 (Application): WebTransport Heartbeat</h4>
+                    </div>
+                    <span class="badge-tag" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">RFC 9297 §5</span>
+                  </div>
+                  <p style="font-size: 0.78rem; color: var(--text-dim); line-height: 1.45; margin-bottom: 0.85rem;">
+                    Operates inside the multiplexed WebTransport session. Dispatched as lightweight session datagrams with varint <strong>SessionID</strong> prefix or dedicated keep-alive streams.
+                  </p>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.76rem; font-family: var(--font-mono); margin-bottom: 1rem; background: rgba(0,0,0,0.25); padding: 0.75rem; border-radius: 6px;">
+                    <div><span style="color: var(--text-dim);">Mechanism:</span> <span style="color: #10b981;">Datagram / Stream</span></div>
+                    <div><span style="color: var(--text-dim);">Payload:</span> <span style="color: #cbd5e1;">PING / 0x3F (Magic)</span></div>
+                    <div><span style="color: var(--text-dim);">Pulse Interval:</span> <span style="color: #10b981;">5,000 ms</span></div>
+                    <div><span style="color: var(--text-dim);">App Health:</span> <span style="color: #10b981;">OPTIMAL</span></div>
+                  </div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    💡 <strong>Purpose:</strong> Validates that the WebTransport session dispatcher, worker threads, and application handler are responsive, distinct from raw socket connectivity.
+                  </div>
+                  <button class="btn-action-primary" style="font-size: 0.78rem; padding: 0.4rem 0.85rem;" onclick="window.triggerPulseHeartbeat('l7')">
+                    💓 Dispatch L7 Heartbeat Datagram
+                  </button>
+                </div>
+              </div>
+
+              <!-- Live Dual-Layer Pulse Log Table -->
+              <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.5rem;">
+                <div class="stream-toolbar" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+                  <div>
+                    <h4 style="font-size: 0.95rem; color: #fff; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                      <span>💓 Real-Time Heartbeat &amp; Liveness Pulse Stream</span>
+                      <span class="session-pill" style="color: #10b981; border-color: rgba(16, 185, 129, 0.3); font-size: 0.68rem;" id="hb-live-badge">DUAL-LAYER ACTIVE</span>
+                      <span class="badge-tag" style="background: rgba(139, 92, 246, 0.15); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.3); font-size: 0.68rem;">⚡ Auto-Pulse: 5s L7 / 15s L4</span>
+                    </h4>
+                    <span style="font-size: 0.75rem; color: var(--text-dim);">
+                      Bidirectional live pulse telemetry: Automatic RFC 9000 QUIC PING frames (0x01) and RFC 9297 WebTransport Keep-Alives alongside manual operator dispatches.
+                    </span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <button class="btn-action-primary" style="font-size: 0.76rem; padding: 0.35rem 0.75rem; background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #10b981;" onclick="window.triggerPulseHeartbeat('l7')">
+                      💓 Dispatch L7 Pulse
+                    </button>
+                    <button class="btn-action-primary" style="font-size: 0.76rem; padding: 0.35rem 0.75rem; background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; color: #38bdf8;" onclick="window.triggerPulseHeartbeat('l4')">
+                      ⚡ Dispatch L4 Ping
+                    </button>
+                    <button class="stream-action-btn" onclick="window.refreshCurrentSessionHeartbeat()" title="Refresh Heartbeat Data">
+                      🔄 Refresh
+                    </button>
+                  </div>
+                </div>
+
+                <div class="table-container" style="max-height: 380px; overflow-y: auto;">
+                  <table class="stream-table">
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Layer</th>
+                        <th>Origin / Trigger</th>
+                        <th>Protocol</th>
+                        <th>Mechanism</th>
+                        <th>Dir</th>
+                        <th>RTT Latency</th>
+                        <th>Hex Wire Payload</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="hb-pulses-tbody">
+                      <!-- Rendered dynamically by admin.js -->
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Liveness & Diagnosis Note -->
+              <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-md); padding: 1rem; font-size: 0.78rem; color: var(--text-dim); display: flex; align-items: flex-start; gap: 0.75rem;">
+                <span style="font-size: 1.2rem; line-height: 1;">ℹ️</span>
+                <div>
+                  <strong style="color: #fff;">Why Both L4 and L7 Heartbeats are Required in WebTransport:</strong>
+                  <div style="margin-top: 0.35rem; line-height: 1.5;">
+                    Under RFC 9297, multiple independent WebTransport application sessions can multiplex across a single underlying QUIC UDP connection. An <strong>L4 QUIC PING</strong> only tells you the physical network route and UDP socket are intact. It does <em>not</em> confirm whether a specific WebTransport application session or worker event loop is healthy or stalled. The <strong>L7 Application Heartbeat</strong> provides end-to-end application liveness, keeping individual session state active in the WebTransport server registry.
+                  </div>
                 </div>
               </div>
             </div>
@@ -867,16 +1087,16 @@
         </button>
       </div>
 
-      <!-- Module 3: High-Throughput Datagram Hammer -->
+      <!-- Module 3: High-Throughput Datagram Engine -->
       <div class="card">
         <div class="card-header">
           <div class="card-title">
-            <span>🔨 High-Throughput Datagram Hammer</span>
+            <span>⚡ High-Throughput Datagram Engine</span>
           </div>
           <span class="badge-tag">UDP Datagrams</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
-          Blast high-velocity WebTransport datagrams into the QUIC engine to stress-test Netty ByteBuf pools.
+          Transmit real WebTransport UDP datagrams into the QUIC transport pipeline to monitor Netty ByteBuf allocation and throughput.
         </p>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -896,34 +1116,34 @@
         </div>
 
         <button class="btn-action-primary" style="margin-top: 0.5rem;" onclick="window.triggerDatagrams()">
-          🚀 Fire Datagram Storm
+          🚀 Transmit Real Datagrams
         </button>
       </div>
 
-      <!-- Module 4: Production Chaos Lab -->
-      <div class="card card-chaos">
+      <!-- Module 4: Cluster Health & Latency Diagnostics -->
+      <div class="card">
         <div class="card-header">
           <div class="card-title">
-            <span style="color: #ef4444;">💥 Production Chaos & Resilience Lab</span>
+            <span style="color: #38bdf8;">📡 Cluster Health &amp; Diagnostics</span>
           </div>
-          <span class="badge-chaos-admin">Fault Injection</span>
+          <span class="badge-tag">Real-Time Probe</span>
         </div>
         <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 1rem;">
-          Trigger severe real-world network anomalies to test alert rules, drop counters, and connection reapers.
+          Perform live node health probes, handshake RTT latency measurements, and real-time topology synchronization.
         </p>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-          <button class="btn-fire-chaos" onclick="window.triggerChaosBurst()" title="Floods receive queue to cause real drops">
-            🌪️ Queue Overflow Storm (1000 DGs)
+          <button class="btn-action-primary" onclick="window.pingAllNodes()" title="Sends real HTTP health probes to all nodes in the cluster">
+            🌐 Probe All Cluster Nodes
           </button>
-          <button class="btn-fire-chaos" onclick="window.triggerChaosAbruptClose()" title="Abruptly kills socket without CONNECTION_CLOSE">
-            ⚡ Abrupt Socket Tear (Unclean)
+          <button class="btn-action-primary" onclick="window.measureClusterRtt()" title="Initiates genuine QUIC handshake and measures real RTT">
+            ⏱️ Measure Handshake RTT
           </button>
-          <button class="btn-fire-chaos" onclick="window.triggerStreams('bidi', 50, 'CHAOS_BACKPRESSURE_BURST')">
-            🐌 Concurrency Overload (50 Bidi)
+          <button class="btn-action-primary" onclick="window.resyncClusterTopology()" title="Pulls live active session and node metrics">
+            🔄 Resync Live Topology
           </button>
-          <button class="btn-fire-chaos" onclick="window.triggerHandshake('00-deadbeefdeadbeefdeadbeefdeadbeef-cafebabecafebabe-01')">
-            🛑 Fuzz W3C Trace Injection
+          <button class="btn-action-primary" onclick="window.generateRandomTraceparent()" title="Generates authentic W3C traceparent for distributed tracing">
+            🏷️ New W3C Traceparent
           </button>
         </div>
       </div>
@@ -934,7 +1154,7 @@
     <section class="card" style="margin-top: 1.5rem;">
       <div class="card-header">
         <div class="card-title">
-          <span>🖥️ Live Wire Execution Terminal & Reasoning Inspector</span>
+          <span>🖥️ Live Wire Execution Terminal &amp; Analytics Inspector</span>
         </div>
         <button class="btn-secondary" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;" onclick="window.clearTerminal()">
           Clear Terminal
@@ -942,9 +1162,9 @@
       </div>
 
       <div class="wire-terminal" id="wire-terminal-logs">
-        <div><span class="wire-log-ts">[SYSTEM]</span> WebTransport4J Real Traffic & Chaos Engine ready.</div>
-        <div><span class="wire-log-ts">[SYSTEM]</span> Target: Cluster Gateway on UDP port 4433. Generational ZGC active.</div>
-        <div><span class="wire-log-reason">[REASONING GUIDE]</span> Use the controls above to execute real QUIC network traffic. Observe the Live Telemetry strip and Open Telemetry Cockpit to reason about latency, buffer allocation, and drop rates.</div>
+        <div><span class="wire-log-ts">[SYSTEM]</span> WebTransport4J Enterprise Operations &amp; Real-Time Analytics ready.</div>
+        <div><span class="wire-log-ts">[SYSTEM]</span> Target: Cluster Gateway on UDP port 4433. Generational ZGC active. Live wire monitoring engaged.</div>
+        <div><span class="wire-log-reason">[OPERATIONS GUIDE]</span> All actions execute genuine QUIC network socket operations and real HTTP cluster probes. Zero synthetic mocks or simulated drops.</div>
       </div>
     </section>
 
