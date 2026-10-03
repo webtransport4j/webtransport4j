@@ -9,6 +9,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +23,7 @@ public class TlsCertificateWatcher {
   private final String keyPath;
   private final String certPath;
   private final Consumer<QuicSslContext> sslContextConsumer;
+  private final Consumer<QuicSslContextBuilder> sslCustomizer;
   private final int pollIntervalSeconds;
 
   private ScheduledExecutorService executor;
@@ -39,7 +41,7 @@ public class TlsCertificateWatcher {
       @NonNull String keyPath,
       @NonNull String certPath,
       @NonNull Consumer<QuicSslContext> sslContextConsumer) {
-    this(keyPath, certPath, sslContextConsumer,
+    this(keyPath, certPath, sslContextConsumer, null,
         WebTransportConfig.getInt("webtransport4j.ssl.hot_reload.interval_secs", 5));
   }
 
@@ -56,9 +58,28 @@ public class TlsCertificateWatcher {
       @NonNull String certPath,
       @NonNull Consumer<QuicSslContext> sslContextConsumer,
       int pollIntervalSeconds) {
+    this(keyPath, certPath, sslContextConsumer, null, pollIntervalSeconds);
+  }
+
+  /**
+   * Constructs a watcher with custom SSL builder customizer and poll interval.
+   *
+   * @param keyPath path to the SSL private key
+   * @param certPath path to the SSL certificate
+   * @param sslContextConsumer callback invoked with the new SSL context
+   * @param sslCustomizer callback to customize QuicSslContextBuilder (e.g. mTLS or trust manager)
+   * @param pollIntervalSeconds polling interval in seconds
+   */
+  public TlsCertificateWatcher(
+      @NonNull String keyPath,
+      @NonNull String certPath,
+      @NonNull Consumer<QuicSslContext> sslContextConsumer,
+      @Nullable Consumer<QuicSslContextBuilder> sslCustomizer,
+      int pollIntervalSeconds) {
     this.keyPath = keyPath;
     this.certPath = certPath;
     this.sslContextConsumer = sslContextConsumer;
+    this.sslCustomizer = sslCustomizer;
     this.pollIntervalSeconds = pollIntervalSeconds;
   }
 
@@ -114,9 +135,13 @@ public class TlsCertificateWatcher {
       if (currentKeyMod > lastKeyModified || currentCertMod > lastCertModified) {
         logger.info("🔄 Modification detected on TLS certificate files. Attempting hot-reload...");
 
-        QuicSslContext newSslCtx = QuicSslContextBuilder.forServer(keyFile, null, certFile)
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .build();
+        QuicSslContextBuilder sslBuilder =
+            QuicSslContextBuilder.forServer(keyFile, null, certFile)
+                .applicationProtocols(Http3.supportedApplicationProtocols());
+        if (sslCustomizer != null) {
+          sslCustomizer.accept(sslBuilder);
+        }
+        QuicSslContext newSslCtx = sslBuilder.build();
 
         lastKeyModified = currentKeyMod;
         lastCertModified = currentCertMod;

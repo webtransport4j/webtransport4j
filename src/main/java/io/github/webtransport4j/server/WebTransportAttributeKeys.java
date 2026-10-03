@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
@@ -105,5 +106,12 @@ public final class WebTransportAttributeKeys {
   // Datagram Mailbox Attribute Key
   public static final AttributeKey<DatagramMailbox> DATAGRAM_MAILBOX_KEY =
       AttributeKey.valueOf("wt.datagram.mailbox");
+
+  // Enterprise Security Attribute Keys
+  public static final AttributeKey<OriginValidator> ORIGIN_VALIDATOR =
+      AttributeKey.valueOf("wt.origin.validator");
+
+  public static final AttributeKey<Boolean> STRICT_ORIGIN_VALIDATION =
+      AttributeKey.valueOf("wt.strict.origin.validation");
 }
 
