@@ -22,9 +22,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * Integration and unit tests for OTLP metrics and OpenTelemetry distributed tracing support.
- */
+/** Integration and unit tests for OTLP metrics and OpenTelemetry distributed tracing support. */
 public class WebTransportOtlpIntegrationTest {
 
   private InMemorySpanExporter spanExporter;
@@ -32,9 +30,7 @@ public class WebTransportOtlpIntegrationTest {
   private Tracer tracer;
   private WebTransportOpenTelemetryTracer wtTracer;
 
-  /**
-   * Initializes OpenTelemetry SDK and in-memory span exporter for verification.
-   */
+  /** Initializes OpenTelemetry SDK and in-memory span exporter for verification. */
   @Before
   public void setUp() {
     spanExporter = InMemorySpanExporter.create();
@@ -46,9 +42,7 @@ public class WebTransportOtlpIntegrationTest {
     wtTracer = new WebTransportOpenTelemetryTracer(tracer);
   }
 
-  /**
-   * Shuts down OpenTelemetry tracer provider.
-   */
+  /** Shuts down OpenTelemetry tracer provider. */
   @After
   public void tearDown() {
     if (tracerProvider != null) {
@@ -134,10 +128,13 @@ public class WebTransportOtlpIntegrationTest {
     assertEquals("4bf92f3577b34da6a3ce929d0e0e4736", spanData.getTraceId());
     assertEquals("00f067aa0ba902b7", spanData.getParentSpanId());
     assertEquals(StatusCode.OK, spanData.getStatus().getStatusCode());
-    assertEquals("webtransport", spanData.getAttributes().get(AttributeKey.stringKey("rpc.system")));
-    assertEquals(Long.valueOf(42L),
+    assertEquals(
+        "webtransport", spanData.getAttributes().get(AttributeKey.stringKey("rpc.system")));
+    assertEquals(
+        Long.valueOf(42L),
         spanData.getAttributes().get(AttributeKey.longKey("webtransport.session_id")));
-    assertEquals(Long.valueOf(0L),
+    assertEquals(
+        Long.valueOf(0L),
         spanData.getAttributes().get(AttributeKey.longKey("webtransport.close_code")));
   }
 
@@ -152,7 +149,8 @@ public class WebTransportOtlpIntegrationTest {
 
     SpanData spanData = spans.get(0);
     assertEquals(StatusCode.ERROR, spanData.getStatus().getStatusCode());
-    assertEquals(Long.valueOf(503L),
+    assertEquals(
+        Long.valueOf(503L),
         spanData.getAttributes().get(AttributeKey.longKey("webtransport.close_code")));
     assertFalse(spanData.getParentSpanContext().isValid());
   }

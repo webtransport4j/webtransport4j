@@ -11,9 +11,8 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 /**
- * A standard-compliant Reactive Streams Publisher implementation.
- * Used internally to dispatch event flows (streams, datagrams) without Project
- * Reactor compile dependencies.
+ * A standard-compliant Reactive Streams Publisher implementation. Used internally to dispatch event
+ * flows (streams, datagrams) without Project Reactor compile dependencies.
  */
 public class WebTransportFlowPublisher<T> implements Publisher<T> {
   private final Queue<T> queue = new ConcurrentLinkedQueue<>();
@@ -29,46 +28,47 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
   public void subscribe(Subscriber<? super T> s) {
     Objects.requireNonNull(s, "Subscriber must not be null");
     if (this.subscriber != null) {
-      s.onSubscribe(new Subscription() {
-        @Override
-        public void request(long n) {
-        }
+      s.onSubscribe(
+          new Subscription() {
+            @Override
+            public void request(long n) {}
 
-        @Override
-        public void cancel() {
-        }
-      });
+            @Override
+            public void cancel() {}
+          });
       s.onError(new IllegalStateException("Subscriber already exists"));
       return;
     }
     this.subscriber = s;
-    s.onSubscribe(new Subscription() {
-      @Override
-      public void request(long n) {
-        if (n <= 0) {
-          if (terminated.compareAndSet(false, true)) {
-            cancelled.set(true);
-            drainAndCloseQueue();
-            s.onError(new IllegalArgumentException("Demand must be positive"));
+    s.onSubscribe(
+        new Subscription() {
+          @Override
+          public void request(long n) {
+            if (n <= 0) {
+              if (terminated.compareAndSet(false, true)) {
+                cancelled.set(true);
+                drainAndCloseQueue();
+                s.onError(new IllegalArgumentException("Demand must be positive"));
+              }
+              return;
+            }
+            demand.updateAndGet(
+                current -> {
+                  if (current == Long.MAX_VALUE) {
+                    return Long.MAX_VALUE;
+                  }
+                  long updated = current + n;
+                  return updated < 0 ? Long.MAX_VALUE : updated;
+                });
+            drain();
           }
-          return;
-        }
-        demand.updateAndGet(current -> {
-          if (current == Long.MAX_VALUE) {
-            return Long.MAX_VALUE;
-          }
-          long updated = current + n;
-          return updated < 0 ? Long.MAX_VALUE : updated;
-        });
-        drain();
-      }
 
-      @Override
-      public void cancel() {
-        cancelled.set(true);
-        drain();
-      }
-    });
+          @Override
+          public void cancel() {
+            cancelled.set(true);
+            drain();
+          }
+        });
   }
 
   private void drainAndCloseQueue() {
@@ -104,9 +104,7 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
     drain();
   }
 
-  /**
-   * Signals completion to downstream subscriber after pending items are drained.
-   */
+  /** Signals completion to downstream subscriber after pending items are drained. */
   public void emitComplete() {
     if (completed.compareAndSet(false, true)) {
       drain();

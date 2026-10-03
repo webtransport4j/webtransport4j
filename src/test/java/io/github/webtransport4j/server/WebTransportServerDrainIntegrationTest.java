@@ -41,11 +41,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Unmocked integration test verifying graceful zero-downtime server shutdown and channel drain behavior.
+ * Unmocked integration test verifying graceful zero-downtime server shutdown and channel drain
+ * behavior.
  */
 public class WebTransportServerDrainIntegrationTest {
 
-  private static final Logger log = LoggerFactory.getLogger(WebTransportServerDrainIntegrationTest.class);
+  private static final Logger log =
+      LoggerFactory.getLogger(WebTransportServerDrainIntegrationTest.class);
 
   private WebTransportServer server;
   private EventLoopGroup clientGroup;
@@ -62,16 +64,20 @@ public class WebTransportServerDrainIntegrationTest {
   public void setUp() throws Exception {
     sessionClosedLatch = new CountDownLatch(1);
 
-    server = new WebTransportServerBuilder()
-        .port(0)
-        .defaultHandler(new WebTransportHandler() {
-          @Override
-          public void onSessionClosed(@NonNull WebTransportSession session) {
-            log.info("ServerDrainTest: Session closed on server stop: {}", session.getSessionStreamId());
-            sessionClosedLatch.countDown();
-          }
-        })
-        .build();
+    server =
+        new WebTransportServerBuilder()
+            .port(0)
+            .defaultHandler(
+                new WebTransportHandler() {
+                  @Override
+                  public void onSessionClosed(@NonNull WebTransportSession session) {
+                    log.info(
+                        "ServerDrainTest: Session closed on server stop: {}",
+                        session.getSessionStreamId());
+                    sessionClosedLatch.countDown();
+                  }
+                })
+            .build();
 
     server.start();
     log.info("ServerDrainTest: Server started on port {}", server.getPort());
@@ -102,67 +108,86 @@ public class WebTransportServerDrainIntegrationTest {
   public void testServerDrainAndStop() throws Exception {
     clientGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
 
-    QuicSslContext clientSslContext = QuicSslContextBuilder.forClient()
-        .trustManager(InsecureTrustManagerFactory.INSTANCE)
-        .applicationProtocols("h3")
-        .build();
+    QuicSslContext clientSslContext =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols("h3")
+            .build();
 
-    ChannelHandler clientCodec = Http3.newQuicClientCodecBuilder()
-        .sslContext(clientSslContext)
-        .maxIdleTimeout(5, TimeUnit.SECONDS)
-        .initialMaxData(1000000)
-        .initialMaxStreamDataBidirectionalLocal(100000)
-        .initialMaxStreamDataBidirectionalRemote(100000)
-        .initialMaxStreamsBidirectional(10)
-        .initialMaxStreamsUnidirectional(10)
-        .build();
+    ChannelHandler clientCodec =
+        Http3.newQuicClientCodecBuilder()
+            .sslContext(clientSslContext)
+            .maxIdleTimeout(5, TimeUnit.SECONDS)
+            .initialMaxData(1000000)
+            .initialMaxStreamDataBidirectionalLocal(100000)
+            .initialMaxStreamDataBidirectionalRemote(100000)
+            .initialMaxStreamsBidirectional(10)
+            .initialMaxStreamsUnidirectional(10)
+            .build();
 
     Bootstrap cb = new Bootstrap();
-    clientUdpChannel = cb.group(clientGroup)
-        .channel(NioDatagramChannel.class)
-        .handler(clientCodec)
-        .bind(0)
-        .sync()
-        .channel();
+    clientUdpChannel =
+        cb.group(clientGroup)
+            .channel(NioDatagramChannel.class)
+            .handler(clientCodec)
+            .bind(0)
+            .sync()
+            .channel();
 
     Http3Settings clientSettings = new Http3Settings((id, val) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
 
-    QuicChannelBootstrap qcb = QuicChannel.newBootstrap(clientUdpChannel)
-        .handler(new ChannelInitializer<QuicChannel>() {
-          @Override
-          protected void initChannel(QuicChannel ch) {
-            ch.pipeline().addLast(new Http3ClientConnectionHandler(
-                null, null, new UnknownStreamHandlerFactory(),
-                new DefaultHttp3SettingsFrame(clientSettings),
-                false,
-                (id, value) -> true));
-          }
-        })
-        .remoteAddress(new InetSocketAddress("127.0.0.1", server.getPort()));
+    QuicChannelBootstrap qcb =
+        QuicChannel.newBootstrap(clientUdpChannel)
+            .handler(
+                new ChannelInitializer<QuicChannel>() {
+                  @Override
+                  protected void initChannel(QuicChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ClientConnectionHandler(
+                                null,
+                                null,
+                                new UnknownStreamHandlerFactory(),
+                                new DefaultHttp3SettingsFrame(clientSettings),
+                                false,
+                                (id, value) -> true));
+                  }
+                })
+            .remoteAddress(new InetSocketAddress("127.0.0.1", server.getPort()));
 
     clientQuicChannel = qcb.connect().get(5, TimeUnit.SECONDS);
 
     // Establish WebTransport CONNECT stream
     CountDownLatch connectReady = new CountDownLatch(1);
 
-    final QuicStreamChannel connectStream = Http3.newRequestStream(
-        clientQuicChannel,
-        new ChannelInitializer<QuicStreamChannel>() {
-          @Override
-          protected void initChannel(QuicStreamChannel ch) {
-            ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
-              @Override
-              protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                if (msg instanceof Http3HeadersFrame
-                    && "200".equals(((Http3HeadersFrame) msg).headers().status().toString())) {
-                  connectReady.countDown();
-                }
-              }
-            });
-          }
-        }).sync().getNow();
+    final QuicStreamChannel connectStream =
+        Http3.newRequestStream(
+                clientQuicChannel,
+                new ChannelInitializer<QuicStreamChannel>() {
+                  @Override
+                  protected void initChannel(QuicStreamChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new SimpleChannelInboundHandler<Object>() {
+                              @Override
+                              protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                                if (msg instanceof Http3HeadersFrame
+                                    && "200"
+                                        .equals(
+                                            ((Http3HeadersFrame) msg)
+                                                .headers()
+                                                .status()
+                                                .toString())) {
+                                  connectReady.countDown();
+                                }
+                              }
+                            });
+                  }
+                })
+            .sync()
+            .getNow();
 
     Http3Headers headers = new DefaultHttp3Headers();
     headers.method("CONNECT");
@@ -186,18 +211,21 @@ public class WebTransportServerDrainIntegrationTest {
     assertFalse("Server should report isStarted() == false after stop", server.isStarted());
 
     // Assert session closed latch was triggered
-    assertTrue("Active session should receive onSessionClosed on server stop",
+    assertTrue(
+        "Active session should receive onSessionClosed on server stop",
         sessionClosedLatch.await(5, TimeUnit.SECONDS));
 
     // Attempt connecting a new client to the stopped port (should fail or time out)
     boolean connectFailed = false;
     try {
-      QuicChannelBootstrap qcb2 = QuicChannel.newBootstrap(clientUdpChannel)
-          .handler(new ChannelInitializer<QuicChannel>() {
-            @Override
-            protected void initChannel(QuicChannel ch) {}
-          })
-          .remoteAddress(new InetSocketAddress("127.0.0.1", serverPort));
+      QuicChannelBootstrap qcb2 =
+          QuicChannel.newBootstrap(clientUdpChannel)
+              .handler(
+                  new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel ch) {}
+                  })
+              .remoteAddress(new InetSocketAddress("127.0.0.1", serverPort));
       QuicChannel newClient = qcb2.connect().get(2, TimeUnit.SECONDS);
       if (!newClient.isActive()) {
         connectFailed = true;

@@ -18,7 +18,7 @@ public class DefaultNettyWebTransportBufferTest {
   @Test
   public void testBufferRetainAndRelease() {
     ByteBuf byteBuf =
-            Unpooled.buffer(16).writeBytes("test-payload".getBytes(StandardCharsets.UTF_8));
+        Unpooled.buffer(16).writeBytes("test-payload".getBytes(StandardCharsets.UTF_8));
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(byteBuf);
 
     try {
@@ -50,8 +50,7 @@ public class DefaultNettyWebTransportBufferTest {
 
   @Test
   public void testTryWithResourcesSafe() {
-    ByteBuf byteBuf =
-            Unpooled.buffer(16).writeBytes("try-with".getBytes(StandardCharsets.UTF_8));
+    ByteBuf byteBuf = Unpooled.buffer(16).writeBytes("try-with".getBytes(StandardCharsets.UTF_8));
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(byteBuf);
 
     try (DefaultNettyWebTransportBuffer b = buffer) {
@@ -70,8 +69,7 @@ public class DefaultNettyWebTransportBufferTest {
 
   @Test
   public void testCustomRetainIncrement() {
-    ByteBuf byteBuf =
-            Unpooled.buffer(16).writeBytes("increment".getBytes(StandardCharsets.UTF_8));
+    ByteBuf byteBuf = Unpooled.buffer(16).writeBytes("increment".getBytes(StandardCharsets.UTF_8));
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(byteBuf);
 
     try {
@@ -103,8 +101,7 @@ public class DefaultNettyWebTransportBufferTest {
 
   @Test
   public void testRetainedReadableBuffer() {
-    ByteBuf byteBuf =
-            Unpooled.buffer(16).writeBytes("readable".getBytes(StandardCharsets.UTF_8));
+    ByteBuf byteBuf = Unpooled.buffer(16).writeBytes("readable".getBytes(StandardCharsets.UTF_8));
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(byteBuf);
     ByteBuf slice = null;
 

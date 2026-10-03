@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
@@ -29,9 +28,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
 
   private ByteBuf cumulation = null;
 
-  public RawWebTransportHandler() {
-
-  }
+  public RawWebTransportHandler() {}
 
   @Override
   public void handlerRemoved(@NonNull ChannelHandlerContext ctx) throws Exception {
@@ -188,8 +185,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     return header;
   }
 
-  private boolean accumulateHeaderBytes(
-      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data) {
+  private boolean accumulateHeaderBytes(@NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data) {
     if (cumulation == null) {
       cumulation =
           (ctx.alloc() != null)
@@ -295,7 +291,8 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
     if (session.isDraining() || !session.isOpen()) {
       logger.warn(
-          "❌ Rejecting incoming stream for session {}: session is {} (RFC 9297 Section 5.3). Resetting stream with WT_SESSION_GONE.",
+          "❌ Rejecting incoming stream for session {}: session is {} (RFC 9297 Section 5.3)."
+              + " Resetting stream with WT_SESSION_GONE.",
           sessionId,
           session.isDraining() ? "DRAINING" : "CLOSED");
       if (ctx.channel() instanceof QuicStreamChannel) {

@@ -57,21 +57,12 @@ public class WebTransportSessionPriorityTest {
     when(mockConnectStream.streamId()).thenReturn(0L);
 
     when(mockQuicChannel.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.newPromise()).thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
+    when(mockEventLoop.newPromise())
+        .thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
     session =
         new DefaultWebTransportSession(
-            0L,
-            mockConnectStream,
-            "/test",
-            100L,
-            100L,
-            10000L,
-            100L,
-            100L,
-            10000L,
-            true,
-            false);
+            0L, mockConnectStream, "/test", 100L, 100L, 10000L, 100L, 100L, 10000L, true, false);
 
     WebTransportSessionManager sessionManager = mock(WebTransportSessionManager.class);
     when(sessionManager.get(0L)).thenReturn(session);
@@ -82,11 +73,13 @@ public class WebTransportSessionPriorityTest {
 
     Attribute<Long> peerBidiAttr = mock(Attribute.class);
     when(peerBidiAttr.get()).thenReturn(100L);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(peerBidiAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(peerBidiAttr);
 
     Attribute<Long> peerUniAttr = mock(Attribute.class);
     when(peerUniAttr.get()).thenReturn(100L);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)).thenReturn(peerUniAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(peerUniAttr);
 
     // Setup mock created stream
     when(mockCreatedStream.streamId()).thenReturn(4L);
@@ -108,10 +101,12 @@ public class WebTransportSessionPriorityTest {
     when(mockCreatedStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     Attribute<Long> streamTypeAttr = mock(Attribute.class);
-    when(mockCreatedStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(streamTypeAttr);
+    when(mockCreatedStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY))
+        .thenReturn(streamTypeAttr);
 
     Attribute<Boolean> srvInitAttr = mock(Attribute.class);
-    when(mockCreatedStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(srvInitAttr);
+    when(mockCreatedStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
+        .thenReturn(srvInitAttr);
 
     when(mockCreatedStream.updatePriority(any())).thenReturn(mockPriorityFuture);
     when(mockPriorityFuture.isDone()).thenReturn(true);
@@ -120,11 +115,14 @@ public class WebTransportSessionPriorityTest {
 
   private void mockCreateStreamSuccess(QuicStreamType expectedType) {
     when(mockCreatedStream.type()).thenReturn(expectedType);
-    when(mockQuicChannel.createStream(any(), any())).thenAnswer(invocation -> {
-      DefaultPromise<QuicStreamChannel> fut = new DefaultPromise<>(ImmediateEventExecutor.INSTANCE);
-      fut.setSuccess(mockCreatedStream);
-      return fut;
-    });
+    when(mockQuicChannel.createStream(any(), any()))
+        .thenAnswer(
+            invocation -> {
+              DefaultPromise<QuicStreamChannel> fut =
+                  new DefaultPromise<>(ImmediateEventExecutor.INSTANCE);
+              fut.setSuccess(mockCreatedStream);
+              return fut;
+            });
   }
 
   @Test
@@ -191,23 +189,26 @@ public class WebTransportSessionPriorityTest {
     ReactiveWebTransportSession reactiveSession = new ReactiveWebTransportSession(session);
 
     AtomicReference<ReactiveWebTransportStream> streamRef = new AtomicReference<>();
-    reactiveSession.createBiStream(StreamPriority.of(1, true)).subscribe(new Subscriber<ReactiveWebTransportStream>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(1);
-      }
+    reactiveSession
+        .createBiStream(StreamPriority.of(1, true))
+        .subscribe(
+            new Subscriber<ReactiveWebTransportStream>() {
+              @Override
+              public void onSubscribe(Subscription s) {
+                s.request(1);
+              }
 
-      @Override
-      public void onNext(ReactiveWebTransportStream s) {
-        streamRef.set(s);
-      }
+              @Override
+              public void onNext(ReactiveWebTransportStream s) {
+                streamRef.set(s);
+              }
 
-      @Override
-      public void onError(Throwable t) {}
+              @Override
+              public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {}
-    });
+              @Override
+              public void onComplete() {}
+            });
 
     assertNotNull(streamRef.get());
     ArgumentCaptor<QuicStreamPriority> captor = ArgumentCaptor.forClass(QuicStreamPriority.class);

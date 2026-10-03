@@ -7,7 +7,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -18,7 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
@@ -38,7 +36,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static volatile RateLimitBackend backend = createBackend();
 
   private static RateLimitBackend createBackend() {
-    String backendType = WebTransportConfig.get("webtransport4j.server.ratelimit.backend", "local").toLowerCase();
+    String backendType =
+        WebTransportConfig.get("webtransport4j.server.ratelimit.backend", "local").toLowerCase();
     if ("redis".equals(backendType)) {
       logger.info("⚡ Configured RedisRateLimitBackend for distributed IP rate limiting.");
       return new RedisRateLimitBackend();
@@ -50,7 +49,10 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           return (RateLimitBackend) clazz.getDeclaredConstructor().newInstance();
         }
       } catch (Exception e) {
-        logger.error("❌ Failed to load custom RateLimitBackend class: {}. Falling back to local.", backendType, e);
+        logger.error(
+            "❌ Failed to load custom RateLimitBackend class: {}. Falling back to local.",
+            backendType,
+            e);
       }
     }
     return new LocalMemoryRateLimitBackend();
@@ -89,16 +91,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           WebTransportConfig.getInt(
               "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100);
       this.maxTrackedIps =
-          WebTransportConfig.getInt(
-              "webtransport4j.server.ratelimit.max_tracked_ips", 100000);
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000);
 
       this.engineType =
-          Objects.requireNonNull(WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "trie"))
+          Objects.requireNonNull(
+                  WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "trie"))
               .toLowerCase();
 
       this.rawWhitelistConfig =
           WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.whitelist", "");
-      if (previous != null && this.engineType.equals(previous.engineType)
+      if (previous != null
+          && this.engineType.equals(previous.engineType)
           && this.rawWhitelistConfig.equals(previous.rawWhitelistConfig)) {
         this.whitelistEngine = previous.whitelistEngine;
       } else {
@@ -117,7 +120,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
       this.rawOverridesConfig =
           WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.overrides", "");
-      if (previous != null && this.engineType.equals(previous.engineType)
+      if (previous != null
+          && this.engineType.equals(previous.engineType)
           && this.rawOverridesConfig.equals(previous.rawOverridesConfig)) {
         this.overridesEngine = previous.overridesEngine;
       } else {
@@ -181,37 +185,30 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     }
   }
 
-  /**
-   * Reloads shared rate limiting rules from configuration.
-   */
+  /** Reloads shared rate limiting rules from configuration. */
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
     clearState();
     updateReloaderState();
   }
 
-  /**
-   * Resets rate limiting state and rules for testing.
-   */
+  /** Resets rate limiting state and rules for testing. */
   public static void resetForTest() {
     sharedRules = new SharedRateLimitRules(null);
     clearState();
   }
 
-  private static final AtomicReference<ScheduledExecutorService> reloaderExecutor = new AtomicReference<>();
+  private static final AtomicReference<ScheduledExecutorService> reloaderExecutor =
+      new AtomicReference<>();
   private static volatile int currentIntervalSecs = -1;
 
-  /**
-   * Clears in-memory IP counts and backend state.
-   */
+  /** Clears in-memory IP counts and backend state. */
   public static void clearState() {
     ipCounts.clear();
     backend.clear();
   }
 
-  /**
-   * Stops the background dynamic configuration reloader.
-   */
+  /** Stops the background dynamic configuration reloader. */
   public static void stopReloader() {
     ScheduledExecutorService executor = reloaderExecutor.getAndSet(null);
     if (executor != null) {
@@ -221,14 +218,14 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     clearState();
   }
 
-  /**
-   * Updates the dynamic configuration reloader state based on configuration settings.
-   */
+  /** Updates the dynamic configuration reloader state based on configuration settings. */
   public static void updateReloaderState() {
     boolean reloadEnabled =
-        WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
+        WebTransportConfig.getBoolean(
+            "webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
     int reloadInterval =
-        WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
+        WebTransportConfig.getInt(
+            "webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
 
     if (!reloadEnabled || reloadInterval <= 0) {
       stopReloader();
@@ -250,22 +247,28 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     if (reloaderExecutor.get() != null) {
       return;
     }
-    ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(r -> {
-      Thread t = new Thread(r, "wt-rate-limit-reloader");
-      t.setDaemon(true);
-      return t;
-    });
+    ScheduledExecutorService executor =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, "wt-rate-limit-reloader");
+              t.setDaemon(true);
+              return t;
+            });
     if (reloaderExecutor.compareAndSet(null, executor)) {
       currentIntervalSecs = reloadInterval;
-      executor.scheduleAtFixedRate(() -> {
-        try {
-          if (WebTransportConfig.reload()) {
-            reloadSharedConfig();
-          }
-        } catch (Exception e) {
-          logger.error("Error reloading configuration in background", e);
-        }
-      }, reloadInterval, reloadInterval, TimeUnit.SECONDS);
+      executor.scheduleAtFixedRate(
+          () -> {
+            try {
+              if (WebTransportConfig.reload()) {
+                reloadSharedConfig();
+              }
+            } catch (Exception e) {
+              logger.error("Error reloading configuration in background", e);
+            }
+          },
+          reloadInterval,
+          reloadInterval,
+          TimeUnit.SECONDS);
     } else {
       executor.shutdownNow();
     }
@@ -301,7 +304,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           ip = ip.substring(7);
         }
 
-        if (Boolean.TRUE.equals(currentRules.whitelistEngine.match((InetSocketAddress) remoteSocketAddress))) {
+        if (Boolean.TRUE.equals(
+            currentRules.whitelistEngine.match((InetSocketAddress) remoteSocketAddress))) {
           if (logger.isDebugEnabled()) {
             logger.debug("✅ IP {} is whitelisted. Bypassing rate limit and blocklist.", ip);
           }
@@ -309,7 +313,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           return;
         }
 
-        if (currentRules.blocklistFilter.isEnabled() && currentRules.blocklistFilter.mightContain(ip)) {
+        if (currentRules.blocklistFilter.isEnabled()
+            && currentRules.blocklistFilter.mightContain(ip)) {
           if (currentRules.exactBlocklist.contains(ip)) {
             logger.warn(
                 "❌ IP {} is in the BloomFilter Blocklist. Dropping connection immediately.", ip);
@@ -320,7 +325,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
         long nowMinute = System.currentTimeMillis() / 60000;
         int effectiveMax = currentRules.maxConnectionsPerMinute;
-        Integer overrideMax = currentRules.overridesEngine.match((InetSocketAddress) remoteSocketAddress);
+        Integer overrideMax =
+            currentRules.overridesEngine.match((InetSocketAddress) remoteSocketAddress);
         if (overrideMax != null) {
           effectiveMax = overrideMax;
         }

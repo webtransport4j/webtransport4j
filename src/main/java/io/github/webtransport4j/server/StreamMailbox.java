@@ -16,8 +16,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Sequential per-stream dispatcher with auto-read backpressure.
  *
- * <p>Lock-free MPSC design ensures Netty EventLoop threads never synchronize or block.
- * Closing drains queued frames; an in-flight frame is released by its worker when the callback returns.
+ * <p>Lock-free MPSC design ensures Netty EventLoop threads never synchronize or block. Closing
+ * drains queued frames; an in-flight frame is released by its worker when the callback returns.
  */
 public final class StreamMailbox implements Runnable {
 
@@ -26,7 +26,7 @@ public final class StreamMailbox implements Runnable {
   @FunctionalInterface
   interface FrameDispatcher {
     void dispatch(@NonNull Channel channel, long sessionId, @NonNull WebTransportFrame frame)
-            throws Exception;
+        throws Exception;
   }
 
   private final QuicStreamChannel channel;
@@ -50,10 +50,10 @@ public final class StreamMailbox implements Runnable {
    * @param sessionId the session identifier
    */
   public StreamMailbox(
-          @NonNull QuicStreamChannel channel,
-          @NonNull ExecutorService executor,
-          @NonNull FrameDispatcher dispatcher,
-          long sessionId) {
+      @NonNull QuicStreamChannel channel,
+      @NonNull ExecutorService executor,
+      @NonNull FrameDispatcher dispatcher,
+      long sessionId) {
     this.channel = Objects.requireNonNull(channel, "channel must not be null");
     this.executor = Objects.requireNonNull(executor, "executor must not be null");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
@@ -105,7 +105,9 @@ public final class StreamMailbox implements Runnable {
     }
   }
 
-  /** Prevents new publication and releases all queued frames, without touching an in-flight frame. */
+  /**
+   * Prevents new publication and releases all queued frames, without touching an in-flight frame.
+   */
   public void drainAndRelease() {
     closed.set(true);
     WebTransportFrame frame;
@@ -117,7 +119,7 @@ public final class StreamMailbox implements Runnable {
 
   @Override
   public void run() {
-    for (;;) {
+    for (; ; ) {
       if (closed.get()) {
         processing.set(false);
         return;
@@ -177,13 +179,13 @@ public final class StreamMailbox implements Runnable {
       applyAutoRead();
     } else {
       eventLoop.execute(
-              () -> {
-                try {
-                  applyAutoRead();
-                } catch (RuntimeException | Error failure) {
-                  failMailbox("Unable to apply stream backpressure", failure);
-                }
-              });
+          () -> {
+            try {
+              applyAutoRead();
+            } catch (RuntimeException | Error failure) {
+              failMailbox("Unable to apply stream backpressure", failure);
+            }
+          });
     }
   }
 

@@ -7,7 +7,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -15,7 +14,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -49,8 +47,7 @@ public class StreamBufferingTest {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
-    QuicStreamChannelConfig mockConfig =
-        mock(QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
@@ -78,9 +75,7 @@ public class StreamBufferingTest {
 
     // Verify: stream was shut down with error code WT_BUFFERED_STREAM_REJECTED (0x3994bd84)
     verify(mockStream)
-        .shutdown(
-            eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED),
-            any(ChannelPromise.class));
+        .shutdown(eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED), any(ChannelPromise.class));
     // Verify: data was released
     assertEquals(0, data.refCnt());
     // Verify: no data was fired downstream
@@ -139,14 +134,10 @@ public class StreamBufferingTest {
 
     // Verify: CONNECT stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
     verify(mockConnectStream)
-        .shutdown(
-            eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR),
-            any(ChannelPromise.class));
+        .shutdown(eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR), any(ChannelPromise.class));
     // Verify: the offending stream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
     verify(mockStream)
-        .shutdown(
-            eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR),
-            any(ChannelPromise.class));
+        .shutdown(eq(WebTransportUtils.WT_FLOW_CONTROL_ERROR), any(ChannelPromise.class));
     // Verify: parent connection was NOT closed
     verify(mockParent, never()).close();
   }
@@ -276,8 +267,7 @@ public class StreamBufferingTest {
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
     when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
-    QuicStreamChannelConfig mockConfig =
-        mock(QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
@@ -372,8 +362,7 @@ public class StreamBufferingTest {
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
     when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
-    QuicStreamChannelConfig mockConfig =
-        mock(QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);
@@ -478,8 +467,7 @@ public class StreamBufferingTest {
     when(mockStream.parent()).thenReturn(mockParent);
     when(mockStream.streamId()).thenReturn(200L);
     when(mockStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
-    QuicStreamChannelConfig mockConfig =
-        mock(QuicStreamChannelConfig.class);
+    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
     when(mockStream.config()).thenReturn(mockConfig);
     ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
     when(mockStream.pipeline()).thenReturn(mockPipeline);

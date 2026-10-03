@@ -17,29 +17,27 @@ public class ReactiveWebTransportDatagramTest {
   @Test
   public void testSubscriberAndDelegateOwnSeparateReferences() {
     ReactiveWebTransportHandler delegate =
-            new ReactiveWebTransportHandler() {
-              @Override
-              public Publisher<Void> onSessionReady(ReactiveWebTransportSession session) {
-                Flux.from(session.receiveDatagrams()).subscribe(WebTransportBuffer::close);
-                return Mono.never();
-              }
+        new ReactiveWebTransportHandler() {
+          @Override
+          public Publisher<Void> onSessionReady(ReactiveWebTransportSession session) {
+            Flux.from(session.receiveDatagrams()).subscribe(WebTransportBuffer::close);
+            return Mono.never();
+          }
 
-              @Override
-              public Publisher<Void> onDatagramReceived(
-                      ReactiveWebTransportSession session, WebTransportBuffer data) {
-                // Acquire a separate reference for asynchronous processing.
-                data.retain();
-                return Mono.never();
-              }
-            };
+          @Override
+          public Publisher<Void> onDatagramReceived(
+              ReactiveWebTransportSession session, WebTransportBuffer data) {
+            // Acquire a separate reference for asynchronous processing.
+            data.retain();
+            return Mono.never();
+          }
+        };
 
-    ReactiveWebTransportHandlerAdapter adapter =
-            new ReactiveWebTransportHandlerAdapter(delegate);
+    ReactiveWebTransportHandlerAdapter adapter = new ReactiveWebTransportHandlerAdapter(delegate);
     WebTransportSession session = mock(WebTransportSession.class);
 
     ByteBuf underlying = Unpooled.buffer(1).writeByte(1);
-    DefaultNettyWebTransportBuffer buffer =
-            new DefaultNettyWebTransportBuffer(underlying);
+    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(underlying);
 
     try {
       adapter.onSessionReady(session);
@@ -78,11 +76,10 @@ public class ReactiveWebTransportDatagramTest {
 
   private void assertUnsubscribedDatagramReleased(boolean error) {
     ReactiveWebTransportSession session =
-            new ReactiveWebTransportSession(mock(WebTransportSession.class));
+        new ReactiveWebTransportSession(mock(WebTransportSession.class));
 
     ByteBuf underlying = Unpooled.buffer(1);
-    DefaultNettyWebTransportBuffer buffer =
-            new DefaultNettyWebTransportBuffer(underlying);
+    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(underlying);
 
     try {
       session.emitIncomingDatagram(buffer);

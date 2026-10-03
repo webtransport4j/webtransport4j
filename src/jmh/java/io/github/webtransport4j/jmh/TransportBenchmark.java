@@ -54,8 +54,8 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 
 /**
- * Benchmark for measuring WebTransport session and stream performance
- * across different transport implementations (NIO, kqueue).
+ * Benchmark for measuring WebTransport session and stream performance across different transport
+ * implementations (NIO, kqueue).
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)

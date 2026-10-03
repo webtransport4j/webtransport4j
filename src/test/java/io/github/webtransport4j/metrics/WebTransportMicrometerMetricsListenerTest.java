@@ -2,7 +2,6 @@ package io.github.webtransport4j.metrics;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -13,16 +12,15 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Unit test verifying {@link WebTransportMicrometerMetricsListener} meter registration and callbacks.
+ * Unit test verifying {@link WebTransportMicrometerMetricsListener} meter registration and
+ * callbacks.
  */
 public class WebTransportMicrometerMetricsListenerTest {
 
   private MeterRegistry registry;
   private WebTransportMicrometerMetricsListener listener;
 
-  /**
-   * Initializes meter registry and listener.
-   */
+  /** Initializes meter registry and listener. */
   @Before
   public void setUp() {
     registry = new SimpleMeterRegistry();
@@ -118,7 +116,8 @@ public class WebTransportMicrometerMetricsListenerTest {
 
     // Bounded to 64 chars
     String expectedBounded = longPath.substring(0, 64);
-    Counter longCounter = registry.find("test.wt.sessions.opened").tag("path", expectedBounded).counter();
+    Counter longCounter =
+        registry.find("test.wt.sessions.opened").tag("path", expectedBounded).counter();
     assertNotNull(longCounter);
     assertEquals(1.0, longCounter.count(), 0.001);
 

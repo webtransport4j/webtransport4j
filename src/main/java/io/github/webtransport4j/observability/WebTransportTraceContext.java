@@ -2,16 +2,15 @@ package io.github.webtransport4j.observability;
 
 import java.security.SecureRandom;
 import java.util.Locale;
-import java.util.Objects;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Representation and parser for W3C TraceContext (RFC / W3C Recommendation) headers
- * ({@code traceparent} and {@code tracestate}) over WebTransport sessions and HTTP/3 streams.
+ * Representation and parser for W3C TraceContext (RFC / W3C Recommendation) headers ({@code
+ * traceparent} and {@code tracestate}) over WebTransport sessions and HTTP/3 streams.
  *
- * <p>Enables end-to-end distributed tracing across microservices with OpenTelemetry, Zipkin,
- * and Jaeger.
+ * <p>Enables end-to-end distributed tracing across microservices with OpenTelemetry, Zipkin, and
+ * Jaeger.
  */
 public final class WebTransportTraceContext {
 
@@ -55,14 +54,13 @@ public final class WebTransportTraceContext {
   /**
    * Parses a W3C traceparent header string and optional tracestate.
    *
-   * @param traceparent the traceparent header value
-   *     (e.g. {@code "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"})
+   * @param traceparent the traceparent header value (e.g. {@code
+   *     "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"})
    * @param tracestate optional tracestate header value
    * @return parsed {@link WebTransportTraceContext}, or {@code null} if traceparent is invalid
    */
   public static @Nullable WebTransportTraceContext fromHeaders(
-      @Nullable CharSequence traceparent,
-      @Nullable CharSequence tracestate) {
+      @Nullable CharSequence traceparent, @Nullable CharSequence tracestate) {
     if (traceparent == null) {
       return null;
     }
@@ -248,4 +246,3 @@ public final class WebTransportTraceContext {
     return toTraceparent() + (tracestate != null ? " (" + tracestate + ")" : "");
   }
 }
-

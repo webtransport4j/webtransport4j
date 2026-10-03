@@ -16,8 +16,8 @@ import org.slf4j.LoggerFactory;
  * Sequential per-connection datagram dispatcher with batch draining and overload drop protection.
  *
  * <p>Unreliable datagrams are enqueued up to a bounded capacity. When overloaded or rejected,
- * datagrams are discarded with metric recording rather than aborting the underlying QUIC connection.
- * Lock-free design ensures Netty EventLoop threads never synchronize or block.
+ * datagrams are discarded with metric recording rather than aborting the underlying QUIC
+ * connection. Lock-free design ensures Netty EventLoop threads never synchronize or block.
  */
 public final class DatagramMailbox implements Runnable {
 
@@ -54,10 +54,8 @@ public final class DatagramMailbox implements Runnable {
     this.channel = Objects.requireNonNull(channel, "channel must not be null");
     this.executor = Objects.requireNonNull(executor, "executor must not be null");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
-    this.maxCapacity =
-        WebTransportConfig.getInt("webtransport4j.datagram.mailbox.capacity", 1024);
-    this.maxBatchSize =
-        WebTransportConfig.getInt("webtransport4j.datagram.mailbox.batch_size", 64);
+    this.maxCapacity = WebTransportConfig.getInt("webtransport4j.datagram.mailbox.capacity", 1024);
+    this.maxBatchSize = WebTransportConfig.getInt("webtransport4j.datagram.mailbox.batch_size", 64);
     if (maxCapacity < 1 || maxBatchSize < 1) {
       throw new IllegalArgumentException("capacity and batch size must be positive");
     }
@@ -140,7 +138,7 @@ public final class DatagramMailbox implements Runnable {
 
   @Override
   public void run() {
-    for (;;) {
+    for (; ; ) {
       int processedCount = 0;
       while (processedCount < maxBatchSize) {
         if (closed.get()) {

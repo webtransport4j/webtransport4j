@@ -10,9 +10,9 @@ import org.jspecify.annotations.Nullable;
 /**
  * Represents a WebTransport session and manages its streams and datagrams.
  *
- * <p>A WebTransport session is established over an HTTP/3 extended CONNECT stream.
- * It allows multiplexing bidirectional and unidirectional reliable streams alongside
- * unreliable datagrams within the same secure session.
+ * <p>A WebTransport session is established over an HTTP/3 extended CONNECT stream. It allows
+ * multiplexing bidirectional and unidirectional reliable streams alongside unreliable datagrams
+ * within the same secure session.
  *
  * @author https://github.com/sanjomo
  */
@@ -96,13 +96,15 @@ public interface WebTransportSession {
   @NonNull CompletableFuture<WebTransportStream> createUniStream(@NonNull StreamPriority priority);
 
   /**
-   * Creates an outbound unidirectional stream with the given urgency and incremental flag per RFC 9218.
+   * Creates an outbound unidirectional stream with the given urgency and incremental flag per RFC
+   * 9218.
    *
    * @param urgency urgency level between 0 (highest) and 7 (lowest)
    * @param incremental true if incremental/interleaved scheduling is enabled
    * @return a future that completes with the opened stream
    */
-  default @NonNull CompletableFuture<WebTransportStream> createUniStream(int urgency, boolean incremental) {
+  default @NonNull CompletableFuture<WebTransportStream> createUniStream(
+      int urgency, boolean incremental) {
     return createUniStream(StreamPriority.of(urgency, incremental));
   }
 
@@ -122,13 +124,15 @@ public interface WebTransportSession {
   @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull StreamPriority priority);
 
   /**
-   * Creates an outbound bidirectional stream with the given urgency and incremental flag per RFC 9218.
+   * Creates an outbound bidirectional stream with the given urgency and incremental flag per RFC
+   * 9218.
    *
    * @param urgency urgency level between 0 (highest) and 7 (lowest)
    * @param incremental true if incremental/interleaved scheduling is enabled
    * @return a future that completes with the opened stream
    */
-  default @NonNull CompletableFuture<WebTransportStream> createBiStream(int urgency, boolean incremental) {
+  default @NonNull CompletableFuture<WebTransportStream> createBiStream(
+      int urgency, boolean incremental) {
     return createBiStream(StreamPriority.of(urgency, incremental));
   }
 
@@ -147,21 +151,19 @@ public interface WebTransportSession {
   void sendDatagram(byte @NonNull [] data);
 
   /**
-   * Exports keying material for this WebTransport session using the TLS Exporter mechanism
-   * defined in draft-16 Section 4.8.
+   * Exports keying material for this WebTransport session using the TLS Exporter mechanism defined
+   * in draft-16 Section 4.8.
    *
    * @param label the application-supplied exporter label
    * @param context optional application-supplied exporter context (can be null)
    * @param length the desired length of exported keying material in bytes
    * @return the exported keying material bytes
    */
-  byte[] exportKeyingMaterial(
-      @NonNull String label,
-      byte @Nullable [] context,
-      int length);
+  byte[] exportKeyingMaterial(@NonNull String label, byte @Nullable [] context, int length);
 
   /**
-   * Gracefully closes the WebTransport session by closing the CONNECT stream and all active streams.
+   * Gracefully closes the WebTransport session by closing the CONNECT stream and all active
+   * streams.
    */
   void close();
 
@@ -289,8 +291,8 @@ public interface WebTransportSession {
   }
 
   /**
-   * Returns an unmodifiable collection of all active WebTransport stream summaries,
-   * or an empty collection if stream enumeration is not supported.
+   * Returns an unmodifiable collection of all active WebTransport stream summaries, or an empty
+   * collection if stream enumeration is not supported.
    *
    * @return collection of stream summaries
    */
@@ -298,4 +300,3 @@ public interface WebTransportSession {
     return Collections.emptyList();
   }
 }
-

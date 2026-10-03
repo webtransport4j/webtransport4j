@@ -79,10 +79,10 @@ import org.slf4j.LoggerFactory;
  * </pre>
  *
  * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, generated
- * certificate, and dynamically created traffic shaper) stay local until
- * {@code publishIfStillStarting}. If {@link #stop()} wins first, it
- * returns {@code STOPPED} before those objects exist; {@code doStart} then discards them itself.
- * The epoch is not enough on its own — it only prevents publishing.
+ * certificate, and dynamically created traffic shaper) stay local until {@code
+ * publishIfStillStarting}. If {@link #stop()} wins first, it returns {@code STOPPED} before those
+ * objects exist; {@code doStart} then discards them itself. The epoch is not enough on its own — it
+ * only prevents publishing.
  *
  * <p>The QUIC codec does not snapshot {@link QuicSslContext}. New handshakes call {@link
  * #newQuicSslEngine(QuicChannel)}, which reads the live {@link #activeSslContext} so certificate
@@ -162,6 +162,7 @@ public class WebTransportServer implements AutoCloseable {
       new WeakHashMap<>();
   private static final Object SERVER_INSTANCES_LOCK = new Object();
   private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
+
   /** Guarded by {@link #SERVER_INSTANCES_LOCK}. */
   private boolean instanceCounted;
 
@@ -177,8 +178,10 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Object lifecycleLock = new Object();
   private final AtomicReference<ServerState> state = new AtomicReference<>(ServerState.STOPPED);
+
   /** Incremented by {@link #stop} to invalidate an in-flight {@link #start}. */
   private final AtomicLong startEpoch = new AtomicLong();
+
   /** Sticky: once {@link #close()} runs, restart is forbidden even if stop is still in flight. */
   private volatile boolean permanentlyClosed;
 
@@ -291,7 +294,8 @@ public class WebTransportServer implements AutoCloseable {
     return Collections.unmodifiableMap(handlers);
   }
 
-  private static @NonNull WebTransportHandler requireHandler(@Nullable WebTransportHandler handler) {
+  private static @NonNull WebTransportHandler requireHandler(
+      @Nullable WebTransportHandler handler) {
     if (handler == null) {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
@@ -334,8 +338,7 @@ public class WebTransportServer implements AutoCloseable {
       @NonNull String path, @Nullable WebTransportHandler handler) {
     String normalized = normalizePath(path);
     if (normalized == null || !normalized.startsWith("/")) {
-      throw new IllegalArgumentException(
-          "path must not be null or empty and must start with '/'");
+      throw new IllegalArgumentException("path must not be null or empty and must start with '/'");
     }
     if (handler == null) {
       handlers.remove(normalized);
@@ -391,11 +394,12 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /**
-   * Sets the traffic shaping handler while this server is stopped, transferring exclusive ownership.
-   * A handler previously transferred to a server cannot be reused. The caller remains responsible
-   * for releasing a handler replaced before startup.
+   * Sets the traffic shaping handler while this server is stopped, transferring exclusive
+   * ownership. A handler previously transferred to a server cannot be reused. The caller remains
+   * responsible for releasing a handler replaced before startup.
    *
-   * @throws IllegalStateException if the server is not stopped or the handler was already transferred
+   * @throws IllegalStateException if the server is not stopped or the handler was already
+   *     transferred
    */
   public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
     synchronized (lifecycleLock) {
@@ -502,9 +506,8 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /**
-   * Returns the executor used for application callbacks. After {@link #stop()} of an owned
-   * executor this may be a terminated pool; {@link #start()} replaces it before accepting
-   * connections again.
+   * Returns the executor used for application callbacks. After {@link #stop()} of an owned executor
+   * this may be a terminated pool; {@link #start()} replaces it before accepting connections again.
    */
   public ExecutorService getBusinessExecutor() {
     return businessExecutor;
@@ -577,8 +580,7 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void start() throws Exception {
     if (permanentlyClosed || state.get() == ServerState.CLOSED) {
-      throw new IllegalStateException(
-          "WebTransportServer has been closed and cannot be restarted");
+      throw new IllegalStateException("WebTransportServer has been closed and cannot be restarted");
     }
     if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
       ServerState current = state.get();
@@ -593,8 +595,7 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (permanentlyClosed) {
       state.compareAndSet(ServerState.STARTING, ServerState.STOPPED);
-      throw new IllegalStateException(
-          "WebTransportServer has been closed and cannot be restarted");
+      throw new IllegalStateException("WebTransportServer has been closed and cannot be restarted");
     }
 
     final long epoch = startEpoch.incrementAndGet();
@@ -755,9 +756,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void abortIfStartInvalidated(long epoch) {
-    if (permanentlyClosed
-        || epoch != startEpoch.get()
-        || state.get() != ServerState.STARTING) {
+    if (permanentlyClosed || epoch != startEpoch.get() || state.get() != ServerState.STARTING) {
       throw new IllegalStateException("Server start aborted because shutdown was requested");
     }
   }
@@ -784,9 +783,7 @@ public class WebTransportServer implements AutoCloseable {
     hook.setDaemon(false);
 
     synchronized (lifecycleLock) {
-      if (permanentlyClosed
-          || epoch != startEpoch.get()
-          || state.get() != ServerState.STARTING) {
+      if (permanentlyClosed || epoch != startEpoch.get() || state.get() != ServerState.STARTING) {
         return false;
       }
       try {
@@ -876,17 +873,13 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  /**
-   * Starts the server non-blockingly and then blocks until server shutdown.
-   */
+  /** Starts the server non-blockingly and then blocks until server shutdown. */
   public void startAndAwait() throws Exception {
     start();
     awaitShutdown();
   }
 
-  /**
-   * Blocks the current thread until the server channel is closed.
-   */
+  /** Blocks the current thread until the server channel is closed. */
   public void awaitShutdown() throws InterruptedException {
     Channel ch = this.channel;
     if (ch != null) {
@@ -994,8 +987,9 @@ public class WebTransportServer implements AutoCloseable {
     boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
     if (!devMode && resolvedOrigins.contains("*")) {
       logger.warn(
-          "!!! WARNING !!! Allowed origins is '*'. This accepts any browser origin. Set "
-              + "webtransport4j.allowed.origins to an explicit allow-list in production. !!! WARNING !!!");
+          "!!! WARNING !!! Allowed origins is '*'. This accepts any browser origin. Set"
+              + " webtransport4j.allowed.origins to an explicit allow-list in production. !!!"
+              + " WARNING !!!");
     }
     return resolvedOrigins;
   }
@@ -1279,7 +1273,8 @@ public class WebTransportServer implements AutoCloseable {
           if (udpGso) {
             int gsoSize =
                 WebTransportConfig.getInt("webtransport4j.epoll.gso.size", DEFAULT_GSO_SIZE);
-            // Configuration errors are intentionally outside any broad runtime catch and fail startup.
+            // Configuration errors are intentionally outside any broad runtime catch and fail
+            // startup.
             validateGsoSize(gsoSize);
             bootstrap.option(
                 QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
@@ -1375,7 +1370,8 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  private @Nullable GlobalTrafficShapingHandler resolveTrafficShaper(EventLoopGroup eventLoopGroup) {
+  private @Nullable GlobalTrafficShapingHandler resolveTrafficShaper(
+      EventLoopGroup eventLoopGroup) {
     if (this.trafficShaper != null) {
       return this.trafficShaper;
     }
@@ -1435,9 +1431,10 @@ public class WebTransportServer implements AutoCloseable {
       }
     } else if (devMode) {
       logger.warn(
-          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS certificate will be "
-              + "generated. Do not use this configuration in production. Configure "
-              + "webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!! WARNING !!!");
+          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS"
+              + " certificate will be generated. Do not use this configuration in production."
+              + " Configure webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!!"
+              + " WARNING !!!");
 
       generated = new SelfSignedCertificate("localhost");
       keyFile = generated.privateKey();
@@ -1508,7 +1505,8 @@ public class WebTransportServer implements AutoCloseable {
     }
     resolvedSslCtx.sessionContext().setTicketKeys(ticketKeys);
     logger.info(
-        "Explicit TLS session ticket keys loaded ({}). 1-RTT session resumption across servers is enabled.",
+        "Explicit TLS session ticket keys loaded ({}). 1-RTT session resumption across servers is"
+            + " enabled.",
         ticketKeys.length);
   }
 
@@ -1554,10 +1552,8 @@ public class WebTransportServer implements AutoCloseable {
       builder.grease(Boolean.parseBoolean(greaseVal));
     }
 
-    applyLongIfPresent(
-        "webtransport4j.quic.payload.size.send.max", builder::maxSendUdpPayloadSize);
-    applyLongIfPresent(
-        "webtransport4j.quic.payload.size.recv.max", builder::maxRecvUdpPayloadSize);
+    applyLongIfPresent("webtransport4j.quic.payload.size.send.max", builder::maxSendUdpPayloadSize);
+    applyLongIfPresent("webtransport4j.quic.payload.size.recv.max", builder::maxRecvUdpPayloadSize);
     applyLongIfPresent("webtransport4j.quic.ack.delay.exponent", builder::ackDelayExponent);
 
     String maxAckDelayVal = WebTransportConfig.get("webtransport4j.quic.ack.delay.max.ms", null);
@@ -1565,8 +1561,7 @@ public class WebTransportServer implements AutoCloseable {
       builder.maxAckDelay(Long.parseLong(maxAckDelayVal), TimeUnit.MILLISECONDS);
     }
 
-    applyBooleanIfPresent(
-        "webtransport4j.quic.active.migration.enabled", builder::activeMigration);
+    applyBooleanIfPresent("webtransport4j.quic.active.migration.enabled", builder::activeMigration);
     applyBooleanIfPresent("webtransport4j.quic.hystart.enabled", builder::hystart);
     applyBooleanIfPresent("webtransport4j.quic.discover.pmtu.enabled", builder::discoverPmtu);
 
@@ -1641,19 +1636,20 @@ public class WebTransportServer implements AutoCloseable {
             "webtransport4j.server.recv.max_messages_per_read", DEFAULT_MAX_MESSAGES_PER_READ);
     if (maxMessagesPerRead <= 0) {
       throw new IllegalArgumentException(
-          "webtransport4j.server.recv.max_messages_per_read must be > 0: "
-              + maxMessagesPerRead);
+          "webtransport4j.server.recv.max_messages_per_read must be > 0: " + maxMessagesPerRead);
     }
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(maxMessagesPerRead);
 
     int sndBuf =
-        WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+        WebTransportConfig.getInt(
+            "webtransport4j.server.socket.sndbuf", DEFAULT_SOCKET_BUFFER_SIZE);
     if (sndBuf > 0) {
       bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
     }
     int rcvBuf =
-        WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+        WebTransportConfig.getInt(
+            "webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
@@ -1852,7 +1848,8 @@ public class WebTransportServer implements AutoCloseable {
     while (state.get() == ServerState.STOPPING) {
       long remaining = deadline - System.nanoTime();
       if (remaining <= 0L) {
-        logger.warn("!!! WARNING !!! Timed out waiting for in-flight stop to finish !!! WARNING !!!");
+        logger.warn(
+            "!!! WARNING !!! Timed out waiting for in-flight stop to finish !!! WARNING !!!");
         return;
       }
       try {
@@ -1949,11 +1946,11 @@ public class WebTransportServer implements AutoCloseable {
       serverIdVal = System.getenv("SERVER_ID");
     }
     if (serverIdVal != null && !serverIdVal.trim().isEmpty()) {
-      int sId = Integer.parseInt(serverIdVal.trim());
+      int serverId = Integer.parseInt(serverIdVal.trim());
       logger.info(
           "QUIC-LB Connection ID routing configured: ServerIdConnectionIdGenerator (Server ID: {})",
-          sId);
-      return new ServerIdConnectionIdGenerator(sId);
+          serverId);
+      return new ServerIdConnectionIdGenerator(serverId);
     }
     String generatorType =
         WebTransportConfig.get("webtransport4j.quic.connection.id.generator", null);
@@ -1984,8 +1981,9 @@ public class WebTransportServer implements AutoCloseable {
     String tokenHandlerType = WebTransportConfig.get("webtransport4j.quic.token.handler", "hmac");
     if ("insecure".equalsIgnoreCase(tokenHandlerType)) {
       logger.warn(
-          "!!! WARNING !!! QUIC token handler is INSECURE (InsecureQuicTokenHandler). Address validation tokens "
-              + "are not cryptographically bound. Do not use this in production. !!! WARNING !!!");
+          "!!! WARNING !!! QUIC token handler is INSECURE (InsecureQuicTokenHandler). Address"
+              + " validation tokens are not cryptographically bound. Do not use this in production."
+              + " !!! WARNING !!!");
       return InsecureQuicTokenHandler.INSTANCE;
     } else if ("hmac".equalsIgnoreCase(tokenHandlerType)
         || tokenHandlerType == null
@@ -2044,8 +2042,7 @@ public class WebTransportServer implements AutoCloseable {
       int high = Character.digit(normalized.charAt(i), 16);
       int low = Character.digit(normalized.charAt(i + 1), 16);
       if (high == -1 || low == -1) {
-        throw new IllegalArgumentException(
-            "HMAC key contains a non-hex character at index " + i);
+        throw new IllegalArgumentException("HMAC key contains a non-hex character at index " + i);
       }
       data[i / 2] = (byte) ((high << 4) + low);
     }
@@ -2060,8 +2057,12 @@ public class WebTransportServer implements AutoCloseable {
       long wtMaxUni,
       long quicMaxData,
       long wtMaxData) {
-    if (quicMaxBidi < 0 || wtMaxBidi < 0 || quicMaxUni < 0 || wtMaxUni < 0
-        || quicMaxData < 0 || wtMaxData < 0) {
+    if (quicMaxBidi < 0
+        || wtMaxBidi < 0
+        || quicMaxUni < 0
+        || wtMaxUni < 0
+        || quicMaxData < 0
+        || wtMaxData < 0) {
       throw new IllegalArgumentException("Flow-control limits must be >= 0");
     }
     if (quicMaxBidi < wtMaxBidi) {

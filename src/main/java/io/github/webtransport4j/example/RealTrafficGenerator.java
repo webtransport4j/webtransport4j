@@ -38,9 +38,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Enterprise Real Traffic Generator for WebTransport4J.
- * Connects to live WebTransport4J instances over UDP/QUIC and drives genuine
- * network traffic, streams, and high-throughput datagrams.
+ * Enterprise Real Traffic Generator for WebTransport4J. Connects to live WebTransport4J instances
+ * over UDP/QUIC and drives genuine network traffic, streams, and high-throughput datagrams.
  */
 public final class RealTrafficGenerator {
 
@@ -48,9 +47,7 @@ public final class RealTrafficGenerator {
 
   private RealTrafficGenerator() {}
 
-  /**
-   * Session encapsulation holding active QUIC channel, connect stream, and session ID.
-   */
+  /** Session encapsulation holding active QUIC channel, connect stream, and session ID. */
   public static final class LiveSession implements AutoCloseable {
     private final QuicChannel quicChannel;
     private final QuicStreamChannel connectStream;
@@ -96,9 +93,7 @@ public final class RealTrafficGenerator {
     }
   }
 
-  /**
-   * Establishes a genuine WebTransport session with the specified target server.
-   */
+  /** Establishes a genuine WebTransport session with the specified target server. */
   public static LiveSession connect(final String rawUrl, final String traceparent)
       throws Exception {
     final URI uri = new URI(rawUrl);
@@ -203,14 +198,9 @@ public final class RealTrafficGenerator {
     return new LiveSession(quicChannel, connectStreamContainer[0], sessionId, group);
   }
 
-  /**
-   * Transmits real WebTransport datagrams at high velocity over the QUIC channel.
-   */
+  /** Transmits real WebTransport datagrams at high velocity over the QUIC channel. */
   public static int sendDatagrams(
-      final LiveSession session,
-      final int count,
-      final int payloadSize,
-      final int rateLimitPps)
+      final LiveSession session, final int count, final int payloadSize, final int rateLimitPps)
       throws Exception {
     final byte[] payload = new byte[Math.max(16, payloadSize)];
     for (int i = 0; i < payload.length; i++) {
@@ -245,14 +235,9 @@ public final class RealTrafficGenerator {
     return sentCount;
   }
 
-  /**
-   * Opens genuine streams, transmits data, and verifies response.
-   */
+  /** Opens genuine streams, transmits data, and verifies response. */
   public static int sendStreams(
-      final LiveSession session,
-      final boolean bidi,
-      final int count,
-      final String payloadText)
+      final LiveSession session, final boolean bidi, final int count, final String payloadText)
       throws Exception {
     final byte[] payloadBytes = payloadText.getBytes(StandardCharsets.UTF_8);
     final AtomicInteger completed = new AtomicInteger(0);

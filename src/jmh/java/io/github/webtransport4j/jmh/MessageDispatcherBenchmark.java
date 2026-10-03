@@ -103,15 +103,18 @@ public class MessageDispatcherBenchmark {
 
     BenchmarkAttribute<WebTransportSessionManager> sessionMgrAttr = new BenchmarkAttribute<>();
     sessionMgrAttr.set(mockSessionMgr);
-    Mockito.when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
+    Mockito.when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR))
+        .thenReturn(sessionMgrAttr);
 
     BenchmarkAttribute<StreamMailbox> mailboxAttr = new BenchmarkAttribute<>();
-    Mockito.when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
+    Mockito.when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY))
+        .thenReturn(mailboxAttr);
 
     ByteBuf buf = Unpooled.wrappedBuffer(new byte[] {1, 2, 3, 4, 5});
     try {
       Class<?> clazz = Class.forName("io.github.webtransport4j.server.WebTransportStreamFrame");
-      Constructor<?> constructor = clazz.getDeclaredConstructor(long.class, long.class, boolean.class, ByteBuf.class);
+      Constructor<?> constructor =
+          clazz.getDeclaredConstructor(long.class, long.class, boolean.class, ByteBuf.class);
       constructor.setAccessible(true);
       streamFrame = (WebTransportFrame) constructor.newInstance(1L, 1L, true, buf);
     } catch (Exception e) {
@@ -119,9 +122,7 @@ public class MessageDispatcherBenchmark {
     }
   }
 
-  /**
-   * Tears down benchmark executor.
-   */
+  /** Tears down benchmark executor. */
   @TearDown
   public void tearDown() {
     if (executor != null) {

@@ -16,7 +16,8 @@ public class WebTransportOtlpMetricsListener extends WebTransportMicrometerMetri
   private final OtlpMeterRegistry otlpRegistry;
 
   /**
-   * Constructs an OTLP listener with default configuration pointing to {@code http://localhost:4318/v1/metrics}.
+   * Constructs an OTLP listener with default configuration pointing to {@code
+   * http://localhost:4318/v1/metrics}.
    */
   public WebTransportOtlpMetricsListener() {
     this(WebTransportOtlpConfig.builder().build());
@@ -28,7 +29,9 @@ public class WebTransportOtlpMetricsListener extends WebTransportMicrometerMetri
    * @param config OTLP configuration parameters
    */
   public WebTransportOtlpMetricsListener(@NonNull WebTransportOtlpConfig config) {
-    this(new OtlpMeterRegistry(Objects.requireNonNull(config, "config must not be null"), Clock.SYSTEM));
+    this(
+        new OtlpMeterRegistry(
+            Objects.requireNonNull(config, "config must not be null"), Clock.SYSTEM));
   }
 
   /**
@@ -51,9 +54,7 @@ public class WebTransportOtlpMetricsListener extends WebTransportMicrometerMetri
     return otlpRegistry;
   }
 
-  /**
-   * Closes the underlying OTLP meter registry and releases resources.
-   */
+  /** Closes the underlying OTLP meter registry and releases resources. */
   @Override
   public void close() {
     otlpRegistry.close();

@@ -6,13 +6,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
 
 /**
- * Spring {@link SmartLifecycle} wrapper for {@link WebTransportServer}.
- * Automatically starts the WebTransport server on Spring application startup
- * and gracefully stops it during application context shutdown.
+ * Spring {@link SmartLifecycle} wrapper for {@link WebTransportServer}. Automatically starts the
+ * WebTransport server on Spring application startup and gracefully stops it during application
+ * context shutdown.
  */
 public class SpringWebTransportServerLifecycle implements SmartLifecycle {
 
-  private static final Logger logger = LoggerFactory.getLogger(SpringWebTransportServerLifecycle.class);
+  private static final Logger logger =
+      LoggerFactory.getLogger(SpringWebTransportServerLifecycle.class);
 
   private final WebTransportServer server;
   private volatile boolean running = false;

@@ -6,9 +6,7 @@ import static org.junit.Assert.assertNull;
 import org.junit.Test;
 import org.slf4j.MDC;
 
-/**
- * Unit test for {@link WebTransportMdcContext}.
- */
+/** Unit test for {@link WebTransportMdcContext}. */
 public class WebTransportMdcContextTest {
 
   @Test

@@ -20,9 +20,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.AnnotationUtils;
 
 /**
- * Spring Auto-Configuration for WebTransport4J.
- * Discovers handlers, endpoints annotated with {@link WebTransportEndpoint},
- * custom metric listeners, executors, and bootstraps {@link WebTransportServer}.
+ * Spring Auto-Configuration for WebTransport4J. Discovers handlers, endpoints annotated with {@link
+ * WebTransportEndpoint}, custom metric listeners, executors, and bootstraps {@link
+ * WebTransportServer}.
  */
 @Configuration
 public class WebTransportAutoConfiguration implements ApplicationContextAware {
@@ -59,7 +59,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
 
     WebTransportServerBuilder builder = WebTransportServer.builder();
 
-    builder.port(properties.getPort())
+    builder
+        .port(properties.getPort())
         .sslKeyPath(properties.getSslKeyPath())
         .sslCertPath(properties.getSslCertPath())
         .transportType(properties.getTransport())
@@ -76,7 +77,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     executorProvider.ifAvailable(builder::businessExecutor);
 
     // Auto-discover @WebTransportEndpoint annotated beans or WebTransportHandler beans
-    Map<String, Object> endpointBeans = applicationContext.getBeansWithAnnotation(WebTransportEndpoint.class);
+    Map<String, Object> endpointBeans =
+        applicationContext.getBeansWithAnnotation(WebTransportEndpoint.class);
     for (Map.Entry<String, Object> entry : endpointBeans.entrySet()) {
       Object bean = entry.getValue();
       WebTransportEndpoint ann = bean.getClass().getAnnotation(WebTransportEndpoint.class);
@@ -87,8 +89,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
       if (ann != null) {
         String path = ann.path();
         boolean isDefault = ann.isDefault();
-        logger.info("📡 Discovered Spring WebTransport Endpoint: path='{}', default={}, bean='{}'",
-            path, isDefault, entry.getKey());
+        logger.info(
+            "📡 Discovered Spring WebTransport Endpoint: path='{}', default={}, bean='{}'",
+            path,
+            isDefault,
+            entry.getKey());
 
         if (bean instanceof WebTransportHandler) {
           WebTransportHandler handler = (WebTransportHandler) bean;
@@ -105,18 +110,24 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
             builder.reactiveHandler(path, reactiveHandler);
           }
         } else {
-          logger.warn("⚠️ Bean '{}' is annotated with @WebTransportEndpoint but does not implement "
-              + "WebTransportHandler or ReactiveWebTransportHandler", entry.getKey());
+          logger.warn(
+              "⚠️ Bean '{}' is annotated with @WebTransportEndpoint but does not implement "
+                  + "WebTransportHandler or ReactiveWebTransportHandler",
+              entry.getKey());
         }
       }
     }
 
-    // Also discover plain WebTransportHandler beans that are not annotated if no endpoint annotation present
-    Map<String, WebTransportHandler> handlers = applicationContext.getBeansOfType(WebTransportHandler.class);
+    // Also discover plain WebTransportHandler beans that are not annotated if no endpoint
+    // annotation present
+    Map<String, WebTransportHandler> handlers =
+        applicationContext.getBeansOfType(WebTransportHandler.class);
     for (Map.Entry<String, WebTransportHandler> entry : handlers.entrySet()) {
       WebTransportHandler handler = entry.getValue();
       if (!endpointBeans.containsKey(entry.getKey())) {
-        logger.info("📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path '/'",
+        logger.info(
+            "📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path"
+                + " '/'",
             entry.getKey());
         builder.defaultHandler(handler);
       }
@@ -132,7 +143,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
    * @return lifecycle manager
    */
   @Bean
-  public SpringWebTransportServerLifecycle springWebTransportServerLifecycle(WebTransportServer server) {
+  public SpringWebTransportServerLifecycle springWebTransportServerLifecycle(
+      WebTransportServer server) {
     return new SpringWebTransportServerLifecycle(server);
   }
 }

@@ -19,9 +19,7 @@ import java.util.function.Supplier;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Fluent builder for creating and configuring {@link WebTransportServer} instances.
- */
+/** Fluent builder for creating and configuring {@link WebTransportServer} instances. */
 public class WebTransportServerBuilder {
 
   private Integer port;
@@ -73,7 +71,8 @@ public class WebTransportServerBuilder {
   }
 
   /** Configures SSL key and certificate paths. */
-  public @NonNull WebTransportServerBuilder ssl(@Nullable String keyPath, @Nullable String certPath) {
+  public @NonNull WebTransportServerBuilder ssl(
+      @Nullable String keyPath, @Nullable String certPath) {
     this.sslKeyPath = keyPath;
     this.sslCertPath = certPath;
     return this;
@@ -98,25 +97,29 @@ public class WebTransportServerBuilder {
   }
 
   /** Sets the business executor for offloading handler callbacks. */
-  public @NonNull WebTransportServerBuilder businessExecutor(@Nullable ExecutorService businessExecutor) {
+  public @NonNull WebTransportServerBuilder businessExecutor(
+      @Nullable ExecutorService businessExecutor) {
     this.businessExecutor = businessExecutor;
     return this;
   }
 
   /** Sets the observability metrics listener. */
-  public @NonNull WebTransportServerBuilder metricsListener(@Nullable WebTransportMetricsListener metricsListener) {
+  public @NonNull WebTransportServerBuilder metricsListener(
+      @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
     return this;
   }
 
   /** Sets the custom QUIC token handler. */
-  public @NonNull WebTransportServerBuilder quicTokenHandler(@Nullable QuicTokenHandler quicTokenHandler) {
+  public @NonNull WebTransportServerBuilder quicTokenHandler(
+      @Nullable QuicTokenHandler quicTokenHandler) {
     this.quicTokenHandler = quicTokenHandler;
     return this;
   }
 
   /**
-   * Sets a custom {@link QuicConnectionIdGenerator} for generating server Destination Connection IDs (DCIDs).
+   * Sets a custom {@link QuicConnectionIdGenerator} for generating server Destination Connection
+   * IDs (DCIDs).
    *
    * @param connectionIdGenerator custom connection ID generator
    * @return this builder
@@ -128,8 +131,8 @@ public class WebTransportServerBuilder {
   }
 
   /**
-   * Configures QUIC-LB Server ID routing (draft-ietf-quic-load-balancers) with a single-byte
-   * server ID (0 to 255). Incoming packets can be routed by L4 balancers using the Connection ID prefix.
+   * Configures QUIC-LB Server ID routing (draft-ietf-quic-load-balancers) with a single-byte server
+   * ID (0 to 255). Incoming packets can be routed by L4 balancers using the Connection ID prefix.
    *
    * @param serverId unique server ID (0 to 255)
    * @return this builder
@@ -165,7 +168,8 @@ public class WebTransportServerBuilder {
   }
 
   /** Sets the default handler for unregistered routes. */
-  public @NonNull WebTransportServerBuilder defaultHandler(@NonNull WebTransportHandler defaultHandler) {
+  public @NonNull WebTransportServerBuilder defaultHandler(
+      @NonNull WebTransportHandler defaultHandler) {
     this.defaultHandler = defaultHandler;
     return this;
   }
@@ -210,7 +214,8 @@ public class WebTransportServerBuilder {
    * Building another server with the same handler (including through another builder) is rejected.
    * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
    */
-  public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+  public @NonNull WebTransportServerBuilder trafficShaper(
+      @Nullable GlobalTrafficShapingHandler trafficShaper) {
     this.trafficShaper = trafficShaper;
     return this;
   }
@@ -306,7 +311,6 @@ public class WebTransportServerBuilder {
   Long getGlobalTrafficReadLimit() {
     return globalTrafficReadLimit;
   }
-
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

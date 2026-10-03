@@ -34,31 +34,33 @@ public class ReactiveWebTransportStreamTest {
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
 
     List<WebTransportBuffer> received = new ArrayList<>();
-    Subscriber<WebTransportBuffer> subscriber = new Subscriber<WebTransportBuffer>() {
-      private Subscription subscription;
+    Subscriber<WebTransportBuffer> subscriber =
+        new Subscriber<WebTransportBuffer>() {
+          private Subscription subscription;
 
-      @Override
-      public void onSubscribe(Subscription subscription) {
-        this.subscription = subscription;
-        subscription.request(2); // request 2 items
-      }
+          @Override
+          public void onSubscribe(Subscription subscription) {
+            this.subscription = subscription;
+            subscription.request(2); // request 2 items
+          }
 
-      @Override
-      public void onNext(WebTransportBuffer item) {
-        received.add(item);
-      }
+          @Override
+          public void onNext(WebTransportBuffer item) {
+            received.add(item);
+          }
 
-      @Override
-      public void onError(Throwable throwable) {}
+          @Override
+          public void onError(Throwable throwable) {}
 
-      @Override
-      public void onComplete() {}
-    };
+          @Override
+          public void onComplete() {}
+        };
 
     reactiveStream.subscribe(subscriber);
 
     // Verify callback was registered on the mock stream
-    ArgumentCaptor<Consumer<WebTransportBuffer>> consumerCaptor = ArgumentCaptor.forClass(Consumer.class);
+    ArgumentCaptor<Consumer<WebTransportBuffer>> consumerCaptor =
+        ArgumentCaptor.forClass(Consumer.class);
     verify(mockStream).onData(consumerCaptor.capture());
     Consumer<WebTransportBuffer> registeredConsumer = consumerCaptor.getValue();
 
@@ -76,8 +78,7 @@ public class ReactiveWebTransportStreamTest {
   @Test
   public void testSubscriberWritesData() {
     WebTransportStream mockStream = mock(WebTransportStream.class);
-    CompletableFuture<Void> completedFuture =
-        CompletableFuture.completedFuture(null);
+    CompletableFuture<Void> completedFuture = CompletableFuture.completedFuture(null);
     when(mockStream.write(any(WebTransportBuffer.class))).thenReturn(completedFuture);
 
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
@@ -100,8 +101,10 @@ public class ReactiveWebTransportStreamTest {
   @Test
   public void testStreamDelegationAndPriority() {
     WebTransportStream mockStream = mock(WebTransportStream.class);
-    when(mockStream.setPriority(any(StreamPriority.class))).thenReturn(CompletableFuture.completedFuture(null));
-    when(mockStream.setPriority(anyInt(), anyBoolean())).thenReturn(CompletableFuture.completedFuture(null));
+    when(mockStream.setPriority(any(StreamPriority.class)))
+        .thenReturn(CompletableFuture.completedFuture(null));
+    when(mockStream.setPriority(anyInt(), anyBoolean()))
+        .thenReturn(CompletableFuture.completedFuture(null));
     when(mockStream.getPriority()).thenReturn(StreamPriority.of(1, true));
 
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
@@ -128,23 +131,24 @@ public class ReactiveWebTransportStreamTest {
     List<WebTransportBuffer> received = new ArrayList<>();
     final Subscription[] subscriptionHolder = new Subscription[1];
 
-    reactiveStream.subscribe(new Subscriber<WebTransportBuffer>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        subscriptionHolder[0] = s;
-      }
+    reactiveStream.subscribe(
+        new Subscriber<WebTransportBuffer>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            subscriptionHolder[0] = s;
+          }
 
-      @Override
-      public void onNext(WebTransportBuffer item) {
-        received.add(item);
-      }
+          @Override
+          public void onNext(WebTransportBuffer item) {
+            received.add(item);
+          }
 
-      @Override
-      public void onError(Throwable t) {}
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {}
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     // 1. Initial subscription must disable auto-read on the wire
     verify(mockStream, atLeastOnce()).setAutoRead(false);
@@ -177,21 +181,22 @@ public class ReactiveWebTransportStreamTest {
     WebTransportStream mockStream = mock(WebTransportStream.class);
     ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(mockStream);
 
-    reactiveStream.subscribe(new Subscriber<WebTransportBuffer>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(Long.MAX_VALUE);
-      }
+    reactiveStream.subscribe(
+        new Subscriber<WebTransportBuffer>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            s.request(Long.MAX_VALUE);
+          }
 
-      @Override
-      public void onNext(WebTransportBuffer item) {}
+          @Override
+          public void onNext(WebTransportBuffer item) {}
 
-      @Override
-      public void onError(Throwable t) {}
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {}
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     // Unbounded demand switches auto-read to true for maximum line rate
     verify(mockStream).setAutoRead(true);
@@ -206,21 +211,22 @@ public class ReactiveWebTransportStreamTest {
         ArgumentCaptor.forClass(Consumer.class);
 
     final Subscription[] subscriptionHolder = new Subscription[1];
-    reactiveStream.subscribe(new Subscriber<WebTransportBuffer>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        subscriptionHolder[0] = s;
-      }
+    reactiveStream.subscribe(
+        new Subscriber<WebTransportBuffer>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            subscriptionHolder[0] = s;
+          }
 
-      @Override
-      public void onNext(WebTransportBuffer item) {}
+          @Override
+          public void onNext(WebTransportBuffer item) {}
 
-      @Override
-      public void onError(Throwable t) {}
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {}
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     verify(mockStream).onData(consumerCaptor.capture());
     Consumer<WebTransportBuffer> onData = consumerCaptor.getValue();
@@ -288,7 +294,8 @@ public class ReactiveWebTransportStreamTest {
     TerminalFixture f = new TerminalFixture();
     WebTransportBuffer buffer = mock(WebTransportBuffer.class);
     org.mockito.Mockito.doThrow(new IllegalStateException("subscriber failed"))
-        .when(f.subscriber).onNext(buffer);
+        .when(f.subscriber)
+        .onNext(buffer);
     f.data.accept(buffer);
     f.close.onClose();
     f.subscription.request(1);
@@ -305,26 +312,33 @@ public class ReactiveWebTransportStreamTest {
       TerminalFixture f = new TerminalFixture();
       java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(2);
       java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
-      CompletableFuture<Void> close = CompletableFuture.runAsync(() -> {
-        ready.countDown();
-        await(go);
-        f.close.onClose();
-      });
-      CompletableFuture<Void> error = CompletableFuture.runAsync(() -> {
-        ready.countDown();
-        await(go);
-        f.error.accept(new IllegalStateException("transport failed"));
-      });
+      CompletableFuture<Void> close =
+          CompletableFuture.runAsync(
+              () -> {
+                ready.countDown();
+                await(go);
+                f.close.onClose();
+              });
+      CompletableFuture<Void> error =
+          CompletableFuture.runAsync(
+              () -> {
+                ready.countDown();
+                await(go);
+                f.error.accept(new IllegalStateException("transport failed"));
+              });
       try {
         assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS));
       } finally {
         go.countDown();
       }
       CompletableFuture.allOf(close, error).get(5, java.util.concurrent.TimeUnit.SECONDS);
-      long terminals = org.mockito.Mockito.mockingDetails(f.subscriber).getInvocations().stream()
-          .filter(invocation -> invocation.getMethod().getName().equals("onComplete")
-              || invocation.getMethod().getName().equals("onError"))
-          .count();
+      long terminals =
+          org.mockito.Mockito.mockingDetails(f.subscriber).getInvocations().stream()
+              .filter(
+                  invocation ->
+                      invocation.getMethod().getName().equals("onComplete")
+                          || invocation.getMethod().getName().equals("onError"))
+              .count();
       assertEquals(1L, terminals);
     }
   }
@@ -346,24 +360,29 @@ public class ReactiveWebTransportStreamTest {
     WebTransportBuffer third = mock(WebTransportBuffer.class);
     CountDownLatch delivering = new CountDownLatch(1);
     CountDownLatch releaseDelivery = new CountDownLatch(1);
-    org.mockito.Mockito.doAnswer(invocation -> {
-      delivering.countDown();
-      await(releaseDelivery);
-      return null;
-    }).when(f.subscriber).onNext(first);
+    org.mockito.Mockito.doAnswer(
+            invocation -> {
+              delivering.countDown();
+              await(releaseDelivery);
+              return null;
+            })
+        .when(f.subscriber)
+        .onNext(first);
 
     if (queued) {
       f.data.accept(first);
     } else {
       f.subscription.request(1);
     }
-    CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> {
-      if (queued) {
-        f.subscription.request(1);
-      } else {
-        f.data.accept(first);
-      }
-    });
+    CompletableFuture<Void> delivery =
+        CompletableFuture.runAsync(
+            () -> {
+              if (queued) {
+                f.subscription.request(1);
+              } else {
+                f.data.accept(first);
+              }
+            });
     try {
       assertTrue(delivering.await(5, TimeUnit.SECONDS));
       f.subscription.request(1);
@@ -400,11 +419,14 @@ public class ReactiveWebTransportStreamTest {
     CountDownLatch delivering = new CountDownLatch(1);
     CountDownLatch releaseDelivery = new CountDownLatch(1);
     WebTransportBuffer buffer = mock(WebTransportBuffer.class);
-    org.mockito.Mockito.doAnswer(invocation -> {
-      delivering.countDown();
-      await(releaseDelivery);
-      return null;
-    }).when(f.subscriber).onNext(buffer);
+    org.mockito.Mockito.doAnswer(
+            invocation -> {
+              delivering.countDown();
+              await(releaseDelivery);
+              return null;
+            })
+        .when(f.subscriber)
+        .onNext(buffer);
     f.subscription.request(1);
     CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> f.data.accept(buffer));
     try {
@@ -443,7 +465,8 @@ public class ReactiveWebTransportStreamTest {
       ArgumentCaptor<Subscription> subscriptionCaptor = ArgumentCaptor.forClass(Subscription.class);
       ArgumentCaptor<OnCloseListener> closeCaptor = ArgumentCaptor.forClass(OnCloseListener.class);
       ArgumentCaptor<Consumer<Throwable>> errorCaptor = ArgumentCaptor.forClass(Consumer.class);
-      ArgumentCaptor<Consumer<WebTransportBuffer>> dataCaptor = ArgumentCaptor.forClass(Consumer.class);
+      ArgumentCaptor<Consumer<WebTransportBuffer>> dataCaptor =
+          ArgumentCaptor.forClass(Consumer.class);
       verify(subscriber).onSubscribe(subscriptionCaptor.capture());
       verify(stream).onClose(closeCaptor.capture());
       verify(stream).onError(errorCaptor.capture());
@@ -454,5 +477,4 @@ public class ReactiveWebTransportStreamTest {
       data = dataCaptor.getValue();
     }
   }
-
 }

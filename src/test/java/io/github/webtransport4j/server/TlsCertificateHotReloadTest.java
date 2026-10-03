@@ -13,13 +13,10 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/**
- * Tests for TLS certificate hot reload watcher.
- */
+/** Tests for TLS certificate hot reload watcher. */
 public class TlsCertificateHotReloadTest {
 
-  @Rule
-  public TemporaryFolder tempFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
   @Test
   public void testTlsCertificateHotReloadWatcher() throws Exception {
@@ -29,15 +26,13 @@ public class TlsCertificateHotReloadTest {
 
     // Copy initial cert files
     Files.copy(cert1.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-    Files.copy(cert1.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    Files.copy(
+        cert1.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
     AtomicReference<QuicSslContext> sslCtxRef = new AtomicReference<>();
-    TlsCertificateWatcher watcher = new TlsCertificateWatcher(
-        keyFile.getAbsolutePath(),
-        certFile.getAbsolutePath(),
-        sslCtxRef::set,
-        1
-    );
+    TlsCertificateWatcher watcher =
+        new TlsCertificateWatcher(
+            keyFile.getAbsolutePath(), certFile.getAbsolutePath(), sslCtxRef::set, 1);
 
     // Initial check (no modification timestamp change yet)
     boolean reloaded = watcher.checkAndReload();
@@ -47,7 +42,8 @@ public class TlsCertificateHotReloadTest {
 
     // Generate new certificate and overwrite file
     SelfSignedCertificate cert2 = new SelfSignedCertificate("localhost");
-    Files.copy(cert2.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    Files.copy(
+        cert2.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
     certFile.setLastModified(System.currentTimeMillis());
 
     // Trigger checkAndReload

@@ -11,8 +11,8 @@ public interface WebTransportHandler {
   Logger logger = LoggerFactory.getLogger(WebTransportHandler.class);
 
   /**
-   * Selects an application subprotocol from the list provided by the client
-   * via the WT-Available-Protocols header as per draft-16 Section 3.3.
+   * Selects an application subprotocol from the list provided by the client via the
+   * WT-Available-Protocols header as per draft-16 Section 3.3.
    *
    * @param availableProtocols list of protocols advertised by the client
    * @return the selected protocol, or null if no subprotocol is selected

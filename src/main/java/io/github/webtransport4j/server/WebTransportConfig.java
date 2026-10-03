@@ -33,7 +33,9 @@ public class WebTransportConfig {
     if (localFile.exists()) {
       try (InputStream in = new FileInputStream(localFile)) {
         staticProperties.load(in);
-        logger.info("📡 Loaded static configuration from local filesystem: {}", localFile.getAbsolutePath());
+        logger.info(
+            "📡 Loaded static configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
         return;
       } catch (Exception e) {
         logger.error("❌ Failed to load local properties file, falling back", e);
@@ -57,14 +59,18 @@ public class WebTransportConfig {
     if (localFile.exists()) {
       try (InputStream in = new FileInputStream(localFile)) {
         target.load(in);
-        logger.info("📡 Loaded dynamic configuration from local filesystem: {}", localFile.getAbsolutePath());
+        logger.info(
+            "📡 Loaded dynamic configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
         return;
       } catch (Exception e) {
         logger.error("❌ Failed to load local dynamic properties file, falling back", e);
       }
     }
     try (InputStream in =
-        WebTransportConfig.class.getClassLoader().getResourceAsStream("webtransport-dynamic.properties")) {
+        WebTransportConfig.class
+            .getClassLoader()
+            .getResourceAsStream("webtransport-dynamic.properties")) {
       if (in != null) {
         target.load(in);
         logger.debug("📡 Loaded default dynamic configuration from classpath resources");
@@ -179,8 +185,8 @@ public class WebTransportConfig {
   }
 
   /**
-   * Programmatically sets a configuration property at runtime.
-   * Properties set via this method override file defaults.
+   * Programmatically sets a configuration property at runtime. Properties set via this method
+   * override file defaults.
    *
    * @param key the property key (non-null)
    * @param value the property value (non-null)
@@ -198,9 +204,7 @@ public class WebTransportConfig {
     dynamicProperties.remove(key);
   }
 
-  /**
-   * Reloads dynamic configuration properties.
-   */
+  /** Reloads dynamic configuration properties. */
   public static boolean reload() {
     Properties newDynamic = new Properties();
     loadDynamicConfig(newDynamic);

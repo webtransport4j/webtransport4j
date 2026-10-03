@@ -10,7 +10,8 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Configuration implementation for exporting WebTransport metrics via OpenTelemetry Protocol (OTLP).
+ * Configuration implementation for exporting WebTransport metrics via OpenTelemetry Protocol
+ * (OTLP).
  */
 public class WebTransportOtlpConfig implements OtlpConfig {
 
@@ -131,9 +132,7 @@ public class WebTransportOtlpConfig implements OtlpConfig {
     return resourceAttributes;
   }
 
-  /**
-   * Builder for creating {@link WebTransportOtlpConfig} instances.
-   */
+  /** Builder for creating {@link WebTransportOtlpConfig} instances. */
   public static final class Builder {
     private boolean enabled = true;
     private String url = DEFAULT_URL;
@@ -141,9 +140,7 @@ public class WebTransportOtlpConfig implements OtlpConfig {
     private final Map<String, String> headers = new HashMap<>();
     private final Map<String, String> resourceAttributes = new HashMap<>();
 
-    /**
-     * Constructs a new builder initialized with default service name.
-     */
+    /** Constructs a new builder initialized with default service name. */
     private Builder() {
       resourceAttributes.put("service.name", "webtransport4j");
     }

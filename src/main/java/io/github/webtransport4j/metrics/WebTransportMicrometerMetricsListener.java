@@ -15,14 +15,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
 
 /**
- * Production-ready Micrometer {@link MeterBinder} that exports rich WebTransport metrics
- * to any telemetry backend (Prometheus, Datadog, InfluxDB, CloudWatch, OpenTelemetry).
+ * Production-ready Micrometer {@link MeterBinder} that exports rich WebTransport metrics to any
+ * telemetry backend (Prometheus, Datadog, InfluxDB, CloudWatch, OpenTelemetry).
  *
- * <p>Exposes active session gauges, opened/closed session counters with path/status tags,
- * stream counters (bidi/uni), datagram throughput counters, drop counters, and packet
- * size distribution summaries.
+ * <p>Exposes active session gauges, opened/closed session counters with path/status tags, stream
+ * counters (bidi/uni), datagram throughput counters, drop counters, and packet size distribution
+ * summaries.
  */
-public class WebTransportMicrometerMetricsListener implements WebTransportMetricsListener, MeterBinder {
+public class WebTransportMicrometerMetricsListener
+    implements WebTransportMetricsListener, MeterBinder {
 
   private final String prefix;
   private final AtomicLong activeSessions = new AtomicLong(0);
@@ -37,9 +38,7 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
   private DistributionSummary datagramReceivedBytesSummary;
   private Timer sessionDurationTimer;
 
-  /**
-   * Constructs a listener with the default metric prefix {@code "webtransport"}.
-   */
+  /** Constructs a listener with the default metric prefix {@code "webtransport"}. */
   public WebTransportMicrometerMetricsListener() {
     this("webtransport");
   }
@@ -70,31 +69,37 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
         .description("Number of currently open WebTransport streams")
         .register(registry);
 
-    datagramsSentCounter = Counter.builder(prefix + ".datagrams.sent")
-        .description("Total number of WebTransport datagrams sent")
-        .register(registry);
+    datagramsSentCounter =
+        Counter.builder(prefix + ".datagrams.sent")
+            .description("Total number of WebTransport datagrams sent")
+            .register(registry);
 
-    datagramsReceivedCounter = Counter.builder(prefix + ".datagrams.received")
-        .description("Total number of WebTransport datagrams received")
-        .register(registry);
+    datagramsReceivedCounter =
+        Counter.builder(prefix + ".datagrams.received")
+            .description("Total number of WebTransport datagrams received")
+            .register(registry);
 
-    datagramsDroppedCounter = Counter.builder(prefix + ".datagrams.dropped")
-        .description("Total number of WebTransport datagrams dropped due to queue saturation")
-        .register(registry);
+    datagramsDroppedCounter =
+        Counter.builder(prefix + ".datagrams.dropped")
+            .description("Total number of WebTransport datagrams dropped due to queue saturation")
+            .register(registry);
 
-    datagramSentBytesSummary = DistributionSummary.builder(prefix + ".datagram.sent.bytes")
-        .description("Distribution of sent datagram payload sizes")
-        .baseUnit("bytes")
-        .register(registry);
+    datagramSentBytesSummary =
+        DistributionSummary.builder(prefix + ".datagram.sent.bytes")
+            .description("Distribution of sent datagram payload sizes")
+            .baseUnit("bytes")
+            .register(registry);
 
-    datagramReceivedBytesSummary = DistributionSummary.builder(prefix + ".datagram.received.bytes")
-        .description("Distribution of received datagram payload sizes")
-        .baseUnit("bytes")
-        .register(registry);
+    datagramReceivedBytesSummary =
+        DistributionSummary.builder(prefix + ".datagram.received.bytes")
+            .description("Distribution of received datagram payload sizes")
+            .baseUnit("bytes")
+            .register(registry);
 
-    sessionDurationTimer = Timer.builder(prefix + ".session.duration")
-        .description("Lifespan duration of completed WebTransport sessions")
-        .register(registry);
+    sessionDurationTimer =
+        Timer.builder(prefix + ".session.duration")
+            .description("Lifespan duration of completed WebTransport sessions")
+            .register(registry);
   }
 
   /**
@@ -127,7 +132,9 @@ public class WebTransportMicrometerMetricsListener implements WebTransportMetric
       sessionDurationTimer.record(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
     }
     if (registry != null) {
-      registry.counter(prefix + ".sessions.closed", "status", String.valueOf(closeCode)).increment();
+      registry
+          .counter(prefix + ".sessions.closed", "status", String.valueOf(closeCode))
+          .increment();
     }
   }
 

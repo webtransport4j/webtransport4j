@@ -16,7 +16,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.NonNull;
@@ -24,9 +23,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Production-ready containerized cluster node entrypoint for WebTransport4J deployments in Kubernetes.
+ * Production-ready containerized cluster node entrypoint for WebTransport4J deployments in
+ * Kubernetes.
  *
- * <p>Supports shared QUIC token keys across pods, OTLP metrics streaming, and HTTP liveness/readiness probes.
+ * <p>Supports shared QUIC token keys across pods, OTLP metrics streaming, and HTTP
+ * liveness/readiness probes.
  */
 public class ClusterNodeSample {
 
@@ -66,10 +67,14 @@ public class ClusterNodeSample {
     final int healthPort = Integer.parseInt(System.getenv().getOrDefault("METRICS_PORT", "8080"));
     final String nodeName = System.getenv().getOrDefault("POD_NAME", "wt-node-local");
     final String otlpEndpoint = System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT");
-    final String hmacKeyStr = System.getenv().getOrDefault("CLUSTER_HMAC_KEY", "default-cluster-secret-key-32b-min");
+    final String hmacKeyStr =
+        System.getenv().getOrDefault("CLUSTER_HMAC_KEY", "default-cluster-secret-key-32b-min");
 
-    log.info("🚀 Starting WebTransport4J Clustered Node '{}' on QUIC port {} (Health on {})",
-        nodeName, quicPort, healthPort);
+    log.info(
+        "🚀 Starting WebTransport4J Clustered Node '{}' on QUIC port {} (Health on {})",
+        nodeName,
+        quicPort,
+        healthPort);
 
     // 1. Configure WebTransport server builder
     byte[] hmacKey = hmacKeyStr.getBytes(StandardCharsets.UTF_8);
@@ -91,16 +96,20 @@ public class ClusterNodeSample {
     if (serverIdStr != null && !serverIdStr.trim().isEmpty()) {
       try {
         serverId = Integer.parseInt(serverIdStr.trim());
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException expected) {
+      }
     } else if (nodeName.contains("-")) {
       String suffix = nodeName.substring(nodeName.lastIndexOf('-') + 1);
       try {
         serverId = Integer.parseInt(suffix);
-      } catch (NumberFormatException ignored) {}
+      } catch (NumberFormatException expected) {
+      }
     }
     if (serverId >= 0) {
-      log.info("🎯 Configured QUIC Connection ID Routing (QUIC-LB) for node '{}' with Server ID: {}",
-          nodeName, serverId);
+      log.info(
+          "🎯 Configured QUIC Connection ID Routing (QUIC-LB) for node '{}' with Server ID: {}",
+          nodeName,
+          serverId);
       serverBuilder.serverId(serverId);
     }
 
@@ -123,297 +132,360 @@ public class ClusterNodeSample {
 
     // 3. Start auxiliary HTTP server for Kubernetes probes and live management API
     HttpServer healthHttpServer = HttpServer.create(new InetSocketAddress(healthPort), 0);
-    healthHttpServer.createContext("/healthz", exchange -> {
-      byte[] resp = ("{\"status\":\"UP\",\"node\":\"" + escapeJson(nodeName) + "\"}").getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "application/json");
-      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-      exchange.sendResponseHeaders(200, resp.length);
-      try (OutputStream os = exchange.getResponseBody()) {
-        os.write(resp);
-      }
-    });
+    healthHttpServer.createContext(
+        "/healthz",
+        exchange -> {
+          byte[] resp =
+              ("{\"status\":\"UP\",\"node\":\"" + escapeJson(nodeName) + "\"}")
+                  .getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
 
-    healthHttpServer.createContext("/readyz", exchange -> {
-      byte[] resp = "{\"ready\":true}".getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "application/json");
-      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-      exchange.sendResponseHeaders(200, resp.length);
-      try (OutputStream os = exchange.getResponseBody()) {
-        os.write(resp);
-      }
-    });
+    healthHttpServer.createContext(
+        "/readyz",
+        exchange -> {
+          byte[] resp = "{\"ready\":true}".getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
 
     // Node runtime info endpoint: strictly real values from JVM and Netty server
-    healthHttpServer.createContext("/api/node/info", exchange -> {
-      Runtime rt = Runtime.getRuntime();
-      long totalMem = rt.totalMemory();
-      long freeMem = rt.freeMemory();
-      long usedMem = totalMem - freeMem;
-      long maxMem = rt.maxMemory();
-      long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+    healthHttpServer.createContext(
+        "/api/node/info",
+        exchange -> {
+          Runtime rt = Runtime.getRuntime();
+          long totalMem = rt.totalMemory();
+          long freeMem = rt.freeMemory();
+          long usedMem = totalMem - freeMem;
+          long maxMem = rt.maxMemory();
+          long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
-      String json = String.format(
-          "{\"status\":\"HEALTHY\",\"nodeId\":\"%s\",\"nodeName\":\"%s\",\"quicPort\":%d,\"healthPort\":%d,"
-              + "\"isStarted\":%b,\"activeSessions\":%d,\"uptimeMs\":%d,\"uptimeSeconds\":%d,"
-              + "\"jvm\":{\"version\":\"%s\",\"vendor\":\"%s\",\"vmName\":\"%s\"},"
-              + "\"os\":{\"name\":\"%s\",\"arch\":\"%s\",\"processors\":%d},"
-              + "\"memory\":{\"used\":%d,\"total\":%d,\"max\":%d,\"free\":%d}}",
-          escapeJson(nodeName), escapeJson(nodeName), quicPort, healthPort,
-          server.isStarted(), server.getActiveSessionCount(), uptime, uptime / 1000L,
-          escapeJson(System.getProperty("java.version", "unknown")),
-          escapeJson(System.getProperty("java.vendor", "unknown")),
-          escapeJson(System.getProperty("java.vm.name", "unknown")),
-          escapeJson(System.getProperty("os.name", "unknown")),
-          escapeJson(System.getProperty("os.arch", "unknown")),
-          rt.availableProcessors(),
-          usedMem, totalMem, maxMem, freeMem);
+          String json =
+              String.format(
+                  "{\"status\":\"HEALTHY\",\"nodeId\":\"%s\",\"nodeName\":\"%s\",\"quicPort\":%d,\"healthPort\":%d,"
+                      + "\"isStarted\":%b,\"activeSessions\":%d,\"uptimeMs\":%d,\"uptimeSeconds\":%d,"
+                      + "\"jvm\":{\"version\":\"%s\",\"vendor\":\"%s\",\"vmName\":\"%s\"},"
+                      + "\"os\":{\"name\":\"%s\",\"arch\":\"%s\",\"processors\":%d},"
+                      + "\"memory\":{\"used\":%d,\"total\":%d,\"max\":%d,\"free\":%d}}",
+                  escapeJson(nodeName),
+                  escapeJson(nodeName),
+                  quicPort,
+                  healthPort,
+                  server.isStarted(),
+                  server.getActiveSessionCount(),
+                  uptime,
+                  uptime / 1000L,
+                  escapeJson(System.getProperty("java.version", "unknown")),
+                  escapeJson(System.getProperty("java.vendor", "unknown")),
+                  escapeJson(System.getProperty("java.vm.name", "unknown")),
+                  escapeJson(System.getProperty("os.name", "unknown")),
+                  escapeJson(System.getProperty("os.arch", "unknown")),
+                  rt.availableProcessors(),
+                  usedMem,
+                  totalMem,
+                  maxMem,
+                  freeMem);
 
-      byte[] resp = json.getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "application/json");
-      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-      exchange.sendResponseHeaders(200, resp.length);
-      try (OutputStream os = exchange.getResponseBody()) {
-        os.write(resp);
-      }
-    });
+          byte[] resp = json.getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
 
     // Real active sessions and streams endpoint: directly from server.getActiveSessions()
-    healthHttpServer.createContext("/api/node/sessions", exchange -> {
-      StringBuilder sb = new StringBuilder();
-      sb.append("{\"sessions\":[");
-      boolean firstSess = true;
-      for (WebTransportSession session : server.getActiveSessions()) {
-        if (!firstSess) {
-          sb.append(",");
-        }
-        firstSess = false;
+    healthHttpServer.createContext(
+        "/api/node/sessions",
+        exchange -> {
+          StringBuilder sb = new StringBuilder();
+          sb.append("{\"sessions\":[");
+          boolean firstSess = true;
+          for (WebTransportSession session : server.getActiveSessions()) {
+            if (!firstSess) {
+              sb.append(",");
+            }
+            firstSess = false;
 
-        final long sid = session.getSessionStreamId();
-        final String path = session.path();
-        final String subproto = session.getSubprotocol() != null ? session.getSubprotocol() : "webtransport";
-        final SocketAddress remoteAddr = session.getRemoteAddress();
-        final String remote = remoteAddr != null ? remoteAddr.toString().replaceFirst("^/", "") : "unknown";
-        final SocketAddress localAddr = session.getLocalAddress();
-        final String local = localAddr != null ? localAddr.toString().replaceFirst("^/", "") : "0.0.0.0:" + quicPort;
+            final long sid = session.getSessionStreamId();
+            final String path = session.path();
+            final String subproto =
+                session.getSubprotocol() != null ? session.getSubprotocol() : "webtransport";
+            final SocketAddress remoteAddr = session.getRemoteAddress();
+            final String remote =
+                remoteAddr != null ? remoteAddr.toString().replaceFirst("^/", "") : "unknown";
+            final SocketAddress localAddr = session.getLocalAddress();
+            final String local =
+                localAddr != null
+                    ? localAddr.toString().replaceFirst("^/", "")
+                    : "0.0.0.0:" + quicPort;
 
-        String uniqueId = String.valueOf(Math.abs(System.identityHashCode(session)));
-        sb.append("{");
-        sb.append("\"id\":\"wt-sess-").append(uniqueId).append("\",");
-        sb.append("\"nodeId\":\"").append(escapeJson(nodeName)).append("\",");
-        sb.append("\"nodeName\":\"").append(escapeJson(nodeName)).append("\",");
-        sb.append("\"serverId\":").append(serverId).append(",");
-        sb.append("\"quicPort\":").append(quicPort).append(",");
-        sb.append("\"serverNode\":\"").append(escapeJson(nodeName)).append(" (Server ID: ").append(serverId).append(" · Port ").append(quicPort).append(")\",");
-        sb.append("\"sessionId\":").append(uniqueId).append(",");
-        sb.append("\"rawSessionId\":").append(sid).append(",");
-        sb.append("\"path\":\"").append(escapeJson(path)).append("\",");
-        sb.append("\"subprotocol\":\"").append(escapeJson(subproto)).append("\",");
-        sb.append("\"remoteEndpoint\":\"").append(escapeJson(remote)).append("\",");
-        sb.append("\"clientEndpoint\":\"").append(escapeJson(remote)).append("\",");
-        sb.append("\"localEndpoint\":\"").append(escapeJson(local)).append("\",");
-        final String sessStatus;
-        if (!session.isOpen()) {
-          sessStatus = "CLOSED";
-        } else if (session.isDraining()) {
-          sessStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
-        } else {
-          sessStatus = "CONNECTED";
-        }
-        sb.append("\"status\":\"").append(sessStatus).append("\",");
-        sb.append("\"isDraining\":").append(session.isDraining()).append(",");
-        sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
-        sb.append("\"bytesReceived\":").append(session.getCumulativeBytesReceived()).append(",");
-        sb.append("\"flowControl\":{");
-        sb.append("\"enabled\":").append(session.isFlowControlEnabled()).append(",");
-        sb.append("\"maxData\":").append(session.getSettingsMaxData()).append(",");
-        sb.append("\"maxStreamsBidi\":").append(session.getSettingsMaxStreamsBidi()).append(",");
-        sb.append("\"maxStreamsUni\":").append(session.getSettingsMaxStreamsUni()).append(",");
-        sb.append("\"peerMaxData\":").append(session.getPeerSettingsMaxData()).append(",");
-        sb.append("\"peerMaxStreamsBidi\":").append(session.getPeerSettingsMaxStreamsBidi()).append(",");
-        sb.append("\"peerMaxStreamsUni\":").append(session.getPeerSettingsMaxStreamsUni());
-        sb.append("},");
+            String uniqueId = String.valueOf(Math.abs(System.identityHashCode(session)));
+            sb.append("{");
+            sb.append("\"id\":\"wt-sess-").append(uniqueId).append("\",");
+            sb.append("\"nodeId\":\"").append(escapeJson(nodeName)).append("\",");
+            sb.append("\"nodeName\":\"").append(escapeJson(nodeName)).append("\",");
+            sb.append("\"serverId\":").append(serverId).append(",");
+            sb.append("\"quicPort\":").append(quicPort).append(",");
+            sb.append("\"serverNode\":\"")
+                .append(escapeJson(nodeName))
+                .append(" (Server ID: ")
+                .append(serverId)
+                .append(" · Port ")
+                .append(quicPort)
+                .append(")\",");
+            sb.append("\"sessionId\":").append(uniqueId).append(",");
+            sb.append("\"rawSessionId\":").append(sid).append(",");
+            sb.append("\"path\":\"").append(escapeJson(path)).append("\",");
+            sb.append("\"subprotocol\":\"").append(escapeJson(subproto)).append("\",");
+            sb.append("\"remoteEndpoint\":\"").append(escapeJson(remote)).append("\",");
+            sb.append("\"clientEndpoint\":\"").append(escapeJson(remote)).append("\",");
+            sb.append("\"localEndpoint\":\"").append(escapeJson(local)).append("\",");
+            final String sessStatus;
+            if (!session.isOpen()) {
+              sessStatus = "CLOSED";
+            } else if (session.isDraining()) {
+              sessStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+            } else {
+              sessStatus = "CONNECTED";
+            }
+            sb.append("\"status\":\"").append(sessStatus).append("\",");
+            sb.append("\"isDraining\":").append(session.isDraining()).append(",");
+            sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
+            sb.append("\"bytesReceived\":")
+                .append(session.getCumulativeBytesReceived())
+                .append(",");
+            sb.append("\"flowControl\":{");
+            sb.append("\"enabled\":").append(session.isFlowControlEnabled()).append(",");
+            sb.append("\"maxData\":").append(session.getSettingsMaxData()).append(",");
+            sb.append("\"maxStreamsBidi\":")
+                .append(session.getSettingsMaxStreamsBidi())
+                .append(",");
+            sb.append("\"maxStreamsUni\":").append(session.getSettingsMaxStreamsUni()).append(",");
+            sb.append("\"peerMaxData\":").append(session.getPeerSettingsMaxData()).append(",");
+            sb.append("\"peerMaxStreamsBidi\":")
+                .append(session.getPeerSettingsMaxStreamsBidi())
+                .append(",");
+            sb.append("\"peerMaxStreamsUni\":").append(session.getPeerSettingsMaxStreamsUni());
+            sb.append("},");
 
-        sb.append("\"streams\":[");
-        // Extended CONNECT stream
-        final String connectStreamStatus;
-        if (!session.isOpen()) {
-          connectStreamStatus = "CLOSED";
-        } else if (session.isDraining()) {
-          connectStreamStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
-        } else {
-          connectStreamStatus = "ESTABLISHED";
-        }
-        sb.append("{");
-        sb.append("\"streamId\":").append(sid).append(",");
-        sb.append("\"type\":\"connect\",");
-        sb.append("\"initiator\":\"client\",");
-        sb.append("\"status\":\"").append(connectStreamStatus).append("\",");
-        sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
-        sb.append("\"bytesReceived\":").append(session.getCumulativeBytesReceived()).append(",");
-        sb.append("\"lastMessage\":\"CONNECT ").append(escapeJson(path)).append(" HTTP/3 :protocol=webtransport\"");
-        sb.append("}");
+            sb.append("\"streams\":[");
+            // Extended CONNECT stream
+            final String connectStreamStatus;
+            if (!session.isOpen()) {
+              connectStreamStatus = "CLOSED";
+            } else if (session.isDraining()) {
+              connectStreamStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+            } else {
+              connectStreamStatus = "ESTABLISHED";
+            }
+            sb.append("{");
+            sb.append("\"streamId\":").append(sid).append(",");
+            sb.append("\"type\":\"connect\",");
+            sb.append("\"initiator\":\"client\",");
+            sb.append("\"status\":\"").append(connectStreamStatus).append("\",");
+            sb.append("\"bytesSent\":").append(session.getCumulativeBytesSent()).append(",");
+            sb.append("\"bytesReceived\":")
+                .append(session.getCumulativeBytesReceived())
+                .append(",");
+            sb.append("\"lastMessage\":\"CONNECT ")
+                .append(escapeJson(path))
+                .append(" HTTP/3 :protocol=webtransport\"");
+            sb.append("}");
 
-        // Active bidirectional and unidirectional streams
-        for (WebTransportStreamSummary st : session.getActiveStreams()) {
-          sb.append(",{");
-          sb.append("\"streamId\":").append(st.streamId()).append(",");
-          sb.append("\"type\":\"").append(st.isBidirectional() ? "bidi" : "uni").append("\",");
-          sb.append("\"initiator\":\"").append(st.isLocalCreated() ? "server" : "client").append("\",");
-          sb.append("\"status\":\"").append(st.isActive() ? "OPEN" : "CLOSED").append("\",");
-          sb.append("\"isOpen\":").append(st.isOpen()).append(",");
-          sb.append("\"isWritable\":").append(st.isWritable());
-          sb.append("}");
-        }
-        sb.append("]");
-        sb.append("}");
-      }
-      sb.append("]}");
+            // Active bidirectional and unidirectional streams
+            for (WebTransportStreamSummary st : session.getActiveStreams()) {
+              sb.append(",{");
+              sb.append("\"streamId\":").append(st.streamId()).append(",");
+              sb.append("\"type\":\"").append(st.isBidirectional() ? "bidi" : "uni").append("\",");
+              sb.append("\"initiator\":\"")
+                  .append(st.isLocalCreated() ? "server" : "client")
+                  .append("\",");
+              sb.append("\"status\":\"").append(st.isActive() ? "OPEN" : "CLOSED").append("\",");
+              sb.append("\"isOpen\":").append(st.isOpen()).append(",");
+              sb.append("\"isWritable\":").append(st.isWritable());
+              sb.append("}");
+            }
+            sb.append("]");
+            sb.append("}");
+          }
+          sb.append("]}");
 
-      byte[] resp = sb.toString().getBytes(StandardCharsets.UTF_8);
-      exchange.getResponseHeaders().set("Content-Type", "application/json");
-      exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-      exchange.sendResponseHeaders(200, resp.length);
-      try (OutputStream os = exchange.getResponseBody()) {
-        os.write(resp);
-      }
-    });
+          byte[] resp = sb.toString().getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        });
 
     // Drain session endpoint (RFC 9297 Section 5.3)
-    healthHttpServer.createContext("/api/node/sessions/drain", exchange -> {
-      if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
-        exchange.sendResponseHeaders(204, -1);
-        return;
-      }
-      if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-        String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
-        long targetSessionId = -1;
-        Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
-        if (m.find()) {
-          targetSessionId = Long.parseLong(m.group(1));
-        } else {
-          Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
-          if (m2.find()) {
-            targetSessionId = Long.parseLong(m2.group(1));
+    healthHttpServer.createContext(
+        "/api/node/sessions/drain",
+        exchange -> {
+          if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+            exchange.sendResponseHeaders(204, -1);
+            return;
           }
-        }
-        boolean drainAll = body.contains("\"all\"") || body.contains("\"drainAll\":true") || body.contains("\"drainAll\": true");
-        boolean drained = false;
-        if (drainAll) {
-          for (WebTransportSession s : server.getActiveSessions()) {
-            try {
-              if (s instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
-                ((io.github.webtransport4j.server.DefaultWebTransportSession) s).markDraining();
-              }
-            } catch (Exception ignored) {
-            }
-          }
-          drained = true;
-        } else if (targetSessionId >= 0) {
-          WebTransportSession sess = server.getSession(targetSessionId);
-          if (sess == null) {
-            for (WebTransportSession s : server.getActiveSessions()) {
-              if (Math.abs(System.identityHashCode(s)) == targetSessionId || s.getSessionStreamId() == targetSessionId) {
-                sess = s;
-                break;
+          if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            long targetSessionId = -1;
+            Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
+            if (m.find()) {
+              targetSessionId = Long.parseLong(m.group(1));
+            } else {
+              Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
+              if (m2.find()) {
+                targetSessionId = Long.parseLong(m2.group(1));
               }
             }
+            boolean drainAll =
+                body.contains("\"all\"")
+                    || body.contains("\"drainAll\":true")
+                    || body.contains("\"drainAll\": true");
+            boolean drained = false;
+            if (drainAll) {
+              for (WebTransportSession s : server.getActiveSessions()) {
+                try {
+                  if (s instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
+                    ((io.github.webtransport4j.server.DefaultWebTransportSession) s).markDraining();
+                  }
+                } catch (Exception expected) {
+                }
+              }
+              drained = true;
+            } else if (targetSessionId >= 0) {
+              WebTransportSession sess = server.getSession(targetSessionId);
+              if (sess == null) {
+                for (WebTransportSession s : server.getActiveSessions()) {
+                  if (Math.abs(System.identityHashCode(s)) == targetSessionId
+                      || s.getSessionStreamId() == targetSessionId) {
+                    sess = s;
+                    break;
+                  }
+                }
+              }
+              if (sess instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
+                ((io.github.webtransport4j.server.DefaultWebTransportSession) sess).markDraining();
+                drained = true;
+              }
+            }
+            String res = "{\"success\":true,\"drained\":" + drained + "}";
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, res.length());
+            try (OutputStream os = exchange.getResponseBody()) {
+              os.write(res.getBytes(StandardCharsets.UTF_8));
+            }
           }
-          if (sess instanceof io.github.webtransport4j.server.DefaultWebTransportSession) {
-            ((io.github.webtransport4j.server.DefaultWebTransportSession) sess).markDraining();
-            drained = true;
-          }
-        }
-        String res = "{\"success\":true,\"drained\":" + drained + "}";
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.sendResponseHeaders(200, res.length());
-        try (OutputStream os = exchange.getResponseBody()) {
-          os.write(res.getBytes(StandardCharsets.UTF_8));
-        }
-      }
-    });
+        });
 
     // Close session endpoint
-    healthHttpServer.createContext("/api/node/sessions/close", exchange -> {
-      if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
-        exchange.sendResponseHeaders(204, -1);
-        return;
-      }
-      if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-        String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
-        long targetSessionId = -1;
-        Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
-        if (m.find()) {
-          targetSessionId = Long.parseLong(m.group(1));
-        } else {
-          Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
-          if (m2.find()) {
-            targetSessionId = Long.parseLong(m2.group(1));
+    healthHttpServer.createContext(
+        "/api/node/sessions/close",
+        exchange -> {
+          if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
+            exchange.sendResponseHeaders(204, -1);
+            return;
           }
-        }
-        boolean closeAll = body.contains("\"all\"") || body.contains("\"closeAll\":true") || body.contains("\"closeAll\": true");
-        boolean closed = false;
-        if (closeAll) {
-          java.util.List<WebTransportSession> allSessions = new java.util.ArrayList<>(server.getActiveSessions());
-          for (WebTransportSession s : allSessions) {
-            try {
-              s.close();
-            } catch (Exception ignored) {
-            }
-          }
-          closed = true;
-        } else if (targetSessionId >= 0) {
-          WebTransportSession sess = server.getSession(targetSessionId);
-          if (sess == null) {
-            for (WebTransportSession s : server.getActiveSessions()) {
-              if (Math.abs(System.identityHashCode(s)) == targetSessionId || s.getSessionStreamId() == targetSessionId) {
-                sess = s;
-                break;
+          if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            String body = new String(readBytes(exchange.getRequestBody()), StandardCharsets.UTF_8);
+            long targetSessionId = -1;
+            Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
+            if (m.find()) {
+              targetSessionId = Long.parseLong(m.group(1));
+            } else {
+              Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
+              if (m2.find()) {
+                targetSessionId = Long.parseLong(m2.group(1));
               }
             }
-          }
-          if (sess != null) {
-            try {
-              sess.close();
+            boolean closeAll =
+                body.contains("\"all\"")
+                    || body.contains("\"closeAll\":true")
+                    || body.contains("\"closeAll\": true");
+            boolean closed = false;
+            if (closeAll) {
+              java.util.List<WebTransportSession> allSessions =
+                  new java.util.ArrayList<>(server.getActiveSessions());
+              for (WebTransportSession s : allSessions) {
+                try {
+                  s.close();
+                } catch (Exception expected) {
+                }
+              }
               closed = true;
-            } catch (Exception ignored) {
+            } else if (targetSessionId >= 0) {
+              WebTransportSession sess = server.getSession(targetSessionId);
+              if (sess == null) {
+                for (WebTransportSession s : server.getActiveSessions()) {
+                  if (Math.abs(System.identityHashCode(s)) == targetSessionId
+                      || s.getSessionStreamId() == targetSessionId) {
+                    sess = s;
+                    break;
+                  }
+                }
+              }
+              if (sess != null) {
+                try {
+                  sess.close();
+                  closed = true;
+                } catch (Exception expected) {
+                }
+              }
             }
+            String respJson =
+                String.format(
+                    "{\"success\":%b,\"sessionId\":%d,\"closeAll\":%b}",
+                    closed, targetSessionId, closeAll);
+            byte[] resp = respJson.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+            exchange.sendResponseHeaders(200, resp.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+              os.write(resp);
+            }
+          } else {
+            exchange.sendResponseHeaders(405, -1);
           }
-        }
-        String respJson = String.format("{\"success\":%b,\"sessionId\":%d,\"closeAll\":%b}", closed, targetSessionId, closeAll);
-        byte[] resp = respJson.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.sendResponseHeaders(200, resp.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-          os.write(resp);
-        }
-      } else {
-        exchange.sendResponseHeaders(405, -1);
-      }
-    });
+        });
 
     healthHttpServer.setExecutor(null);
     healthHttpServer.start();
-    log.info("✅ Kubernetes liveness/readiness probes & management API listening on port {}", healthPort);
+    log.info(
+        "✅ Kubernetes liveness/readiness probes & management API listening on port {}", healthPort);
 
     // 4. Graceful shutdown hook
     final WebTransportOtlpMetricsListener finalOtlp = otlpListener;
-    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      log.info("🛑 Shutting down WebTransport node '{}'...", nodeName);
-      healthHttpServer.stop(1);
-      server.stop();
-      if (finalOtlp != null) {
-        finalOtlp.close();
-      }
-      log.info("👋 WebTransport node '{}' stopped cleanly.", nodeName);
-    }));
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  log.info("🛑 Shutting down WebTransport node '{}'...", nodeName);
+                  healthHttpServer.stop(1);
+                  server.stop();
+                  if (finalOtlp != null) {
+                    finalOtlp.close();
+                  }
+                  log.info("👋 WebTransport node '{}' stopped cleanly.", nodeName);
+                }));
 
     // 5. Start QUIC server
     server.start();

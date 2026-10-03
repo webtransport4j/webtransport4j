@@ -1,7 +1,5 @@
 package io.github.webtransport4j.observability;
 
-import java.util.Objects;
-import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.MDC;
 
@@ -25,9 +23,7 @@ public final class WebTransportMdcContext {
   /** MDC key for underlying QUIC connection ID. */
   public static final String KEY_CONNECTION_ID = "webtransport.connection_id";
 
-  /**
-   * Private constructor to prevent instantiation.
-   */
+  /** Private constructor to prevent instantiation. */
   private WebTransportMdcContext() {}
 
   /**
@@ -37,7 +33,8 @@ public final class WebTransportMdcContext {
    * @param path the request path
    * @param remoteAddress the remote client address
    * @param connectionId the underlying QUIC connection identifier
-   * @return an {@link AutoCloseable} scope that restores previous MDC state upon {@link AutoCloseable#close()}
+   * @return an {@link AutoCloseable} scope that restores previous MDC state upon {@link
+   *     AutoCloseable#close()}
    */
   public static Scope open(
       long sessionId,
@@ -63,9 +60,7 @@ public final class WebTransportMdcContext {
     return new Scope(prevSessionId, prevPath, prevRemoteAddress, prevConnectionId);
   }
 
-  /**
-   * Scoped resource that restores previous MDC values when closed.
-   */
+  /** Scoped resource that restores previous MDC values when closed. */
   public static final class Scope implements AutoCloseable {
     private final String prevSessionId;
     private final String prevPath;
@@ -93,9 +88,7 @@ public final class WebTransportMdcContext {
       this.prevConnectionId = prevConnectionId;
     }
 
-    /**
-     * Closes the scope and restores previous MDC values idempotently.
-     */
+    /** Closes the scope and restores previous MDC values idempotently. */
     @Override
     public void close() {
       if (closed.compareAndSet(false, true)) {

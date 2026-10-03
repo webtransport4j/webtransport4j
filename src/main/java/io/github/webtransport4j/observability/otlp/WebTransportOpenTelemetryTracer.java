@@ -14,9 +14,7 @@ import java.util.Objects;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/**
- * OpenTelemetry distributed tracing bridge for WebTransport sessions and streams.
- */
+/** OpenTelemetry distributed tracing bridge for WebTransport sessions and streams. */
 public class WebTransportOpenTelemetryTracer {
 
   /** Instrumentation library name. */
@@ -42,9 +40,7 @@ public class WebTransportOpenTelemetryTracer {
    * @return newly started {@link Span}
    */
   public @NonNull Span startSessionSpan(
-      long sessionId,
-      @NonNull String path,
-      @Nullable WebTransportTraceContext parentContext) {
+      long sessionId, @NonNull String path, @Nullable WebTransportTraceContext parentContext) {
     Objects.requireNonNull(path, "path must not be null");
 
     final SpanBuilder spanBuilder =
@@ -91,7 +87,8 @@ public class WebTransportOpenTelemetryTracer {
   }
 
   /**
-   * Injects an active span's context into a {@link WebTransportTraceContext} for outgoing propagation.
+   * Injects an active span's context into a {@link WebTransportTraceContext} for outgoing
+   * propagation.
    *
    * @param span active OpenTelemetry span
    * @return trace context representation

@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -57,8 +56,8 @@ public class WebTransportUtils {
   public static final int WT_REQUIREMENTS_NOT_MET = 0x212c0d48;
 
   /**
-   * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream
-   * as defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
+   * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream as
+   * defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
    *
    * @param streamId stream identifier
    * @return true if non-negative and streamId % 4 == 0
@@ -136,7 +135,8 @@ public class WebTransportUtils {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
         connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    NettyWebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+    NettyWebTransportSession session =
+        mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
@@ -145,15 +145,15 @@ public class WebTransportUtils {
     if (session.isDraining()) {
       promise.setFailure(
           new IllegalStateException(
-              "Cannot create stream: session " + connectStreamChannel.streamId()
+              "Cannot create stream: session "
+                  + connectStreamChannel.streamId()
                   + " is DRAINING (RFC 9297 Section 5.3)"));
       return promise;
     }
     if (!session.isOpen()) {
       promise.setFailure(
           new IllegalStateException(
-              "Cannot create stream: session " + connectStreamChannel.streamId()
-                  + " is CLOSED"));
+              "Cannot create stream: session " + connectStreamChannel.streamId() + " is CLOSED"));
       return promise;
     }
     if (!byPassLimit && session.isFlowControlEnabled()) {
@@ -176,7 +176,9 @@ public class WebTransportUtils {
             session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
             new IllegalStateException(
-                (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional")
+                (QuicStreamType.BIDIRECTIONAL == quicStreamType
+                        ? "Bidirectional"
+                        : "Unidirectional")
                     + " stream limit exceeded"));
         return promise;
       }
@@ -587,8 +589,12 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
-            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name)
+            || name.startsWith("docker")
+            || name.startsWith("veth")
+            || name.startsWith("br-")
+            || name.startsWith("flannel")
+            || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
@@ -607,11 +613,13 @@ public class WebTransportUtils {
             if (parts.length == 2) {
               String featureName = parts[0].trim().toLowerCase();
               String featureStatus = parts[1].trim().toLowerCase();
-              if ("tx-udp-segmentation".equals(featureName) || "tx_udp_segmentation".equals(featureName)) {
+              if ("tx-udp-segmentation".equals(featureName)
+                  || "tx_udp_segmentation".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
                   logger.warn(
-                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active network interface '{}'"
-                          + " has 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.",
+                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active"
+                          + " network interface '{}' has 'tx-udp-segmentation: off'. Disabling GSO"
+                          + " to prevent kernel packet drops.",
                       name);
                   return false;
                 }
@@ -643,8 +651,12 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
-            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name)
+            || name.startsWith("docker")
+            || name.startsWith("veth")
+            || name.startsWith("br-")
+            || name.startsWith("flannel")
+            || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
@@ -663,11 +675,13 @@ public class WebTransportUtils {
             if (parts.length == 2) {
               String featureName = parts[0].trim().toLowerCase();
               String featureStatus = parts[1].trim().toLowerCase();
-              if ("rx-udp-gro-forwarding".equals(featureName) || "rx-gro-receive".equals(featureName)) {
+              if ("rx-udp-gro-forwarding".equals(featureName)
+                  || "rx-gro-receive".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
                   logger.warn(
-                      "⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active network interface '{}'"
-                          + " has GRO offload disabled ('{}'). Disabling UDP GRO.",
+                      "⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active"
+                          + " network interface '{}' has GRO offload disabled ('{}'). Disabling UDP"
+                          + " GRO.",
                       name,
                       line.trim());
                   return false;
@@ -684,7 +698,8 @@ public class WebTransportUtils {
   }
 
   /**
-   * Parses the WT-Available-Protocols header field as an RFC 8941 Structured Fields List of Strings.
+   * Parses the WT-Available-Protocols header field as an RFC 8941 Structured Fields List of
+   * Strings.
    *
    * @param headerValue the raw header value
    * @return a list of advertised subprotocol names
@@ -721,7 +736,8 @@ public class WebTransportUtils {
   }
 
   /**
-   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section 4.8.
+   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section
+   * 4.8.
    *
    * @param sessionId the WebTransport session ID
    * @param applicationContext the application context bytes, or null

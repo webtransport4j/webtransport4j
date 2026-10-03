@@ -75,11 +75,7 @@ public class ServerIdConnectionIdGeneratorTest {
 
   @Test
   public void testServerBuilderWithServerId() {
-    WebTransportServer server =
-        WebTransportServer.builder()
-            .port(8443)
-            .serverId(5)
-            .build();
+    WebTransportServer server = WebTransportServer.builder().port(8443).serverId(5).build();
 
     Assert.assertNotNull(server);
     Assert.assertFalse(server.isStarted());

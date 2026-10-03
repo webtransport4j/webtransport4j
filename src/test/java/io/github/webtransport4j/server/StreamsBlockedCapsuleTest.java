@@ -351,10 +351,7 @@ public class StreamsBlockedCapsuleTest {
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.newPromise())
-        .thenAnswer(
-            invocation ->
-                new DefaultPromise<>(
-                    ImmediateEventExecutor.INSTANCE));
+        .thenAnswer(invocation -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
     Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
@@ -377,14 +374,12 @@ public class StreamsBlockedCapsuleTest {
     session.setPeerSettingsMaxStreamsBidi(0L);
 
     Future<QuicStreamChannel> f1 =
-        WebTransportUtils.createUniStream(
-            mockConnectStream, false, mock(ChannelHandler.class));
+        WebTransportUtils.createUniStream(mockConnectStream, false, mock(ChannelHandler.class));
     assertTrue(f1.isDone());
     assertFalse(f1.isSuccess());
 
     Future<QuicStreamChannel> f2 =
-        WebTransportUtils.createBiStream(
-            mockConnectStream, false, mock(ChannelHandler.class));
+        WebTransportUtils.createBiStream(mockConnectStream, false, mock(ChannelHandler.class));
     assertTrue(f2.isDone());
     assertFalse(f2.isSuccess());
 

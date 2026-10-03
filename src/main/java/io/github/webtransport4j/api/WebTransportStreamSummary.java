@@ -3,8 +3,8 @@ package io.github.webtransport4j.api;
 /**
  * Summary of an active WebTransport stream within a session.
  *
- * <p>Provides a read-only snapshot of stream characteristics and state
- * without exposing transport-specific channel primitives.
+ * <p>Provides a read-only snapshot of stream characteristics and state without exposing
+ * transport-specific channel primitives.
  *
  * @author https://github.com/sanjomo
  */

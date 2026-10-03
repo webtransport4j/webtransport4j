@@ -2,7 +2,6 @@ package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -22,15 +21,12 @@ import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamChannelConfig;
-import io.netty.util.Attribute;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -38,8 +34,8 @@ import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * Tests for Application-Layer Protocol Negotiation (WT-Available-Protocols / WT-Protocol)
- * per draft-16 § 3.3.
+ * Tests for Application-Layer Protocol Negotiation (WT-Available-Protocols / WT-Protocol) per
+ * draft-16 § 3.3.
  */
 public class SubprotocolNegotiationTest {
 
@@ -82,7 +78,8 @@ public class SubprotocolNegotiationTest {
     when(mockConfig.isAutoRead()).thenReturn(true);
     when(mockStream.config()).thenReturn(mockConfig);
 
-    DefaultChannelPromise closeFuture = new DefaultChannelPromise(mockStream, ImmediateEventExecutor.INSTANCE);
+    DefaultChannelPromise closeFuture =
+        new DefaultChannelPromise(mockStream, ImmediateEventExecutor.INSTANCE);
     when(mockStream.closeFuture()).thenReturn(closeFuture);
 
     DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
@@ -118,20 +115,22 @@ public class SubprotocolNegotiationTest {
 
     // WebTransportServer setup with custom handler selecting a protocol
     WebTransportServer mockServer = mock(WebTransportServer.class);
-    WebTransportHandler customHandler = new WebTransportHandler() {
-      @Override
-      public @Nullable String selectSubprotocol(@NonNull List<String> availableProtocols) {
-        if (availableProtocols.contains("chat-v2")) {
-          return "chat-v2";
-        }
-        return null;
-      }
-    };
+    WebTransportHandler customHandler =
+        new WebTransportHandler() {
+          @Override
+          public @Nullable String selectSubprotocol(@NonNull List<String> availableProtocols) {
+            if (availableProtocols.contains("chat-v2")) {
+              return "chat-v2";
+            }
+            return null;
+          }
+        };
     when(mockServer.getHandler("/chat")).thenReturn(customHandler);
     parentAttrMap.attr(WebTransportAttributeKeys.SERVER_KEY).set(mockServer);
 
     // Write and flush capture
-    ChannelFuture successFuture = new DefaultChannelPromise(mockStream, ImmediateEventExecutor.INSTANCE);
+    ChannelFuture successFuture =
+        new DefaultChannelPromise(mockStream, ImmediateEventExecutor.INSTANCE);
     ((DefaultChannelPromise) successFuture).setSuccess();
     when(mockCtx.writeAndFlush(any())).thenReturn(successFuture);
 

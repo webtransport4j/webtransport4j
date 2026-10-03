@@ -13,8 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Background watcher that monitors SSL key and certificate files for changes on disk
- * and hot-reloads the active {@link QuicSslContext}.
+ * Background watcher that monitors SSL key and certificate files for changes on disk and
+ * hot-reloads the active {@link QuicSslContext}.
  */
 public class TlsCertificateWatcher {
   private static final Logger logger = LoggerFactory.getLogger(TlsCertificateWatcher.class);
@@ -39,7 +39,10 @@ public class TlsCertificateWatcher {
       @NonNull String keyPath,
       @NonNull String certPath,
       @NonNull Consumer<QuicSslContext> sslContextConsumer) {
-    this(keyPath, certPath, sslContextConsumer,
+    this(
+        keyPath,
+        certPath,
+        sslContextConsumer,
         WebTransportConfig.getInt("webtransport4j.ssl.hot_reload.interval_secs", 5));
   }
 
@@ -78,15 +81,21 @@ public class TlsCertificateWatcher {
       lastCertModified = certFile.lastModified();
     }
 
-    executor = Executors.newSingleThreadScheduledExecutor(r -> {
-      Thread t = new Thread(r, "wt-tls-cert-watcher");
-      t.setDaemon(true);
-      return t;
-    });
+    executor =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> {
+              Thread t = new Thread(r, "wt-tls-cert-watcher");
+              t.setDaemon(true);
+              return t;
+            });
 
-    executor.scheduleAtFixedRate(this::checkAndReload, pollIntervalSeconds, pollIntervalSeconds, TimeUnit.SECONDS);
-    logger.info("🔑 Started TLS Certificate Hot-Reload Watcher for key: '{}', cert: '{}' (interval: {}s)",
-        keyPath, certPath, pollIntervalSeconds);
+    executor.scheduleAtFixedRate(
+        this::checkAndReload, pollIntervalSeconds, pollIntervalSeconds, TimeUnit.SECONDS);
+    logger.info(
+        "🔑 Started TLS Certificate Hot-Reload Watcher for key: '{}', cert: '{}' (interval: {}s)",
+        keyPath,
+        certPath,
+        pollIntervalSeconds);
   }
 
   /** Stops the TLS certificate file watcher. */
@@ -114,16 +123,18 @@ public class TlsCertificateWatcher {
       if (currentKeyMod > lastKeyModified || currentCertMod > lastCertModified) {
         logger.info("🔄 Modification detected on TLS certificate files. Attempting hot-reload...");
 
-        QuicSslContext newSslCtx = QuicSslContextBuilder.forServer(keyFile, null, certFile)
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .build();
+        QuicSslContext newSslCtx =
+            QuicSslContextBuilder.forServer(keyFile, null, certFile)
+                .applicationProtocols(Http3.supportedApplicationProtocols())
+                .build();
 
         lastKeyModified = currentKeyMod;
         lastCertModified = currentCertMod;
 
         sslContextConsumer.accept(newSslCtx);
-        logger.info("✅ TLS Certificate hot-reloaded successfully. "
-            + "Newly negotiated QUIC connections will use updated certificates.");
+        logger.info(
+            "✅ TLS Certificate hot-reloaded successfully. "
+                + "Newly negotiated QUIC connections will use updated certificates.");
         return true;
       }
     } catch (Exception e) {
