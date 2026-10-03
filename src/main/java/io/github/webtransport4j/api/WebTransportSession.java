@@ -60,6 +60,11 @@ public interface WebTransportSession {
   boolean isDraining();
 
   /**
+   * Marks this session as draining upon receiving or sending a {@code WT_DRAIN_SESSION} capsule.
+   */
+  default void markDraining() {}
+
+  /**
    * Creates an outbound unidirectional stream with the default pipeline.
    *
    * @return a future that completes with the opened stream
