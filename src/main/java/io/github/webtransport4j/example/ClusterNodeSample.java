@@ -205,25 +205,24 @@ public class ClusterNodeSample {
     healthHttpServer.createContext(
         "/readyz",
         exchange -> {
-          byte[] resp = "{\"ready\":true}".getBytes(StandardCharsets.UTF_8);
+          boolean ready = server.isAcceptingSessions();
+          byte[] resp = ("{\"ready\":" + ready + "}").getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
-          exchange.sendResponseHeaders(200, resp.length);
+          exchange.sendResponseHeaders(ready ? 200 : 503, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
             os.write(resp);
           }
         });
 
-    // Kubernetes preStop hook endpoint (RFC 9297 Section 5.3 graceful draining)
+    // Kubernetes preStop hook; remote callers use the node management credential.
     healthHttpServer.createContext(
         "/prestop",
         exchange -> {
-          log.info("🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'", nodeName);
-          for (WebTransportSession s : server.getActiveSessions()) {
-            try {
-              s.drain();
-            } catch (Exception expected) {
-            }
+          if (!isAuthorized(exchange, managementToken)) {
+            return;
           }
+          log.info("🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'", nodeName);
+          server.drain();
           byte[] resp = "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, resp.length);
@@ -241,14 +240,6 @@ public class ClusterNodeSample {
                       "🛑 JVM shutdown hook triggered for node '{}': draining and stopping server",
                       nodeName);
                   try {
-                    for (WebTransportSession s : server.getActiveSessions()) {
-                      try {
-                        s.drain();
-                      } catch (Exception ignored) {
-                        // Continue best-effort diagnostics or cleanup if this operation is unavailable.
-                      }
-                    }
-                    Thread.sleep(150);
                     server.close();
                     healthHttpServer.stop(1);
                   } catch (Exception ignored) {
@@ -443,7 +434,7 @@ public class ClusterNodeSample {
             if (!session.isOpen()) {
               sessStatus = "CLOSED";
             } else if (session.isDraining()) {
-              sessStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+              sessStatus = "DRAINING";
             } else {
               sessStatus = "CONNECTED";
             }
@@ -473,7 +464,7 @@ public class ClusterNodeSample {
             if (!session.isOpen()) {
               connectStreamStatus = "CLOSED";
             } else if (session.isDraining()) {
-              connectStreamStatus = session.getActiveStreams().isEmpty() ? "DRAINED" : "DRAINING";
+              connectStreamStatus = "DRAINING";
             } else {
               connectStreamStatus = "ESTABLISHED";
             }
@@ -556,13 +547,14 @@ public class ClusterNodeSample {
                     || body.contains("\"drainAll\": true");
             boolean drained = false;
             if (drainAll) {
+              drained = true;
               for (WebTransportSession s : server.getActiveSessions()) {
                 try {
                   s.drain();
                 } catch (Exception expected) {
+                  drained = false;
                 }
               }
-              drained = true;
             } else if (targetSessionId >= 0) {
               WebTransportSession sess = server.getSession(targetSessionId);
               if (sess == null) {
@@ -580,9 +572,9 @@ public class ClusterNodeSample {
                 drained = true;
               }
             }
-            String res = "{\"success\":true,\"drained\":" + drained + "}";
+            String res = "{\"success\":" + drained + ",\"drained\":" + drained + "}";
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, res.length());
+            exchange.sendResponseHeaders(drained ? 200 : drainAll ? 503 : 404, res.length());
             try (OutputStream os = exchange.getResponseBody()) {
               os.write(res.getBytes(StandardCharsets.UTF_8));
             }

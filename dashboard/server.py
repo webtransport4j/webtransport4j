@@ -324,17 +324,20 @@ def drain_server_session(raw_sid, sess_id=None):
     targets = parse_cluster_targets()
     if PRODUCTION and not origin:
         raise ValueError("Session management origin is unavailable; refusing cross-node mutation")
+    matched = False
     for target in targets:
         if origin and target["baseUrl"] != origin:
             continue
-        try:
-            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/drain",
-                                         data=json.dumps(payload).encode('utf-8'),
-                                         headers=management_headers())
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                pass
-        except Exception:
-            pass
+        matched = True
+        req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/drain",
+                                     data=json.dumps(payload).encode('utf-8'),
+                                     headers=management_headers())
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            result = json.loads(resp.read())
+            if not result.get("success") or not result.get("drained"):
+                raise RuntimeError("Node did not drain the session")
+    if not matched:
+        raise RuntimeError("Session management node is unavailable")
 
 def close_server_session(raw_sid, sess_id=None):
     """Sends close request to all cluster nodes and cleans up any client subprocess"""
@@ -351,17 +354,20 @@ def close_server_session(raw_sid, sess_id=None):
     targets = parse_cluster_targets()
     if PRODUCTION and not origin:
         raise ValueError("Session management origin is unavailable; refusing cross-node mutation")
+    matched = False
     for target in targets:
         if origin and target["baseUrl"] != origin:
             continue
-        try:
-            req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/close",
-                                         data=json.dumps(payload).encode('utf-8'),
-                                         headers=management_headers())
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                pass
-        except Exception:
-            pass
+        matched = True
+        req = urllib.request.Request(f"{target['baseUrl']}/api/node/sessions/close",
+                                     data=json.dumps(payload).encode('utf-8'),
+                                     headers=management_headers())
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            result = json.loads(resp.read())
+            if not result.get("success"):
+                raise RuntimeError("Node did not close the session")
+    if not matched:
+        raise RuntimeError("Session management node is unavailable")
     if sess_id and sess_id in SESSION_PROCESSES:
         p = SESSION_PROCESSES.pop(sess_id)
         try:
@@ -544,8 +550,6 @@ def sync_live_server_sessions():
                         ss_st["lastMessage"] = es["lastMessage"]
                     if existing.get("status") in ("CLOSED", "CLOSED_ABRUPT"):
                         ss_st["status"] = "CLOSED" if existing.get("status") == "CLOSED" else "RESET"
-                    elif existing.get("status") == "DRAINED" and ss_st.get("type") == "connect":
-                        ss_st["status"] = "DRAINED"
                     elif existing.get("status") == "DRAINING" and ss_st.get("type") == "connect":
                         ss_st["status"] = "DRAINING"
                 if not PRODUCTION and ss_st.get("type") == "connect" and not ss_st.get("history"):
@@ -635,18 +639,15 @@ def sync_live_server_sessions():
                     ]
                 }
             existing_status = existing.get("status")
-            total_act_st = sess_act_bidi + sess_act_uni
-            if existing_status in ("DRAINING", "DRAINED", "CLOSED", "CLOSED_ABRUPT"):
-                if existing_status == "DRAINING":
-                    final_status = "DRAINED" if total_act_st == 0 else "DRAINING"
-                else:
-                    final_status = existing_status
+            if existing_status in ("DRAINING", "CLOSED", "CLOSED_ABRUPT"):
+                final_status = existing_status
             else:
-                raw_st = ss.get("status", "CONNECTED")
-                if raw_st == "DRAINING" and total_act_st == 0:
-                    final_status = "DRAINED"
-                else:
-                    final_status = raw_st
+                final_status = ss.get("status", "CONNECTED")
+
+            if final_status == "DRAINING":
+                for control in streams:
+                    if control.get("type") == "connect":
+                        control["status"] = final_status
 
             node_id = ss.get("nodeId") or existing.get("nodeId", "wt-node-1")
             node_name = ss.get("nodeName") or existing.get("nodeName", node_id)
@@ -732,7 +733,7 @@ def sync_live_server_sessions():
                 if sid not in server_sess_ids:
                     del MANAGED_SESSIONS[sid]
 
-        active_managed = [s for s in MANAGED_SESSIONS.values() if s.get("status") in ("CONNECTED", "DRAINING", "DRAINED")]
+        active_managed = [s for s in MANAGED_SESSIONS.values() if s.get("status") in ("CONNECTED", "DRAINING")]
         global_active_bidi = 0
         global_active_uni = 0
         for s in active_managed:
@@ -742,8 +743,10 @@ def sync_live_server_sessions():
             s["activeStreams"] = s_act_b + s_act_u
             s["activeStreamsBidi"] = s_act_b
             s["activeStreamsUni"] = s_act_u
-            if s.get("status") == "DRAINING" and s["activeStreams"] == 0:
-                s["status"] = "DRAINED"
+            if s.get("status") == "DRAINING":
+                for control in s_streams:
+                    if control.get("type") == "connect":
+                        control["status"] = s["status"]
             if "flowControl" in s:
                 s["flowControl"]["activeStreamsBidi"] = s_act_b
                 s["flowControl"]["activeStreamsUni"] = s_act_u
@@ -894,7 +897,7 @@ def heartbeat_liveness_background_worker():
             now = time.time()
             for sid, s in list(MANAGED_SESSIONS.items()):
                 proc = SESSION_PROCESSES.get(sid)
-                if proc is not None and proc.poll() is None and s.get("status") == "CONNECTED":
+                if proc is not None and proc.poll() is None and s.get("status") in ("CONNECTED", "DRAINING"):
                     hb = s.setdefault("heartbeat", {})
                     if "recent" not in hb:
                         continue
@@ -1607,7 +1610,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             init_default_session()
             if CURRENT_DATASOURCE.get("type") == "prometheus":
                 scrape_real_prometheus()
-            active_count = len([s for s in MANAGED_SESSIONS.values() if s["status"] in ("CONNECTED", "DRAINING", "DRAINED")])
+            active_count = len([s for s in MANAGED_SESSIONS.values() if s["status"] in ("CONNECTED", "DRAINING")])
             total_active_sessions = max(active_count, LIVE_TELEMETRY.get("activeSessions", 0))
 
             sessions_summary = []
@@ -2109,13 +2112,24 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
             affected_count = 0
             for sid, s in list(MANAGED_SESSIONS.items()):
-                if s["status"] not in ("CONNECTED", "DRAINING", "DRAINED"):
+                if s["status"] not in ("CONNECTED", "DRAINING"):
                     continue
 
                 target_url = s["targetUrl"]
+                try:
+                    if mode == "drain":
+                        drain_server_session(s.get("rawSessionId", 0), sid)
+                    elif mode in ("close", "sever"):
+                        close_server_session(s.get("rawSessionId", 0), sid)
+                    else:
+                        self.send_json(400, {"success": False, "error": "Invalid mode"})
+                        return
+                except Exception as exc:
+                    self.send_json(502, {"success": False, "affectedCount": affected_count,
+                                         "error": str(exc)})
+                    return
                 if mode == "drain":
-                    act_s = len([st for st in s.get("streams", []) if st.get("status") in ("OPEN", "ESTABLISHED")])
-                    s["status"] = "DRAINED" if act_s == 0 else "DRAINING"
+                    s["status"] = "DRAINING"
                     s["wireEvents"].append({
                         "time": time.strftime("%H:%M:%S"),
                         "type": "WT_DRAIN_SESSION",
@@ -2126,7 +2140,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                     })
                 elif mode == "close":
                     s["status"] = "CLOSED"
-                    close_server_session(s.get("rawSessionId", 0), sid)
                     s["wireEvents"].append({
                         "time": time.strftime("%H:%M:%S"),
                         "type": "CLOSE_WEBTRANSPORT_SESSION",
@@ -2137,7 +2150,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                     })
                 elif mode == "sever":
                     s["status"] = "CLOSED_ABRUPT"
-                    close_server_session(s.get("rawSessionId", 0), sid)
                     s["wireEvents"].append({
                         "time": time.strftime("%H:%M:%S"),
                         "type": "CONNECTION_CLOSE",
@@ -2198,11 +2210,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                 # 1. Create Stream: POST /api/admin/sessions/<id>/streams/create
                 if action_part == 'streams' and len(parts) >= 7 and parts[6] == 'create':
                     sess_st = session.get("status", "CONNECTED")
-                    if sess_st in ("DRAINING", "DRAINED", "CLOSED", "CLOSED_ABRUPT"):
-                        log_audit(user, "STREAM_REJECTED", f"{sess_id}", f"Blocked stream creation: Session is {sess_st} (RFC 9297 §5.3)")
+                    if sess_st not in ("CONNECTED", "DRAINING"):
+                        log_audit(user, "STREAM_REJECTED", f"{sess_id}", f"Blocked stream creation: Session is {sess_st}")
                         self.send_json(400, {
                             "success": False,
-                            "error": f"Cannot open stream: Session is in {sess_st} state. Under RFC 9297 Section 5.3 & 6, endpoints MUST NOT open new streams on draining, drained, or closed sessions."
+                            "error": f"Cannot open stream: Session is in {sess_st} state. Streams require an open session."
                         })
                         return
 
@@ -2404,30 +2416,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         session["activeStreamsBidi"] = s_act_b
                         session["activeStreamsUni"] = s_act_u
 
-                        # Check if session was DRAINING and all active streams finished
-                        if session.get("status") == "DRAINING" and (s_act_b + s_act_u) == 0:
-                            session["status"] = "DRAINED"
-                            for st in session.get("streams", []):
-                                if st.get("type") == "connect":
-                                    st["status"] = "DRAINED"
-                                    st.setdefault("history", []).append({
-                                        "time": time.strftime("%H:%M:%S"),
-                                        "dir": "INT",
-                                        "bytes": 0,
-                                        "payload": "Session Fully Drained: All active data streams completed (0 pending) - Ready for CLOSE Capsule",
-                                        "fin": False
-                                    })
-                                    st["lastMessage"] = "Session Fully Drained (0 streams)"
-                            session["wireEvents"].append({
-                                "time": time.strftime("%H:%M:%S"),
-                                "type": "WT_SESSION_DRAINED",
-                                "name": "Session Drained (RFC 9297 §5.3)",
-                                "dir": "INT",
-                                "details": "All active streams completed. Session fully drained, ready for graceful CLOSE_WEBTRANSPORT_SESSION capsule.",
-                                "hex": ""
-                            })
-                            log_audit(user, "SESSION_DRAINED", f"{sess_id}", "All in-flight streams completed. Session transitioned from DRAINING to DRAINED.")
-
                         LIVE_TELEMETRY["activeStreams"] = max(0, LIVE_TELEMETRY["activeStreams"] - 1)
                         if stream["type"] == "bidi":
                             LIVE_TELEMETRY["bidiStreams"] = max(0, LIVE_TELEMETRY["bidiStreams"] - 1)
@@ -2461,30 +2449,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         session["activeStreams"] = s_act_b + s_act_u
                         session["activeStreamsBidi"] = s_act_b
                         session["activeStreamsUni"] = s_act_u
-
-                        # Check if session was DRAINING and all active streams finished
-                        if session.get("status") == "DRAINING" and (s_act_b + s_act_u) == 0:
-                            session["status"] = "DRAINED"
-                            for st in session.get("streams", []):
-                                if st.get("type") == "connect":
-                                    st["status"] = "DRAINED"
-                                    st.setdefault("history", []).append({
-                                        "time": time.strftime("%H:%M:%S"),
-                                        "dir": "INT",
-                                        "bytes": 0,
-                                        "payload": "Session Fully Drained: All active data streams completed (0 pending) - Ready for CLOSE Capsule",
-                                        "fin": False
-                                    })
-                                    st["lastMessage"] = "Session Fully Drained (0 streams)"
-                            session["wireEvents"].append({
-                                "time": time.strftime("%H:%M:%S"),
-                                "type": "WT_SESSION_DRAINED",
-                                "name": "Session Drained (RFC 9297 §5.3)",
-                                "dir": "INT",
-                                "details": "All active streams completed. Session fully drained, ready for graceful CLOSE_WEBTRANSPORT_SESSION capsule.",
-                                "hex": ""
-                            })
-                            log_audit(user, "SESSION_DRAINED", f"{sess_id}", "All in-flight streams completed. Session transitioned from DRAINING to DRAINED.")
 
                         LIVE_TELEMETRY["activeStreams"] = max(0, LIVE_TELEMETRY["activeStreams"] - 1)
                         if stream["type"] == "bidi":
@@ -2629,25 +2593,25 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                 # 4. Drain Capsule: POST /api/admin/sessions/<id>/capsules/drain
                 if action_part == 'capsules' and len(parts) >= 7 and parts[6] == 'drain':
                     sess_st = session.get("status", "CONNECTED")
-                    if sess_st in ("DRAINING", "DRAINED", "CLOSED", "CLOSED_ABRUPT"):
+                    if sess_st in ("DRAINING", "CLOSED", "CLOSED_ABRUPT"):
                         self.send_json(400, {
                             "success": False,
                             "error": f"Session is already in {sess_st} state."
                         })
                         return
 
-                    drain_server_session(session.get("rawSessionId", 0), sess_id)
+                    try:
+                        drain_server_session(session.get("rawSessionId", 0), sess_id)
+                    except Exception as exc:
+                        self.send_json(502, {"success": False, "error": str(exc)})
+                        return
                     act_streams = len([st for st in session.get("streams", []) if st.get("status") in ("OPEN", "ESTABLISHED") and st.get("type") in ("bidi", "uni")])
-                    if act_streams == 0:
-                        session["status"] = "DRAINED"
-                        drain_detail = "Extended CONNECT Capsule sent. 0 active data streams pending: session transitioned immediately to DRAINED, ready for CLOSE capsule."
-                    else:
-                        session["status"] = "DRAINING"
-                        drain_detail = f"Extended CONNECT Capsule sent. Server instructed to reject new streams while {act_streams} active data stream(s) finish gracefully."
+                    session["status"] = "DRAINING"
+                    drain_detail = f"Extended CONNECT Capsule sent. Graceful shutdown signaled with {act_streams} active data stream(s); new streams and datagrams remain permitted until closure."
 
                     for st in session.get("streams", []):
                         if st.get("type") == "connect":
-                            st["status"] = "DRAINED" if act_streams == 0 else "DRAINING"
+                            st["status"] = "DRAINING"
                             st.setdefault("history", []).append({
                                 "time": time.strftime("%H:%M:%S"),
                                 "dir": "TX",
@@ -2665,15 +2629,6 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         "details": drain_detail,
                         "hex": "80 00 78 ae 00"
                     })
-                    if session["status"] == "DRAINED":
-                        session["wireEvents"].append({
-                            "time": time.strftime("%H:%M:%S"),
-                            "type": "WT_SESSION_DRAINED",
-                            "name": "Session Drained (RFC 9297 §5.3)",
-                            "dir": "INT",
-                            "details": "All active streams completed. Session fully drained, ready for graceful CLOSE_WEBTRANSPORT_SESSION capsule.",
-                            "hex": ""
-                        })
                     log_audit(user, "DRAIN_SESSION", f"{sess_id}", f"WT_DRAIN_SESSION capsule dispatched (Status: {session['status']})")
                     self.send_json(200, {"success": True, "session": session, "status": session["status"]})
                     return
@@ -2690,7 +2645,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
 
                     code = int(req_data.get('code', 0))
                     reason = req_data.get('reason', 'Operator Graceful Close')
-                    close_server_session(session.get("rawSessionId", 0), sess_id)
+                    try:
+                        close_server_session(session.get("rawSessionId", 0), sess_id)
+                    except Exception as exc:
+                        self.send_json(502, {"success": False, "error": str(exc)})
+                        return
                     session["status"] = "CLOSED"
                     for st in session.get("streams", []):
                         if st.get("type") == "connect":
@@ -2739,7 +2698,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                         })
                         return
 
-                    close_server_session(session.get("rawSessionId", 0), sess_id)
+                    try:
+                        close_server_session(session.get("rawSessionId", 0), sess_id)
+                    except Exception as exc:
+                        self.send_json(502, {"success": False, "error": str(exc)})
+                        return
                     session["status"] = "CLOSED_ABRUPT"
                     for st in session.get("streams", []):
                         st["status"] = "RESET"

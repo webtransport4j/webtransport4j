@@ -150,7 +150,9 @@ public class ConnectionMigrationIntegrationTest {
 
   private void setUpServer() throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
-    webTransportServer = new WebTransportServer();
+    webTransportServer = org.mockito.Mockito.spy(new WebTransportServer());
+    // This test owns the QUIC listener directly; the server supplies its handler registry.
+    org.mockito.Mockito.doReturn(true).when(webTransportServer).isAcceptingSessions();
 
     serverGroup = new NioEventLoopGroup(1);
     clientGroup = new NioEventLoopGroup(1);

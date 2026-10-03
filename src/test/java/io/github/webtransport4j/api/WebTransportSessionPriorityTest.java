@@ -114,6 +114,69 @@ public class WebTransportSessionPriorityTest {
     when(mockPriorityFuture.isSuccess()).thenReturn(true);
   }
 
+  @Test
+  public void testDrainCallbackRunsOnceForRepeatedSignals() {
+    io.github.webtransport4j.server.WebTransportServer server =
+        mock(io.github.webtransport4j.server.WebTransportServer.class);
+    WebTransportHandler handler = mock(WebTransportHandler.class);
+    Attribute<io.github.webtransport4j.server.WebTransportServer> serverAttribute = mock(Attribute.class);
+    when(serverAttribute.get()).thenReturn(server);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.SERVER_KEY)).thenReturn(serverAttribute);
+    when(server.getHandler("/test")).thenReturn(handler);
+    session.markDraining();
+    session.markDraining();
+    verify(handler).onSessionDraining(session);
+    assertTrue(session.isOpen());
+  }
+
+  @Test
+  public void testDrainSendsExactlyOneEmptyCapsule() {
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    session.drain();
+    session.drain();
+    ArgumentCaptor<Object> frame = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnectStream).writeAndFlush(frame.capture());
+    io.netty.handler.codec.http3.Http3DataFrame data =
+        (io.netty.handler.codec.http3.Http3DataFrame) frame.getValue();
+    try {
+      assertEquals(5, data.content().readableBytes());
+      assertEquals(0x800078ae, data.content().readInt());
+      assertEquals(0, data.content().readByte());
+      assertTrue(session.isDraining());
+    } finally {
+      data.release();
+    }
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testClosedSessionRejectsDatagram() {
+    session.close();
+    session.sendDatagram(new byte[] {1});
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testClosedSessionRejectsBufferDatagram() {
+    session.close();
+    session.sendDatagram(mock(WebTransportBuffer.class));
+  }
+
+  @Test
+  public void testCloseCallbackIsIdempotent() {
+    java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+    session.setOnClosedCallback(calls::incrementAndGet);
+    session.close();
+    session.close();
+    session.abort(0);
+    assertEquals(1, calls.get());
+  }
+
+  @Test
+  public void testCreateStreamAfterDrain() throws Exception {
+    session.markDraining();
+    mockCreateStreamSuccess(QuicStreamType.BIDIRECTIONAL);
+    assertNotNull(session.createBiStream().get());
+  }
+
   private void mockCreateStreamSuccess(QuicStreamType expectedType) {
     when(mockCreatedStream.type()).thenReturn(expectedType);
     when(mockQuicChannel.createStream(any(), any()))

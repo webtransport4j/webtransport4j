@@ -65,15 +65,15 @@ public interface WebTransportSession {
   @NonNull String getResumptionToken();
 
   /**
-   * Returns true if this session has received a {@code WT_DRAIN_SESSION} capsule and is draining.
+   * Returns true if graceful shutdown was signaled locally or by the peer.
    *
    * @return true if the session is draining
    */
   boolean isDraining();
 
   /**
-   * Begins graceful draining. Implementations must reject new application streams while allowing
-   * existing streams to finish.
+   * Begins graceful draining. New streams and datagrams remain permitted until the session closes;
+   * applications should finish their work and terminate promptly (Draft-16 Section 4.7).
    *
    * @throws UnsupportedOperationException when the implementation does not support draining
    */
@@ -82,9 +82,10 @@ public interface WebTransportSession {
   }
 
   /**
-   * Returns true if this session has completed draining (is draining and 0 active streams remain).
+   * Returns true if draining was signaled and there are currently no active streams. This is a
+   * point-in-time predicate, not a lifecycle state; the session stays open until explicitly closed.
    *
-   * @return true if the session is fully drained
+   * @return true if the draining session currently has no active streams
    */
   default boolean isDrained() {
     return isDraining() && getActiveStreams().isEmpty();

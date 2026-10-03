@@ -289,12 +289,12 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     if (session == null) {
       return false;
     }
-    if (session.isDraining() || !session.isOpen()) {
+    // Draft-16 Section 4.7 permits new streams after WT_DRAIN_SESSION.
+    if (!session.isOpen()) {
       logger.warn(
-          "❌ Rejecting incoming stream for session {}: session is {} (RFC 9297 Section 5.3)."
+          "❌ Rejecting incoming stream for session {}: session is closed."
               + " Resetting stream with WT_SESSION_GONE.",
-          sessionId,
-          session.isDraining() ? "DRAINING" : "CLOSED");
+          sessionId);
       if (ctx.channel() instanceof QuicStreamChannel) {
         ((QuicStreamChannel) ctx.channel())
             .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());

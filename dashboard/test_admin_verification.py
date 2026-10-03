@@ -158,7 +158,7 @@ def run_verification():
     # 8. Capsules & Teardown
     print("\n--- 8. RFC 9297 Session Capsules ---")
     status, drain_res = http_post(f"/api/admin/sessions/{sess_id}/capsules/drain", {}, token=token)
-    test("WT_DRAIN_SESSION Capsule (0x78ae)", drain_res.get("success") is True and drain_res.get("session", {}).get("status") in ("DRAINING", "DRAINED"))
+    test("WT_DRAIN_SESSION Capsule (0x78ae)", drain_res.get("success") is True and drain_res.get("session", {}).get("status") == "DRAINING")
 
     status, close_sess_res = http_post(f"/api/admin/sessions/{sess_id}/capsules/close", {
         "code": 0,

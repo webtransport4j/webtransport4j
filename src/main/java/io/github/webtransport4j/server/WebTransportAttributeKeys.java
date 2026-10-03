@@ -14,6 +14,9 @@ public final class WebTransportAttributeKeys {
 
   private WebTransportAttributeKeys() {}
 
+  public static final AttributeKey<Boolean> CONNECTION_DRAINING =
+      AttributeKey.valueOf("wt.connection.draining");
+
   // Session-related Attribute Keys
   public static final AttributeKey<WebTransportServer> SERVER_KEY =
       AttributeKey.valueOf("wt.server.instance");

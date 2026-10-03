@@ -31,6 +31,9 @@ public interface WebTransportHandler {
     }
   }
 
+  /** Signals graceful shutdown; existing streams and datagrams remain usable until closure. */
+  default void onSessionDraining(@NonNull WebTransportSession session) {}
+
   /** On Session Closed. */
   default void onSessionClosed(@NonNull WebTransportSession session) {
     if (logger.isDebugEnabled()) {

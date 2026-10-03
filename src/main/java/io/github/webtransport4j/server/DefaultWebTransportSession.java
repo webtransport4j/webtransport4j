@@ -123,15 +123,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private final AtomicBoolean draining = new AtomicBoolean(false);
 
-  /** Returns true if this session has received a WT_DRAIN_SESSION capsule. */
+  /** Returns true if graceful shutdown was signaled locally or by the peer. */
   @Override
   public boolean isDraining() {
     return draining.get();
   }
 
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final AtomicBoolean drainSent = new AtomicBoolean(false);
 
-  /** Returns true if this session has completed draining (is draining and has 0 active streams). */
+  /** Returns true if draining was signaled and there are currently no active streams. */
   @Override
   public boolean isDrained() {
     return isDraining() && getAllActiveWebTransportStreams().isEmpty();
@@ -152,15 +153,40 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return connectStream.getClass().getName().contains("Mockito");
   }
 
-  /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
+  /** Sends a WT_DRAIN_SESSION capsule without closing existing streams. */
   @Override
   public void drain() {
-    markDraining();
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
+    if (drainSent.compareAndSet(false, true)) {
+      ByteBuf capsule = connectStream.alloc().buffer(5);
+      WebTransportUtils.writeVarInt(capsule, 0x78ae);
+      WebTransportUtils.writeVarInt(capsule, 0);
+      connectStream.writeAndFlush(
+          new io.netty.handler.codec.http3.DefaultHttp3DataFrame(capsule));
+      markDraining();
+    }
   }
 
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
   public void markDraining() {
-    draining.set(true);
+    if (!draining.compareAndSet(false, true)) {
+      return;
+    }
+    io.netty.util.Attribute<WebTransportServer> serverAttribute =
+        connectStream.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+    WebTransportServer server = serverAttribute == null ? null : serverAttribute.get();
+    io.github.webtransport4j.api.WebTransportHandler handler =
+        server == null ? null : server.getHandler(path());
+    if (handler != null) {
+      try {
+        handler.onSessionDraining(this);
+      } catch (RuntimeException failure) {
+        io.github.webtransport4j.api.WebTransportHandler.logger.warn(
+            "Error in onSessionDraining callback", failure);
+      }
+    }
   }
 
   /** Default WebTransport Session implementation. */
@@ -492,7 +518,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
   @Override
   public void close() {
-    closed.set(true);
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
       activeStream.close();
     }
@@ -517,7 +545,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void abort(long httpErrorCode) {
-    closed.set(true);
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     int code = (int) httpErrorCode;
     if (code < 0) {
       // fallback to safe code to prevent native JVM crash
@@ -549,6 +579,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void sendDatagram(@NonNull WebTransportBuffer data) {
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
     Channel parentChannel = connectStream.parent();
     int dataBytes = data.readableBytes();
     ByteBuf payload =
@@ -571,6 +604,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void sendDatagram(byte @NonNull [] data) {
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
     Channel parentChannel = connectStream.parent();
     writeDatagram(parentChannel, Unpooled.wrappedBuffer(data));
     // Fire metrics: datagram sent

@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.codec.http3.Http3ControlStreamFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.http3.Http3SettingsFrame;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -18,14 +19,35 @@ import org.slf4j.LoggerFactory;
  * @date 24/06/26 1:52 pm
  */
 public class Http3InboundControlStreamHandler
-    extends SimpleChannelInboundHandler<Http3SettingsFrame> {
+    extends SimpleChannelInboundHandler<Http3ControlStreamFrame> {
 
   private static final Logger logger =
       LoggerFactory.getLogger(Http3InboundControlStreamHandler.class);
 
   @Override
   protected void channelRead0(
-      @NonNull ChannelHandlerContext ctx, @NonNull Http3SettingsFrame settingsFrame) {
+      @NonNull ChannelHandlerContext ctx,
+      @NonNull Http3ControlStreamFrame frame) {
+    if (frame instanceof io.netty.handler.codec.http3.Http3GoAwayFrame) {
+      QuicChannel connection = ctx.channel() instanceof QuicStreamChannel
+          ? ((QuicStreamChannel) ctx.channel()).parent()
+          : ctx.channel() instanceof QuicChannel ? (QuicChannel) ctx.channel() : null;
+      if (connection != null) {
+        connection.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(true);
+        WebTransportSessionManager manager =
+            connection.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        if (manager != null) {
+          for (NettyWebTransportSession session : new ObjectArrayList<>(manager.getSessions())) {
+            session.markDraining();
+          }
+        }
+      }
+      return;
+    }
+    if (!(frame instanceof Http3SettingsFrame)) {
+      return;
+    }
+    Http3SettingsFrame settingsFrame = (Http3SettingsFrame) frame;
     if (logger.isDebugEnabled()) {
       logger.debug("PEER SETTINGS: {}", settingsFrame);
     }

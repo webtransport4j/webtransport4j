@@ -51,14 +51,14 @@ with urllib.request.urlopen(req) as resp:
     assert resp.status == 200
     assert prestop_res.get("status") == "DRAINING"
 
-# Check that session transitioned to DRAINED/DRAINING
+# Check that session transitioned to DRAINING
 time.sleep(0.5)
 with urllib.request.urlopen("http://127.0.0.1:8085/api/admin/sessions") as resp:
     sess_list = json.loads(resp.read().decode("utf-8")).get("sessions", [])
     target_s = next((s for s in sess_list if s["id"] == sess_id), None)
     st = target_s.get("status") if target_s else "NONE"
     print(f"Session {sess_id} after preStop: status={st}")
-    assert target_s and st in ("DRAINING", "DRAINED")
+    assert target_s and st == "DRAINING"
 
 # Clean up
 req = urllib.request.Request(

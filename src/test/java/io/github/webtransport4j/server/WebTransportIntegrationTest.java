@@ -116,7 +116,9 @@ public class WebTransportIntegrationTest {
 
   private void setUpServer(long initialMaxData) throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
-    webTransportServer = new WebTransportServer();
+    webTransportServer = org.mockito.Mockito.spy(new WebTransportServer());
+    // This fixture owns the listener directly rather than starting the server wrapper.
+    org.mockito.Mockito.doReturn(true).when(webTransportServer).isAcceptingSessions();
     webTransportServer.registerHandler(
         "/test-integration",
         new WebTransportHandler() {

@@ -31,6 +31,7 @@ import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicSslEngine;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
@@ -175,12 +176,41 @@ public class WebTransportServer implements AutoCloseable {
     STOPPED,
     STARTING,
     STARTED,
+    DRAINING,
     STOPPING,
     /** Terminal after {@link #close()}. {@link #start()} will fail. */
     CLOSED
   }
 
   private final Object lifecycleLock = new Object();
+  private final Set<QuicChannel> connections = ConcurrentHashMap.newKeySet();
+
+  void registerConnection(QuicChannel connection) {
+    connections.add(connection);
+    connection.closeFuture().addListener(f -> connections.remove(connection));
+    if (!isAcceptingSessions()) {
+      drainConnection(connection);
+    }
+  }
+
+  private void drainConnection(QuicChannel connection) {
+    if (!connection.isOpen()) {
+      return;
+    }
+    connection.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(true);
+    try {
+      connection.eventLoop().execute(() -> {
+        QuicStreamChannel control = Http3.getLocalControlStream(connection);
+        if (control != null && control.isActive()) {
+          control.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(
+              0x3ffffffffffffffcL));
+        }
+      });
+    } catch (java.util.concurrent.RejectedExecutionException closedLoop) {
+      logger.debug("Connection event loop already stopped during drain", closedLoop);
+    }
+  }
+
   private final AtomicReference<ServerState> state = new AtomicReference<>(ServerState.STOPPED);
 
   /** Incremented by {@link #stop} to invalidate an in-flight {@link #start}. */
@@ -549,6 +579,9 @@ public class WebTransportServer implements AutoCloseable {
     activeSessionsSet.add(session);
     activeSessionsById.put(session.getUniqueSessionId(), session);
     activeSessionsMap.put(session.getSessionStreamId(), session);
+    if (state.get() == ServerState.DRAINING || state.get() == ServerState.STOPPING) {
+      session.drain();
+    }
   }
 
   /**
@@ -561,6 +594,9 @@ public class WebTransportServer implements AutoCloseable {
     activeSessionsSet.remove(session);
     activeSessionsById.remove(session.getUniqueSessionId());
     activeSessionsMap.remove(session.getSessionStreamId(), session);
+    synchronized (lifecycleLock) {
+      lifecycleLock.notifyAll();
+    }
   }
 
   /**
@@ -635,7 +671,38 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns true if the server is active and listening. */
   public boolean isStarted() {
     Channel ch = this.channel;
-    return state.get() == ServerState.STARTED && ch != null && ch.isActive();
+    return (state.get() == ServerState.STARTED || state.get() == ServerState.DRAINING)
+        && ch != null && ch.isActive();
+  }
+
+  /** Returns whether the server admits new WebTransport sessions. */
+  public boolean isAcceptingSessions() {
+    return state.get() == ServerState.STARTED;
+  }
+
+  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
+  public void drain() {
+    synchronized (lifecycleLock) {
+      if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
+        return;
+      }
+    }
+    for (QuicChannel connection : connections) {
+      drainConnection(connection);
+    }
+    drainActiveSessions();
+  }
+
+  private void drainActiveSessions() {
+    for (WebTransportSession session : activeSessionsSet) {
+      try {
+        if (session.isOpen()) {
+          session.drain();
+        }
+      } catch (RuntimeException failure) {
+        logger.warn("Could not notify session of shutdown", failure);
+      }
+    }
   }
 
   /** Returns true if the server is active and listening. */
@@ -1801,6 +1868,12 @@ public class WebTransportServer implements AutoCloseable {
     if (timeout < 0L) {
       throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
     }
+    final long deadline = System.nanoTime() + unit.toNanos(timeout);
+    for (QuicChannel connection : connections) {
+      if (connection.eventLoop().inEventLoop()) {
+        throw new IllegalStateException("Blocking stop must not run on a QUIC event loop");
+      }
+    }
     if (terminal) {
       permanentlyClosed = true;
     }
@@ -1846,6 +1919,35 @@ public class WebTransportServer implements AutoCloseable {
       state.set(ServerState.STOPPING);
     }
     try {
+      for (QuicChannel connection : connections) {
+        drainConnection(connection);
+      }
+      drainActiveSessions();
+      synchronized (lifecycleLock) {
+        while (!activeSessionsSet.isEmpty()) {
+          long remaining = deadline - System.nanoTime();
+          if (remaining <= 0) {
+            break;
+          }
+          try {
+            TimeUnit.NANOSECONDS.timedWait(lifecycleLock, remaining);
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            break;
+          }
+        }
+      }
+      for (WebTransportSession session : activeSessionsSet) {
+        try {
+          session.close();
+        } catch (RuntimeException failure) {
+          logger.warn("Could not close session at shutdown deadline", failure);
+        } finally {
+          unregisterSession(session);
+        }
+      }
+      timeout = Math.max(0, deadline - System.nanoTime());
+      unit = TimeUnit.NANOSECONDS;
       TlsCertificateWatcher watcher = tlsWatcher;
       tlsWatcher = null;
       stopTlsWatcherSafely(watcher);
@@ -1876,6 +1978,7 @@ public class WebTransportServer implements AutoCloseable {
       }
       EventLoopGroup g = this.group;
       this.group = null;
+      timeout = Math.max(0, deadline - System.nanoTime());
       if (g != null) {
         try {
           if (!g.shutdownGracefully(0, timeout, unit).await(timeout, unit)) {
@@ -1895,6 +1998,7 @@ public class WebTransportServer implements AutoCloseable {
       unregisterServerInstanceSafely();
       deleteGeneratedCertificate();
       if (shutdownExecutor || permanentlyClosed) {
+        timeout = Math.max(0, deadline - System.nanoTime());
         shutdownBusinessExecutorSafely(timeout, unit);
       }
       logger.info("WebTransport server stopped successfully.");

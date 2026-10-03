@@ -136,39 +136,23 @@ class TestSessionLifecycleUnit(unittest.TestCase):
     """Verifies WebTransport session state transitions and active count evaluation."""
 
     def test_active_session_status_states(self):
-        """CONNECTED, DRAINING, and DRAINED are active; CLOSED and CLOSED_ABRUPT are inactive."""
-        active_statuses = {"CONNECTED", "DRAINING", "DRAINED"}
+        """CONNECTED and DRAINING are active; CLOSED and CLOSED_ABRUPT are inactive."""
+        active_statuses = {"CONNECTED", "DRAINING"}
         inactive_statuses = {"CLOSED", "CLOSED_ABRUPT"}
 
         test_sessions = {
             "s1": {"status": "CONNECTED"},
             "s2": {"status": "DRAINING"},
-            "s3": {"status": "DRAINED"},
             "s4": {"status": "CLOSED"},
             "s5": {"status": "CLOSED_ABRUPT"}
         }
 
         active_count = len([s for s in test_sessions.values() if s["status"] in active_statuses])
-        self.assertEqual(active_count, 3)
-
-    def test_draining_to_drained_lifecycle_transition(self):
-        """RFC 9297 Section 5.3: Session transitions to DRAINED once active streams reach 0."""
-        # Initial draining session with active streams
-        session = {"status": "DRAINING", "streams": {"activeBidi": 1, "activeUni": 0}}
-        total_active = session["streams"]["activeBidi"] + session["streams"]["activeUni"]
-        self.assertEqual(session["status"], "DRAINING")
-
-        # In-flight stream finishes (FIN closed) -> active streams reaches 0
-        session["streams"]["activeBidi"] = 0
-        total_active = session["streams"]["activeBidi"] + session["streams"]["activeUni"]
-        if session["status"] == "DRAINING" and total_active == 0:
-            session["status"] = "DRAINED"
-
-        self.assertEqual(session["status"], "DRAINED")
+        self.assertEqual(active_count, 2)
 
     def test_rfc9297_stream_guardrail_rejections(self):
-        """RFC 9297 Section 5.3 & 6: Endpoints MUST NOT open new streams when DRAINING, DRAINED, or CLOSED."""
-        invalid_states = ["DRAINING", "DRAINED", "CLOSED", "CLOSED_ABRUPT"]
+        """Closed sessions cannot open streams."""
+        invalid_states = ["CLOSED", "CLOSED_ABRUPT"]
         for st in invalid_states:
             session = {"status": st}
             can_open = session["status"] == "CONNECTED"
@@ -196,9 +180,6 @@ class TestSessionLifecycleUnit(unittest.TestCase):
             "time": "12:00:05", "dir": "TX", "bytes": 5, "payload": "Capsule WT_DRAIN_SESSION (0x78ae)", "fin": False
         })
         self.assertEqual(len(connect_stream["history"]), 3)
-
-        # In-flight streams complete -> DRAINED
-        connect_stream["status"] = "DRAINED"
 
         # Session closes
         connect_stream["status"] = "CLOSED"
@@ -412,21 +393,13 @@ class TestStreamAndSessionGuardrailsUnit(unittest.TestCase):
         self.assertEqual(session["streams"][-1]["streamId"], 4)
         self.assertEqual(session["streams"][-1]["status"], "OPEN")
 
-    def test_negative_stream_create_on_draining_session(self):
-        """Negative Case (RFC 9297 §5.3): Creating stream on DRAINING session is rejected."""
+    def test_positive_stream_create_on_draining_session(self):
+        """Draft-16 Section 4.7 permits streams while draining."""
         session = server.MANAGED_SESSIONS[self.session_id]
         session["status"] = "DRAINING"
 
-        can_open = session["status"] == "CONNECTED"
-        self.assertFalse(can_open, "Must reject stream creation on DRAINING session")
-
-    def test_negative_stream_create_on_drained_session(self):
-        """Negative Case (RFC 9297 §5.3): Creating stream on DRAINED session is rejected."""
-        session = server.MANAGED_SESSIONS[self.session_id]
-        session["status"] = "DRAINED"
-
-        can_open = session["status"] == "CONNECTED"
-        self.assertFalse(can_open, "Must reject stream creation on DRAINED session")
+        can_open = session["status"] in ("CONNECTED", "DRAINING")
+        self.assertTrue(can_open)
 
     def test_negative_stream_create_on_closed_session(self):
         """Negative Case (RFC 9297 §6): Creating stream on CLOSED session is rejected."""
@@ -468,7 +441,7 @@ class TestStreamAndSessionGuardrailsUnit(unittest.TestCase):
         self.assertEqual(stream["resetCode"], 0x045d4487)
 
     def test_positive_capsule_drain_and_close_lifecycle(self):
-        """Positive Case: DRAIN capsule keeps Stream 0 open until active data streams reach 0, then CLOSE cleanly closes."""
+        """Positive Case: DRAIN capsule keeps Stream 0 open until explicit CLOSE."""
         session = server.MANAGED_SESSIONS[self.session_id]
         connect_stream = session["streams"][0]
 
@@ -476,11 +449,11 @@ class TestStreamAndSessionGuardrailsUnit(unittest.TestCase):
         act_data_streams = len([st for st in session["streams"] if st["status"] in ("OPEN", "ESTABLISHED") and st["type"] in ("bidi", "uni")])
         self.assertEqual(act_data_streams, 0)
 
-        # Transition directly to DRAINED
-        session["status"] = "DRAINED" if act_data_streams == 0 else "DRAINING"
-        connect_stream["status"] = "DRAINED"
-        self.assertEqual(session["status"], "DRAINED")
-        self.assertEqual(connect_stream["status"], "DRAINED")
+        # Draining persists even with zero active streams
+        session["status"] = "DRAINING"
+        connect_stream["status"] = "DRAINING"
+        self.assertEqual(session["status"], "DRAINING")
+        self.assertEqual(connect_stream["status"], "DRAINING")
 
         # 2. Close capsule sent
         session["status"] = "CLOSED"

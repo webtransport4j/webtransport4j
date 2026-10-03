@@ -27,6 +27,27 @@ import org.junit.Test;
 public class Http3ControlStreamAndAccountingTest {
 
   @Test
+  public void testGoAwayMarksConnectionAndSessionsDrainingWithoutClosing() {
+    ChannelHandlerContext context = mock(ChannelHandlerContext.class);
+    QuicStreamChannel control = mock(QuicStreamChannel.class);
+    QuicChannel connection = mock(QuicChannel.class);
+    DefaultAttributeMap attributes = new DefaultAttributeMap();
+    when(context.channel()).thenReturn(control);
+    when(control.parent()).thenReturn(connection);
+    when(connection.attr(any())).thenAnswer(inv -> attributes.attr(inv.getArgument(0)));
+    WebTransportSessionManager manager = mock(WebTransportSessionManager.class);
+    NettyWebTransportSession session = mock(NettyWebTransportSession.class);
+    when(manager.getSessions()).thenReturn(java.util.Collections.singletonList(session));
+    attributes.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
+    new Http3InboundControlStreamHandler().channelRead0(context,
+        new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(0));
+    assertTrue(attributes.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).get());
+    org.mockito.Mockito.verify(session).markDraining();
+    org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).close();
+    org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).drain();
+  }
+
+  @Test
   public void testLateSettingsEnablesFlowControlAndUpdatesPeerLimits() {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockControlStream = mock(QuicStreamChannel.class);

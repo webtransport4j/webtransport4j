@@ -6,6 +6,7 @@ import json
 import os
 import ssl
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -134,13 +135,16 @@ def main():
         request('/api/reset', {}, token)
         check('telemetry reset preserves real production sessions', len(node_sessions('node-1')) == 1 and len(node_sessions('node-2')) == 1)
         request(f"/api/admin/sessions/{first['id']}/capsules/drain", {}, token)
-        eventually('individual drain reaches owning node', lambda: any(session['status'] in ('DRAINING', 'DRAINED') for session in node_sessions('node-1')))
+        eventually('individual drain reaches owning node', lambda: any(session['status'] == 'DRAINING' for session in node_sessions('node-1')))
         check('individual drain preserves other node session', any(session['id'] == second['id'] and session['status'] == 'CONNECTED' for session in node_sessions('node-2')))
         request(f"/api/admin/sessions/{first['id']}/capsules/close", {}, token)
         eventually('individual close reaches owning node', lambda: not node_sessions('node-1'))
         check('individual close preserves other node session', len(node_sessions('node-2')) == 1)
         audit = request('/api/admin/audit-log', token=token)['logs']
         check('audit retains login, reset, drain, and close actions', all(any(event['action'] == action for event in audit) for action in ('OPERATOR_AUTHENTICATION', 'RESET_TELEMETRY', 'DRAIN_SESSION', 'CLOSE_SESSION_CAPSULE')))
+        request('/api/admin/sessions/close-all', {'mode': 'drain'}, token)
+        eventually('bulk drain reaches remaining real node session',
+                   lambda: any(session['status'] == 'DRAINING' for session in node_sessions('node-2')))
         request('/api/admin/sessions/close-all', {'mode': 'close'}, token)
         eventually('bulk close cleans up remaining sessions', lambda: not node_sessions('node-2'))
         history = request('/api/telemetry/history?window=live', token=token)
@@ -149,6 +153,17 @@ def main():
         request('/api/admin/logout', {}, token)
         request('/api/config', token=token, expected=401)
         check('logout revokes token', True)
+        if '--server-drain' in sys.argv:
+            node = 'http://node-3:8080'
+            check('node readiness before drain', request('/readyz', base=node)['ready'])
+            request('/prestop', base=node, expected=401)
+            check('unauthenticated remote preStop rejected', True)
+            request('/prestop', token=NODE_TOKEN, base=node)
+            check('node readiness fails after server drain',
+                  not request('/readyz', base=node, expected=503)['ready'])
+            rejected = subprocess.run(CLIENT + ['handshake', 'https://node-3:4433/echo'],
+                                      capture_output=True, text=True, timeout=25)
+            check('draining node refuses a new real QUIC session', rejected.returncode != 0)
         print(json.dumps({'passed': len(CHECKS), 'checks': CHECKS}), flush=True)
     finally:
         for proc, log in processes:

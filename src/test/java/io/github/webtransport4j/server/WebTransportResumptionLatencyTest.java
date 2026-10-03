@@ -59,7 +59,9 @@ public class WebTransportResumptionLatencyTest {
   /** Sets up test fixtures. */
   @Before
   public void setUp() throws Exception {
-    webTransportServer = new WebTransportServer();
+    webTransportServer = org.mockito.Mockito.spy(new WebTransportServer());
+    // This test owns the QUIC listener directly; the server supplies its handler registry.
+    org.mockito.Mockito.doReturn(true).when(webTransportServer).isAcceptingSessions();
     webTransportServer.registerHandler(
         "/test-resumption",
         new WebTransportHandler() {

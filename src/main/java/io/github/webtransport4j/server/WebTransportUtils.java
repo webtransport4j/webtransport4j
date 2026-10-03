@@ -142,14 +142,6 @@ public class WebTransportUtils {
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
       return promise;
     }
-    if (session.isDraining()) {
-      promise.setFailure(
-          new IllegalStateException(
-              "Cannot create stream: session "
-                  + connectStreamChannel.streamId()
-                  + " is DRAINING (RFC 9297 Section 5.3)"));
-      return promise;
-    }
     if (!session.isOpen()) {
       promise.setFailure(
           new IllegalStateException(

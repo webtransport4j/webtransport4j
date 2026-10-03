@@ -272,7 +272,7 @@
       cachedSessions = data.sessions || [];
 
       if (elements.sessionCountBadge) {
-        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING' || s.status === 'DRAINED').length;
+        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING').length;
         elements.sessionCountBadge.textContent = activeCount;
       }
 
@@ -320,11 +320,10 @@
     const isActive = s.id === currentSessionId;
     let statusClass = 'connected';
     if (s.status === 'DRAINING') statusClass = 'draining';
-    else if (s.status === 'DRAINED') statusClass = 'drained';
     else if (s.status === 'CLOSED') statusClass = 'closed';
     else if (s.status === 'CLOSED_ABRUPT') statusClass = 'closed_abrupt';
 
-    const statusColor = s.status === 'CONNECTED' ? '#10b981' : (s.status === 'DRAINING' ? '#f59e0b' : (s.status === 'DRAINED' ? '#c084fc' : '#ef4444'));
+    const statusColor = s.status === 'CONNECTED' ? '#10b981' : (s.status === 'DRAINING' ? '#f59e0b' : '#ef4444');
 
     return `
       <div class="session-card ${isActive ? 'active' : ''}" onclick="window.selectSession('${s.id}')">
@@ -406,9 +405,6 @@
     if (s.status === 'DRAINING') {
       dotClass = 'draining';
       pillClass = 'status-warning';
-    } else if (s.status === 'DRAINED') {
-      dotClass = 'drained';
-      pillClass = 'status-drained';
     } else if (s.status === 'CLOSED') {
       dotClass = 'closed';
       pillClass = 'status-critical';
@@ -419,11 +415,10 @@
     elements.detailStatusDot.className = `session-status-dot ${dotClass}`;
     elements.detailStatusPill.className = `status-badge ${pillClass}`;
 
-    // Lifecycle Guardrails: dynamically enable/disable buttons based on RFC 9297 Section 5.3 & 6
+    // Keep draining sessions usable until explicitly closed.
     const isDraining = s.status === 'DRAINING';
-    const isDrained = s.status === 'DRAINED';
     const isClosed = s.status === 'CLOSED' || s.status === 'CLOSED_ABRUPT';
-    const canOpenStreams = s.status === 'CONNECTED';
+    const canOpenStreams = ['CONNECTED', 'DRAINING'].includes(s.status);
 
     // 1. Open Stream buttons (header + tab pane)
     const headerOpenStreamBtn = document.getElementById('btn-header-open-stream');
@@ -434,13 +429,8 @@
           btn.disabled = true;
           btn.style.opacity = '0.45';
           btn.style.cursor = 'not-allowed';
-          if (isDraining || isDrained) {
-            btn.innerHTML = '🚫 Draining (No New Streams)';
-            btn.title = `RFC 9297 Section 5.3: While draining or drained, endpoints MUST NOT open new WebTransport streams.`;
-          } else {
-            btn.innerHTML = '🚫 Session Closed';
-            btn.title = `RFC 9297 Section 6: Closed sessions cannot open new streams.`;
-          }
+          btn.innerHTML = '🚫 Session Unavailable';
+          btn.title = 'Streams require an open session.';
         } else {
           btn.disabled = false;
           btn.style.opacity = '1';
@@ -454,11 +444,11 @@
     // 2. Drain button
     const drainBtn = document.getElementById('btn-session-drain');
     if (drainBtn) {
-      if (isDraining || isDrained || isClosed) {
+      if (isDraining || isClosed) {
         drainBtn.disabled = true;
         drainBtn.style.opacity = '0.45';
         drainBtn.style.cursor = 'not-allowed';
-        drainBtn.title = isClosed ? 'Session is closed.' : (isDrained ? 'Session already drained.' : 'Session is already draining.');
+        drainBtn.title = isClosed ? 'Session is closed.' : 'Session is already draining.';
       } else {
         drainBtn.disabled = false;
         drainBtn.style.opacity = '1';
@@ -477,13 +467,6 @@
         closeBtn.style.cursor = 'not-allowed';
         closeBtn.innerHTML = '🛑 Session Closed';
         closeBtn.title = 'Session is already closed.';
-      } else if (isDrained) {
-        closeBtn.disabled = false;
-        closeBtn.classList.add('ready-to-close');
-        closeBtn.style.opacity = '1';
-        closeBtn.style.cursor = 'pointer';
-        closeBtn.innerHTML = '🛑 Close Drained Session (0x2843)';
-        closeBtn.title = 'Session is fully drained (0 active streams). Click to cleanly send CLOSE_WEBTRANSPORT_SESSION capsule.';
       } else {
         closeBtn.disabled = false;
         closeBtn.classList.remove('ready-to-close');
@@ -670,8 +653,6 @@
         statusBadge = `<span class="status-badge" style="background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3);">CLOSED (FIN)</span>`;
       } else if (st.status === 'DRAINING') {
         statusBadge = `<span class="status-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">DRAINING</span>`;
-      } else if (st.status === 'DRAINED') {
-        statusBadge = `<span class="status-badge" style="background: rgba(192, 132, 252, 0.15); color: #c084fc; border: 1px solid rgba(192, 132, 252, 0.3);">DRAINED</span>`;
       } else if (st.status === 'RESET') {
         statusBadge = `<span class="status-badge status-critical">RESET (0x${(st.resetCode || 1).toString(16)})</span>`;
       }
@@ -919,8 +900,8 @@
   // 2. Open New Stream
   window.openStreamModal = function () {
     const s = (cachedSessions || []).find(x => x.id === currentSessionId);
-    if (s && s.status !== 'CONNECTED') {
-      alert(`Action Blocked by RFC 9297 Guardrail:\n\nCannot open new streams on session '${currentSessionId}' because its status is ${s.status}.\n\nUnder RFC 9297 Section 5.3 & 6, endpoints MUST NOT open new streams while draining, drained, or closed.`);
+    if (s && !['CONNECTED', 'DRAINING'].includes(s.status)) {
+      alert(`Cannot open streams on session '${currentSessionId}' because its status is ${s.status}. Streams require an open session.`);
       return;
     }
     const hint = document.getElementById('open-stream-session-hint');
@@ -1116,14 +1097,8 @@
     try {
       const data = await apiPost(`/api/admin/sessions/${currentSessionId}/capsules/drain`, {});
       if (data.success) {
-        const newStatus = data.status || data.session?.status || 'DRAINING';
-        if (newStatus === 'DRAINED') {
-          appendLog('OK', 'SESSION_DRAINED', `Session ${currentSessionId} status transitioned immediately to DRAINED.`,
-            '0 active streams pending. Session is fully drained and ready to close via CLOSE_WEBTRANSPORT_SESSION (0x2843).');
-        } else {
-          appendLog('OK', 'DRAIN_SENT', `Session ${currentSessionId} status changed to DRAINING. Extended CONNECT capsule dispatched.`,
-            'Server signaled to reject new streams while existing in-flight streams complete gracefully.');
-        }
+        appendLog('OK', 'DRAIN_SENT', `Session ${currentSessionId} status changed to DRAINING. Extended CONNECT capsule dispatched.`,
+          'Graceful shutdown signaled. Streams and datagrams remain permitted until the session closes.');
         selectSession(currentSessionId, false);
         loadSessions(false);
         loadAuditLog();
@@ -1279,7 +1254,7 @@
       const listData = await apiGet('/api/admin/sessions');
       cachedSessions = listData.sessions || [];
       if (elements.sessionCountBadge) {
-        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING' || s.status === 'DRAINED').length;
+        const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING').length;
         elements.sessionCountBadge.textContent = activeCount;
       }
       window.filterSessions();

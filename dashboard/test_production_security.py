@@ -46,6 +46,89 @@ class ProductionSecurityTest(unittest.TestCase):
         connection.close()
         return result
 
+    def test_stream_creation_after_drain_and_rejection_after_close(self):
+        session_id = "drain-regression"
+        try:
+            for state in ("DRAINING", "CLOSED", "CLOSED_ABRUPT"):
+                for count in (1, 2):
+                    with self.subTest(state=state, count=count):
+                        session = {
+                            "id": session_id, "status": state,
+                            "targetUrl": "https://localhost:4433/test", "nextStreamId": 4,
+                            "streams": [{"type": "connect", "status": state}],
+                            "flowControl": {}, "wireEvents": [],
+                        }
+                        server.MANAGED_SESSIONS[session_id] = session
+                        status, _, body = self.request(
+                            f"/api/admin/sessions/{session_id}/streams/create",
+                            "POST", {"type": "bidi", "payload": "final work", "count": count},
+                            authenticated=True,
+                        )
+                        if state in ("CLOSED", "CLOSED_ABRUPT"):
+                            self.assertEqual(400, status)
+                        else:
+                            self.assertEqual(200, status, body)
+                            self.assertTrue(json.loads(body)["success"])
+                            self.assertEqual("DRAINING", session["status"])
+                            self.assertEqual(count, session["activeStreams"])
+                            self.assertEqual("DRAINING", session["streams"][0]["status"])
+        finally:
+            server.MANAGED_SESSIONS.pop(session_id, None)
+
+    def test_draining_persists_until_explicit_close(self):
+        session_id = "drain-lifecycle"
+        session = {
+            "id": session_id, "status": "CONNECTED", "rawSessionId": 0,
+            "targetUrl": "https://localhost:4433/test", "nextStreamId": 4,
+            "streams": [{"streamId": 0, "type": "connect", "status": "ESTABLISHED"}],
+            "flowControl": {}, "wireEvents": [], "activeStreams": 0,
+        }
+        server.MANAGED_SESSIONS[session_id] = session
+        try:
+            with patch.object(server, "drain_server_session"), patch.object(server, "close_server_session"):
+                path = f"/api/admin/sessions/{session_id}"
+                status, _, body = self.request(path + "/capsules/drain", "POST", {}, authenticated=True)
+                self.assertEqual(200, status, body)
+                self.assertEqual("DRAINING", json.loads(body)["status"])
+                self.assertEqual(0, session["activeStreams"])
+                status, _, body = self.request(path + "/streams/create", "POST", {"payload": "final work"}, authenticated=True)
+                self.assertEqual(200, status, body)
+                stream_id = json.loads(body)["stream"]["streamId"]
+                status, _, body = self.request(path + f"/streams/{stream_id}/close", "POST", {}, authenticated=True)
+                self.assertEqual(200, status, body)
+                self.assertEqual(0, session["activeStreams"])
+                self.assertEqual("DRAINING", session["status"])
+                self.assertEqual("DRAINING", session["streams"][0]["status"])
+                status, _, body = self.request(path + "/capsules/close", "POST", {}, authenticated=True)
+                self.assertEqual(200, status, body)
+                self.assertEqual("CLOSED", session["status"])
+        finally:
+            server.MANAGED_SESSIONS.pop(session_id, None)
+
+    def test_failed_node_mutation_preserves_session_state(self):
+        session_id = "failed-mutation"
+        session = {"id": session_id, "status": "CONNECTED", "rawSessionId": 0,
+                   "targetUrl": "https://localhost:4433/test", "wireEvents": [], "streams": []}
+        server.MANAGED_SESSIONS[session_id] = session
+        try:
+            for action, helper in (("drain", "drain_server_session"),
+                                   ("close", "close_server_session")):
+                with patch.object(server, helper, side_effect=RuntimeError("node unavailable")):
+                    status, _, body = self.request(
+                        f"/api/admin/sessions/{session_id}/capsules/{action}",
+                        "POST", {}, authenticated=True)
+                    self.assertEqual(502, status, body)
+                    self.assertEqual("CONNECTED", session["status"])
+                    self.assertEqual([], session["wireEvents"])
+            with patch.object(server, "drain_server_session") as drain:
+                status, _, body = self.request("/api/admin/sessions/close-all", "POST",
+                                               {"mode": "drain"}, authenticated=True)
+                self.assertEqual(200, status, body)
+                drain.assert_called_with(0, session_id)
+                self.assertEqual("DRAINING", session["status"])
+        finally:
+            server.MANAGED_SESSIONS.pop(session_id, None)
+
     def test_private_routes_require_authentication(self):
         for path in ("/api/live-telemetry", "/api/telemetry/history?window=1h", "/api/admin/audit-log", "/api/cluster/status", "/jolokia/exec/java.lang:type=Memory/gc", "/api/node/jolokia/overview", "/metrics", "/api/reset"):
             with self.subTest(path=path):
@@ -116,7 +199,7 @@ class ProductionSecurityTest(unittest.TestCase):
         seen = []
         def upstream(request, **kwargs):
             seen.append(request.full_url)
-            response = io.BytesIO(json.dumps({"sessions": []}).encode())
+            response = io.BytesIO(json.dumps({"sessions": [], "success": True, "drained": True}).encode())
             response.status = 200
             return response
         with patch.dict(os.environ, {"WT4J_CLUSTER_NODES": ','.join(origins)}), patch.object(server, 'CLUSTER_NODES', nodes), patch.object(server.urllib.request, 'urlopen', side_effect=upstream):

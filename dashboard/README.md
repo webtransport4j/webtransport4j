@@ -136,9 +136,9 @@ All core settings are configurable via environment variables:
    - Audit trail capped at `MAX_AUDIT_LOG_ENTRIES` (oldest entries are popped when full).
    - Wire event logs and stream frame histories are strictly capped at 50 events per stream/session.
 5. **RFC 9297 Stream & Session Guardrails**:
-   - Endpoints strictly enforce RFC 9297 Section 5.3 & 6: creating new streams on `DRAINING`, `DRAINED`, `CLOSED`, or `CLOSED_ABRUPT` sessions is rejected with `400 Bad Request`.
-   - Session transitions to `DRAINED` automatically when active application streams (#4, #8, etc.) reach 0.
-   - Stream #0 (CONNECT control stream) is isolated from application stream counters and correctly terminates on session drain/close.
+   - Draft-16 Section 4.7 permits new streams and datagrams on `DRAINING` sessions. Closed sessions reject stream creation with `400 Bad Request`.
+   - Session stays `DRAINING` until closed; active stream counts show remaining work separately.
+   - Stream #0 (CONNECT control stream) is isolated from application stream counters and stays open during drain until session closure.
 6. **Graceful Fault Tolerance (Decoupled Mode)**:
    - Cluster node probe failures mark nodes `OFFLINE` without throwing unhandled exceptions.
    - Real traffic generator execution catches missing Java/Maven environments and returns `503 Service Unavailable` with actionable guidance instead of crashing.

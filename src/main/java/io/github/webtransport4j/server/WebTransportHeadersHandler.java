@@ -125,6 +125,16 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
       if (quic != null) {
+        Attribute<WebTransportServer> serverAttribute = quic.attr(WebTransportAttributeKeys.SERVER_KEY);
+        WebTransportServer admissionServer = serverAttribute == null ? null : serverAttribute.get();
+        Attribute<Boolean> connectionDrain = quic.attr(WebTransportAttributeKeys.CONNECTION_DRAINING);
+        if ((admissionServer != null && !admissionServer.isAcceptingSessions())
+            || (connectionDrain != null && Boolean.TRUE.equals(connectionDrain.get()))) {
+          ctx.writeAndFlush(new DefaultHttp3HeadersFrame(
+              new DefaultHttp3Headers().status(HttpResponseStatus.SERVICE_UNAVAILABLE.codeAsText())))
+              .addListener(ChannelFutureListener.CLOSE);
+          return;
+        }
         Attribute<Boolean> receivedAttr =
             quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
         Attribute<Boolean> validAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);

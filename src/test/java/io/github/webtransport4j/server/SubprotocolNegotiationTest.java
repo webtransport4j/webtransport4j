@@ -115,6 +115,7 @@ public class SubprotocolNegotiationTest {
 
     // WebTransportServer setup with custom handler selecting a protocol
     WebTransportServer mockServer = mock(WebTransportServer.class);
+    when(mockServer.isAcceptingSessions()).thenReturn(true);
     WebTransportHandler customHandler =
         new WebTransportHandler() {
           @Override

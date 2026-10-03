@@ -166,6 +166,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
     }
     ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
+    this.server.registerConnection(ch);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS).set(this.globalSessionSlots);
     WebTransportSessionManager sessionManager = new WebTransportSessionManager();
