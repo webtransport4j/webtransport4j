@@ -130,9 +130,16 @@ def spawn_persistent_session(target_url, stream_count=0, stream_type="bidi", pay
     lib_dir = os.path.join(PROJECT_ROOT, "target", "lib")
     classes_dir = os.path.join(PROJECT_ROOT, "target", "classes")
     cp_sep = os.pathsep
-    cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
-                "io.github.webtransport4j.example.RealTrafficGenerator", "session",
-                target_url, str(stream_count), stream_type, "3600", payload]
+    if os.path.isdir(lib_dir):
+        cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+                    "io.github.webtransport4j.example.RealTrafficGenerator", "session",
+                    target_url, str(stream_count), stream_type, "3600", payload]
+    else:
+        mvn_cmd = "mvn.cmd" if sys.platform.startswith("win") or os.name == "nt" else "mvn"
+        args_str = f"session {target_url} {stream_count} {stream_type} 3600 {payload}"
+        cmd_args = [mvn_cmd, "-B", "-q", "exec:java",
+                    "-Dexec.mainClass=io.github.webtransport4j.example.RealTrafficGenerator",
+                    f"-Dexec.args={args_str}"]
     proc = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=PROJECT_ROOT)
     data = None
     first_lines = []
@@ -157,7 +164,6 @@ def spawn_persistent_session(target_url, stream_count=0, stream_type="bidi", pay
     err = proc.stderr.read() if proc.poll() is not None else ""
     return proc, {"status": "ERROR", "error": "No JSON status received from RealTrafficGenerator", "raw": "\n".join(first_lines), "stderr": err}
 
-CLUSTER_PORTS = [8081, 8082, 8083]
 CLUSTER_NODES = []
 CLUSTER_ACTIVE_SESSIONS_COUNT = 0
 
