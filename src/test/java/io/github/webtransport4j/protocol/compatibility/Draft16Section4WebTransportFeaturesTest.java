@@ -25,7 +25,6 @@ import io.github.webtransport4j.server.WebTransportUniStreamInitializer;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -38,17 +37,16 @@ import org.junit.Test;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 4: WebTransport Features.
- * Directly exercises application components: {@link UnknownStreamHandlerFactory},
- * {@link WebTransportUniStreamHeaderDecoder}, {@link WebTransportDetectorHandler},
- * {@link WebTransportDatagramDecoder}, {@link WebTransportCapsuleHandler}, and {@link WebTransportUtils}.
+ * Directly exercises application components: {@link UnknownStreamHandlerFactory}, {@link
+ * WebTransportUniStreamHeaderDecoder}, {@link WebTransportDetectorHandler}, {@link
+ * WebTransportDatagramDecoder}, {@link WebTransportCapsuleHandler}, and {@link WebTransportUtils}.
  */
 public class Draft16Section4WebTransportFeaturesTest {
 
   /**
-   * Section 4.1: Transport Properties.
-   * "Unreliable Delivery: WebTransport over HTTP/3 supports unreliable delivery...
-   * Pooling: WebTransport over HTTP/3 provides optional support for pooling."
-   * OPTIONAL: Optional transport properties query interface.
+   * Section 4.1: Transport Properties. "Unreliable Delivery: WebTransport over HTTP/3 supports
+   * unreliable delivery... Pooling: WebTransport over HTTP/3 provides optional support for
+   * pooling." OPTIONAL: Optional transport properties query interface.
    */
   @Test
   public void testSection4_1_TransportProperties_Optional() {
@@ -56,10 +54,9 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.2: Unidirectional streams.
-   * "The HTTP/3 unidirectional stream type SHALL be 0x54."
-   * MANDATORY: Test UnknownStreamHandlerFactory recognizes 0x54 as WebTransport Uni stream
-   * and rejects unknown stream types with H3_STREAM_CREATION_ERROR (0x010e).
+   * Section 4.2: Unidirectional streams. "The HTTP/3 unidirectional stream type SHALL be 0x54."
+   * MANDATORY: Test UnknownStreamHandlerFactory recognizes 0x54 as WebTransport Uni stream and
+   * rejects unknown stream types with H3_STREAM_CREATION_ERROR (0x010e).
    */
   @Test
   public void testSection4_2_UnidirectionalStreamTypeRecognitionInApplication() {
@@ -67,20 +64,22 @@ public class Draft16Section4WebTransportFeaturesTest {
 
     ChannelHandler wtHandler = factory.apply(WebTransportUtils.UNI_STREAM_TYPE);
     assertNotNull("Stream type 0x54 must produce WebTransportUniStreamInitializer", wtHandler);
-    assertTrue("Must be WebTransportUniStreamInitializer",
+    assertTrue(
+        "Must be WebTransportUniStreamInitializer",
         wtHandler instanceof WebTransportUniStreamInitializer);
 
     ChannelHandler unknownHandler = factory.apply(0x99L);
     assertNotNull("Unknown stream type must produce an initializer", unknownHandler);
-    assertFalse("Unknown stream type must NOT be WebTransportUniStreamInitializer",
+    assertFalse(
+        "Unknown stream type must NOT be WebTransportUniStreamInitializer",
         unknownHandler instanceof WebTransportUniStreamInitializer);
   }
 
   /**
-   * Section 4.2: Unidirectional streams.
-   * "The body of the stream SHALL be the stream type, followed by the session ID, encoded as a
-   * variable-length integer, followed by the user-specified stream data."
-   * MANDATORY: Test WebTransportUniStreamHeaderDecoder parses session ID and forwards user payload.
+   * Section 4.2: Unidirectional streams. "The body of the stream SHALL be the stream type, followed
+   * by the session ID, encoded as a variable-length integer, followed by the user-specified stream
+   * data." MANDATORY: Test WebTransportUniStreamHeaderDecoder parses session ID and forwards user
+   * payload.
    */
   @Test
   public void testSection4_2_UnidirectionalStreamDecoderInApplication() {
@@ -115,10 +114,14 @@ public class Draft16Section4WebTransportFeaturesTest {
     // Feed through pipeline
     testChannel.writeInbound(in);
 
-    assertEquals("Session ID attribute MUST be set to decoded session ID",
-        Long.valueOf(sessionId), testChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get());
-    assertEquals("Stream type attribute MUST be set to 0x54",
-        Long.valueOf(0x54L), testChannel.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get());
+    assertEquals(
+        "Session ID attribute MUST be set to decoded session ID",
+        Long.valueOf(sessionId),
+        testChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get());
+    assertEquals(
+        "Stream type attribute MUST be set to 0x54",
+        Long.valueOf(0x54L),
+        testChannel.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get());
 
     ByteBuf forwarded = testChannel.readInbound();
     assertNotNull("Stream payload MUST be forwarded to subsequent handlers", forwarded);
@@ -130,16 +133,17 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.3: Bidirectional Streams.
-   * "Clients and servers use the signal value 0x41 to open a bidirectional WebTransport stream."
-   * MANDATORY: Test WebTransportDetectorHandler detects 0x41 and hijacks pipeline.
+   * Section 4.3: Bidirectional Streams. "Clients and servers use the signal value 0x41 to open a
+   * bidirectional WebTransport stream." MANDATORY: Test WebTransportDetectorHandler detects 0x41
+   * and hijacks pipeline.
    */
   @Test
   public void testSection4_3_BidirectionalStreamDetectorInApplication() {
     WebTransportDetectorHandler detector = new WebTransportDetectorHandler();
     EmbeddedChannel channel = new EmbeddedChannel(new HttpServerCodec(), detector);
 
-    assertTrue("Pipeline initially contains HTTP codec",
+    assertTrue(
+        "Pipeline initially contains HTTP codec",
         channel.pipeline().get(HttpServerCodec.class) != null);
 
     ByteBuf bidiSignalBuf = Unpooled.buffer();
@@ -149,17 +153,17 @@ public class Draft16Section4WebTransportFeaturesTest {
     channel.writeInbound(bidiSignalBuf);
 
     // After detecting 0x41, standard HTTP handlers are stripped from the pipeline
-    assertFalse("HTTP codec MUST be removed upon detecting WT_STREAM signal (0x41)",
+    assertFalse(
+        "HTTP codec MUST be removed upon detecting WT_STREAM signal (0x41)",
         channel.pipeline().names().contains(HttpServerCodec.class.getSimpleName()));
     channel.finishAndReleaseAll();
   }
 
   /**
-   * Section 4.3: Bidirectional Streams.
-   * "Session IDs are derived from the stream ID of the CONNECT stream that established the session
-   * and therefore MUST always correspond to a client-initiated bidirectional stream, as defined in
-   * Section 2.1 of [RFC9000]."
-   * MANDATORY: Assert client-initiated bidirectional streams have IDs % 4 == 0.
+   * Section 4.3: Bidirectional Streams. "Session IDs are derived from the stream ID of the CONNECT
+   * stream that established the session and therefore MUST always correspond to a client-initiated
+   * bidirectional stream, as defined in Section 2.1 of [RFC9000]." MANDATORY: Assert
+   * client-initiated bidirectional streams have IDs % 4 == 0.
    */
   @Test
   public void testSection4_3_ClientInitiatedBidiFormulaValidation() {
@@ -183,42 +187,49 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.4: Resetting Data Streams.
-   * "WebTransport implementations MUST remap those error codes into the error range reserved for
-   * WT_APPLICATION_ERROR, where 0x00000000 corresponds to 0x52e4a40fa8db, and 0xffffffff corresponds
-   * to 0x52e5ac983162. Note that there are codepoints inside that range of form '0x1f * N + 0x21'
-   * that are reserved by Section 8.1 of [HTTP3]; those have to be skipped when mapping."
-   * MANDATORY: Test WebTransportUtils bidirectional error remapping functions.
+   * Section 4.4: Resetting Data Streams. "WebTransport implementations MUST remap those error codes
+   * into the error range reserved for WT_APPLICATION_ERROR, where 0x00000000 corresponds to
+   * 0x52e4a40fa8db, and 0xffffffff corresponds to 0x52e5ac983162. Note that there are codepoints
+   * inside that range of form '0x1f * N + 0x21' that are reserved by Section 8.1 of [HTTP3]; those
+   * have to be skipped when mapping." MANDATORY: Test WebTransportUtils bidirectional error
+   * remapping functions.
    */
   @Test
   public void testSection4_4_ApplicationErrorRemappingInApplication() {
     // Boundary test 0x00000000 -> 0x52e4a40fa8db
     long httpZero = WebTransportUtils.webTransportCodeToHttpCode(0x00000000L);
     assertEquals("0x00000000 must map to 0x52e4a40fa8db", 0x52e4a40fa8dbL, httpZero);
-    assertEquals("Round-trip mapping for 0 must yield 0", 0x00000000L,
+    assertEquals(
+        "Round-trip mapping for 0 must yield 0",
+        0x00000000L,
         WebTransportUtils.httpCodeToWebTransportCode(httpZero));
 
     // Boundary test 0xffffffff -> 0x52e5ac983162
     long httpMax = WebTransportUtils.webTransportCodeToHttpCode(0xffffffffL);
     assertEquals("0xffffffff must map to 0x52e5ac983162", 0x52e5ac983162L, httpMax);
-    assertEquals("Round-trip mapping for max must yield 0xffffffff", 0xffffffffL,
+    assertEquals(
+        "Round-trip mapping for max must yield 0xffffffff",
+        0xffffffffL,
         WebTransportUtils.httpCodeToWebTransportCode(httpMax));
 
     // Test skipping reserved codepoints of form 0x1f * N + 0x21
     for (long appCode = 0; appCode <= 200; appCode++) {
       long mapped = WebTransportUtils.webTransportCodeToHttpCode(appCode);
-      assertFalse("Mapped HTTP/3 error code MUST NOT be of form 0x1f * N + 0x21",
+      assertFalse(
+          "Mapped HTTP/3 error code MUST NOT be of form 0x1f * N + 0x21",
           (mapped - 0x21L) % 31L == 0L);
-      assertEquals("Round-trip must recover original application error code",
-          appCode, WebTransportUtils.httpCodeToWebTransportCode(mapped));
+      assertEquals(
+          "Round-trip must recover original application error code",
+          appCode,
+          WebTransportUtils.httpCodeToWebTransportCode(mapped));
     }
   }
 
   /**
-   * Section 4.5: Datagrams / Quarter Stream ID.
-   * "Quarter Stream ID: An integer that is a fourth of the Stream ID of the WebTransport CONNECT
-   * stream with which the datagram is associated."
-   * MANDATORY: Test WebTransportDatagramDecoder decodes quarter stream ID and shifts by 2 to session ID.
+   * Section 4.5: Datagrams / Quarter Stream ID. "Quarter Stream ID: An integer that is a fourth of
+   * the Stream ID of the WebTransport CONNECT stream with which the datagram is associated."
+   * MANDATORY: Test WebTransportDatagramDecoder decodes quarter stream ID and shifts by 2 to
+   * session ID.
    */
   @Test
   public void testSection4_5_DatagramDecoderQuarterStreamIdInApplication() {
@@ -245,9 +256,8 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.6: Buffering Incoming Streams and Datagrams.
-   * "The server MAY buffer incoming streams and datagrams before the session is established..."
-   * OPTIONAL: Buffering streams and datagrams.
+   * Section 4.6: Buffering Incoming Streams and Datagrams. "The server MAY buffer incoming streams
+   * and datagrams before the session is established..." OPTIONAL: Buffering streams and datagrams.
    */
   @Test
   public void testSection4_6_BufferingStreamsAndDatagrams_Optional() {
@@ -255,12 +265,11 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.7: Session Drain.
-   * "Length (i) = 0. The capsule MUST NOT contain any payload. An endpoint that receives a
-   * WT_DRAIN_SESSION capsule with a non-zero length MUST treat this as a session error of
-   * type H3_MESSAGE_ERROR."
-   * MANDATORY: Test WebTransportCapsuleHandler marks session as draining on valid WT_DRAIN_SESSION
-   * and resets connect stream with H3_MESSAGE_ERROR when payload is non-zero.
+   * Section 4.7: Session Drain. "Length (i) = 0. The capsule MUST NOT contain any payload. An
+   * endpoint that receives a WT_DRAIN_SESSION capsule with a non-zero length MUST treat this as a
+   * session error of type H3_MESSAGE_ERROR." MANDATORY: Test WebTransportCapsuleHandler marks
+   * session as draining on valid WT_DRAIN_SESSION and resets connect stream with H3_MESSAGE_ERROR
+   * when payload is non-zero.
    */
   @Test
   public void testSection4_7_SessionDrainCapsuleInApplication() throws Exception {
@@ -279,7 +288,8 @@ public class Draft16Section4WebTransportFeaturesTest {
 
     DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
     when(mockConnectStream.attr(any())).thenAnswer(inv -> streamAttrMap.attr(inv.getArgument(0)));
-    when(mockConnectStream.hasAttr(any())).thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
+    when(mockConnectStream.hasAttr(any()))
+        .thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
 
     mgr.register(mockConnectStream);
     WebTransportSession session = mgr.get(0L);
@@ -287,22 +297,23 @@ public class Draft16Section4WebTransportFeaturesTest {
     assertFalse("Session is not draining initially", session.isDraining());
 
     // Valid WT_DRAIN_SESSION with empty payload
-    WebTransportCapsule validDrainCapsule = new WebTransportCapsule(0L, 0x78aeL, Unpooled.EMPTY_BUFFER);
+    WebTransportCapsule validDrainCapsule =
+        new WebTransportCapsule(0L, 0x78aeL, Unpooled.EMPTY_BUFFER);
     WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, validDrainCapsule);
-    assertTrue("Session MUST be marked as draining after receiving valid WT_DRAIN_SESSION",
+    assertTrue(
+        "Session MUST be marked as draining after receiving valid WT_DRAIN_SESSION",
         session.isDraining());
 
     // Invalid WT_DRAIN_SESSION with non-empty payload
-    ByteBuf nonZeroPayload = Unpooled.wrappedBuffer(new byte[]{0x01});
+    ByteBuf nonZeroPayload = Unpooled.wrappedBuffer(new byte[] {0x01});
     WebTransportCapsule invalidDrainCapsule = new WebTransportCapsule(0L, 0x78aeL, nonZeroPayload);
     WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, invalidDrainCapsule);
     verify(mockConnectStream).shutdown(eq(0x010e), any());
   }
 
   /**
-   * Section 4.7: Session Drain.
-   * "Endpoints MAY continue using the session after sending or receiving a WT_DRAIN_SESSION capsule."
-   * OPTIONAL: Continued usage after drain.
+   * Section 4.7: Session Drain. "Endpoints MAY continue using the session after sending or
+   * receiving a WT_DRAIN_SESSION capsule." OPTIONAL: Continued usage after drain.
    */
   @Test
   public void testSection4_7_ContinueUsingSessionAfterDrain_Optional() {
@@ -310,12 +321,12 @@ public class Draft16Section4WebTransportFeaturesTest {
   }
 
   /**
-   * Section 4.8: Use of Keying Material Exporters.
-   * "If the application requests an exporter for a given WebTransport session with a specified label
-   * and context, the resulting exporter MUST be a TLS exporter as defined in Section 7.5 of [RFC8446]
-   * with the label set to 'EXPORTER-WebTransport' and the context set to the serialization of the
-   * 'WebTransport Exporter Context' struct."
-   * MANDATORY: Test WebTransportUtils.serializeExporterContext formats context struct correctly.
+   * Section 4.8: Use of Keying Material Exporters. "If the application requests an exporter for a
+   * given WebTransport session with a specified label and context, the resulting exporter MUST be a
+   * TLS exporter as defined in Section 7.5 of [RFC8446] with the label set to
+   * 'EXPORTER-WebTransport' and the context set to the serialization of the 'WebTransport Exporter
+   * Context' struct." MANDATORY: Test WebTransportUtils.serializeExporterContext formats context
+   * struct correctly.
    */
   @Test
   public void testSection4_8_KeyingMaterialExporterContextSerializationInApplication() {

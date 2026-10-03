@@ -51,7 +51,8 @@ public class WebTransportUniStreamHeaderDecoder extends ByteToMessageDecoder {
             savedPath = session.path();
           }
         }
-        if (savedPath == null && parentQuic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
+        if (savedPath == null
+            && parentQuic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
           savedPath = parentQuic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).get();
         }
       }

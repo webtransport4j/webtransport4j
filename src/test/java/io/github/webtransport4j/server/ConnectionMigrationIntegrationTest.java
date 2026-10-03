@@ -155,8 +155,7 @@ public class ConnectionMigrationIntegrationTest {
     serverGroup = new NioEventLoopGroup(1);
     clientGroup = new NioEventLoopGroup(1);
 
-    SelfSignedCertificate ssc =
-        new SelfSignedCertificate();
+    SelfSignedCertificate ssc = new SelfSignedCertificate();
     QuicSslContext serverSslContext =
         QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
             .applicationProtocols(Http3.supportedApplicationProtocols())

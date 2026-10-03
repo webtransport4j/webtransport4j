@@ -164,14 +164,12 @@ public class WebTransportConfigTest {
     System.setProperty("webtransport4j.epoll.gso.size", "0");
     int sizeInvalidLow = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
     assertThrows(
-        IllegalArgumentException.class,
-        () -> WebTransportServer.validateGsoSize(sizeInvalidLow));
+        IllegalArgumentException.class, () -> WebTransportServer.validateGsoSize(sizeInvalidLow));
 
     System.setProperty("webtransport4j.epoll.gso.size", "65");
     int sizeInvalidHigh = WebTransportConfig.getInt("webtransport4j.epoll.gso.size", 64);
     assertThrows(
-        IllegalArgumentException.class,
-        () -> WebTransportServer.validateGsoSize(sizeInvalidHigh));
+        IllegalArgumentException.class, () -> WebTransportServer.validateGsoSize(sizeInvalidHigh));
 
     // Valid bounds must succeed
     WebTransportServer.validateGsoSize(1);
@@ -194,40 +192,62 @@ public class WebTransportConfigTest {
     File tempFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Write custom properties to the local file for all dynamic parameters
-      Files.write(tempFile.toPath(), Arrays.asList(
-          "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=999",
-          "webtransport4j.server.ratelimit.max_tracked_ips=12345",
-          "webtransport4j.server.ratelimit.filter_engine=trie",
-          "webtransport4j.server.ratelimit.whitelist=8.8.8.8,9.9.9.9",
-          "webtransport4j.server.ratelimit.overrides=10.0.0.1:5,10.0.0.2:0",
-          "webtransport4j.server.ratelimit.blocklist=5.5.5.5,6.6.6.6",
-          "webtransport4j.server.ratelimit.blocklist.bloom_capacity=2000000",
-          "webtransport4j.server.ratelimit.blocklist.bloom_fpp=0.00001",
-          "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi=77",
-          "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni=88",
-          "webtransport4j.session.resumption.timeout.seconds=120"
-      ));
+      Files.write(
+          tempFile.toPath(),
+          Arrays.asList(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute=999",
+              "webtransport4j.server.ratelimit.max_tracked_ips=12345",
+              "webtransport4j.server.ratelimit.filter_engine=trie",
+              "webtransport4j.server.ratelimit.whitelist=8.8.8.8,9.9.9.9",
+              "webtransport4j.server.ratelimit.overrides=10.0.0.1:5,10.0.0.2:0",
+              "webtransport4j.server.ratelimit.blocklist=5.5.5.5,6.6.6.6",
+              "webtransport4j.server.ratelimit.blocklist.bloom_capacity=2000000",
+              "webtransport4j.server.ratelimit.blocklist.bloom_fpp=0.00001",
+              "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi=77",
+              "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni=88",
+              "webtransport4j.session.resumption.timeout.seconds=120"));
 
       // 2. Trigger reload
       WebTransportConfig.reload();
 
       // 3. Verify all values are resolved correctly
-      assertEquals(999,
-          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
-      assertEquals(12345, WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000));
-      assertEquals("trie", WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "netty"));
-      assertEquals("8.8.8.8,9.9.9.9", WebTransportConfig.get("webtransport4j.server.ratelimit.whitelist", ""));
-      assertEquals("10.0.0.1:5,10.0.0.2:0", WebTransportConfig.get("webtransport4j.server.ratelimit.overrides", ""));
-      assertEquals("5.5.5.5,6.6.6.6", WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist", ""));
-      assertEquals(2000000,
-          WebTransportConfig.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
-      assertEquals("0.00001",
-          WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
-      assertEquals(77L,
-          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
-      assertEquals(88L,
-          WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
-      assertEquals(120L, WebTransportConfig.getLong("webtransport4j.session.resumption.timeout.seconds", 60L));
+      assertEquals(
+          999,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+      assertEquals(
+          12345,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000));
+      assertEquals(
+          "trie", WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "netty"));
+      assertEquals(
+          "8.8.8.8,9.9.9.9",
+          WebTransportConfig.get("webtransport4j.server.ratelimit.whitelist", ""));
+      assertEquals(
+          "10.0.0.1:5,10.0.0.2:0",
+          WebTransportConfig.get("webtransport4j.server.ratelimit.overrides", ""));
+      assertEquals(
+          "5.5.5.5,6.6.6.6",
+          WebTransportConfig.get("webtransport4j.server.ratelimit.blocklist", ""));
+      assertEquals(
+          2000000,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000));
+      assertEquals(
+          "0.00001",
+          WebTransportConfig.get(
+              "webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
+      assertEquals(
+          77L,
+          WebTransportConfig.getLong(
+              "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", 5000L));
+      assertEquals(
+          88L,
+          WebTransportConfig.getLong(
+              "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni", 5000L));
+      assertEquals(
+          120L,
+          WebTransportConfig.getLong("webtransport4j.session.resumption.timeout.seconds", 60L));
 
     } finally {
       // 4. Clean up the file
@@ -242,10 +262,12 @@ public class WebTransportConfigTest {
   @Test
   public void testSetPropertyAndRemoveProperty() {
     WebTransportConfig.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
-    assertEquals("VIRTUAL_THREADS", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", null));
+    assertEquals(
+        "VIRTUAL_THREADS", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", null));
 
     WebTransportConfig.removeProperty("webtransport4j.dispatch.execution.mode");
-    assertEquals("NETTY_EVENT_LOOP",
+    assertEquals(
+        "NETTY_EVENT_LOOP",
         WebTransportConfig.get("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL"));
   }
 }

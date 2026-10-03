@@ -1,6 +1,5 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http3.Http3Settings;
@@ -101,8 +100,7 @@ public class Http3InboundControlStreamHandler
 
         boolean flowControlEnabled = WebTransportSessionManager.isFlowControlNegotiated(quic);
 
-        WebTransportSessionManager mgr =
-            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
           for (NettyWebTransportSession session : mgr.getSessions()) {
             if (peerUni != null) {

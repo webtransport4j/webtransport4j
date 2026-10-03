@@ -60,13 +60,15 @@ import org.slf4j.LoggerFactory;
 /**
  * Rigorous multi-phase datagram stress, stability, and integrity test with exact assertions.
  *
- * <p>Phase 1: Deterministic Lossless Verification (Exact 1,000 / 1,000 ACK equality per-connection).
- * Phase 2: Exact Invalid Session ID Injection (Exact 200 / 200 discard equality without drops).
- * Phase 3: High-concurrency 60-second bombardment with strict 0 cross-talk, 0 corruption, 0 duplicates.
+ * <p>Phase 1: Deterministic Lossless Verification (Exact 1,000 / 1,000 ACK equality
+ * per-connection). Phase 2: Exact Invalid Session ID Injection (Exact 200 / 200 discard equality
+ * without drops). Phase 3: High-concurrency 60-second bombardment with strict 0 cross-talk, 0
+ * corruption, 0 duplicates.
  */
 public class WebTransportDatagramStressTest {
 
-  private static final Logger logger = LoggerFactory.getLogger(WebTransportDatagramStressTest.class);
+  private static final Logger logger =
+      LoggerFactory.getLogger(WebTransportDatagramStressTest.class);
 
   private static final int NUM_CONNECTIONS = 10;
   private static final int SENDER_THREADS = 4;
@@ -162,9 +164,7 @@ public class WebTransportDatagramStressTest {
     WebTransportConfig.reload();
   }
 
-  /**
-   * Represents an active WebTransport client connection with independent telemetry counters.
-   */
+  /** Represents an active WebTransport client connection with independent telemetry counters. */
   private static final class ClientConnection {
     final int id;
     final Channel udpChannel;
@@ -178,11 +178,7 @@ public class WebTransportDatagramStressTest {
     final AtomicLong seqGenerator = new AtomicLong(0);
     final Set<Long> seenSeqs = ConcurrentHashMap.newKeySet();
 
-    ClientConnection(
-        int id,
-        Channel udpChannel,
-        QuicChannel quicChannel,
-        long sessionId) {
+    ClientConnection(int id, Channel udpChannel, QuicChannel quicChannel, long sessionId) {
       this.id = id;
       this.udpChannel = udpChannel;
       this.quicChannel = quicChannel;
@@ -209,7 +205,8 @@ public class WebTransportDatagramStressTest {
 
   /**
    * Executes multi-phase testing: exact deterministic delivery (Phase 1), exact fake session
-   * rejection (Phase 2), and 60-second high-concurrency bombardment with rigorous assertions (Phase 3).
+   * rejection (Phase 2), and 60-second high-concurrency bombardment with rigorous assertions (Phase
+   * 3).
    */
   @Test
   public void testTenConnectionsDatagramBombardmentWithIntegrity() throws Exception {
@@ -256,7 +253,8 @@ public class WebTransportDatagramStressTest {
     // =========================================================================
     // PHASE 1: Rigorous Deterministic Exact-Count Verification (Lossless)
     // =========================================================================
-    logger.info("🧪 [Phase 1] Executing exact deterministic delivery test ({} per connection)...",
+    logger.info(
+        "🧪 [Phase 1] Executing exact deterministic delivery test ({} per connection)...",
         PHASE1_COUNT_PER_CONN);
     final int expectedPhase1Total = NUM_CONNECTIONS * PHASE1_COUNT_PER_CONN;
     for (int i = 0; i < NUM_CONNECTIONS; i++) {
@@ -281,22 +279,28 @@ public class WebTransportDatagramStressTest {
     }
 
     // STRICT PHASE 1 ASSERTIONS
-    assertEquals("Phase 1: Exact total ACKs must match sent count",
-        (long) expectedPhase1Total, totalAcks.get());
+    assertEquals(
+        "Phase 1: Exact total ACKs must match sent count",
+        (long) expectedPhase1Total,
+        totalAcks.get());
     for (int i = 0; i < NUM_CONNECTIONS; i++) {
-      assertEquals("Phase 1: Connection #" + i + " must receive EXACTLY " + PHASE1_COUNT_PER_CONN + " ACKs",
-          (long) PHASE1_COUNT_PER_CONN, connections[i].acksReceived.get());
+      assertEquals(
+          "Phase 1: Connection #" + i + " must receive EXACTLY " + PHASE1_COUNT_PER_CONN + " ACKs",
+          (long) PHASE1_COUNT_PER_CONN,
+          connections[i].acksReceived.get());
     }
     assertEquals("Phase 1: Cross-talk MUST be exactly 0", 0L, totalCrossTalk.get());
     assertEquals("Phase 1: Payload corruption MUST be exactly 0", 0L, totalCorrupt.get());
     assertEquals("Phase 1: Duplicate ACKs MUST be exactly 0", 0L, totalDuplicates.get());
-    logger.info("✅ [Phase 1 PASSED] 100.00% lossless delivery verified: exactly {} / {} ACKs",
+    logger.info(
+        "✅ [Phase 1 PASSED] 100.00% lossless delivery verified: exactly {} / {} ACKs",
         totalAcks.get(), expectedPhase1Total);
 
     // =========================================================================
     // PHASE 2: Exact Invalid Session ID Rejection Verification
     // =========================================================================
-    logger.info("🧪 [Phase 2] Executing exact invalid session rejection test ({} per connection)...",
+    logger.info(
+        "🧪 [Phase 2] Executing exact invalid session rejection test ({} per connection)...",
         PHASE2_FAKE_PER_CONN);
     final int expectedPhase2Fake = NUM_CONNECTIONS * PHASE2_FAKE_PER_CONN;
     final long discardsBeforePhase2 = serverDiscards.get();
@@ -325,21 +329,26 @@ public class WebTransportDatagramStressTest {
 
     // STRICT PHASE 2 ASSERTIONS
     long actualPhase2Discards = serverDiscards.get() - discardsBeforePhase2;
-    assertEquals("Phase 2: Server must discard EXACT number of fake datagrams",
-        (long) expectedPhase2Fake, actualPhase2Discards);
-    assertEquals("Phase 2: Fake datagrams MUST NEVER produce ACKs",
-        acksBeforePhase2, totalAcks.get());
+    assertEquals(
+        "Phase 2: Server must discard EXACT number of fake datagrams",
+        (long) expectedPhase2Fake,
+        actualPhase2Discards);
+    assertEquals(
+        "Phase 2: Fake datagrams MUST NEVER produce ACKs", acksBeforePhase2, totalAcks.get());
     for (ClientConnection conn : connections) {
-      assertTrue("Phase 2: Connection #" + conn.id + " must not be closed by fake datagrams",
+      assertTrue(
+          "Phase 2: Connection #" + conn.id + " must not be closed by fake datagrams",
           conn.quicChannel.isActive());
     }
-    logger.info("✅ [Phase 2 PASSED] 100.00% safe rejection verified: exactly {} / {} discarded",
+    logger.info(
+        "✅ [Phase 2 PASSED] 100.00% safe rejection verified: exactly {} / {} discarded",
         actualPhase2Discards, expectedPhase2Fake);
 
     // =========================================================================
     // PHASE 3: 60-Second Full Concurrency Bombardment
     // =========================================================================
-    logger.info("🧪 [Phase 3] Launching {}s continuous stress bombardment across 10 connections...",
+    logger.info(
+        "🧪 [Phase 3] Launching {}s continuous stress bombardment across 10 connections...",
         durationSeconds);
     final AtomicBoolean stopSignal = new AtomicBoolean(false);
     final ExecutorService senderPool = Executors.newFixedThreadPool(SENDER_THREADS);
@@ -415,9 +424,7 @@ public class WebTransportDatagramStressTest {
       }
     }
     assertEquals(
-        "All connections MUST remain active throughout test",
-        NUM_CONNECTIONS,
-        activeConnections);
+        "All connections MUST remain active throughout test", NUM_CONNECTIONS, activeConnections);
 
     // Close all connections immediately to freeze telemetry counters
     for (ClientConnection conn : connections) {
@@ -486,7 +493,9 @@ public class WebTransportDatagramStressTest {
     // 2. Strict Server State & Conservation
     assertTrue("Server must remain running after stress test", server.isRunning());
     assertTrue(
-        "ACK throughput must be substantial under full bombardment (observed: " + ackThroughput + " ACKs/sec)",
+        "ACK throughput must be substantial under full bombardment (observed: "
+            + ackThroughput
+            + " ACKs/sec)",
         ackThroughput >= 100.0);
 
     // 3. Strict Per-Connection Liveness, Fairness & Mathematical Conservation
@@ -508,13 +517,20 @@ public class WebTransportDatagramStressTest {
 
       // Eliminate weak '> 0' check: assert strict minimum received ACKs
       assertTrue(
-          "Connection #" + conn.id + " must receive at least " + minExpectedAcksPerConn
-              + " ACKs (received " + connAcks + ")",
+          "Connection #"
+              + conn.id
+              + " must receive at least "
+              + minExpectedAcksPerConn
+              + " ACKs (received "
+              + connAcks
+              + ")",
           connAcks >= minExpectedAcksPerConn);
 
       // Strict Bijective Sequence Tracking: Every ACK corresponds to an exact unique sequence
       assertEquals(
-          "Connection #" + conn.id + " seenSeqs count must EXACTLY equal acksReceived (strict bijection)",
+          "Connection #"
+              + conn.id
+              + " seenSeqs count must EXACTLY equal acksReceived (strict bijection)",
           connAcks,
           (long) conn.seenSeqs.size());
 
@@ -529,7 +545,11 @@ public class WebTransportDatagramStressTest {
       // Ensure each connection received fair traffic (>= 2% of total traffic)
       double connShare = (double) connAcks / acks;
       assertTrue(
-          "Connection #" + conn.id + " share (" + connShare + ") must be fairly distributed (>= 0.02)",
+          "Connection #"
+              + conn.id
+              + " share ("
+              + connShare
+              + ") must be fairly distributed (>= 0.02)",
           connShare >= 0.02);
     }
 
@@ -539,9 +559,7 @@ public class WebTransportDatagramStressTest {
         totalValidSent.get(),
         sumValidSent);
     assertEquals(
-        "Sum of connection acksReceived must EXACTLY equal totalAcks",
-        totalAcks.get(),
-        sumAcks);
+        "Sum of connection acksReceived must EXACTLY equal totalAcks", totalAcks.get(), sumAcks);
     assertEquals(
         "Sum of connection crossTalk must EXACTLY equal totalCrossTalk",
         totalCrossTalk.get(),
@@ -555,13 +573,9 @@ public class WebTransportDatagramStressTest {
         totalCorrupt.get(),
         sumCorrupt);
     assertEquals(
-        "Total sent must EXACTLY equal validSent + fakeSent",
-        totalSent,
-        validSent + fakeSent);
+        "Total sent must EXACTLY equal validSent + fakeSent", totalSent, validSent + fakeSent);
     assertEquals(
-        "All connections MUST remain active throughout test",
-        NUM_CONNECTIONS,
-        activeConnections);
+        "All connections MUST remain active throughout test", NUM_CONNECTIONS, activeConnections);
   }
 
   private ClientConnection connectClient(
@@ -629,7 +643,8 @@ public class WebTransportDatagramStressTest {
                                         int senderConnId =
                                             Integer.parseInt(text.substring(8, firstColon));
                                         long seq =
-                                            Long.parseLong(text.substring(firstColon + 5, secondColon));
+                                            Long.parseLong(
+                                                text.substring(firstColon + 5, secondColon));
                                         long sentTime =
                                             Long.parseLong(text.substring(secondColon + 1));
                                         long rtt = System.nanoTime() - sentTime;
@@ -767,52 +782,92 @@ public class WebTransportDatagramStressTest {
       ClientConnection[] connections) {
 
     StringBuilder sb = new StringBuilder("\n");
-    sb.append("========================================================================================\n");
-    sb.append("                       WEBTRANSPORT4J DATAGRAM STRESS & STABILITY REPORT         \n");
-    sb.append("========================================================================================\n");
-    sb.append(String.format(Locale.ROOT, "  Duration                 : %.2f seconds\n", durationSeconds));
+    sb.append(
+        "========================================================================================\n");
+    sb.append(
+        "                       WEBTRANSPORT4J DATAGRAM STRESS & STABILITY REPORT         \n");
+    sb.append(
+        "========================================================================================\n");
+    sb.append(
+        String.format(Locale.ROOT, "  Duration                 : %.2f seconds\n", durationSeconds));
     sb.append(String.format(Locale.ROOT, "  Concurrent Connections   : %d\n", numConnections));
     sb.append(String.format(Locale.ROOT, "  Total Datagrams Sent     : %,d\n", totalSent));
     sb.append(String.format(Locale.ROOT, "    ├── Valid Datagrams    : %,d\n", validSent));
     double fakePct = totalSent > 0 ? (fakeSent * 100.0 / totalSent) : 0.0;
-    sb.append(String.format(Locale.ROOT, "    └── Fake/Corrupt Sent  : %,d (%.1f%% injected)\n", fakeSent, fakePct));
-    sb.append(String.format(Locale.ROOT, "  Total ACKs Received      : %,d (%.2f%% delivery)\n", acks, deliveryRate));
-    sb.append(String.format(Locale.ROOT, "  Server Discarded Injected: %,d (100.0%% safe rejection)\n", discards));
-    sb.append(String.format(Locale.ROOT, "  Send Throughput          : %,.1f datagrams/sec\n", sentThroughput));
-    sb.append(String.format(Locale.ROOT, "  ACK Throughput           : %,.1f ACKs/sec\n", ackThroughput));
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        String.format(
+            Locale.ROOT,
+            "    └── Fake/Corrupt Sent  : %,d (%.1f%% injected)\n",
+            fakeSent,
+            fakePct));
+    sb.append(
+        String.format(
+            Locale.ROOT,
+            "  Total ACKs Received      : %,d (%.2f%% delivery)\n",
+            acks,
+            deliveryRate));
+    sb.append(
+        String.format(
+            Locale.ROOT, "  Server Discarded Injected: %,d (100.0%% safe rejection)\n", discards));
+    sb.append(
+        String.format(
+            Locale.ROOT, "  Send Throughput          : %,.1f datagrams/sec\n", sentThroughput));
+    sb.append(
+        String.format(Locale.ROOT, "  ACK Throughput           : %,.1f ACKs/sec\n", ackThroughput));
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     sb.append("                               ROUND-TRIP LATENCY (RTT)\n");
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     sb.append(String.format(Locale.ROOT, "  Min Latency              : %.3f ms\n", minLat));
     sb.append(String.format(Locale.ROOT, "  Mean Latency             : %.3f ms\n", meanLat));
     sb.append(String.format(Locale.ROOT, "  P50 (Median)             : %.3f ms\n", p50Lat));
     sb.append(String.format(Locale.ROOT, "  P90                      : %.3f ms\n", p90Lat));
     sb.append(String.format(Locale.ROOT, "  P99                      : %.3f ms\n", p99Lat));
     sb.append(String.format(Locale.ROOT, "  Max Latency              : %.3f ms\n", maxLat));
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     sb.append("                           CONCURRENCY & INTEGRITY VERIFICATION\n");
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     String passC = crossTalk == 0 ? "PASSED - ZERO LEAKS" : "FAILED";
     String passD = corrupt == 0 ? "PASSED - ZERO CORRUPTION" : "FAILED";
     String passDup = duplicates == 0 ? "PASSED - ZERO DUPLICATES" : "FAILED";
-    sb.append(String.format(Locale.ROOT, "  Cross-Talk Errors        : %d  [%s]\n", crossTalk, passC));
-    sb.append(String.format(Locale.ROOT, "  Payload Data Corruption  : %d  [%s]\n", corrupt, passD));
-    sb.append(String.format(Locale.ROOT, "  Duplicate ACKs           : %d  [%s]\n", duplicates, passDup));
-    sb.append(String.format(
-        Locale.ROOT, "  Active Connections Kept  : %d / %d  [PASSED - 100%% STABLE]\n",
-        numConnections, numConnections));
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        String.format(Locale.ROOT, "  Cross-Talk Errors        : %d  [%s]\n", crossTalk, passC));
+    sb.append(
+        String.format(Locale.ROOT, "  Payload Data Corruption  : %d  [%s]\n", corrupt, passD));
+    sb.append(
+        String.format(Locale.ROOT, "  Duplicate ACKs           : %d  [%s]\n", duplicates, passDup));
+    sb.append(
+        String.format(
+            Locale.ROOT,
+            "  Active Connections Kept  : %d / %d  [PASSED - 100%% STABLE]\n",
+            numConnections,
+            numConnections));
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     sb.append("                              PER-CONNECTION BREAKDOWN\n");
-    sb.append("----------------------------------------------------------------------------------------\n");
+    sb.append(
+        "----------------------------------------------------------------------------------------\n");
     for (ClientConnection c : connections) {
-      double connRate = c.validSent.get() > 0 ? (c.acksReceived.get() * 100.0 / c.validSent.get()) : 0.0;
-      sb.append(String.format(
-          Locale.ROOT,
-          "  Conn #%d (Session %d): Sent=%,d | ACKed=%,d (%.1f%%) | CrossTalk=%d | Corrupt=%d\n",
-          c.id, c.sessionId, c.validSent.get(), c.acksReceived.get(), connRate,
-          c.crossTalkErrors.get(), c.corruptErrors.get()));
+      double connRate =
+          c.validSent.get() > 0 ? (c.acksReceived.get() * 100.0 / c.validSent.get()) : 0.0;
+      sb.append(
+          String.format(
+              Locale.ROOT,
+              "  Conn #%d (Session %d): Sent=%,d | ACKed=%,d (%.1f%%) | CrossTalk=%d |"
+                  + " Corrupt=%d\n",
+              c.id,
+              c.sessionId,
+              c.validSent.get(),
+              c.acksReceived.get(),
+              connRate,
+              c.crossTalkErrors.get(),
+              c.corruptErrors.get()));
     }
-    sb.append("========================================================================================\n");
+    sb.append(
+        "========================================================================================\n");
     System.out.println(sb);
   }
 }

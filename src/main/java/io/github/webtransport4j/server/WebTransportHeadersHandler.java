@@ -19,7 +19,6 @@ import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
-import io.netty.util.ReferenceCountUtil;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -40,6 +39,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public static final String UPGRADE_TOKEN_H3 = "webtransport-h3";
   public static final String UPGRADE_TOKEN_LEGACY = "webtransport";
+  public static final String HEADER_WT_AVAILABLE_PROTOCOLS = "wt-available-protocols";
+  public static final String HEADER_WT_PROTOCOL = "wt-protocol";
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
@@ -83,19 +84,22 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       ByteBuf body = ctx.alloc().buffer();
       body.writeCharSequence("Hello HTTP/3", StandardCharsets.UTF_8);
 
-      ctx.writeAndFlush(new DefaultHttp3DataFrame(body)).addListener(f -> {
-        if (f.isSuccess()) {
-          ((QuicStreamChannel) ctx.channel()).shutdownOutput();
-        } else {
-          logger.error("❌ Failed to send response body", f.cause());
-          ctx.close();
-        }
-      });
+      ctx.writeAndFlush(new DefaultHttp3DataFrame(body))
+          .addListener(
+              f -> {
+                if (f.isSuccess()) {
+                  ((QuicStreamChannel) ctx.channel()).shutdownOutput();
+                } else {
+                  logger.error("❌ Failed to send response body", f.cause());
+                  ctx.close();
+                }
+              });
 
       return;
     }
     if ("CONNECT".contentEquals(method)
-        && (UPGRADE_TOKEN_H3.contentEquals(protocol) || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
+        && (UPGRADE_TOKEN_H3.contentEquals(protocol)
+            || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
       if (!"https".contentEquals(scheme)) {
         logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
@@ -121,7 +125,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
       if (quic != null) {
-        Attribute<Boolean> receivedAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
+        Attribute<Boolean> receivedAttr =
+            quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED);
         Attribute<Boolean> validAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID);
         Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
         Boolean settingsValid = validAttr != null ? validAttr.get() : null;
@@ -138,8 +143,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         // and https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
         if (!WebTransportUtils.isClientInitiatedBidirectionalStream(sessionId)) {
           logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
-          quic.close(
-              true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
+          quic.close(true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
           return;
         }
         // Validate CORS allowed origins and authority host
@@ -158,7 +162,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           return;
         }
         WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-        int maxSessions = WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
+        int maxSessions =
+            WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
         if (mgr == null || !mgr.reserveSession(quic, maxSessions)) {
           logger.warn(
               "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
@@ -172,10 +177,12 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           return;
         }
 
-        Attribute<AtomicInteger> slotsAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
+        Attribute<AtomicInteger> slotsAttr =
+            quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS);
         AtomicInteger globalSlots = slotsAttr != null ? slotsAttr.get() : null;
-        int globalMaxSessions = WebTransportConfig.getInt(
-            "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
+        int globalMaxSessions =
+            WebTransportConfig.getInt(
+                "webtransport4j.server.max_concurrent_sessions", Integer.MAX_VALUE);
         if (globalMaxSessions <= 0) {
           globalMaxSessions = Integer.MAX_VALUE;
         }
@@ -194,16 +201,19 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         String pathStr = path.toString();
         AtomicBoolean pending = new AtomicBoolean(true);
-        connectStream.closeFuture().addListener(f -> {
-          if (pending.compareAndSet(true, false)) {
-            mgr.releaseReservation();
-            if (globalSlots != null) {
-              globalSlots.decrementAndGet();
-            }
-          } else {
-            mgr.unregister(connectStream);
-          }
-        });
+        connectStream
+            .closeFuture()
+            .addListener(
+                f -> {
+                  if (pending.compareAndSet(true, false)) {
+                    mgr.releaseReservation();
+                    if (globalSlots != null) {
+                      globalSlots.decrementAndGet();
+                    }
+                  } else {
+                    mgr.unregister(connectStream);
+                  }
+                });
         if (quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY) != null) {
           quic.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set(pathStr);
         }
@@ -230,10 +240,15 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
 
         if (logger.isDebugEnabled()) {
-          logger.debug("⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated Cipher: {}",
-              quic.remoteSocketAddress(), pathStr, tlsVersion, cipherSuite);
+          logger.debug(
+              "⚡ [WebTransport Session Established] Peer: {} | Path: {} | TLS: {} | Negotiated"
+                  + " Cipher: {}",
+              quic.remoteSocketAddress(),
+              pathStr,
+              tlsVersion,
+              cipherSuite);
         }
-        CharSequence availableProtocolsHeader = frame.headers().get("wt-available-protocols");
+        CharSequence availableProtocolsHeader = frame.headers().get(HEADER_WT_AVAILABLE_PROTOCOLS);
         String selectedProtocol = null;
         if (availableProtocolsHeader != null) {
           List<String> availableProtocols =
@@ -252,20 +267,22 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         responseHeaders.status(HttpResponseStatus.OK.codeAsText());
         if (selectedProtocol != null) {
           responseHeaders.add(
-              "wt-protocol", WebTransportUtils.formatProtocolHeader(selectedProtocol));
+              HEADER_WT_PROTOCOL, WebTransportUtils.formatProtocolHeader(selectedProtocol));
         }
 
-        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders)).addListener(f -> {
-          if (f.isSuccess() && pending.compareAndSet(true, false)) {
-            mgr.registerReserved(connectStream);
-          } else if (!f.isSuccess() && pending.compareAndSet(true, false)) {
-            mgr.releaseReservation();
-            if (globalSlots != null) {
-              globalSlots.decrementAndGet();
-            }
-            connectStream.close();
-          }
-        });
+        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders))
+            .addListener(
+                f -> {
+                  if (f.isSuccess() && pending.compareAndSet(true, false)) {
+                    mgr.registerReserved(connectStream);
+                  } else if (!f.isSuccess() && pending.compareAndSet(true, false)) {
+                    mgr.releaseReservation();
+                    if (globalSlots != null) {
+                      globalSlots.decrementAndGet();
+                    }
+                    connectStream.close();
+                  }
+                });
         if (logger.isDebugEnabled()) {
           logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
         }
@@ -283,7 +300,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
   }
 
   private static boolean reserveGlobalSlot(AtomicInteger slots, int limit) {
-    for (;;) {
+    for (; ; ) {
       int current = slots.get();
       if (current >= limit || current == Integer.MAX_VALUE) {
         return false;

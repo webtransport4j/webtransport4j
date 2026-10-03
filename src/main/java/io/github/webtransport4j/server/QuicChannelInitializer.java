@@ -115,8 +115,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
               public void userEventTriggered(ChannelHandlerContext ctx, Object evt)
                   throws Exception {
                 if (evt instanceof QuicPathEvent.PeerMigrated) {
-                  QuicPathEvent.PeerMigrated event =
-                      (QuicPathEvent.PeerMigrated) evt;
+                  QuicPathEvent.PeerMigrated event = (QuicPathEvent.PeerMigrated) evt;
                   String newRemoteAddress = event.remote().toString();
 
                   WebTransportMetricsListener metrics =
@@ -125,8 +124,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                     WebTransportSessionManager mgr =
                         ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
                     if (mgr != null) {
-                      for (WebTransportSession session :
-                          mgr.getSessions()) {
+                      for (WebTransportSession session : mgr.getSessions()) {
                         metrics.onConnectionMigration(
                             session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
                       }
@@ -134,14 +132,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                   }
                   currentRemoteAddress = newRemoteAddress;
                 }
-                  if (evt instanceof SslHandshakeCompletionEvent) {
-                      SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
-                      if (event.isSuccess()) {
-                            logger.info("Handshake successful");
-                      } else {
-                          logger.warn("Handshake failed", event.cause());
-                      }
+                if (evt instanceof SslHandshakeCompletionEvent) {
+                  SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+                  if (event.isSuccess()) {
+                    logger.info("Handshake successful");
+                  } else {
+                    logger.warn("Handshake failed", event.cause());
                   }
+                }
                 super.userEventTriggered(ctx, evt);
               }
             });

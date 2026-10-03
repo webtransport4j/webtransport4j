@@ -17,11 +17,11 @@ import org.reactivestreams.Subscription;
  *
  * <p>Buffers delivered by this publisher belong to its subscriber and must be released. This
  * wrapper's write subscriber consumes each incoming buffer reference and releases it after the
- * write completes, fails, or throws synchronously. The underlying stream's write method borrows
- * the buffer rather than consuming that reference.
+ * write completes, fails, or throws synchronously. The underlying stream's write method borrows the
+ * buffer rather than consuming that reference.
  */
 public class ReactiveWebTransportStream
-        implements Publisher<WebTransportBuffer>, Subscriber<WebTransportBuffer> {
+    implements Publisher<WebTransportBuffer>, Subscriber<WebTransportBuffer> {
 
   private final WebTransportStream stream;
   private Subscription subscription;
@@ -82,24 +82,24 @@ public class ReactiveWebTransportStream
       stream.setAutoRead(false);
 
       stream.onData(
-              buffer -> {
-                if (cancelled.get() || terminated.get()) {
-                  return;
-                }
-                // The dispatcher owns its original reference. Acquire one for reactive delivery.
-                buffer.retain();
-                pendingQueue.offer(buffer);
-                drainQueue();
-                checkAndTriggerRead();
-              });
+          buffer -> {
+            if (cancelled.get() || terminated.get()) {
+              return;
+            }
+            // The dispatcher owns its original reference. Acquire one for reactive delivery.
+            buffer.retain();
+            pendingQueue.offer(buffer);
+            drainQueue();
+            checkAndTriggerRead();
+          });
 
       stream.onClose(
-              () -> {
-                streamClosed.set(true);
-                if (!cancelled.get()) {
-                  drainQueue();
-                }
-              });
+          () -> {
+            streamClosed.set(true);
+            if (!cancelled.get()) {
+              drainQueue();
+            }
+          });
 
       stream.onError(this::signalError);
     }
@@ -155,7 +155,7 @@ public class ReactiveWebTransportStream
     }
 
     private void addDemand(long n) {
-      for (;;) {
+      for (; ; ) {
         long current = demand.get();
         if (current == Long.MAX_VALUE) {
           return;
@@ -247,8 +247,7 @@ public class ReactiveWebTransportStream
       return;
     }
 
-    writeFuture.whenComplete(
-            (result, failure) -> releaseAfterWrite(item, failure));
+    writeFuture.whenComplete((result, failure) -> releaseAfterWrite(item, failure));
   }
 
   private void releaseAfterWrite(WebTransportBuffer item, Throwable failure) {
@@ -262,7 +261,6 @@ public class ReactiveWebTransportStream
       item.close();
     }
   }
-
 
   @Override
   public void onError(Throwable throwable) {

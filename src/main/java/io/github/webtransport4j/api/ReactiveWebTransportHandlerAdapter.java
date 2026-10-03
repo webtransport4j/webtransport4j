@@ -8,8 +8,8 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 /**
- * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement
- * the standard {@link WebTransportHandler} interface.
+ * An adapter that wraps a {@link ReactiveWebTransportHandler} to implement the standard {@link
+ * WebTransportHandler} interface.
  */
 public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   private final ReactiveWebTransportHandler delegate;
@@ -23,51 +23,54 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   public void onSessionReady(@NonNull WebTransportSession session) {
     ReactiveWebTransportSession reactiveSession = new ReactiveWebTransportSession(session);
     sessions.put(session.getSessionStreamId(), reactiveSession);
-    delegate.onSessionReady(reactiveSession).subscribe(new Subscriber<Void>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(Long.MAX_VALUE);
-      }
+    delegate
+        .onSessionReady(reactiveSession)
+        .subscribe(
+            new Subscriber<Void>() {
+              @Override
+              public void onSubscribe(Subscription s) {
+                s.request(Long.MAX_VALUE);
+              }
 
-      @Override
-      public void onNext(Void unused) {
-      }
+              @Override
+              public void onNext(Void unused) {}
 
-      @Override
-      public void onError(Throwable t) {
-        reactiveSession.emitError(t);
-      }
+              @Override
+              public void onError(Throwable t) {
+                reactiveSession.emitError(t);
+              }
 
-      @Override
-      public void onComplete() {
-        reactiveSession.emitComplete();
-      }
-    });
+              @Override
+              public void onComplete() {
+                reactiveSession.emitComplete();
+              }
+            });
   }
 
   @Override
   public void onSessionClosed(@NonNull WebTransportSession session) {
     ReactiveWebTransportSession reactiveSession = sessions.remove(session.getSessionStreamId());
     if (reactiveSession != null) {
-      delegate.onSessionClosed(reactiveSession).subscribe(new Subscriber<Void>() {
-        @Override
-        public void onSubscribe(Subscription s) {
-          s.request(Long.MAX_VALUE);
-        }
+      delegate
+          .onSessionClosed(reactiveSession)
+          .subscribe(
+              new Subscriber<Void>() {
+                @Override
+                public void onSubscribe(Subscription s) {
+                  s.request(Long.MAX_VALUE);
+                }
 
-        @Override
-        public void onNext(Void unused) {
-        }
+                @Override
+                public void onNext(Void unused) {}
 
-        @Override
-        public void onError(Throwable t) {
-        }
+                @Override
+                public void onError(Throwable t) {}
 
-        @Override
-        public void onComplete() {
-          reactiveSession.emitComplete();
-        }
-      });
+                @Override
+                public void onComplete() {
+                  reactiveSession.emitComplete();
+                }
+              });
     }
   }
 
@@ -88,7 +91,8 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
     ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
     if (reactiveSession != null) {
       // This retained reference belongs to the receiveDatagrams() subscriber, which must close it.
-      // The delegate borrows the transport reference and must retain separately for asynchronous work.
+      // The delegate borrows the transport reference and must retain separately for asynchronous
+      // work.
       data.retain();
       reactiveSession.emitIncomingDatagram(data);
       subscribeAndIgnore(delegate.onDatagramReceived(reactiveSession, data));
@@ -96,23 +100,21 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   }
 
   private void subscribeAndIgnore(Publisher<Void> publisher) {
-    publisher.subscribe(new Subscriber<Void>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(Long.MAX_VALUE);
-      }
+    publisher.subscribe(
+        new Subscriber<Void>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            s.request(Long.MAX_VALUE);
+          }
 
-      @Override
-      public void onNext(Void unused) {
-      }
+          @Override
+          public void onNext(Void unused) {}
 
-      @Override
-      public void onError(Throwable t) {
-      }
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {
-      }
-    });
+          @Override
+          public void onComplete() {}
+        });
   }
 }

@@ -1,0 +1,46 @@
+name: Admin portal and analytics
+on:
+  pull_request:
+    paths: ['dashboard/**', 'k8s/dashboard-deployment.yaml', 'docker-compose-cluster.yml', '.github/workflows/dashboard.yml']
+  push:
+    paths: ['dashboard/**', 'k8s/dashboard-deployment.yaml', 'docker-compose-cluster.yml', '.github/workflows/dashboard.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify backend and security boundaries
+        run: |
+          python3 dashboard/test_dashboard_unit.py
+          python3 -m unittest discover -s dashboard -p test_production_security.py
+          node --check dashboard/app.js
+          node --check dashboard/admin.js
+      - name: Validate deployment and build portal
+        env:
+          WT4J_ADMIN_USERNAME: ci-operator
+          WT4J_ADMIN_PASSWORD: ci-test-only-password
+          WT4J_NODE_MANAGEMENT_TOKEN: ci-test-only-node-token
+          WT4J_OTLP_TOKEN: ci-test-only-ingestion-token
+          WT4J_CLUSTER_NODES: https://node.invalid:8080
+          WT4J_TLS_DIR: /test-only
+        run: |
+          docker compose -f dashboard/docker-compose.yml config --quiet
+          docker compose -f docker-compose-cluster.yml config --quiet
+          docker build -t webtransport4j-dashboard:ci dashboard
+      - name: Test live production portal and analytics stack
+        run: python3 dashboard/testing/run.py up
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: portal-integration-reports
+          path: dashboard/testing/.runtime/*.log
+          if-no-files-found: ignore
+      - name: Stop isolated test stack
+        if: always()
+        run: python3 dashboard/testing/run.py reset

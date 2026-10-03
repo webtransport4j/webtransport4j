@@ -4,8 +4,8 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import org.jspecify.annotations.NonNull;
 
 /**
- * Factory for creating {@link NettyWebTransportSession} instances.
- * Allows decoupling session creation from session management and provides extensibility for testing.
+ * Factory for creating {@link NettyWebTransportSession} instances. Allows decoupling session
+ * creation from session management and provides extensibility for testing.
  *
  * @author https://github.com/sanjomo
  */

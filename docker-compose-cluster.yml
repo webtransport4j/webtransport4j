@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # Node 1
+  wt-node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-1
+    restart: unless-stopped
+    ports:
+      - "4433:4433/udp"
+      - "8081:8080"
+    environment:
+      - POD_NAME=wt-node-1
+      - PORT=4433
+      - METRICS_PORT=8080
+      - JAVA_GC=${JAVA_GC:-ZGC}
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # Node 2
+  wt-node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-2
+    restart: unless-stopped
+    ports:
+      - "4434:4433/udp"
+      - "8082:8080"
+    environment:
+      - POD_NAME=wt-node-2
+      - PORT=4433
+      - METRICS_PORT=8080
+      - JAVA_GC=${JAVA_GC:-ZGC}
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # Node 3
+  wt-node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wt-node-3
+    restart: unless-stopped
+    ports:
+      - "4435:4433/udp"
+      - "8083:8080"
+    environment:
+      - POD_NAME=wt-node-3
+      - PORT=4433
+      - METRICS_PORT=8080
+      - JAVA_GC=${JAVA_GC:-ZGC}
+      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
+    networks:
+      - cluster-net
+
+  # OpenTelemetry Collector (Aggregates telemetry from all 3 cluster nodes)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    container_name: otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./dashboard/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus exporter
+    networks:
+      - cluster-net
+
+  # Production admin portal; node services above remain development examples.
+  webtransport-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "${WT4J_PORTAL_PORT:-8443}:8085"
+    environment:
+      WT4J_ADMIN_USERNAME: ${WT4J_ADMIN_USERNAME:?Set operator username}
+      WT4J_ADMIN_PASSWORD: ${WT4J_ADMIN_PASSWORD:?Set admin password}
+      WT4J_NODE_MANAGEMENT_TOKEN: ${WT4J_NODE_MANAGEMENT_TOKEN:?Set node management token}
+      WT4J_CLUSTER_NODES: ${WT4J_CLUSTER_NODES:?Set reachable management origins}
+      WT4J_PROMETHEUS_TARGETS: http://otel-collector:8889/metrics
+      WT4J_OTLP_TOKEN: ${WT4J_OTLP_TOKEN:?Set ingestion token}
+      WT4J_MAX_PAYLOAD_BYTES: "1048576"
+    volumes:
+      - ${WT4J_TLS_DIR:?Set TLS directory}:/run/tls:ro
+    networks:
+      - cluster-net
+
+networks:
+  cluster-net:
+    driver: bridge

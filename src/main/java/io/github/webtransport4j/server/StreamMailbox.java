@@ -3,11 +3,12 @@ package io.github.webtransport4j.server;
 import io.netty.channel.Channel;
 import io.netty.channel.EventLoop;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import java.util.ArrayDeque;
 import java.util.Objects;
-import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +16,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Sequential per-stream dispatcher with auto-read backpressure.
  *
- * <p>Queue publication, closure and worker ownership share one lock. Callbacks, executor submission
- * and frame release happen outside that lock. Closing drains queued frames; an in-flight frame is
- * released by its worker when the callback returns.
+ * <p>Lock-free MPSC design ensures Netty EventLoop threads never synchronize or block. Closing
+ * drains queued frames; an in-flight frame is released by its worker when the callback returns.
  */
 public final class StreamMailbox implements Runnable {
 
@@ -26,22 +26,20 @@ public final class StreamMailbox implements Runnable {
   @FunctionalInterface
   interface FrameDispatcher {
     void dispatch(@NonNull Channel channel, long sessionId, @NonNull WebTransportFrame frame)
-            throws Exception;
+        throws Exception;
   }
 
-  private final Object lock = new Object();
   private final QuicStreamChannel channel;
-  private final Queue<WebTransportFrame> queue = new ArrayDeque<>();
+  private final ConcurrentLinkedQueue<WebTransportFrame> queue = new ConcurrentLinkedQueue<>();
+  private final AtomicInteger size = new AtomicInteger();
+  private final AtomicBoolean processing = new AtomicBoolean();
+  private final AtomicBoolean closed = new AtomicBoolean();
+  private final AtomicBoolean paused = new AtomicBoolean();
   private final ExecutorService executor;
   private final FrameDispatcher dispatcher;
   private final long sessionId;
   private final int highWaterMark;
   private final int lowWaterMark;
-
-  // Guarded by lock. processing means a worker is scheduled or owns the drain loop.
-  private boolean processing;
-  private boolean closed;
-  private boolean paused;
 
   /**
    * Constructs a mailbox for one stream.
@@ -52,10 +50,10 @@ public final class StreamMailbox implements Runnable {
    * @param sessionId the session identifier
    */
   public StreamMailbox(
-          @NonNull QuicStreamChannel channel,
-          @NonNull ExecutorService executor,
-          @NonNull FrameDispatcher dispatcher,
-          long sessionId) {
+      @NonNull QuicStreamChannel channel,
+      @NonNull ExecutorService executor,
+      @NonNull FrameDispatcher dispatcher,
+      long sessionId) {
     this.channel = Objects.requireNonNull(channel, "channel must not be null");
     this.executor = Objects.requireNonNull(executor, "executor must not be null");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
@@ -77,23 +75,23 @@ public final class StreamMailbox implements Runnable {
    * @param frame the frame to enqueue
    */
   public void enqueue(@NonNull WebTransportFrame frame) {
-    boolean schedule;
-    synchronized (lock) {
-      if (closed) {
-        return;
-      }
-      frame.retain();
-      try {
-        queue.add(frame);
-      } catch (RuntimeException | Error failure) {
-        frame.release();
-        throw failure;
-      }
-      schedule = !processing;
-      if (schedule) {
-        processing = true;
-      }
+    if (closed.get()) {
+      return;
     }
+    frame.retain();
+    try {
+      queue.add(frame);
+      size.incrementAndGet();
+    } catch (RuntimeException | Error failure) {
+      frame.release();
+      throw failure;
+    }
+    if (closed.get()) {
+      drainAndRelease();
+      return;
+    }
+
+    boolean schedule = processing.compareAndSet(false, true);
 
     try {
       refreshAutoRead();
@@ -107,40 +105,34 @@ public final class StreamMailbox implements Runnable {
     }
   }
 
-  /** Prevents new publication and releases all queued frames, without touching an in-flight frame. */
+  /**
+   * Prevents new publication and releases all queued frames, without touching an in-flight frame.
+   */
   public void drainAndRelease() {
-    synchronized (lock) {
-      closed = true;
-    }
-    for (;;) {
-      WebTransportFrame frame;
-      synchronized (lock) {
-        frame = queue.poll();
-      }
-      if (frame == null) {
-        return;
-      }
+    closed.set(true);
+    WebTransportFrame frame;
+    while ((frame = queue.poll()) != null) {
+      size.decrementAndGet();
       releaseFrame(frame);
     }
   }
 
   @Override
   public void run() {
-    for (;;) {
-      WebTransportFrame frame;
-      synchronized (lock) {
-        if (closed) {
-          processing = false;
-          return;
-        }
-        frame = queue.poll();
-        if (frame == null) {
-          // Relinquish ownership atomically with observing an empty queue. No later finally block
-          // may clear this flag after a new worker acquires it.
-          processing = false;
-          return;
-        }
+    for (; ; ) {
+      if (closed.get()) {
+        processing.set(false);
+        return;
       }
+      WebTransportFrame frame = queue.poll();
+      if (frame == null) {
+        processing.set(false);
+        if (!queue.isEmpty() && processing.compareAndSet(false, true)) {
+          continue;
+        }
+        return;
+      }
+      size.decrementAndGet();
 
       try {
         try {
@@ -168,6 +160,7 @@ public final class StreamMailbox implements Runnable {
 
   private void failMailbox(String message, Throwable failure) {
     logger.error(message, failure);
+    processing.set(false);
     drainAndRelease();
     try {
       channel.shutdown(WebTransportUtils.WT_SESSION_GONE, channel.newPromise());
@@ -186,33 +179,37 @@ public final class StreamMailbox implements Runnable {
       applyAutoRead();
     } else {
       eventLoop.execute(
-              () -> {
-                try {
-                  applyAutoRead();
-                } catch (RuntimeException | Error failure) {
-                  failMailbox("Unable to apply stream backpressure", failure);
-                }
-              });
+          () -> {
+            try {
+              applyAutoRead();
+            } catch (RuntimeException | Error failure) {
+              failMailbox("Unable to apply stream backpressure", failure);
+            }
+          });
     }
   }
 
   // Execute on the event loop and calculate from current queue state, not a stale captured value.
   private void applyAutoRead() {
-    boolean autoRead;
-    synchronized (lock) {
-      if (closed) {
-        return;
-      }
-      int pending = queue.size();
-      if (!paused && pending > highWaterMark) {
-        paused = true;
-      } else if (paused && pending < lowWaterMark) {
-        paused = false;
-      } else {
-        return;
-      }
-      autoRead = !paused;
+    if (closed.get()) {
+      return;
     }
-    channel.config().setAutoRead(autoRead);
+    int pending = size.get();
+    boolean wasPaused = paused.get();
+    boolean newPaused;
+    if (!wasPaused && pending > highWaterMark) {
+      if (!paused.compareAndSet(false, true)) {
+        return;
+      }
+      newPaused = true;
+    } else if (wasPaused && pending < lowWaterMark) {
+      if (!paused.compareAndSet(true, false)) {
+        return;
+      }
+      newPaused = false;
+    } else {
+      return;
+    }
+    channel.config().setAutoRead(!newPaused);
   }
 }

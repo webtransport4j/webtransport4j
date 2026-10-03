@@ -55,7 +55,8 @@ public final class WebTransportDetectorHandler extends ByteToMessageDecoder {
     }
     if (marker == WebTransportUtils.BI_STREAM_TYPE) {
       if (logger.isDebugEnabled()) {
-        logger.debug("🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));
+        logger.debug(
+            "🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));
       }
       detected = true;
       hijackPipeline(ctx);
