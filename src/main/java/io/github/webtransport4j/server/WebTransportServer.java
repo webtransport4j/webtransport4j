@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -138,6 +139,8 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
+  private final Set<WebTransportSession> activeSessionsSet = ConcurrentHashMap.newKeySet();
+  private final Map<Long, WebTransportSession> activeSessionsById = new ConcurrentHashMap<>();
   private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
@@ -533,7 +536,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
-    return activeSessionsMap.size();
+    return activeSessionsSet.size();
   }
 
   /**
@@ -543,16 +546,51 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void registerSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
+    activeSessionsSet.add(session);
+    activeSessionsById.put(session.getUniqueSessionId(), session);
     activeSessionsMap.put(session.getSessionStreamId(), session);
   }
 
   /**
-   * Unregisters an active WebTransport session by its session stream ID.
+   * Unregisters an active WebTransport session.
    *
-   * @param sessionStreamId the stream ID of the session
+   * @param session the session to unregister
    */
-  public void unregisterSession(long sessionStreamId) {
-    activeSessionsMap.remove(sessionStreamId);
+  public void unregisterSession(@NonNull WebTransportSession session) {
+    Objects.requireNonNull(session, "session cannot be null");
+    activeSessionsSet.remove(session);
+    activeSessionsById.remove(session.getUniqueSessionId());
+    activeSessionsMap.remove(session.getSessionStreamId(), session);
+  }
+
+  /**
+   * Unregisters an active WebTransport session by its session stream ID or unique session ID.
+   *
+   * @param sessionId the stream ID or unique ID of the session
+   */
+  public void unregisterSession(long sessionId) {
+    WebTransportSession removed = activeSessionsById.remove(sessionId);
+    if (removed != null) {
+      activeSessionsSet.remove(removed);
+      activeSessionsMap.remove(removed.getSessionStreamId(), removed);
+      return;
+    }
+    removed = activeSessionsMap.remove(sessionId);
+    if (removed != null) {
+      activeSessionsSet.remove(removed);
+      activeSessionsById.remove(removed.getUniqueSessionId());
+      return;
+    }
+    for (WebTransportSession s : activeSessionsSet) {
+      if (s.getUniqueSessionId() == sessionId
+          || s.getSessionStreamId() == sessionId
+          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
+        activeSessionsSet.remove(s);
+        activeSessionsById.remove(s.getUniqueSessionId());
+        activeSessionsMap.remove(s.getSessionStreamId(), s);
+        break;
+      }
+    }
   }
 
   /**
@@ -561,17 +599,32 @@ public class WebTransportServer implements AutoCloseable {
    * @return collection of active sessions
    */
   public @NonNull Collection<WebTransportSession> getActiveSessions() {
-    return Collections.unmodifiableCollection(activeSessionsMap.values());
+    return Collections.unmodifiableCollection(activeSessionsSet);
   }
 
   /**
-   * Retrieves an active WebTransport session by its session stream ID.
+   * Retrieves an active WebTransport session by its unique session ID or session stream ID.
    *
-   * @param sessionStreamId the stream ID of the session
+   * @param sessionId the stream ID or unique session ID of the session
    * @return the session, or null if not found
    */
-  public @Nullable WebTransportSession getSession(long sessionStreamId) {
-    return activeSessionsMap.get(sessionStreamId);
+  public @Nullable WebTransportSession getSession(long sessionId) {
+    WebTransportSession session = activeSessionsById.get(sessionId);
+    if (session != null) {
+      return session;
+    }
+    session = activeSessionsMap.get(sessionId);
+    if (session != null) {
+      return session;
+    }
+    for (WebTransportSession s : activeSessionsSet) {
+      if (s.getUniqueSessionId() == sessionId
+          || s.getSessionStreamId() == sessionId
+          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
+        return s;
+      }
+    }
+    return null;
   }
 
   /** Returns the current lifecycle state of the server. */

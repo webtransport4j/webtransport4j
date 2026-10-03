@@ -18,6 +18,7 @@ Validates:
 """
 
 import json
+import os
 import time
 import unittest
 import urllib.request
@@ -38,15 +39,24 @@ class TestUnmockedDashboardIntegration(unittest.TestCase):
     def setUpClass(cls):
         """Authenticate as SecOps admin against live dashboard to obtain valid bearer token."""
         login_url = f"{BASE_URL}/api/admin/login"
-        payload = json.dumps({"username": "admin", "password": "webtransport2026!"}).encode("utf-8")
+        password = (
+            os.getenv("WT4J_ADMIN_PASSWORD")
+            or os.getenv("WT4J_TEST_ADMIN_PASSWORD")
+            or os.getenv("WT4J_TEST_PASSWORD")
+            or "webtransport2026!"
+        )
+        payload = json.dumps({"username": "admin", "password": password}).encode("utf-8")
         req = urllib.request.Request(login_url, data=payload, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            cls.token = data.get("token")
-            cls.auth_headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {cls.token}"
-            }
+        try:
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                cls.token = data.get("token")
+                cls.auth_headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {cls.token}"
+                }
+        except Exception as e:
+            raise unittest.SkipTest(f"Dashboard server is not running at {BASE_URL}: {e}")
         assert cls.token, "Failed to obtain valid admin session token"
 
     def http_get(self, path, auth=False):
@@ -260,6 +270,55 @@ class TestUnmockedDashboardIntegration(unittest.TestCase):
         ts_len = len(history["timestamps"])
         for k in required_keys:
             self.assertEqual(len(history[k]), ts_len, f"History array length mismatch for {k}: expected {ts_len}, got {len(history[k])}")
+
+    def test_07_multiple_concurrent_active_sessions(self):
+        """Test that multiple concurrent sessions are all listed simultaneously in the admin dashboard."""
+        # 1. Clean slate
+        self.http_post("/api/admin/sessions/close-all", {"mode": "close"}, auth=True)
+        self.http_post("/api/admin/sessions/purge", {}, auth=True)
+        time.sleep(0.5)
+
+        # 2. Establish 3 distinct concurrent sessions across nodes
+        status_a, resp_a = self.http_post("/api/admin/sessions/create", {"target": "https://localhost:4433/echo"}, auth=True)
+        self.assertEqual(status_a, 200)
+        id_a = resp_a.get("session", {}).get("id")
+
+        status_b, resp_b = self.http_post("/api/admin/sessions/create", {"target": "https://localhost:4433/echo"}, auth=True)
+        self.assertEqual(status_b, 200)
+        id_b = resp_b.get("session", {}).get("id")
+
+        status_c, resp_c = self.http_post("/api/admin/sessions/create", {"target": "https://localhost:4434/echo"}, auth=True)
+        self.assertEqual(status_c, 200)
+        id_c = resp_c.get("session", {}).get("id")
+
+        # IDs must all be distinct
+        created_ids = [id_a, id_b, id_c]
+        self.assertEqual(len(set(created_ids)), 3, f"Session IDs collided: {created_ids}")
+
+        time.sleep(0.5)
+
+        # 3. Query admin sessions endpoint
+        status_list, sess_data = self.http_get("/api/admin/sessions", auth=True)
+        self.assertEqual(status_list, 200)
+        all_sessions = sess_data.get("sessions", [])
+        active_sessions = [s for s in all_sessions if s.get("status") == "CONNECTED"]
+        active_ids = [s.get("id") for s in active_sessions]
+
+        # Verify ALL 3 opened sessions are present and visible simultaneously!
+        for sid in created_ids:
+            self.assertIn(sid, active_ids, f"Session {sid} missing from active admin dashboard sessions!")
+
+        self.assertEqual(len(active_sessions), 3, f"Expected 3 active sessions, got {len(active_sessions)}: {active_ids}")
+
+        # 4. Verify telemetry and monitor agree on 3 active sessions
+        _, telemetry = self.http_get("/api/live-telemetry")
+        _, monitor = self.http_get("/api/admin/sessions/monitor")
+        self.assertEqual(telemetry.get("activeSessions"), 3)
+        self.assertEqual(monitor.get("activeSessions"), 3)
+
+        # Clean up
+        self.http_post("/api/admin/sessions/close-all", {"mode": "close"}, auth=True)
+        self.http_post("/api/admin/sessions/purge", {}, auth=True)
 
 
 if __name__ == "__main__":

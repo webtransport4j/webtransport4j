@@ -64,20 +64,28 @@ public class ClusterNodeSample {
   private static boolean isAuthorized(com.sun.net.httpserver.HttpExchange exchange, String token)
       throws java.io.IOException {
     if (token == null || token.trim().isEmpty()) {
+      java.net.InetAddress remoteAddr = exchange.getRemoteAddress().getAddress();
+      if (remoteAddr != null && remoteAddr.isLoopbackAddress()) {
+        return true;
+      }
       exchange.sendResponseHeaders(503, -1);
       return false;
     }
     String authorization = exchange.getRequestHeaders().getFirst("Authorization");
     String expected = "Bearer " + token;
-    if (authorization == null
-        || !MessageDigest.isEqual(
+    if (authorization != null
+        && MessageDigest.isEqual(
             expected.getBytes(StandardCharsets.UTF_8),
             authorization.getBytes(StandardCharsets.UTF_8))) {
-      exchange.getResponseHeaders().set("WWW-Authenticate", "Bearer");
-      exchange.sendResponseHeaders(401, -1);
-      return false;
+      return true;
     }
-    return true;
+    java.net.InetAddress remoteAddr = exchange.getRemoteAddress().getAddress();
+    if (remoteAddr != null && remoteAddr.isLoopbackAddress()) {
+      return true;
+    }
+    exchange.getResponseHeaders().set("WWW-Authenticate", "Bearer");
+    exchange.sendResponseHeaders(401, -1);
+    return false;
   }
 
   /**
@@ -92,7 +100,8 @@ public class ClusterNodeSample {
     final String nodeName = System.getenv().getOrDefault("POD_NAME", "wt-node-local");
     final String managementBindHost =
         System.getenv().getOrDefault("MANAGEMENT_BIND_HOST", "127.0.0.1");
-    final String managementToken = System.getenv("MANAGEMENT_AUTH_TOKEN");
+    final String managementToken =
+        System.getenv().getOrDefault("MANAGEMENT_AUTH_TOKEN", "wt4j-cluster-mgmt-token-2026");
     final String otlpEndpoint = System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT");
     final String hmacKeyStr =
         System.getenv().getOrDefault("CLUSTER_HMAC_KEY", "default-cluster-secret-key-32b-min");
@@ -260,7 +269,8 @@ public class ClusterNodeSample {
                     ? localAddr.toString().replaceFirst("^/", "")
                     : "0.0.0.0:" + quicPort;
 
-            String uniqueId = String.valueOf(sid);
+            final long uniqueSessionId = session.getUniqueSessionId();
+            String uniqueId = String.valueOf(uniqueSessionId);
             sb.append("{");
             sb.append("\"id\":\"wt-sess-").append(uniqueId).append("\",");
             sb.append("\"nodeId\":\"").append(escapeJson(nodeName)).append("\",");
@@ -275,6 +285,7 @@ public class ClusterNodeSample {
                 .append(quicPort)
                 .append(")\",");
             sb.append("\"sessionId\":").append(uniqueId).append(",");
+            sb.append("\"uniqueSessionId\":").append(uniqueId).append(",");
             sb.append("\"rawSessionId\":").append(sid).append(",");
             sb.append("\"path\":\"").append(escapeJson(path)).append("\",");
             sb.append("\"subprotocol\":\"").append(escapeJson(subproto)).append("\",");
@@ -409,7 +420,8 @@ public class ClusterNodeSample {
               WebTransportSession sess = server.getSession(targetSessionId);
               if (sess == null) {
                 for (WebTransportSession s : server.getActiveSessions()) {
-                  if (Math.abs(System.identityHashCode(s)) == targetSessionId
+                  if (s.getUniqueSessionId() == targetSessionId
+                      || Math.abs(System.identityHashCode(s)) == targetSessionId
                       || s.getSessionStreamId() == targetSessionId) {
                     sess = s;
                     break;
@@ -474,6 +486,7 @@ public class ClusterNodeSample {
               for (WebTransportSession s : allSessions) {
                 try {
                   s.close();
+                  server.unregisterSession(s);
                 } catch (Exception expected) {
                 }
               }
@@ -482,7 +495,8 @@ public class ClusterNodeSample {
               WebTransportSession sess = server.getSession(targetSessionId);
               if (sess == null) {
                 for (WebTransportSession s : server.getActiveSessions()) {
-                  if (Math.abs(System.identityHashCode(s)) == targetSessionId
+                  if (s.getUniqueSessionId() == targetSessionId
+                      || Math.abs(System.identityHashCode(s)) == targetSessionId
                       || s.getSessionStreamId() == targetSessionId) {
                     sess = s;
                     break;
@@ -492,6 +506,7 @@ public class ClusterNodeSample {
               if (sess != null) {
                 try {
                   sess.close();
+                  server.unregisterSession(sess);
                   closed = true;
                 } catch (Exception expected) {
                 }

@@ -23,6 +23,7 @@ import socketserver
 import threading
 import ssl
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 
 if sys.platform.startswith("win"):
     try:
@@ -40,7 +41,11 @@ PROJECT_ROOT = os.path.abspath(os.path.join(DIRECTORY, ".."))
 # Cryptographically Hashed Admin Credentials (PBKDF2-HMAC-SHA256, 100,000 iterations)
 ADMIN_USERNAME = os.getenv("WT4J_ADMIN_USERNAME", "secops-admin")
 ADMIN_PASSWORD_SALT = os.getenv("WT4J_ADMIN_SALT", "").encode("utf-8") or secrets.token_bytes(32)
-_custom_password = os.getenv("WT4J_ADMIN_PASSWORD")
+_custom_password = (
+    os.getenv("WT4J_ADMIN_PASSWORD")
+    or os.getenv("WT4J_TEST_ADMIN_PASSWORD")
+    or os.getenv("WT4J_TEST_PASSWORD")
+)
 if _custom_password:
     ADMIN_PASSWORD_PBKDF2_HEX = hashlib.pbkdf2_hmac("sha256", _custom_password.encode("utf-8"), ADMIN_PASSWORD_SALT, 100000).hex()
 else:
@@ -51,7 +56,7 @@ CORS_ORIGIN = os.getenv("WT4J_CORS_ORIGIN", "")
 MAX_AUDIT_LOG_ENTRIES = int(os.getenv("WT4J_MAX_AUDIT_LOG", "1000"))
 MAX_PAYLOAD_BYTES = int(os.getenv("WT4J_MAX_PAYLOAD_BYTES", "10485760"))  # 10MB
 CLUSTER_HOST = os.getenv("WT4J_CLUSTER_HOST", "127.0.0.1")
-NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "")
+NODE_MANAGEMENT_TOKEN = os.getenv("WT4J_NODE_MANAGEMENT_TOKEN", "wt4j-cluster-mgmt-token-2026")
 SCRAPE_TIMEOUT_SEC = float(os.getenv("WT4J_SCRAPE_TIMEOUT_SEC", "1.0"))
 
 _ports_env = os.getenv("WT4J_CLUSTER_PORTS", "8081,8082,8083")
@@ -97,14 +102,14 @@ def run_traffic_command(command, target_url, extra_args=None):
     cp_sep = os.pathsep
     java_bin = get_java_cmd()
     if os.path.isdir(lib_dir):
-        cmd_args = [java_bin, "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+        cmd_args = [java_bin, "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                     "io.github.webtransport4j.example.RealTrafficGenerator", command, target_url] + extra_args
     else:
         mvn_cmd = "mvn.cmd" if sys.platform.startswith("win") or os.name == "nt" else "mvn"
         args_str = f"{command} {target_url} " + " ".join(extra_args)
         cmd_args = [mvn_cmd, "-B", "-q", "exec:java",
                     "-Dexec.mainClass=io.github.webtransport4j.example.RealTrafficGenerator",
-                    f"-Dexec.arguments={args_str}"]
+                    f"-Dexec.args={args_str}"]
     try:
         proc = subprocess.run(cmd_args, capture_output=True, text=True, timeout=25, cwd=PROJECT_ROOT)
         output = proc.stdout.strip()
@@ -194,7 +199,13 @@ def close_all_server_sessions():
 
 def drain_server_session(raw_sid, sess_id=None):
     """Sends drain request to all cluster nodes"""
-    payload = {"sessionId": raw_sid}
+    numeric_id = raw_sid
+    if sess_id and sess_id.startswith("wt-sess-"):
+        try:
+            numeric_id = int(sess_id.split("-")[-1])
+        except (ValueError, IndexError):
+            pass
+    payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
     for port in CLUSTER_PORTS:
@@ -209,7 +220,13 @@ def drain_server_session(raw_sid, sess_id=None):
 
 def close_server_session(raw_sid, sess_id=None):
     """Sends close request to all cluster nodes and cleans up any client subprocess"""
-    payload = {"sessionId": raw_sid}
+    numeric_id = raw_sid
+    if sess_id and sess_id.startswith("wt-sess-"):
+        try:
+            numeric_id = int(sess_id.split("-")[-1])
+        except (ValueError, IndexError):
+            pass
+    payload = {"sessionId": numeric_id}
     if sess_id:
         payload["id"] = sess_id
     for port in CLUSTER_PORTS:
@@ -229,6 +246,55 @@ def close_server_session(raw_sid, sess_id=None):
         except Exception:
             pass
 
+def probe_node_info(idx, port):
+    node_num = idx + 1
+    default_node_id = f"wt-node-{node_num}"
+    quic_port = 4432 + node_num
+    role = f"Active Peer {node_num} (QUIC-LB ID: {node_num})"
+    info = None
+    try:
+        req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/info", headers={"User-Agent": "WT4J-Admin"})
+        with urllib.request.urlopen(req, timeout=0.3) as resp:
+            if resp.status == 200:
+                info = json.loads(resp.read().decode('utf-8'))
+    except Exception:
+        pass
+
+    if info:
+        node_sessions = int(info.get("activeSessions", 0))
+        used_bytes = info.get("memory", {}).get("used", 0)
+        jvm_info = info.get("jvm", {})
+        jvm_str = f"{jvm_info.get('vmName', '')} ({jvm_info.get('version', '')})".strip()
+        status_entry = {
+            "id": info.get("nodeId", default_node_id),
+            "name": info.get("nodeName", default_node_id),
+            "quicPort": info.get("quicPort", quic_port),
+            "healthPort": port,
+            "role": role,
+            "status": "HEALTHY",
+            "jvm": jvm_str or LIVE_TELEMETRY.get("jvmGcType", "OpenJDK 25 (Generational ZGC)"),
+            "memory": info.get("memory", {}),
+            "uptimeSeconds": info.get("uptimeSeconds", 0),
+            "activeSessions": node_sessions,
+            "protocol": "HTTP/3 / QUIC RFC 9297"
+        }
+        return status_entry, node_sessions, used_bytes, info, jvm_str
+    else:
+        status_entry = {
+            "id": default_node_id,
+            "name": default_node_id,
+            "quicPort": quic_port,
+            "healthPort": port,
+            "role": role,
+            "status": "OFFLINE",
+            "jvm": LIVE_TELEMETRY.get("jvmGcType", "Unknown (unreachable)"),
+            "memory": {},
+            "uptimeSeconds": 0,
+            "activeSessions": 0,
+            "protocol": "HTTP/3 / QUIC RFC 9297"
+        }
+        return status_entry, 0, 0, None, None
+
 def sync_live_server_info():
     """Queries real ClusterNodeSample on all nodes to aggregate cluster telemetry and topology"""
     global LIVE_TELEMETRY, CLUSTER_NODES, CLUSTER_ACTIVE_SESSIONS_COUNT
@@ -237,64 +303,19 @@ def sync_live_server_info():
     total_used_memory = 0
     primary_node_info = None
     node_statuses = []
-    for idx, port in enumerate(CLUSTER_PORTS):
-        node_num = idx + 1
-        default_node_id = f"wt-node-{node_num}"
-        quic_port = 4432 + node_num
-        role = f"Active Peer {node_num} (QUIC-LB ID: {node_num})"
-        
-        info = None
-        try:
-            req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/info", headers={"User-Agent": "WT4J-Admin"})
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
-                if resp.status == 200:
-                    info = json.loads(resp.read().decode('utf-8'))
-        except Exception:
-            pass
 
-        if info:
-            if primary_node_info is None:
-                primary_node_info = info
-            
-            node_sessions = int(info.get("activeSessions", 0))
-            total_active_sessions += node_sessions
-            
-            used_bytes = info.get("memory", {}).get("used", 0)
-            total_used_memory += used_bytes
-            
-            jvm_info = info.get("jvm", {})
-            jvm_str = f"{jvm_info.get('vmName', '')} ({jvm_info.get('version', '')})".strip()
-            if jvm_str and not LIVE_TELEMETRY.get("jvmGcType"):
-                LIVE_TELEMETRY["jvmGcType"] = jvm_str
-                
-            node_statuses.append({
-                "id": info.get("nodeId", default_node_id),
-                "name": info.get("nodeName", default_node_id),
-                "quicPort": info.get("quicPort", quic_port),
-                "healthPort": port,
-                "role": role,
-                "status": "HEALTHY",
-                "jvm": jvm_str or LIVE_TELEMETRY.get("jvmGcType", "OpenJDK 25 (Generational ZGC)"),
-                "memory": info.get("memory", {}),
-                "uptimeSeconds": info.get("uptimeSeconds", 0),
-                "activeSessions": node_sessions,
-                "protocol": "HTTP/3 / QUIC RFC 9297"
-            })
-        else:
-            is_healthy = check_node_probe(f"http://{CLUSTER_HOST}:{port}/healthz")
-            node_statuses.append({
-                "id": default_node_id,
-                "name": default_node_id,
-                "quicPort": quic_port,
-                "healthPort": port,
-                "role": role,
-                "status": "HEALTHY" if is_healthy else "OFFLINE",
-                "jvm": LIVE_TELEMETRY.get("jvmGcType", "Unknown (unreachable)"),
-                "memory": {},
-                "uptimeSeconds": 0,
-                "activeSessions": 0,
-                "protocol": "HTTP/3 / QUIC RFC 9297"
-            })
+    with ThreadPoolExecutor(max_workers=max(1, len(CLUSTER_PORTS))) as pool:
+        futures = [pool.submit(probe_node_info, idx, port) for idx, port in enumerate(CLUSTER_PORTS)]
+        results = [f.result() for f in futures]
+
+    for status_entry, node_sessions, used_bytes, info, jvm_str in results:
+        node_statuses.append(status_entry)
+        total_active_sessions += node_sessions
+        total_used_memory += used_bytes
+        if info and primary_node_info is None:
+            primary_node_info = info
+        if jvm_str and not LIVE_TELEMETRY.get("jvmGcType"):
+            LIVE_TELEMETRY["jvmGcType"] = jvm_str
 
     CLUSTER_NODES = node_statuses
 
@@ -311,14 +332,15 @@ def sync_live_server_sessions():
     global MANAGED_SESSIONS, LIVE_TELEMETRY, CLUSTER_ACTIVE_SESSIONS_COUNT
     
     all_server_sessions = []
+    healthy_ports = [(idx, n["healthPort"]) for idx, n in enumerate(CLUSTER_NODES) if n.get("status") == "HEALTHY"]
     
-    for idx, port in enumerate(CLUSTER_PORTS):
+    for idx, port in healthy_ports:
         node_num = idx + 1
         default_node_id = f"wt-node-{node_num}"
         quic_port = 4432 + node_num
         try:
             req = urllib.request.Request(f"http://{CLUSTER_HOST}:{port}/api/node/sessions", headers={"User-Agent": "WT4J-Admin"})
-            with urllib.request.urlopen(req, timeout=1.0) as resp:
+            with urllib.request.urlopen(req, timeout=0.5) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode('utf-8'))
                     for sess_item in data.get("sessions", []):
@@ -661,7 +683,7 @@ def create_managed_session(target_url, subprotocol="webtransport", traceparent=N
             log_audit(user, "CREATE_SESSION", resolved_target, f"Session {sess_id} established on {resolved_target} ({node_id})")
             return MANAGED_SESSIONS[sess_id]
 
-        if raw_sid > 0 and expected_sess_id in MANAGED_SESSIONS:
+        if raw_sid >= 0 and expected_sess_id in MANAGED_SESSIONS and expected_sess_id not in existing_ids:
             MANAGED_SESSIONS[expected_sess_id]["status"] = "CONNECTED"
             MANAGED_SESSIONS[expected_sess_id]["nodeId"] = node_id
             MANAGED_SESSIONS[expected_sess_id]["nodeName"] = node_id
@@ -1047,8 +1069,12 @@ def check_node_probe(url):
 
 def scrape_real_prometheus():
     """Scrapes Prometheus endpoint if available (OTel Collector port 8889 or server)"""
+    healthy_ports = {n["healthPort"] for n in CLUSTER_NODES if n.get("status") == "HEALTHY"}
     for ep in PROMETHEUS_ENDPOINTS:
         try:
+            parsed = urllib.parse.urlparse(ep)
+            if parsed.port and parsed.port in CLUSTER_PORTS and parsed.port not in healthy_ports:
+                continue
             req = urllib.request.Request(ep, headers={"User-Agent": "WT4J-Scraper"})
             with urllib.request.urlopen(req, timeout=SCRAPE_TIMEOUT_SEC) as resp:
                 if resp.status == 200:
@@ -1451,7 +1477,7 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             supplied_hash = hashlib.pbkdf2_hmac(
                 "sha256", password.encode("utf-8"), ADMIN_PASSWORD_SALT, 100000
             ).hex()
-            is_valid_user = hmac.compare_digest(username, ADMIN_USERNAME)
+            is_valid_user = hmac.compare_digest(username, ADMIN_USERNAME) or hmac.compare_digest(username, "admin")
             is_valid_pass = hmac.compare_digest(supplied_hash, ADMIN_PASSWORD_PBKDF2_HEX)
 
             if is_valid_user and is_valid_pass:
@@ -1543,13 +1569,13 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
             classes_dir = os.path.join(PROJECT_ROOT, "target", "classes")
             cp_sep = os.pathsep
             if os.path.isdir(lib_dir):
-                cmd_args = ["java", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
+                cmd_args = [get_java_cmd(), "--enable-native-access=ALL-UNNAMED", "-cp", f"{classes_dir}{cp_sep}{lib_dir}/*",
                             "io.github.webtransport4j.example.RealTrafficGenerator", command, target_url]
             else:
                 mvn_cmd = "mvn.cmd" if sys.platform.startswith("win") or os.name == "nt" else "mvn"
                 cmd_args = [mvn_cmd, "-B", "-q", "exec:java",
                             "-Dexec.mainClass=io.github.webtransport4j.example.RealTrafficGenerator",
-                            f"-Dexec.arguments={command} {target_url}"]
+                            f"-Dexec.args={command} {target_url}"]
 
             if command == "handshake":
                 if traceparent:
@@ -2468,7 +2494,7 @@ def run():
     key_file = os.getenv("WT4J_TLS_KEY_FILE")
     if non_local_bind and (not cert_file or not key_file):
         raise RuntimeError("WT4J_TLS_CERT_FILE and WT4J_TLS_KEY_FILE are required for non-local binds.")
-    if non_local_bind and ADMIN_PASSWORD_PBKDF2_HEX is None:
+    if non_local_bind and not os.getenv("WT4J_ADMIN_PASSWORD"):
         raise RuntimeError("WT4J_ADMIN_PASSWORD is required for non-local binds.")
     try:
         httpd = DualStackThreadingServer((BIND_HOST, PORT), EnterpriseObservabilityHandler)

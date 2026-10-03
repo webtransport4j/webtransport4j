@@ -401,7 +401,7 @@ public class WebTransportSessionManager {
         quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
     if (server != null) {
-      server.unregisterSession(sessionStreamId);
+      server.unregisterSession(removed);
     }
     WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
     if (handler != null) {

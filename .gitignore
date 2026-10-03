@@ -107,3 +107,7 @@ Thumbs.db
 *.crt
 *.p12
 *.jks
+
+# Python
+__pycache__/
+*.py[cod]

@@ -35,6 +35,15 @@ public interface WebTransportSession {
   }
 
   /**
+   * Returns a unique positive identifier for this session instance within the JVM / server.
+   *
+   * @return unique session identifier
+   */
+  default long getUniqueSessionId() {
+    return Math.abs((long) System.identityHashCode(this));
+  }
+
+  /**
    * Returns the URI path associated with this session.
    *
    * @return the URI request path

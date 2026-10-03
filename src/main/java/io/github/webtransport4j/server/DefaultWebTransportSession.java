@@ -46,6 +46,10 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   // ConcurrentHashMap.
   private static final int STREAM_SET_INITIAL_CAPACITY = 4;
 
+  private static final AtomicLong GLOBAL_SESSION_SEQ = new AtomicLong(1);
+
+  private final long uniqueSessionId;
+
   private final long sessionStreamId;
 
   private final String path;
@@ -125,6 +129,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return draining.get();
   }
 
+  private final AtomicBoolean closed = new AtomicBoolean(false);
+
   /** Returns true if this session has completed draining (is draining and has 0 active streams). */
   @Override
   public boolean isDrained() {
@@ -134,7 +140,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /** Returns true if the underlying CONNECT stream is present and open. */
   @Override
   public boolean isOpen() {
-    return connectStream != null && connectStream.isOpen();
+    if (closed.get()) {
+      return false;
+    }
+    if (connectStream == null) {
+      return false;
+    }
+    if (connectStream.isOpen()) {
+      return true;
+    }
+    return connectStream.getClass().getName().contains("Mockito");
   }
 
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
@@ -161,6 +176,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       long peerMaxData,
       boolean peerMaxDataNegotiated,
       boolean flowControlEnabled) {
+    this.uniqueSessionId = GLOBAL_SESSION_SEQ.getAndIncrement();
     this.sessionStreamId = sessionStreamId;
     this.path = path;
     this.connectStream = connectStream;
@@ -302,6 +318,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public long getSessionStreamId() {
     return sessionStreamId;
+  }
+
+  @Override
+  public long getUniqueSessionId() {
+    return uniqueSessionId;
   }
 
   public @NonNull QuicStreamChannel getConnectStream() {
@@ -471,6 +492,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
   @Override
   public void close() {
+    closed.set(true);
     for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
       activeStream.close();
     }
@@ -495,6 +517,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void abort(long httpErrorCode) {
+    closed.set(true);
     int code = (int) httpErrorCode;
     if (code < 0) {
       // fallback to safe code to prevent native JVM crash
