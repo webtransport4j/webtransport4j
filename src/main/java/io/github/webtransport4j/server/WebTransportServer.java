@@ -7,6 +7,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.internal.EventLoopSafety;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -183,6 +184,8 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private final Object lifecycleLock = new Object();
+  private final java.util.concurrent.Semaphore sessionClosures =
+      new java.util.concurrent.Semaphore(0);
   private final Set<QuicChannel> connections = ConcurrentHashMap.newKeySet();
 
   void registerConnection(QuicChannel connection) {
@@ -199,13 +202,17 @@ public class WebTransportServer implements AutoCloseable {
     }
     connection.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(true);
     try {
-      connection.eventLoop().execute(() -> {
-        QuicStreamChannel control = Http3.getLocalControlStream(connection);
-        if (control != null && control.isActive()) {
-          control.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(
-              0x3ffffffffffffffcL));
-        }
-      });
+      connection
+          .eventLoop()
+          .execute(
+              () -> {
+                QuicStreamChannel control = Http3.getLocalControlStream(connection);
+                if (control != null && control.isActive()) {
+                  control.writeAndFlush(
+                      new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(
+                          0x3ffffffffffffffcL));
+                }
+              });
     } catch (java.util.concurrent.RejectedExecutionException closedLoop) {
       logger.debug("Connection event loop already stopped during drain", closedLoop);
     }
@@ -368,21 +375,24 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /** Register Handler. Passing {@code null} removes the path. */
-  public synchronized void registerHandler(
-      @NonNull String path, @Nullable WebTransportHandler handler) {
-    String normalized = normalizePath(path);
-    if (normalized == null || !normalized.startsWith("/")) {
-      throw new IllegalArgumentException("path must not be null or empty and must start with '/'");
-    }
-    if (handler == null) {
-      handlers.remove(normalized);
-      if ("/".equals(normalized)) {
-        this.defaultHandler = NO_OP_HANDLER;
+  public void registerHandler(@NonNull String path, @Nullable WebTransportHandler handler) {
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (this) {
+      String normalized = normalizePath(path);
+      if (normalized == null || !normalized.startsWith("/")) {
+        throw new IllegalArgumentException(
+            "path must not be null or empty and must start with '/'");
       }
-    } else {
-      handlers.put(normalized, handler);
-      if ("/".equals(normalized)) {
-        this.defaultHandler = handler;
+      if (handler == null) {
+        handlers.remove(normalized);
+        if ("/".equals(normalized)) {
+          this.defaultHandler = NO_OP_HANDLER;
+        }
+      } else {
+        handlers.put(normalized, handler);
+        if ("/".equals(normalized)) {
+          this.defaultHandler = handler;
+        }
       }
     }
   }
@@ -399,6 +409,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Sets a custom metrics listener for observability export. */
   public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
+    EventLoopSafety.requireBlockingAllowed();
     WebTransportMetricsListener previous = this.metricsListener;
     this.metricsListener = isolateMetricsListener(Objects.requireNonNull(listener, "listener"));
     closeMetricsListener(previous);
@@ -453,6 +464,7 @@ public class WebTransportServer implements AutoCloseable {
    *     transferred
    */
   public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       if (state.get() != ServerState.STOPPED) {
         throw new IllegalStateException(
@@ -468,6 +480,7 @@ public class WebTransportServer implements AutoCloseable {
   private static GlobalTrafficShapingHandler claimTrafficShaper(
       GlobalTrafficShapingHandler handler) {
     if (handler != null) {
+      EventLoopSafety.requireBlockingAllowed();
       synchronized (OWNED_TRAFFIC_SHAPERS) {
         if (OWNED_TRAFFIC_SHAPERS.putIfAbsent(handler, Boolean.TRUE) != null) {
           throw new IllegalStateException(
@@ -496,6 +509,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void registerServerInstance() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (SERVER_INSTANCES_LOCK) {
       if (!instanceCounted) {
         ACTIVE_SERVER_INSTANCES.incrementAndGet();
@@ -505,6 +519,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void unregisterServerInstance() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (SERVER_INSTANCES_LOCK) {
       if (!instanceCounted) {
         return;
@@ -594,9 +609,7 @@ public class WebTransportServer implements AutoCloseable {
     activeSessionsSet.remove(session);
     activeSessionsById.remove(session.getUniqueSessionId());
     activeSessionsMap.remove(session.getSessionStreamId(), session);
-    synchronized (lifecycleLock) {
-      lifecycleLock.notifyAll();
-    }
+    sessionClosures.release();
   }
 
   /**
@@ -609,12 +622,14 @@ public class WebTransportServer implements AutoCloseable {
     if (removed != null) {
       activeSessionsSet.remove(removed);
       activeSessionsMap.remove(removed.getSessionStreamId(), removed);
+      sessionClosures.release();
       return;
     }
     removed = activeSessionsMap.remove(sessionId);
     if (removed != null) {
       activeSessionsSet.remove(removed);
       activeSessionsById.remove(removed.getUniqueSessionId());
+      sessionClosures.release();
       return;
     }
     for (WebTransportSession s : activeSessionsSet) {
@@ -624,6 +639,7 @@ public class WebTransportServer implements AutoCloseable {
         activeSessionsSet.remove(s);
         activeSessionsById.remove(s.getUniqueSessionId());
         activeSessionsMap.remove(s.getSessionStreamId(), s);
+        sessionClosures.release();
         break;
       }
     }
@@ -672,7 +688,8 @@ public class WebTransportServer implements AutoCloseable {
   public boolean isStarted() {
     Channel ch = this.channel;
     return (state.get() == ServerState.STARTED || state.get() == ServerState.DRAINING)
-        && ch != null && ch.isActive();
+        && ch != null
+        && ch.isActive();
   }
 
   /** Returns whether the server admits new WebTransport sessions. */
@@ -682,10 +699,8 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Stops admitting sessions and notifies existing sessions without closing their streams. */
   public void drain() {
-    synchronized (lifecycleLock) {
-      if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
-        return;
-      }
+    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
+      return;
     }
     for (QuicChannel connection : connections) {
       drainConnection(connection);
@@ -717,6 +732,8 @@ public class WebTransportServer implements AutoCloseable {
    * already returned. {@link #close()} is terminal and a later {@code start()} throws.
    */
   public void start() throws Exception {
+    EventLoopSafety.requireBlockingAllowed();
+    IpRateLimitingHandler.ensureReloaderStarted();
     if (permanentlyClosed || state.get() == ServerState.CLOSED) {
       throw new IllegalStateException("WebTransportServer has been closed and cannot be restarted");
     }
@@ -920,6 +937,8 @@ public class WebTransportServer implements AutoCloseable {
             "webtransport-server-shutdown-hook");
     hook.setDaemon(false);
 
+    EventLoopSafety.requireBlockingAllowed();
+
     synchronized (lifecycleLock) {
       if (permanentlyClosed || epoch != startEpoch.get() || state.get() != ServerState.STARTING) {
         return false;
@@ -1019,6 +1038,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Blocks the current thread until the server channel is closed. */
   public void awaitShutdown() throws InterruptedException {
+    EventLoopSafety.requireBlockingAllowed();
     Channel ch = this.channel;
     if (ch != null) {
       ch.closeFuture().sync();
@@ -1150,9 +1170,19 @@ public class WebTransportServer implements AutoCloseable {
     }
 
     if (hotReloadEnabled && resolvedKeyPath != null && resolvedCertPath != null) {
+      long epoch = startEpoch.get();
       TlsCertificateWatcher watcher =
           new TlsCertificateWatcher(
-              resolvedKeyPath, resolvedCertPath, this::installReloadedSslContext);
+              resolvedKeyPath,
+              resolvedCertPath,
+              context -> {
+                EventLoopSafety.requireBlockingAllowed();
+                synchronized (lifecycleLock) {
+                  if (startEpoch.get() == epoch) {
+                    installReloadedSslContext(context);
+                  }
+                }
+              });
       watcher.start();
       return watcher;
     }
@@ -1179,8 +1209,14 @@ public class WebTransportServer implements AutoCloseable {
    */
   private void installReloadedSslContext(QuicSslContext newCtx) {
     Objects.requireNonNull(newCtx, "newCtx");
-    applySessionTicketKeys(newCtx);
-    this.activeSslContext = newCtx;
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (lifecycleLock) {
+      if (permanentlyClosed || state.get() == ServerState.STOPPING) {
+        return;
+      }
+      applySessionTicketKeys(newCtx);
+      this.activeSslContext = newCtx;
+    }
     logger.info(
         "TLS certificate context reloaded; new handshakes will use the updated certificate");
   }
@@ -1199,6 +1235,7 @@ public class WebTransportServer implements AutoCloseable {
           "Caller-supplied business executor is shutdown; supply a live executor or omit it so the"
               + " server can manage one");
     }
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       current = this.businessExecutor;
       if (isLive(current)) {
@@ -1865,6 +1902,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void stop(long timeout, TimeUnit unit, boolean shutdownExecutor, boolean terminal) {
+    EventLoopSafety.requireBlockingAllowed();
     if (timeout < 0L) {
       throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
     }
@@ -1877,6 +1915,7 @@ public class WebTransportServer implements AutoCloseable {
     if (terminal) {
       permanentlyClosed = true;
     }
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       startEpoch.incrementAndGet();
       ServerState previous = state.get();
@@ -1923,18 +1962,19 @@ public class WebTransportServer implements AutoCloseable {
         drainConnection(connection);
       }
       drainActiveSessions();
-      synchronized (lifecycleLock) {
-        while (!activeSessionsSet.isEmpty()) {
-          long remaining = deadline - System.nanoTime();
-          if (remaining <= 0) {
+      sessionClosures.drainPermits();
+      while (!activeSessionsSet.isEmpty()) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+          break;
+        }
+        try {
+          if (!sessionClosures.tryAcquire(remaining, TimeUnit.NANOSECONDS)) {
             break;
           }
-          try {
-            TimeUnit.NANOSECONDS.timedWait(lifecycleLock, remaining);
-          } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            break;
-          }
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          break;
         }
       }
       for (WebTransportSession session : activeSessionsSet) {
@@ -2003,6 +2043,7 @@ public class WebTransportServer implements AutoCloseable {
       }
       logger.info("WebTransport server stopped successfully.");
     } finally {
+      EventLoopSafety.requireBlockingAllowed();
       synchronized (lifecycleLock) {
         if (permanentlyClosed) {
           state.set(ServerState.CLOSED);

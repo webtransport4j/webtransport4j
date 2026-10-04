@@ -1,0 +1,33 @@
+name: Concurrency models
+on:
+  pull_request:
+    paths: ['verification/tla/**', 'src/main/java/io/github/webtransport4j/server/**', 'src/main/java/io/github/webtransport4j/api/**', '.github/workflows/concurrency-models.yml']
+  push:
+    branches: [main]
+    paths: ['verification/tla/**', 'src/main/java/io/github/webtransport4j/server/**', 'src/main/java/io/github/webtransport4j/api/**', '.github/workflows/concurrency-models.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tlc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
+        with:
+          java-version: '21'
+          distribution: temurin
+      - name: Download pinned TLC checker
+        run: curl --fail --location --retry 3 --max-time 90 https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar -o "$RUNNER_TEMP/tla2tools.jar"
+      - name: Check safety, liveness, and negative controls
+        run: python3 verification/tla/check.py --jar "$RUNNER_TEMP/tla2tools.jar" --output "$RUNNER_TEMP/tlc-results"
+      - name: Retain model results and counterexamples
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: concurrency-model-results
+          path: ${{ runner.temp }}/tlc-results/**/tlc.log
+          if-no-files-found: ignore

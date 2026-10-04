@@ -1,11 +1,14 @@
 package io.github.webtransport4j.api;
 
+import io.github.webtransport4j.internal.EventLoopSafety;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +27,11 @@ public final class AsyncWebTransportMetricsListener
   private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
   private final WebTransportMetricsListener delegate;
-  private final ThreadPoolExecutor executor;
+  private final Queue<Runnable> queue = new ConcurrentLinkedQueue<>();
+  private final AtomicInteger pending = new AtomicInteger();
+  private final AtomicBoolean closed = new AtomicBoolean();
+  private final int capacity;
+  private final Thread worker;
   private final AtomicLong droppedEvents = new AtomicLong();
 
   /** Creates an adapter with the default bounded queue capacity. */
@@ -35,19 +42,15 @@ public final class AsyncWebTransportMetricsListener
   /** Creates an adapter with a caller-supplied bounded queue capacity. */
   public AsyncWebTransportMetricsListener(
       @NonNull WebTransportMetricsListener delegate, int queueCapacity) {
+    EventLoopSafety.requireBlockingAllowed();
     this.delegate = Objects.requireNonNull(delegate, "delegate");
     if (queueCapacity <= 0) {
       throw new IllegalArgumentException("queueCapacity must be positive");
     }
-    this.executor =
-        new ThreadPoolExecutor(
-            1,
-            1,
-            0L,
-            TimeUnit.MILLISECONDS,
-            new ArrayBlockingQueue<>(queueCapacity),
-            new MetricsThreadFactory(),
-            (task, rejectedExecutor) -> droppedEvents.incrementAndGet());
+    capacity = queueCapacity;
+    worker = new Thread(this::runWorker, "wt-metrics-exporter");
+    worker.setDaemon(true);
+    worker.start();
   }
 
   /** Returns the number of events discarded because the exporter queue was full. */
@@ -56,15 +59,46 @@ public final class AsyncWebTransportMetricsListener
   }
 
   private void dispatch(@NonNull Runnable callback) {
-    if (!executor.isShutdown()) {
-      executor.execute(
-          () -> {
-            try {
-              callback.run();
-            } catch (RuntimeException e) {
-              logger.warn("Metrics exporter callback failed", e);
-            }
-          });
+    if (closed.get()) {
+      return;
+    }
+    if (pending.incrementAndGet() > capacity) {
+      pending.decrementAndGet();
+      droppedEvents.incrementAndGet();
+      return;
+    }
+    queue.offer(callback);
+    if (closed.get() && queue.remove(callback)) {
+      pending.decrementAndGet();
+      droppedEvents.incrementAndGet();
+    }
+    LockSupport.unpark(worker);
+  }
+
+  private void runWorker() {
+    EventLoopSafety.requireBlockingAllowed();
+    try {
+      for (; ; ) {
+        Runnable callback = queue.poll();
+        if (callback != null) {
+          pending.decrementAndGet();
+          try {
+            callback.run();
+          } catch (RuntimeException failure) {
+            logger.warn("Metrics exporter callback failed", failure);
+          }
+        } else if (closed.get()) {
+          return;
+        } else {
+          LockSupport.park(this);
+        }
+      }
+    } finally {
+      closed.set(true);
+      while (queue.poll() != null) {
+        pending.decrementAndGet();
+        droppedEvents.incrementAndGet();
+      }
     }
   }
 
@@ -111,23 +145,22 @@ public final class AsyncWebTransportMetricsListener
 
   @Override
   public void close() {
-    executor.shutdown();
+    EventLoopSafety.requireBlockingAllowed();
+    closed.set(true);
+    LockSupport.unpark(worker);
+    if (Thread.currentThread() == worker) {
+      return;
+    }
     try {
-      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-        executor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      executor.shutdownNow();
+      worker.join(TimeUnit.SECONDS.toMillis(5));
+    } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
     }
-  }
-
-  private static final class MetricsThreadFactory implements ThreadFactory {
-    @Override
-    public Thread newThread(@NonNull Runnable runnable) {
-      Thread thread = new Thread(runnable, "wt-metrics-exporter");
-      thread.setDaemon(true);
-      return thread;
+    if (worker.isAlive()) {
+      worker.interrupt();
+      while (queue.poll() != null) {
+        pending.decrementAndGet();
+      }
     }
   }
 }

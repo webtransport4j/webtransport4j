@@ -196,32 +196,27 @@ public class WebTransportSessionManager {
             ? (localFlowControlDeclared && peerFlowControlDeclared)
             : (peerSettingsReceived == null ? localFlowControlDeclared : false);
 
+    WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
     // Apply fallback defaults for any zero-valued settings when flow control is
     // enabled.
     // This ensures clients always have explicit limits, preventing
     // denial-of-service scenarios.
     if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-      uniMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+      uniMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback uni streams limit: {}", uniMax);
       }
       WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
     }
     if ((biMax == null || biMax == 0L) && flowControlEnabled) {
-      biMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+      biMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback bidi streams limit: {}", biMax);
       }
       WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
     }
     if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
-      dataMax =
-          WebTransportConfig.getLong(
-              "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+      dataMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback data limit: {}", dataMax);
       }

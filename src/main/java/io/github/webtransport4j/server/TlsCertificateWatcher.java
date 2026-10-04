@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.internal.EventLoopSafety;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
@@ -24,6 +25,7 @@ public class TlsCertificateWatcher {
   private final Consumer<QuicSslContext> sslContextConsumer;
   private final int pollIntervalSeconds;
 
+  private final Object reloadLock = new Object();
   private ScheduledExecutorService executor;
   private volatile long lastKeyModified = -1L;
   private volatile long lastCertModified = -1L;
@@ -66,49 +68,63 @@ public class TlsCertificateWatcher {
   }
 
   /** Starts the TLS certificate file watcher. */
-  public synchronized void start() {
-    if (executor != null && !executor.isShutdown()) {
-      return;
+  public void start() {
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (this) {
+      if (executor != null && !executor.isShutdown()) {
+        return;
+      }
+
+      File keyFile = new File(keyPath);
+      File certFile = new File(certPath);
+
+      if (keyFile.exists()) {
+        lastKeyModified = keyFile.lastModified();
+      }
+      if (certFile.exists()) {
+        lastCertModified = certFile.lastModified();
+      }
+
+      executor =
+          Executors.newSingleThreadScheduledExecutor(
+              r -> {
+                Thread t = new Thread(r, "wt-tls-cert-watcher");
+                t.setDaemon(true);
+                return t;
+              });
+
+      executor.scheduleAtFixedRate(
+          this::checkAndReload, pollIntervalSeconds, pollIntervalSeconds, TimeUnit.SECONDS);
+      logger.info(
+          "🔑 Started TLS Certificate Hot-Reload Watcher for key: '{}', cert: '{}' (interval: {}s)",
+          keyPath,
+          certPath,
+          pollIntervalSeconds);
     }
-
-    File keyFile = new File(keyPath);
-    File certFile = new File(certPath);
-
-    if (keyFile.exists()) {
-      lastKeyModified = keyFile.lastModified();
-    }
-    if (certFile.exists()) {
-      lastCertModified = certFile.lastModified();
-    }
-
-    executor =
-        Executors.newSingleThreadScheduledExecutor(
-            r -> {
-              Thread t = new Thread(r, "wt-tls-cert-watcher");
-              t.setDaemon(true);
-              return t;
-            });
-
-    executor.scheduleAtFixedRate(
-        this::checkAndReload, pollIntervalSeconds, pollIntervalSeconds, TimeUnit.SECONDS);
-    logger.info(
-        "🔑 Started TLS Certificate Hot-Reload Watcher for key: '{}', cert: '{}' (interval: {}s)",
-        keyPath,
-        certPath,
-        pollIntervalSeconds);
   }
 
   /** Stops the TLS certificate file watcher. */
-  public synchronized void stop() {
-    if (executor != null) {
-      executor.shutdownNow();
-      executor = null;
-      logger.info("👋 Stopped TLS Certificate Hot-Reload Watcher.");
+  public void stop() {
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (this) {
+      if (executor != null) {
+        executor.shutdownNow();
+        executor = null;
+        logger.info("👋 Stopped TLS Certificate Hot-Reload Watcher.");
+      }
     }
   }
 
   /** Check for file updates and reload if modified. */
   public boolean checkAndReload() {
+    // Separate from start/stop's monitor: shutdown must not wait on a reload callback.
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (reloadLock) {
+      return reload();
+    }
+  }
+
+  private boolean reload() {
     try {
       File keyFile = new File(keyPath);
       File certFile = new File(certPath);
@@ -128,10 +144,9 @@ public class TlsCertificateWatcher {
                 .applicationProtocols(Http3.supportedApplicationProtocols())
                 .build();
 
+        sslContextConsumer.accept(newSslCtx);
         lastKeyModified = currentKeyMod;
         lastCertModified = currentCertMod;
-
-        sslContextConsumer.accept(newSslCtx);
         logger.info(
             "✅ TLS Certificate hot-reloaded successfully. "
                 + "Newly negotiated QUIC connections will use updated certificates.");

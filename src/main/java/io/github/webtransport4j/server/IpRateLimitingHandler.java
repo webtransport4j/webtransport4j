@@ -87,19 +87,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     }
 
     SharedRateLimitRules(SharedRateLimitRules previous) {
+      WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
       this.maxConnectionsPerMinute =
-          WebTransportConfig.getInt(
-              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100);
-      this.maxTrackedIps =
-          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000);
+          config.getInt("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100);
+      this.maxTrackedIps = config.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 100000);
 
       this.engineType =
           Objects.requireNonNull(
-                  WebTransportConfig.get("webtransport4j.server.ratelimit.filter_engine", "trie"))
+                  config.get("webtransport4j.server.ratelimit.filter_engine", "trie"))
               .toLowerCase();
 
-      this.rawWhitelistConfig =
-          WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.whitelist", "");
+      this.rawWhitelistConfig = config.getNonNull("webtransport4j.server.ratelimit.whitelist", "");
       if (previous != null
           && this.engineType.equals(previous.engineType)
           && this.rawWhitelistConfig.equals(previous.rawWhitelistConfig)) {
@@ -118,8 +116,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         }
       }
 
-      this.rawOverridesConfig =
-          WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.overrides", "");
+      this.rawOverridesConfig = config.getNonNull("webtransport4j.server.ratelimit.overrides", "");
       if (previous != null
           && this.engineType.equals(previous.engineType)
           && this.rawOverridesConfig.equals(previous.rawOverridesConfig)) {
@@ -147,12 +144,10 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       }
 
       this.bloomCapacity =
-          WebTransportConfig.getInt(
-              "webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1_000_000);
+          config.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1_000_000);
       double fpp = 0.000000001;
       String fppStr =
-          WebTransportConfig.getNonNull(
-              "webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001");
+          config.getNonNull("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001");
       try {
         fpp = Double.parseDouble(fppStr);
       } catch (NumberFormatException e) {
@@ -160,8 +155,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       }
       this.bloomFpp = fpp;
 
-      this.rawBlocklistConfig =
-          WebTransportConfig.getNonNull("webtransport4j.server.ratelimit.blocklist", "");
+      this.rawBlocklistConfig = config.getNonNull("webtransport4j.server.ratelimit.blocklist", "");
 
       if (previous != null
           && this.bloomCapacity == previous.bloomCapacity
@@ -220,12 +214,11 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
 
   /** Updates the dynamic configuration reloader state based on configuration settings. */
   public static void updateReloaderState() {
+    WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
     boolean reloadEnabled =
-        WebTransportConfig.getBoolean(
-            "webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
+        config.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true);
     int reloadInterval =
-        WebTransportConfig.getInt(
-            "webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
+        config.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10);
 
     if (!reloadEnabled || reloadInterval <= 0) {
       stopReloader();
@@ -243,7 +236,7 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     updateReloaderState();
   }
 
-  private static synchronized void startReloader(int reloadInterval) {
+  private static void startReloader(int reloadInterval) {
     if (reloaderExecutor.get() != null) {
       return;
     }

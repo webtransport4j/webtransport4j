@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -19,10 +20,10 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
   private final AtomicInteger drainWip = new AtomicInteger();
   private final AtomicLong demand = new AtomicLong(0L);
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
-  private final AtomicBoolean completed = new AtomicBoolean(false);
+  private static final Throwable COMPLETE = new Throwable();
+  private final AtomicReference<Throwable> completed = new AtomicReference<>();
   private final AtomicBoolean terminated = new AtomicBoolean(false);
   private volatile Subscriber<? super T> subscriber;
-  private Throwable error;
 
   @Override
   public void subscribe(Subscriber<? super T> s) {
@@ -90,7 +91,7 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
    * @param item the item to emit
    */
   public void emitNext(T item) {
-    if (cancelled.get() || completed.get()) {
+    if (cancelled.get() || (completed.get() != null)) {
       if (item instanceof AutoCloseable) {
         try {
           ((AutoCloseable) item).close();
@@ -106,19 +107,14 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
 
   /** Signals completion to downstream subscriber after pending items are drained. */
   public void emitComplete() {
-    if (completed.compareAndSet(false, true)) {
+    if (completed.compareAndSet(null, COMPLETE)) {
       drain();
     }
   }
 
-  /**
-   * Signals an error condition to downstream subscriber.
-   *
-   * @param t the error to emit
-   */
+  /** Signals an error condition to downstream subscriber. */
   public void emitError(Throwable t) {
-    this.error = t;
-    if (completed.compareAndSet(false, true)) {
+    if (completed.compareAndSet(null, Objects.requireNonNull(t, "error"))) {
       drain();
     }
   }
@@ -129,51 +125,51 @@ public class WebTransportFlowPublisher<T> implements Publisher<T> {
     }
     int missed = 1;
     do {
-      if (cancelled.get() || (subscriber == null && completed.get())) {
+      if (cancelled.get()
+          || terminated.get()
+          || (subscriber == null && (completed.get() != null))) {
         drainAndCloseQueue();
-        return;
-      }
-      Subscriber<? super T> sub = this.subscriber;
-      if (sub != null) {
-        while (demand.get() > 0 && !cancelled.get()) {
-          T item = queue.poll();
-          if (item == null) {
-            break;
-          }
-          demand.updateAndGet(current -> current == Long.MAX_VALUE ? current : current - 1);
-          try {
-            sub.onNext(item);
-          } catch (Throwable t) {
-            if (item instanceof AutoCloseable) {
-              try {
-                ((AutoCloseable) item).close();
-              } catch (Exception expected) {
-                // ignored
+      } else {
+        Subscriber<? super T> sub = this.subscriber;
+        if (sub != null) {
+          while (demand.get() > 0 && !cancelled.get() && !terminated.get()) {
+            T item = queue.poll();
+            if (item == null) {
+              break;
+            }
+            demand.updateAndGet(current -> current == Long.MAX_VALUE ? current : current - 1);
+            try {
+              sub.onNext(item);
+            } catch (Throwable t) {
+              if (item instanceof AutoCloseable) {
+                try {
+                  ((AutoCloseable) item).close();
+                } catch (Exception expected) {
+                  // ignored
+                }
               }
+              cancelled.set(true);
+              drainAndCloseQueue();
+              if (terminated.compareAndSet(false, true)) {
+                sub.onError(t);
+              }
+              break;
             }
-            cancelled.set(true);
-            drainAndCloseQueue();
-            if (terminated.compareAndSet(false, true)) {
-              sub.onError(t);
-            }
-            return;
           }
-        }
-        if (completed.get() && !cancelled.get()) {
-          if (error != null) {
-            drainAndCloseQueue();
-            if (terminated.compareAndSet(false, true)) {
-              sub.onError(error);
-            }
-            return;
-          } else if (queue.isEmpty()) {
-            if (terminated.compareAndSet(false, true)) {
+          Throwable signal = completed.get();
+          if (signal != null && !cancelled.get()) {
+            if (signal != COMPLETE) {
+              drainAndCloseQueue();
+              if (terminated.compareAndSet(false, true)) {
+                sub.onError(signal);
+              }
+            } else if (queue.isEmpty() && terminated.compareAndSet(false, true)) {
               sub.onComplete();
             }
-            return;
           }
         }
       }
+      // Terminal paths also release drain ownership so a late offer can be disposed.
       missed = drainWip.addAndGet(-missed);
     } while (missed != 0);
   }

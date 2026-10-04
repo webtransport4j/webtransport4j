@@ -132,6 +132,42 @@ public class WebTransportUtils {
       @NonNull ChannelHandler streamHandler,
       @NonNull QuicStreamChannel connectStreamChannel,
       boolean byPassLimit) {
+    io.netty.channel.EventLoop owner = connectStreamChannel.parent().eventLoop();
+    if (owner.inEventLoop()) {
+      return createStreamOnEventLoop(
+          quicStreamType, streamHandler, connectStreamChannel, byPassLimit);
+    }
+    Promise<QuicStreamChannel> result = owner.newPromise();
+    try {
+      owner.execute(
+          () -> {
+            try {
+              createStreamOnEventLoop(
+                      quicStreamType, streamHandler, connectStreamChannel, byPassLimit)
+                  .addListener(
+                      future -> {
+                        if (future.isSuccess()) {
+                          result.trySuccess((QuicStreamChannel) future.getNow());
+                        } else {
+                          result.tryFailure(future.cause());
+                        }
+                      });
+            } catch (RuntimeException failure) {
+              result.tryFailure(failure);
+            }
+          });
+    } catch (java.util.concurrent.RejectedExecutionException failure) {
+      result.tryFailure(failure);
+    }
+    return result;
+  }
+
+  // The QUIC owner serializes admission and reservation for any implementation of the session SPI.
+  private static @NonNull Future<QuicStreamChannel> createStreamOnEventLoop(
+      QuicStreamType quicStreamType,
+      ChannelHandler streamHandler,
+      QuicStreamChannel connectStreamChannel,
+      boolean byPassLimit) {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
         connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();

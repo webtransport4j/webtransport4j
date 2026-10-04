@@ -26,7 +26,8 @@ public class WebTransportMicrometerMetricsListener
     implements WebTransportMetricsListener, MeterBinder {
 
   private final String prefix;
-  private final java.util.Set<String> pathTags = new java.util.HashSet<>();
+  private final java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> pathTags =
+      new java.util.concurrent.atomic.AtomicReference<>(java.util.Collections.emptySet());
   private final AtomicLong activeSessions = new AtomicLong(0);
   private final AtomicLong activeStreams = new AtomicLong(0);
   private final Map<Long, Long> sessionStartTimes = new ConcurrentHashMap<>();
@@ -253,7 +254,7 @@ public class WebTransportMicrometerMetricsListener
    * @param path raw path string
    * @return normalized, bounded path string
    */
-  private synchronized @NonNull String sanitizePath(@NonNull String path) {
+  private @NonNull String sanitizePath(@NonNull String path) {
     if (path.isEmpty() || !path.startsWith("/")) {
       return "/";
     }
@@ -261,13 +262,19 @@ public class WebTransportMicrometerMetricsListener
     if (trimmed.length() > 64) {
       trimmed = trimmed.substring(0, 64);
     }
-    if (pathTags.contains(trimmed)) {
-      return trimmed;
+    for (; ; ) {
+      java.util.Set<String> current = pathTags.get();
+      if (current.contains(trimmed)) {
+        return trimmed;
+      }
+      if (current.size() >= 100) {
+        return "/other";
+      }
+      java.util.Set<String> updated = new java.util.HashSet<>(current);
+      updated.add(trimmed);
+      if (pathTags.compareAndSet(current, java.util.Collections.unmodifiableSet(updated))) {
+        return trimmed;
+      }
     }
-    if (pathTags.size() >= 100) {
-      return "/other";
-    }
-    pathTags.add(trimmed);
-    return trimmed;
   }
 }
