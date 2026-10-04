@@ -350,6 +350,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     when(mockEventLoop.newPromise())
         .thenAnswer(invocation -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 

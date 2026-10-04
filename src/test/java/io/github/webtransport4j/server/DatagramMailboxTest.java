@@ -37,6 +37,7 @@ public class DatagramMailboxTest {
   public void setUp() {
     mockChannel = mock(QuicChannel.class);
     EventLoop mockLoop = mock(EventLoop.class);
+    when(mockLoop.inEventLoop()).thenReturn(true);
     closePromise = new DefaultChannelPromise(mockChannel, mockLoop);
     when(mockChannel.closeFuture()).thenReturn(closePromise);
 

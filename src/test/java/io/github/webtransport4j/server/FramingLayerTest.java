@@ -284,6 +284,7 @@ public class FramingLayerTest {
 
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     doAnswer(
             invocation -> {
               Runnable r = invocation.getArgument(0);
@@ -441,6 +442,7 @@ public class FramingLayerTest {
     // Mock EventLoop and Promise for createUniStream / createBiStream
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
@@ -532,6 +534,7 @@ public class FramingLayerTest {
     // Mock EventLoop and Promise for createUniStream / createBiStream
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
@@ -601,6 +604,7 @@ public class FramingLayerTest {
 
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
 
@@ -738,6 +742,7 @@ public class FramingLayerTest {
     // Mock EventLoop and Promise for stream creation
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     Promise mockPromise = mock(Promise.class);
     when(mockEventLoop.newPromise()).thenReturn(mockPromise);
     when(mockPromise.addListener(any())).thenReturn(mockPromise);
@@ -1119,6 +1124,7 @@ public class FramingLayerTest {
 
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     doAnswer(
             invocation -> {
               Runnable r = invocation.getArgument(0);
@@ -1179,6 +1185,7 @@ public class FramingLayerTest {
 
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     doAnswer(
             invocation -> {
               Runnable r = invocation.getArgument(0);
