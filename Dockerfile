@@ -14,7 +14,8 @@ COPY src ./src
 COPY scripts ./scripts
 
 # Package Multi-Release JAR and gather runtime dependencies
-RUN mvn clean package -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib
+RUN mvn clean package -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib \
+    && cp "target/$(mvn -q help:evaluate -Dexpression=project.build.finalName -DforceStdout).jar" target/application.jar
 
 # Stage 2: Hardened Production Runtime
 FROM eclipse-temurin:25-jre AS runtime
@@ -24,11 +25,13 @@ LABEL org.opencontainers.image.title="WebTransport4J Cluster Node" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Create unprivileged application user
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN groupadd -r wtgroup && useradd -r -g wtgroup wtuser
 WORKDIR /app
 
 # Copy application artifacts from builder
-COPY --from=builder /build/target/webtransport4j-*.jar /app/webtransport4j.jar
+COPY --from=builder /build/target/application.jar /app/webtransport4j.jar
 COPY --from=builder /build/target/lib /app/lib
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh

@@ -52,6 +52,17 @@ public class WebTransportMicrometerMetricsListenerTest {
   }
 
   @Test
+  public void testMeterCardinalityUnderDistinctTraffic() {
+    for (int i = 0; i < 1000; i++) {
+      listener.onSessionOpened(i, "/session/" + i);
+      listener.onSessionClosed(i, i);
+    }
+    assertEquals(101, registry.find("test.wt.sessions.opened").counters().size());
+    assertEquals(2, registry.find("test.wt.sessions.closed").counters().size());
+    assertEquals(0, listener.getActiveSessions());
+  }
+
+  @Test
   public void testStreamMetrics() {
     Gauge streamGauge = registry.find("test.wt.streams.active").gauge();
     assertNotNull(streamGauge);

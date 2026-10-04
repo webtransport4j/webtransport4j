@@ -61,13 +61,9 @@ public class ClusterNodeSample {
     return buffer.toByteArray();
   }
 
-  private static boolean isAuthorized(com.sun.net.httpserver.HttpExchange exchange, String token)
+  static boolean isAuthorized(com.sun.net.httpserver.HttpExchange exchange, String token)
       throws java.io.IOException {
     if (token == null || token.trim().isEmpty()) {
-      java.net.InetAddress remoteAddr = exchange.getRemoteAddress().getAddress();
-      if (remoteAddr != null && remoteAddr.isLoopbackAddress()) {
-        return true;
-      }
       exchange.sendResponseHeaders(503, -1);
       return false;
     }
@@ -79,13 +75,18 @@ public class ClusterNodeSample {
             authorization.getBytes(StandardCharsets.UTF_8))) {
       return true;
     }
-    java.net.InetAddress remoteAddr = exchange.getRemoteAddress().getAddress();
-    if (remoteAddr != null && remoteAddr.isLoopbackAddress()) {
-      return true;
-    }
     exchange.getResponseHeaders().set("WWW-Authenticate", "Bearer");
     exchange.sendResponseHeaders(401, -1);
     return false;
+  }
+
+  static String requireSecret(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.trim().isEmpty()
+        || ("CLUSTER_HMAC_KEY".equals(name) && value.getBytes(StandardCharsets.UTF_8).length < 32)) {
+      throw new IllegalStateException(name + " must be provisioned explicitly (HMAC: at least 32 bytes)");
+    }
+    return value;
   }
 
   /**
@@ -101,10 +102,10 @@ public class ClusterNodeSample {
     final String managementBindHost =
         System.getenv().getOrDefault("MANAGEMENT_BIND_HOST", "127.0.0.1");
     final String managementToken =
-        System.getenv().getOrDefault("MANAGEMENT_AUTH_TOKEN", "wt4j-cluster-mgmt-token-2026");
+        requireSecret("MANAGEMENT_AUTH_TOKEN");
     final String otlpEndpoint = System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT");
     final String hmacKeyStr =
-        System.getenv().getOrDefault("CLUSTER_HMAC_KEY", "default-cluster-secret-key-32b-min");
+        requireSecret("CLUSTER_HMAC_KEY");
 
     log.info(
         "🚀 Starting WebTransport4J Clustered Node '{}' on QUIC port {} (Health on {})",
@@ -249,8 +250,16 @@ public class ClusterNodeSample {
 
     // Jolokia / Hawtio JMX management HTTP handlers
     JolokiaHttpHandler jolokiaHandler = new JolokiaHttpHandler(nodeName);
-    healthHttpServer.createContext("/jolokia", jolokiaHandler);
-    healthHttpServer.createContext("/api/node/jmx", jolokiaHandler);
+    healthHttpServer.createContext("/jolokia", exchange -> {
+      if (isAuthorized(exchange, managementToken)) {
+        jolokiaHandler.handle(exchange);
+      }
+    });
+    healthHttpServer.createContext("/api/node/jmx", exchange -> {
+      if (isAuthorized(exchange, managementToken)) {
+        jolokiaHandler.handle(exchange);
+      }
+    });
 
     // Node runtime info endpoint: strictly real values from JVM and Netty server
     healthHttpServer.createContext(

@@ -64,7 +64,7 @@ public class JolokiaHttpHandler implements HttpHandler {
     final String method = exchange.getRequestMethod();
 
     // CORS preflight support for Hawtio web consoles
-    exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+
     exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     exchange
         .getResponseHeaders()
@@ -89,7 +89,11 @@ public class JolokiaHttpHandler implements HttpHandler {
     }
 
     try {
-      if ("GET".equalsIgnoreCase(method)) {
+      if ("GET".equalsIgnoreCase(method) && subPath.startsWith("exec/")) {
+        sendError(exchange, 405, "JMX operations require POST");
+      } else if ("POST".equalsIgnoreCase(method) && subPath.startsWith("exec/")) {
+        handleGet(exchange, subPath);
+      } else if ("GET".equalsIgnoreCase(method)) {
         handleGet(exchange, subPath);
       } else if ("POST".equalsIgnoreCase(method)) {
         handlePost(exchange);
@@ -324,70 +328,14 @@ public class JolokiaHttpHandler implements HttpHandler {
 
   private String executeOperation(
       String mbeanName, String operation, String[] args, long timestamp) {
-    try {
-      ObjectName on = new ObjectName(mbeanName);
-      if ("gc".equalsIgnoreCase(operation) && "java.lang:type=Memory".equalsIgnoreCase(mbeanName)) {
-        System.gc();
-        return String.format(
-            "{\"request\":{\"type\":\"exec\",\"mbean\":\"%s\",\"operation\":\"gc\"},"
-                + "\"status\":200,\"timestamp\":%d,\"value\":null}",
-            escapeJson(mbeanName), timestamp);
-      }
-
-      MBeanInfo info = mbeanServer.getMBeanInfo(on);
-      MBeanOperationInfo targetOp = null;
-      for (MBeanOperationInfo op : info.getOperations()) {
-        if (op.getName().equals(operation)) {
-          targetOp = op;
-          break;
-        }
-      }
-
-      if (targetOp != null) {
-        Object[] params = new Object[targetOp.getSignature().length];
-        String[] signature = new String[params.length];
-        for (int i = 0; i < params.length; i++) {
-          signature[i] = targetOp.getSignature()[i].getType();
-          params[i] = args.length > i ? parseArg(args[i], signature[i]) : null;
-        }
-        Object result = mbeanServer.invoke(on, operation, params, signature);
-        StringBuilder sb = new StringBuilder();
-        sb.append("{\"request\":{\"type\":\"exec\",\"mbean\":\"")
-            .append(escapeJson(mbeanName))
-            .append("\",\"operation\":\"")
-            .append(escapeJson(operation))
-            .append("\"},\"status\":200,\"timestamp\":")
-            .append(timestamp)
-            .append(",\"value\":");
-        serializeValueToJson(result, sb);
-        sb.append("}");
-        return sb.toString();
-      }
-
-      return String.format(
-          "{\"status\":404,\"error\":\"Operation %s not found on %s\",\"timestamp\":%d}",
-          escapeJson(operation), escapeJson(mbeanName), timestamp);
-    } catch (Exception e) {
-      return String.format(
-          "{\"status\":500,\"error\":\"%s\",\"timestamp\":%d}",
-          escapeJson(e.getMessage()), timestamp);
+    if (!"java.lang:type=Memory".equals(mbeanName) || !"gc".equals(operation)) {
+      return "{\"status\":403,\"error\":\"Operation is not allowed\"}";
     }
-  }
-
-  private Object parseArg(String val, String type) {
-    if (val == null) {
-      return null;
-    }
-    if ("boolean".equals(type) || "java.lang.Boolean".equals(type)) {
-      return Boolean.parseBoolean(val);
-    }
-    if ("int".equals(type) || "java.lang.Integer".equals(type)) {
-      return Integer.parseInt(val);
-    }
-    if ("long".equals(type) || "java.lang.Long".equals(type)) {
-      return Long.parseLong(val);
-    }
-    return val;
+    System.gc();
+    return String.format(
+        "{\"request\":{\"type\":\"exec\",\"mbean\":\"%s\",\"operation\":\"gc\"},"
+            + "\"status\":200,\"timestamp\":%d,\"value\":null}",
+        escapeJson(mbeanName), timestamp);
   }
 
   private String buildMbeansListJson(long timestamp) {
@@ -826,6 +774,9 @@ public class JolokiaHttpHandler implements HttpHandler {
     byte[] buf = new byte[2048];
     int r;
     while ((r = is.read(buf)) != -1) {
+      if (bos.size() + r > 16384) {
+        throw new IOException("Management request exceeds maximum size");
+      }
       bos.write(buf, 0, r);
     }
     return bos.toByteArray();

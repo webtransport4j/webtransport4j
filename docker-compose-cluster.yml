@@ -16,7 +16,9 @@ services:
       - PORT=4433
       - METRICS_PORT=8080
       - JAVA_GC=${JAVA_GC:-ZGC}
-      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - CLUSTER_HMAC_KEY=${CLUSTER_HMAC_KEY:?Set a random shared HMAC key of at least 32 bytes}
+      - MANAGEMENT_AUTH_TOKEN=${WT4J_NODE_MANAGEMENT_TOKEN:?Set node management token}
+      - MANAGEMENT_BIND_HOST=0.0.0.0
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
     networks:
       - cluster-net
@@ -36,7 +38,9 @@ services:
       - PORT=4433
       - METRICS_PORT=8080
       - JAVA_GC=${JAVA_GC:-ZGC}
-      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - CLUSTER_HMAC_KEY=${CLUSTER_HMAC_KEY:?Set a random shared HMAC key of at least 32 bytes}
+      - MANAGEMENT_AUTH_TOKEN=${WT4J_NODE_MANAGEMENT_TOKEN:?Set node management token}
+      - MANAGEMENT_BIND_HOST=0.0.0.0
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
     networks:
       - cluster-net
@@ -56,7 +60,9 @@ services:
       - PORT=4433
       - METRICS_PORT=8080
       - JAVA_GC=${JAVA_GC:-ZGC}
-      - CLUSTER_HMAC_KEY=shared-cluster-stateless-quic-token-key-256bit
+      - CLUSTER_HMAC_KEY=${CLUSTER_HMAC_KEY:?Set a random shared HMAC key of at least 32 bytes}
+      - MANAGEMENT_AUTH_TOKEN=${WT4J_NODE_MANAGEMENT_TOKEN:?Set node management token}
+      - MANAGEMENT_BIND_HOST=0.0.0.0
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318/v1/metrics
     networks:
       - cluster-net

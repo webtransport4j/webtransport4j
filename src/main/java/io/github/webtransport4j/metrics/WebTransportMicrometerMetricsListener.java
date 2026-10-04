@@ -26,6 +26,7 @@ public class WebTransportMicrometerMetricsListener
     implements WebTransportMetricsListener, MeterBinder {
 
   private final String prefix;
+  private final java.util.Set<String> pathTags = new java.util.HashSet<>();
   private final AtomicLong activeSessions = new AtomicLong(0);
   private final AtomicLong activeStreams = new AtomicLong(0);
   private final Map<Long, Long> sessionStartTimes = new ConcurrentHashMap<>();
@@ -133,7 +134,7 @@ public class WebTransportMicrometerMetricsListener
     }
     if (registry != null) {
       registry
-          .counter(prefix + ".sessions.closed", "status", String.valueOf(closeCode))
+          .counter(prefix + ".sessions.closed", "status", closeCode == 0 ? "0" : "error")
           .increment();
     }
   }
@@ -252,7 +253,7 @@ public class WebTransportMicrometerMetricsListener
    * @param path raw path string
    * @return normalized, bounded path string
    */
-  private static @NonNull String sanitizePath(@NonNull String path) {
+  private synchronized @NonNull String sanitizePath(@NonNull String path) {
     if (path.isEmpty() || !path.startsWith("/")) {
       return "/";
     }
@@ -260,6 +261,13 @@ public class WebTransportMicrometerMetricsListener
     if (trimmed.length() > 64) {
       trimmed = trimmed.substring(0, 64);
     }
+    if (pathTags.contains(trimmed)) {
+      return trimmed;
+    }
+    if (pathTags.size() >= 100) {
+      return "/other";
+    }
+    pathTags.add(trimmed);
     return trimmed;
   }
 }

@@ -3,16 +3,6 @@ kind: Namespace
 metadata:
   name: webtransport-prod
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: webtransport4j-cluster-secret
-  namespace: webtransport-prod
-type: Opaque
-stringData:
-  # Shared HMAC key across all pods for stateless QUIC connection resumption & token validation
-  CLUSTER_HMAC_KEY: "prod-stateless-cluster-quic-token-key-256bit-secure-hex"
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -66,6 +56,13 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            - name: MANAGEMENT_BIND_HOST
+              value: "0.0.0.0"
+            - name: MANAGEMENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: webtransport4j-cluster-secret
+                  key: MANAGEMENT_AUTH_TOKEN
             - name: PORT
               value: "4433"
             - name: METRICS_PORT
@@ -130,7 +127,18 @@ spec:
       port: 4433
       targetPort: 4433
       protocol: UDP
-    - name: health-tcp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtransport4j-management
+  namespace: webtransport-prod
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: webtransport4j
+  ports:
+    - name: management
       port: 8080
       targetPort: 8080
       protocol: TCP

@@ -60,6 +60,10 @@ Deploying WebTransport (HTTP/3 over QUIC/UDP) across a multi-pod Kubernetes clus
 
 ### Step 1: Apply Kubernetes Manifests
 ```bash
+kubectl create namespace webtransport-prod
+# cluster.env must contain independently generated CLUSTER_HMAC_KEY (32+ bytes)
+# and MANAGEMENT_AUTH_TOKEN. Keep this file private and out of version control.
+kubectl create secret generic webtransport4j-cluster-secret -n webtransport-prod --from-env-file=cluster.env
 kubectl apply -f k8s/webtransport4j-deployment.yaml
 kubectl apply -f k8s/webtransport4j-hpa.yaml
 kubectl apply -f k8s/dashboard-deployment.yaml
@@ -76,3 +80,13 @@ kubectl get svc -n webtransport-prod
 kubectl get hpa -n webtransport-prod --watch
 ```
 The HPA will automatically scale pods between 3 and 25 replicas depending on active load and connection concurrency.
+
+Node management listens on the pod interface so probes can reach it. Its Service
+`webtransport4j-management:8080` is private; restrict access to operators and the
+portal using your cluster network policy. Every management request, including
+loopback requests and Jolokia reads, requires the provisioned bearer token.
+JMX operations require POST and only `java.lang:type=Memory.gc` is allowed.
+
+The Micrometer listener retains at most 100 distinct path labels, then uses
+`/other`. Close status labels are `0` and `error`. Provision the same random HMAC
+key across nodes; do not reuse the management token as the HMAC key.
