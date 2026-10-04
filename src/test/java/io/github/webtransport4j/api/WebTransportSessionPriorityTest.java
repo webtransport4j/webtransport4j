@@ -58,6 +58,9 @@ public class WebTransportSessionPriorityTest {
     when(mockConnectStream.isOpen()).thenReturn(true);
 
     when(mockQuicChannel.eventLoop()).thenReturn(mockEventLoop);
+    // The mocked channel represents the owning Netty event loop. Stream admission
+    // is intentionally confined there and otherwise schedules asynchronously.
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     when(mockEventLoop.newPromise())
         .thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
@@ -119,7 +122,8 @@ public class WebTransportSessionPriorityTest {
     io.github.webtransport4j.server.WebTransportServer server =
         mock(io.github.webtransport4j.server.WebTransportServer.class);
     WebTransportHandler handler = mock(WebTransportHandler.class);
-    Attribute<io.github.webtransport4j.server.WebTransportServer> serverAttribute = mock(Attribute.class);
+    Attribute<io.github.webtransport4j.server.WebTransportServer> serverAttribute =
+        mock(Attribute.class);
     when(serverAttribute.get()).thenReturn(server);
     when(mockQuicChannel.attr(WebTransportAttributeKeys.SERVER_KEY)).thenReturn(serverAttribute);
     when(server.getHandler("/test")).thenReturn(handler);
@@ -162,7 +166,8 @@ public class WebTransportSessionPriorityTest {
 
   @Test
   public void testCloseCallbackIsIdempotent() {
-    java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.concurrent.atomic.AtomicInteger calls =
+        new java.util.concurrent.atomic.AtomicInteger();
     session.setOnClosedCallback(calls::incrementAndGet);
     session.close();
     session.close();
