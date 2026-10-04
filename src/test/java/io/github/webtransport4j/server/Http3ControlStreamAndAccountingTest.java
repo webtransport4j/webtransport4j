@@ -39,8 +39,8 @@ public class Http3ControlStreamAndAccountingTest {
     NettyWebTransportSession session = mock(NettyWebTransportSession.class);
     when(manager.getSessions()).thenReturn(java.util.Collections.singletonList(session));
     attributes.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
-    new Http3InboundControlStreamHandler().channelRead0(context,
-        new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(0));
+    new Http3InboundControlStreamHandler()
+        .channelRead0(context, new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(0));
     assertTrue(attributes.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).get());
     org.mockito.Mockito.verify(session).markDraining();
     org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).close();
@@ -121,6 +121,9 @@ public class Http3ControlStreamAndAccountingTest {
     QuicChannel mockParent = mock(QuicChannel.class);
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
+    // This test invokes stream creation from the mocked channel's owner loop;
+    // execute the owner-confined admission path synchronously.
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
     when(mockEventLoop.newPromise())
         .thenReturn(new io.netty.util.concurrent.DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
