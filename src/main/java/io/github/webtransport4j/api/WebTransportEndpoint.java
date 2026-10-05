@@ -16,8 +16,8 @@ import java.lang.annotation.Target;
 public @interface WebTransportEndpoint {
 
   /**
-   * The URI path on which this WebTransport handler should be registered (e.g., "/chat", "/events").
-   * Defaults to "/".
+   * The URI path on which this WebTransport handler should be registered (e.g., "/chat",
+   * "/events"). Defaults to "/".
    *
    * @return the URI path for the endpoint.
    */

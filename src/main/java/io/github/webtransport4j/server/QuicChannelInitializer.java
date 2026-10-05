@@ -115,8 +115,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
               public void userEventTriggered(ChannelHandlerContext ctx, Object evt)
                   throws Exception {
                 if (evt instanceof QuicPathEvent.PeerMigrated) {
-                  QuicPathEvent.PeerMigrated event =
-                      (QuicPathEvent.PeerMigrated) evt;
+                  QuicPathEvent.PeerMigrated event = (QuicPathEvent.PeerMigrated) evt;
                   String newRemoteAddress = event.remote().toString();
 
                   WebTransportMetricsListener metrics =
@@ -125,8 +124,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                     WebTransportSessionManager mgr =
                         ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
                     if (mgr != null) {
-                      for (WebTransportSession session :
-                          mgr.getSessions()) {
+                      for (WebTransportSession session : mgr.getSessions()) {
                         metrics.onConnectionMigration(
                             session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
                       }
@@ -134,14 +132,14 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                   }
                   currentRemoteAddress = newRemoteAddress;
                 }
-                  if (evt instanceof SslHandshakeCompletionEvent) {
-                      SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
-                      if (event.isSuccess()) {
-                            logger.info("Handshake successful");
-                      } else {
-                          logger.warn("Handshake failed", event.cause());
-                      }
+                if (evt instanceof SslHandshakeCompletionEvent) {
+                  SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+                  if (event.isSuccess()) {
+                    logger.info("Handshake successful");
+                  } else {
+                    logger.warn("Handshake failed", event.cause());
                   }
+                }
                 super.userEventTriggered(ctx, evt);
               }
             });
@@ -168,6 +166,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       logger.debug("    └── 🆔 Channel ID:  {}", nettyId);
     }
     ch.attr(WebTransportAttributeKeys.SERVER_KEY).set(this.server);
+    this.server.registerConnection(ch);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS).set(this.globalSessionSlots);
     WebTransportSessionManager sessionManager = new WebTransportSessionManager();
@@ -193,6 +192,8 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       }
     }
     ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
+    ch.attr(WebTransportAttributeKeys.ORIGIN_VALIDATOR).set(this.server.getOriginValidator());
+    ch.attr(WebTransportAttributeKeys.STRICT_ORIGIN_VALIDATION).set(this.server.isStrictOriginValidation());
     ch.pipeline().addLast(WebTransportDatagramDecoder.INSTANCE);
     if (logger.isDebugEnabled()) {
       logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());

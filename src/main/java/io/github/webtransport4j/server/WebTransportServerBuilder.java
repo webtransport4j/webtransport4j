@@ -4,23 +4,29 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.security.ClientAuthMode;
+import io.github.webtransport4j.security.OriginValidator;
+import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
+import java.io.File;
+import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Fluent builder for creating and configuring {@link WebTransportServer} instances.
- */
+/** Fluent builder for creating and configuring {@link WebTransportServer} instances. */
 public class WebTransportServerBuilder {
 
   private Integer port;
@@ -32,6 +38,7 @@ public class WebTransportServerBuilder {
   private ExecutorService businessExecutor;
   private WebTransportMetricsListener metricsListener;
   private QuicTokenHandler quicTokenHandler;
+  private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
   private Long idleTimeoutSeconds;
   private Long initialMaxStreamsBidi;
@@ -43,6 +50,13 @@ public class WebTransportServerBuilder {
   private GlobalTrafficShapingHandler trafficShaper;
   private Long globalTrafficWriteLimit;
   private Long globalTrafficReadLimit;
+  private ClientAuthMode clientAuthMode;
+  private File trustCertFile;
+  private X509Certificate[] trustCertificates;
+  private TrustManagerFactory trustManagerFactory;
+  private TrustManager trustManager;
+  private OriginValidator originValidator;
+  private Boolean strictOriginValidation;
 
   public WebTransportServerBuilder() {}
 
@@ -71,13 +85,17 @@ public class WebTransportServerBuilder {
   }
 
   /** Configures SSL key and certificate paths. */
-  public @NonNull WebTransportServerBuilder ssl(@Nullable String keyPath, @Nullable String certPath) {
+  public @NonNull WebTransportServerBuilder ssl(
+      @Nullable String keyPath, @Nullable String certPath) {
     this.sslKeyPath = keyPath;
     this.sslCertPath = certPath;
     return this;
   }
 
-  /** Sets a pre-built {@link QuicSslContext}. */
+  /**
+   * Sets a pre-built {@link QuicSslContext}. Configure client authentication and trust on that
+   * context; combining it with server clientAuth/trustManager options fails at startup.
+   */
   public @NonNull WebTransportServerBuilder sslContext(@Nullable QuicSslContext sslContext) {
     this.sslContext = sslContext;
     return this;
@@ -95,21 +113,170 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /**
+   * Configures the TLS client authentication (mTLS) mode.
+   *
+   * @param clientAuthMode the client authentication mode
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder clientAuth(@Nullable ClientAuthMode clientAuthMode) {
+    this.clientAuthMode = clientAuthMode;
+    return this;
+  }
+
+  /**
+   * Configures the TLS client authentication mode using Netty's ClientAuth enum.
+   *
+   * @param clientAuth Netty ClientAuth mode
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder clientAuth(@Nullable ClientAuth clientAuth) {
+    if (clientAuth == null) {
+      this.clientAuthMode = ClientAuthMode.NONE;
+    } else {
+      switch (clientAuth) {
+        case REQUIRE:
+          this.clientAuthMode = ClientAuthMode.REQUIRE;
+          break;
+        case OPTIONAL:
+          this.clientAuthMode = ClientAuthMode.OPTIONAL;
+          break;
+        case NONE:
+        default:
+          this.clientAuthMode = ClientAuthMode.NONE;
+          break;
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Sets the trusted CA certificate chain file for verifying mTLS client certificates. Replaces any
+   * previously configured trust source.
+   *
+   * @param trustCertFile CA certificate chain file
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(@Nullable File trustCertFile) {
+    clearTrustSources();
+    this.trustCertFile = trustCertFile;
+    return this;
+  }
+
+  /**
+   * Sets the trusted certificates for verifying mTLS client certificates. Replaces any previously
+   * configured trust source and copies the certificate array.
+   *
+   * @param certificates trusted X.509 certificates
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(
+      X509Certificate @Nullable ... certificates) {
+    clearTrustSources();
+    this.trustCertificates = certificates == null ? null : certificates.clone();
+    return this;
+  }
+
+  /**
+   * Sets the TrustManagerFactory for verifying mTLS client certificates. Replaces any previously
+   * configured trust source.
+   *
+   * @param trustManagerFactory trust manager factory
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(
+      @Nullable TrustManagerFactory trustManagerFactory) {
+    clearTrustSources();
+    this.trustManagerFactory = trustManagerFactory;
+    return this;
+  }
+
+  /**
+   * Sets the TrustManager for verifying mTLS client certificates. Replaces any previously
+   * configured trust source.
+   *
+   * @param trustManager trust manager
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder trustManager(@Nullable TrustManager trustManager) {
+    clearTrustSources();
+    this.trustManager = trustManager;
+    return this;
+  }
+
+  private void clearTrustSources() {
+    trustCertFile = null;
+    trustCertificates = null;
+    trustManagerFactory = null;
+    trustManager = null;
+  }
+
+  /**
+   * Configures a custom origin and authority validator.
+   *
+   * @param originValidator the origin validator
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder originValidator(
+      @Nullable OriginValidator originValidator) {
+    this.originValidator = originValidator;
+    return this;
+  }
+
+  /**
+   * Enables or disables strict origin validation (rejecting requests with missing Origin header).
+   *
+   * @param strictOriginValidation whether strict origin validation is enforced
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder strictOriginValidation(boolean strictOriginValidation) {
+    this.strictOriginValidation = strictOriginValidation;
+    return this;
+  }
+
   /** Sets the business executor for offloading handler callbacks. */
-  public @NonNull WebTransportServerBuilder businessExecutor(@Nullable ExecutorService businessExecutor) {
+  public @NonNull WebTransportServerBuilder businessExecutor(
+      @Nullable ExecutorService businessExecutor) {
     this.businessExecutor = businessExecutor;
     return this;
   }
 
   /** Sets the observability metrics listener. */
-  public @NonNull WebTransportServerBuilder metricsListener(@Nullable WebTransportMetricsListener metricsListener) {
+  public @NonNull WebTransportServerBuilder metricsListener(
+      @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
     return this;
   }
 
   /** Sets the custom QUIC token handler. */
-  public @NonNull WebTransportServerBuilder quicTokenHandler(@Nullable QuicTokenHandler quicTokenHandler) {
+  public @NonNull WebTransportServerBuilder quicTokenHandler(
+      @Nullable QuicTokenHandler quicTokenHandler) {
     this.quicTokenHandler = quicTokenHandler;
+    return this;
+  }
+
+  /**
+   * Sets a custom {@link QuicConnectionIdGenerator} for generating server Destination Connection
+   * IDs (DCIDs).
+   *
+   * @param connectionIdGenerator custom connection ID generator
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder connectionIdGenerator(
+      @Nullable QuicConnectionIdGenerator connectionIdGenerator) {
+    this.connectionIdGenerator = connectionIdGenerator;
+    return this;
+  }
+
+  /**
+   * Configures QUIC-LB Server ID routing (draft-ietf-quic-load-balancers) with a single-byte server
+   * ID (0 to 255). Incoming packets can be routed by L4 balancers using the Connection ID prefix.
+   *
+   * @param serverId unique server ID (0 to 255)
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder serverId(int serverId) {
+    this.connectionIdGenerator = new ServerIdConnectionIdGenerator(serverId);
     return this;
   }
 
@@ -139,7 +306,8 @@ public class WebTransportServerBuilder {
   }
 
   /** Sets the default handler for unregistered routes. */
-  public @NonNull WebTransportServerBuilder defaultHandler(@NonNull WebTransportHandler defaultHandler) {
+  public @NonNull WebTransportServerBuilder defaultHandler(
+      @NonNull WebTransportHandler defaultHandler) {
     this.defaultHandler = defaultHandler;
     return this;
   }
@@ -184,7 +352,8 @@ public class WebTransportServerBuilder {
    * Building another server with the same handler (including through another builder) is rejected.
    * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
    */
-  public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+  public @NonNull WebTransportServerBuilder trafficShaper(
+      @Nullable GlobalTrafficShapingHandler trafficShaper) {
     this.trafficShaper = trafficShaper;
     return this;
   }
@@ -233,6 +402,10 @@ public class WebTransportServerBuilder {
     return quicTokenHandler;
   }
 
+  QuicConnectionIdGenerator getConnectionIdGenerator() {
+    return connectionIdGenerator;
+  }
+
   String getTransportType() {
     return transportType;
   }
@@ -277,6 +450,33 @@ public class WebTransportServerBuilder {
     return globalTrafficReadLimit;
   }
 
+  ClientAuthMode getClientAuthMode() {
+    return clientAuthMode;
+  }
+
+  File getTrustCertFile() {
+    return trustCertFile;
+  }
+
+  X509Certificate[] getTrustCertificates() {
+    return trustCertificates;
+  }
+
+  TrustManagerFactory getTrustManagerFactory() {
+    return trustManagerFactory;
+  }
+
+  TrustManager getTrustManager() {
+    return trustManager;
+  }
+
+  OriginValidator getOriginValidator() {
+    return originValidator;
+  }
+
+  Boolean getStrictOriginValidation() {
+    return strictOriginValidation;
+  }
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

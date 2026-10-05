@@ -57,8 +57,9 @@ import org.slf4j.LoggerFactory;
  * <p>Example scenario: 40,000 total connections opened, 15,000 active connections sending/receiving
  * 1 msg/sec continuously.
  *
- * <p>Target server is {@link BenchmarkServerRunner}. Start the runner in a separate JVM and run this
- * test with:
+ * <p>Target server is {@link BenchmarkServerRunner}. Start the runner in a separate JVM and run
+ * this test with:
+ *
  * <pre>
  * mvn test -Dtest=ActiveIdleConnectionBenchmarkTest \
  *   -Dtarget.port=&lt;port&gt; \
@@ -79,15 +80,17 @@ public class ActiveIdleConnectionBenchmarkTest {
   }
 
   private static final int PING_LENGTH = PING_BYTES.length;
-  private static final ByteBuf PING_BUF = Unpooled.unreleasableBuffer(
-      Unpooled.directBuffer(PING_BYTES.length).writeBytes(PING_BYTES));
+  private static final ByteBuf PING_BUF =
+      Unpooled.unreleasableBuffer(Unpooled.directBuffer(PING_BYTES.length).writeBytes(PING_BYTES));
   private static final int[] DEFAULT_CONNECTION_TIERS = {10, 100, 1_000, 10_000, 40_000};
   private static final double DEFAULT_ACTIVE_RATIO = 0.375; // e.g. 15,000 / 40,000
   private static final int MAX_CLIENT_THREADS = 128;
   private static final int MAX_CLIENT_UDP_CHANNELS = 4096 * 2;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
-  private static final long IDLE_TIMEOUT_SECONDS = positiveProperty("benchmark.idle.timeout.seconds", 600);
-  private static final long DURATION_SECONDS = nonNegativeProperty("benchmark.duration.seconds", 30);
+  private static final long IDLE_TIMEOUT_SECONDS =
+      positiveProperty("benchmark.idle.timeout.seconds", 600);
+  private static final long DURATION_SECONDS =
+      nonNegativeProperty("benchmark.duration.seconds", 30);
 
   private String host;
   private int port;
@@ -103,7 +106,8 @@ public class ActiveIdleConnectionBenchmarkTest {
     try {
       port = Integer.parseInt(configuredPort);
     } catch (NumberFormatException e) {
-      throw new IllegalArgumentException("target.port must be a valid TCP/UDP port: " + configuredPort, e);
+      throw new IllegalArgumentException(
+          "target.port must be a valid TCP/UDP port: " + configuredPort, e);
     }
     if (port < 1 || port > 65_535) {
       throw new IllegalArgumentException("target.port must be between 1 and 65535: " + port);
@@ -113,7 +117,8 @@ public class ActiveIdleConnectionBenchmarkTest {
     if (host.isEmpty()) {
       throw new IllegalArgumentException("target.host must not be empty");
     }
-    logger.info("Benchmarking Active/Idle connections against BenchmarkServerRunner at {}:{}", host, port);
+    logger.info(
+        "Benchmarking Active/Idle connections against BenchmarkServerRunner at {}:{}", host, port);
   }
 
   @Test
@@ -145,13 +150,16 @@ public class ActiveIdleConnectionBenchmarkTest {
       throws Exception {
     int channelCount = Math.min(totalConnections, MAX_CLIENT_UDP_CHANNELS);
     int cpus = Math.max(2, Runtime.getRuntime().availableProcessors());
-    int ioThreadCount = positiveProperty("benchmark.client.threads", Math.min(channelCount, cpus * 2));
-    int workerThreadCount = positiveProperty("benchmark.worker.threads", Math.min(channelCount, cpus * 4));
+    int ioThreadCount =
+        positiveProperty("benchmark.client.threads", Math.min(channelCount, cpus * 2));
+    int workerThreadCount =
+        positiveProperty("benchmark.worker.threads", Math.min(channelCount, cpus * 4));
 
     ClientTransport transport = ClientTransport.create(ioThreadCount);
     EventLoopGroup eventLoopGroup = transport.group;
     ExecutorService connectWorkers = Executors.newFixedThreadPool(workerThreadCount);
-    ScheduledExecutorService activeMessageScheduler = Executors.newScheduledThreadPool(workerThreadCount);
+    ScheduledExecutorService activeMessageScheduler =
+        Executors.newScheduledThreadPool(workerThreadCount);
 
     List<Throwable> failures = Collections.synchronizedList(new ArrayList<Throwable>());
     AtomicInteger successfulConnections = new AtomicInteger();
@@ -197,7 +205,8 @@ public class ActiveIdleConnectionBenchmarkTest {
                   }
                 }
                 try {
-                  BenchmarkSession session = openSession(channel.channel, connection, totalRecvMsgs);
+                  BenchmarkSession session =
+                      openSession(channel.channel, connection, totalRecvMsgs);
                   allSessions.add(session);
                   successfulConnections.incrementAndGet();
                 } catch (Throwable failure) {
@@ -212,7 +221,9 @@ public class ActiveIdleConnectionBenchmarkTest {
       connectFinished =
           connectComplete.await(tierTimeoutSeconds(totalConnections), TimeUnit.SECONDS);
 
-      if (!failures.isEmpty() || !connectFinished || successfulConnections.get() < totalConnections) {
+      if (!failures.isEmpty()
+          || !connectFinished
+          || successfulConnections.get() < totalConnections) {
         throw new IllegalStateException(
             "Failed to establish "
                 + totalConnections
@@ -249,7 +260,8 @@ public class ActiveIdleConnectionBenchmarkTest {
 
         long activeStartNanos = System.nanoTime();
 
-        // Divide active sessions into 10 micro-slice buckets (100ms intervals) to smooth UDP NIC traffic bursts
+        // Divide active sessions into 10 micro-slice buckets (100ms intervals) to smooth UDP NIC
+        // traffic bursts
         int sliceCount = 10;
         int sliceSize = (int) Math.ceil((double) activeSessions.size() / sliceCount);
         List<java.util.concurrent.ScheduledFuture<?>> slicePingTasks =
@@ -279,7 +291,8 @@ public class ActiveIdleConnectionBenchmarkTest {
                         }
                       }
                     } catch (Throwable outer) {
-                      logger.debug("⚠️ Exception in ticker slice ping task: {}", outer.getMessage());
+                      logger.debug(
+                          "⚠️ Exception in ticker slice ping task: {}", outer.getMessage());
                     }
                   },
                   s * 100L,
@@ -406,7 +419,8 @@ public class ActiveIdleConnectionBenchmarkTest {
         if ((Boolean) isAvailable.invoke(null)) {
           Class<?> groupClass = Class.forName("io.netty.channel.epoll.EpollEventLoopGroup");
           Class<?> channelClass = Class.forName("io.netty.channel.epoll.EpollDatagramChannel");
-          EventLoopGroup group = (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
+          EventLoopGroup group =
+              (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
           @SuppressWarnings("unchecked")
           Class<? extends Channel> castChannel = (Class<? extends Channel>) channelClass;
           logger.info("⚡ Client using Linux Epoll native transport");
@@ -422,7 +436,8 @@ public class ActiveIdleConnectionBenchmarkTest {
         if ((Boolean) isAvailable.invoke(null)) {
           Class<?> groupClass = Class.forName("io.netty.channel.kqueue.KQueueEventLoopGroup");
           Class<?> channelClass = Class.forName("io.netty.channel.kqueue.KQueueDatagramChannel");
-          EventLoopGroup group = (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
+          EventLoopGroup group =
+              (EventLoopGroup) groupClass.getConstructor(int.class).newInstance(threadCount);
           @SuppressWarnings("unchecked")
           Class<? extends Channel> castChannel = (Class<? extends Channel>) channelClass;
           logger.info("⚡ Client using macOS KQueue native transport");
@@ -451,8 +466,7 @@ public class ActiveIdleConnectionBenchmarkTest {
   }
 
   private BenchmarkSession openSession(
-      Channel udpChannel, int connectionIndex,
-      AtomicLong totalRecvMsgs) throws Exception {
+      Channel udpChannel, int connectionIndex, AtomicLong totalRecvMsgs) throws Exception {
     QuicChannel quicChannel = null;
     QuicStreamChannel connectStream = null;
     AtomicBoolean closing = new AtomicBoolean();
@@ -468,7 +482,8 @@ public class ActiveIdleConnectionBenchmarkTest {
       long sessionId = sessionIdFuture.get(CONNECTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
       // Open initial bidirectional echo stream for messaging with non-blocking echo handler
-      QuicStreamChannel bidiStream = openBidiStream(quicChannel, sessionId, totalRecvMsgs, lifecycleFailure, closing);
+      QuicStreamChannel bidiStream =
+          openBidiStream(quicChannel, sessionId, totalRecvMsgs, lifecycleFailure, closing);
 
       session =
           new BenchmarkSession(
@@ -499,14 +514,16 @@ public class ActiveIdleConnectionBenchmarkTest {
             new ChannelInitializer<QuicChannel>() {
               @Override
               protected void initChannel(QuicChannel channel) {
-                channel.pipeline().addLast(
-                    new Http3ClientConnectionHandler(
-                        null,
-                        null,
-                        new UnknownStreamHandlerFactory(),
-                        new DefaultHttp3SettingsFrame(settings),
-                        false,
-                        (id, value) -> true));
+                channel
+                    .pipeline()
+                    .addLast(
+                        new Http3ClientConnectionHandler(
+                            null,
+                            null,
+                            new UnknownStreamHandlerFactory(),
+                            new DefaultHttp3SettingsFrame(settings),
+                            false,
+                            (id, value) -> true));
               }
             })
         .remoteAddress(new InetSocketAddress(host, port))
@@ -525,29 +542,34 @@ public class ActiveIdleConnectionBenchmarkTest {
             new ChannelInitializer<QuicStreamChannel>() {
               @Override
               protected void initChannel(QuicStreamChannel channel) {
-                channel.pipeline().addLast(
-                    new SimpleChannelInboundHandler<Object>() {
-                      @Override
-                      protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                        if (msg instanceof Http3HeadersFrame) {
-                          Http3HeadersFrame resp = (Http3HeadersFrame) msg;
-                          if ("200".equals(resp.headers().status().toString())) {
-                            sessionIdFuture.complete(((QuicStreamChannel) ctx.channel()).streamId());
-                          } else {
-                            Exception ex = new IllegalStateException("CONNECT failed: " + resp.headers().status());
-                            recordFailure(lifecycleFailure, closing, ex);
-                            sessionIdFuture.completeExceptionally(ex);
+                channel
+                    .pipeline()
+                    .addLast(
+                        new SimpleChannelInboundHandler<Object>() {
+                          @Override
+                          protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                            if (msg instanceof Http3HeadersFrame) {
+                              Http3HeadersFrame resp = (Http3HeadersFrame) msg;
+                              if ("200".equals(resp.headers().status().toString())) {
+                                sessionIdFuture.complete(
+                                    ((QuicStreamChannel) ctx.channel()).streamId());
+                              } else {
+                                Exception ex =
+                                    new IllegalStateException(
+                                        "CONNECT failed: " + resp.headers().status());
+                                recordFailure(lifecycleFailure, closing, ex);
+                                sessionIdFuture.completeExceptionally(ex);
+                              }
+                            }
                           }
-                        }
-                      }
 
-                      @Override
-                      public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                        recordFailure(lifecycleFailure, closing, cause);
-                        sessionIdFuture.completeExceptionally(cause);
-                        ctx.close();
-                      }
-                    });
+                          @Override
+                          public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+                            recordFailure(lifecycleFailure, closing, cause);
+                            sessionIdFuture.completeExceptionally(cause);
+                            ctx.close();
+                          }
+                        });
               }
             })
         .sync()
@@ -578,32 +600,35 @@ public class ActiveIdleConnectionBenchmarkTest {
                 new ChannelInitializer<QuicStreamChannel>() {
                   @Override
                   protected void initChannel(QuicStreamChannel ch) {
-                    ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
-                      private int bytesRead = 0;
+                    ch.pipeline()
+                        .addLast(
+                            new SimpleChannelInboundHandler<Object>() {
+                              private int bytesRead = 0;
 
-                      @Override
-                      protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                        ByteBuf buf = null;
-                        if (msg instanceof Http3DataFrame) {
-                          buf = ((Http3DataFrame) msg).content();
-                        } else if (msg instanceof ByteBuf) {
-                          buf = (ByteBuf) msg;
-                        }
-                        if (buf == null) {
-                          return;
-                        }
-                        int len = buf.readableBytes();
-                        bytesRead += len;
-                        while (bytesRead >= PING_LENGTH) {
-                          bytesRead -= PING_LENGTH;
-                          totalRecvMsgs.incrementAndGet();
-                        }
-                      }
+                              @Override
+                              protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                                ByteBuf buf = null;
+                                if (msg instanceof Http3DataFrame) {
+                                  buf = ((Http3DataFrame) msg).content();
+                                } else if (msg instanceof ByteBuf) {
+                                  buf = (ByteBuf) msg;
+                                }
+                                if (buf == null) {
+                                  return;
+                                }
+                                int len = buf.readableBytes();
+                                bytesRead += len;
+                                while (bytesRead >= PING_LENGTH) {
+                                  bytesRead -= PING_LENGTH;
+                                  totalRecvMsgs.incrementAndGet();
+                                }
+                              }
 
-                      public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-                        recordFailure(lifecycleFailure, closing, cause);
-                      }
-                    });
+                              public void exceptionCaught(
+                                  ChannelHandlerContext ctx, Throwable cause) {
+                                recordFailure(lifecycleFailure, closing, cause);
+                              }
+                            });
                   }
                 })
             .sync()
@@ -635,9 +660,9 @@ public class ActiveIdleConnectionBenchmarkTest {
       int active = Integer.parseInt(configuredActive.trim());
       return Math.min(totalConnections, Math.max(1, active));
     }
-    double ratio = Double.parseDouble(
-        System.getProperty("benchmark.active.ratio",
-            String.valueOf(DEFAULT_ACTIVE_RATIO)));
+    double ratio =
+        Double.parseDouble(
+            System.getProperty("benchmark.active.ratio", String.valueOf(DEFAULT_ACTIVE_RATIO)));
     return Math.min(totalConnections, Math.max(1, (int) Math.round(totalConnections * ratio)));
   }
 
@@ -746,11 +771,14 @@ public class ActiveIdleConnectionBenchmarkTest {
       this.lifecycleFailure = lifecycleFailure;
       this.closing = closing;
 
-      quicChannel.closeFuture().addListener(
-          f -> ActiveIdleConnectionBenchmarkTest.recordFailure(
-              lifecycleFailure, closing,
-              new IllegalStateException(
-                  "Connection #" + index + " closed unexpectedly")));
+      quicChannel
+          .closeFuture()
+          .addListener(
+              f ->
+                  ActiveIdleConnectionBenchmarkTest.recordFailure(
+                      lifecycleFailure,
+                      closing,
+                      new IllegalStateException("Connection #" + index + " closed unexpectedly")));
     }
 
     private void setActive(boolean active) {
@@ -812,5 +840,4 @@ public class ActiveIdleConnectionBenchmarkTest {
       closeChannel(quicChannel);
     }
   }
-
 }

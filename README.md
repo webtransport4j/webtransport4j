@@ -1111,3 +1111,23 @@ See [LICENSE](LICENSE) for the full license text.
   ·
   <a href="https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/">Specification</a>
 </p>
+
+## Concurrency verification
+
+Bounded TLA+ models cover server startup/stop ownership, session admission
+during drain, mailboxes, reactive publishers, TLS reload, flow control, async
+metrics, and configuration reload. Run safety, liveness, and known-broken negative controls with:
+
+```sh
+python3 verification/tla/check.py --jar /path/to/tla2tools.jar
+```
+
+See [the model guide](verification/tla/README.md) for the pinned checker download,
+implementation mapping, and verification limits. CI runs these checks for changes
+to the transport server, session API, or models.
+
+[Java concurrency verification](verification/concurrency/README.md) adds deterministic
+race tests, bounded model-based histories, an isolated JCStress harness, and real
+QUIC integration tests for these areas. [Recorded results](verification/concurrency/RESULTS.md)
+include before/after race findings; passing TLA+ abstractions do not establish
+Java implementation correctness.

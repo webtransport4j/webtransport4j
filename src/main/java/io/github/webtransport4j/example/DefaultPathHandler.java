@@ -44,7 +44,10 @@ public class DefaultPathHandler implements WebTransportHandler {
 
     stream.onData(
         buffer -> {
-          logger.debug("📨 [DEFAULT HANDLER] Stream [{}] received {} bytes", stream.streamId(), buffer.readableBytes());
+          logger.debug(
+              "📨 [DEFAULT HANDLER] Stream [{}] received {} bytes",
+              stream.streamId(),
+              buffer.readableBytes());
           stream.write(buffer);
         });
   }

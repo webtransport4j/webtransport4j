@@ -55,23 +55,18 @@ public class WebTransportSessionPriorityTest {
 
     when(mockConnectStream.parent()).thenReturn(mockQuicChannel);
     when(mockConnectStream.streamId()).thenReturn(0L);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     when(mockQuicChannel.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.newPromise()).thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
+    // The mocked channel represents the owning Netty event loop. Stream admission
+    // is intentionally confined there and otherwise schedules asynchronously.
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
+    when(mockEventLoop.newPromise())
+        .thenAnswer(inv -> new DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
     session =
         new DefaultWebTransportSession(
-            0L,
-            mockConnectStream,
-            "/test",
-            100L,
-            100L,
-            10000L,
-            100L,
-            100L,
-            10000L,
-            true,
-            false);
+            0L, mockConnectStream, "/test", 100L, 100L, 10000L, 100L, 100L, 10000L, true, false);
 
     WebTransportSessionManager sessionManager = mock(WebTransportSessionManager.class);
     when(sessionManager.get(0L)).thenReturn(session);
@@ -82,11 +77,13 @@ public class WebTransportSessionPriorityTest {
 
     Attribute<Long> peerBidiAttr = mock(Attribute.class);
     when(peerBidiAttr.get()).thenReturn(100L);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)).thenReturn(peerBidiAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(peerBidiAttr);
 
     Attribute<Long> peerUniAttr = mock(Attribute.class);
     when(peerUniAttr.get()).thenReturn(100L);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)).thenReturn(peerUniAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(peerUniAttr);
 
     // Setup mock created stream
     when(mockCreatedStream.streamId()).thenReturn(4L);
@@ -108,23 +105,93 @@ public class WebTransportSessionPriorityTest {
     when(mockCreatedStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
 
     Attribute<Long> streamTypeAttr = mock(Attribute.class);
-    when(mockCreatedStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY)).thenReturn(streamTypeAttr);
+    when(mockCreatedStream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY))
+        .thenReturn(streamTypeAttr);
 
     Attribute<Boolean> srvInitAttr = mock(Attribute.class);
-    when(mockCreatedStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)).thenReturn(srvInitAttr);
+    when(mockCreatedStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
+        .thenReturn(srvInitAttr);
 
     when(mockCreatedStream.updatePriority(any())).thenReturn(mockPriorityFuture);
     when(mockPriorityFuture.isDone()).thenReturn(true);
     when(mockPriorityFuture.isSuccess()).thenReturn(true);
   }
 
+  @Test
+  public void testDrainCallbackRunsOnceForRepeatedSignals() {
+    io.github.webtransport4j.server.WebTransportServer server =
+        mock(io.github.webtransport4j.server.WebTransportServer.class);
+    WebTransportHandler handler = mock(WebTransportHandler.class);
+    Attribute<io.github.webtransport4j.server.WebTransportServer> serverAttribute =
+        mock(Attribute.class);
+    when(serverAttribute.get()).thenReturn(server);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.SERVER_KEY)).thenReturn(serverAttribute);
+    when(server.getHandler("/test")).thenReturn(handler);
+    session.markDraining();
+    session.markDraining();
+    verify(handler).onSessionDraining(session);
+    assertTrue(session.isOpen());
+  }
+
+  @Test
+  public void testDrainSendsExactlyOneEmptyCapsule() {
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    session.drain();
+    session.drain();
+    ArgumentCaptor<Object> frame = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnectStream).writeAndFlush(frame.capture());
+    io.netty.handler.codec.http3.Http3DataFrame data =
+        (io.netty.handler.codec.http3.Http3DataFrame) frame.getValue();
+    try {
+      assertEquals(5, data.content().readableBytes());
+      assertEquals(0x800078ae, data.content().readInt());
+      assertEquals(0, data.content().readByte());
+      assertTrue(session.isDraining());
+    } finally {
+      data.release();
+    }
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testClosedSessionRejectsDatagram() {
+    session.close();
+    session.sendDatagram(new byte[] {1});
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testClosedSessionRejectsBufferDatagram() {
+    session.close();
+    session.sendDatagram(mock(WebTransportBuffer.class));
+  }
+
+  @Test
+  public void testCloseCallbackIsIdempotent() {
+    java.util.concurrent.atomic.AtomicInteger calls =
+        new java.util.concurrent.atomic.AtomicInteger();
+    session.setOnClosedCallback(calls::incrementAndGet);
+    session.close();
+    session.close();
+    session.abort(0);
+    assertEquals(1, calls.get());
+  }
+
+  @Test
+  public void testCreateStreamAfterDrain() throws Exception {
+    session.markDraining();
+    mockCreateStreamSuccess(QuicStreamType.BIDIRECTIONAL);
+    assertNotNull(session.createBiStream().get());
+  }
+
   private void mockCreateStreamSuccess(QuicStreamType expectedType) {
     when(mockCreatedStream.type()).thenReturn(expectedType);
-    when(mockQuicChannel.createStream(any(), any())).thenAnswer(invocation -> {
-      DefaultPromise<QuicStreamChannel> fut = new DefaultPromise<>(ImmediateEventExecutor.INSTANCE);
-      fut.setSuccess(mockCreatedStream);
-      return fut;
-    });
+    when(mockQuicChannel.createStream(any(), any()))
+        .thenAnswer(
+            invocation -> {
+              DefaultPromise<QuicStreamChannel> fut =
+                  new DefaultPromise<>(ImmediateEventExecutor.INSTANCE);
+              fut.setSuccess(mockCreatedStream);
+              return fut;
+            });
   }
 
   @Test
@@ -191,23 +258,26 @@ public class WebTransportSessionPriorityTest {
     ReactiveWebTransportSession reactiveSession = new ReactiveWebTransportSession(session);
 
     AtomicReference<ReactiveWebTransportStream> streamRef = new AtomicReference<>();
-    reactiveSession.createBiStream(StreamPriority.of(1, true)).subscribe(new Subscriber<ReactiveWebTransportStream>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(1);
-      }
+    reactiveSession
+        .createBiStream(StreamPriority.of(1, true))
+        .subscribe(
+            new Subscriber<ReactiveWebTransportStream>() {
+              @Override
+              public void onSubscribe(Subscription s) {
+                s.request(1);
+              }
 
-      @Override
-      public void onNext(ReactiveWebTransportStream s) {
-        streamRef.set(s);
-      }
+              @Override
+              public void onNext(ReactiveWebTransportStream s) {
+                streamRef.set(s);
+              }
 
-      @Override
-      public void onError(Throwable t) {}
+              @Override
+              public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {}
-    });
+              @Override
+              public void onComplete() {}
+            });
 
     assertNotNull(streamRef.get());
     ArgumentCaptor<QuicStreamPriority> captor = ArgumentCaptor.forClass(QuicStreamPriority.class);

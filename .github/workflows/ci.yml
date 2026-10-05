@@ -25,6 +25,7 @@ jobs:
   build:
     name: Build & Test (${{ matrix.os }}, JDK ${{ matrix.java }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -152,6 +153,7 @@ jobs:
   release-artifact:
     name: Release artifact validation
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     needs: build
 
     steps:
@@ -265,6 +267,7 @@ jobs:
   interop:
     name: Interop (${{ matrix.client }}, JDK ${{ matrix.java }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     needs: build
 
     strategy:

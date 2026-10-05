@@ -122,6 +122,7 @@ public class StreamPriorityTest {
   @Test
   public void testToString() {
     assertEquals("StreamPriority[urgency=3, incremental=false]", StreamPriority.DEFAULT.toString());
-    assertEquals("StreamPriority[urgency=1, incremental=true]", StreamPriority.of(1, true).toString());
+    assertEquals(
+        "StreamPriority[urgency=1, incremental=true]", StreamPriority.of(1, true).toString());
   }
 }

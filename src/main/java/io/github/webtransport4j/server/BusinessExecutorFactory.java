@@ -110,48 +110,52 @@ public final class BusinessExecutorFactory {
               ? new LinkedBlockingQueue<>()
               : new LinkedBlockingQueue<>(queueCapacity);
     }
-    ThreadPoolExecutor executor = new ThreadPoolExecutor(
-        poolSize,
-        poolSize,
-        60L,
-        TimeUnit.SECONDS,
-        queue,
-        new ThreadFactory() {
+    ThreadPoolExecutor executor =
+        new ThreadPoolExecutor(
+            poolSize,
+            poolSize,
+            60L,
+            TimeUnit.SECONDS,
+            queue,
+            new ThreadFactory() {
 
-          private final AtomicInteger count = new AtomicInteger(1);
+              private final AtomicInteger count = new AtomicInteger(1);
 
-          @Override
-          public @NonNull Thread newThread(@NonNull Runnable r) {
-            Thread thread = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
-            thread.setDaemon(true);
-            return thread;
-          }
-        },
-        createRejectedExecutionHandler(
-                Objects.requireNonNull(WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT"))));
+              @Override
+              public @NonNull Thread newThread(@NonNull Runnable r) {
+                Thread thread = new Thread(r, "wt-business-worker-" + count.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+              }
+            },
+            createRejectedExecutionHandler(
+                Objects.requireNonNull(
+                    WebTransportConfig.get("webtransport4j.business.rejection.policy", "ABORT"))));
 
     if (queueCapacity > 0 && queueCapacity != Integer.MAX_VALUE) {
-      Thread monitorThread = new Thread(() -> {
-        while (!executor.isShutdown()) {
-          try {
-            Thread.sleep(5000);
-            int size = executor.getQueue().size();
-            double pct = ((double) size / queueCapacity) * 100.0;
-            if (pct >= 80.0) {
-              logger.warn(
-                  "⚠️ Business executor queue is near saturation ({}% full: {}/{} tasks). Latency spikes may occur.",
-                  String.format(Locale.ROOT, "%.1f", pct),
-                  size,
-                  queueCapacity);
-            }
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            break;
-          } catch (Exception e) {
-            // Safe fallback
-          }
-        }
-      }, "wt-business-queue-monitor");
+      Thread monitorThread =
+          new Thread(
+              () -> {
+                while (!executor.isShutdown()) {
+                  try {
+                    Thread.sleep(5000);
+                    int size = executor.getQueue().size();
+                    double pct = ((double) size / queueCapacity) * 100.0;
+                    if (pct >= 80.0) {
+                      logger.warn(
+                          "⚠️ Business executor queue is near saturation ({}% full: {}/{} tasks)."
+                              + " Latency spikes may occur.",
+                          String.format(Locale.ROOT, "%.1f", pct), size, queueCapacity);
+                    }
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                  } catch (Exception e) {
+                    // Safe fallback
+                  }
+                }
+              },
+              "wt-business-queue-monitor");
       monitorThread.setDaemon(true);
       monitorThread.start();
     }

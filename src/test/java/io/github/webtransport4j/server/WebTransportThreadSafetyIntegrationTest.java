@@ -49,12 +49,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Unmocked integration test verifying thread safety, FastThreadLocal buffer isolation,
- * and asynchronous retain() handoffs across thread pools.
+ * Unmocked integration test verifying thread safety, FastThreadLocal buffer isolation, and
+ * asynchronous retain() handoffs across thread pools.
  */
 public class WebTransportThreadSafetyIntegrationTest {
 
-  private static final Logger log = LoggerFactory.getLogger(WebTransportThreadSafetyIntegrationTest.class);
+  private static final Logger log =
+      LoggerFactory.getLogger(WebTransportThreadSafetyIntegrationTest.class);
 
   private static final int CONCURRENT_STREAMS = 10;
   private static final int MESSAGES_PER_STREAM = 50;
@@ -80,49 +81,55 @@ public class WebTransportThreadSafetyIntegrationTest {
     processedBytesCount = new AtomicLong(0);
     asyncPool = Executors.newCachedThreadPool();
 
-    server = new WebTransportServerBuilder()
-        .port(0)
-        .defaultHandler(new WebTransportHandler() {
-          @Override
-          public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
-            if (stream.isBidirectional()) {
-              stream.onData(buffer -> {
-                // 1. Explicitly retain the buffer for asynchronous off-thread processing
-                WebTransportBuffer retained = buffer.retain();
+    server =
+        new WebTransportServerBuilder()
+            .port(0)
+            .defaultHandler(
+                new WebTransportHandler() {
+                  @Override
+                  public void onIncomingStream(
+                      @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+                    if (stream.isBidirectional()) {
+                      stream.onData(
+                          buffer -> {
+                            // 1. Explicitly retain the buffer for asynchronous off-thread
+                            // processing
+                            WebTransportBuffer retained = buffer.retain();
 
-                // 2. Hand off to an asynchronous Virtual Thread pool
-                asyncPool.submit(() -> {
-                  try {
-                    // Read payload from the retained buffer
-                    byte[] bytes = retained.readBytes();
+                            // 2. Hand off to an asynchronous Virtual Thread pool
+                            asyncPool.submit(
+                                () -> {
+                                  try {
+                                    // Read payload from the retained buffer
+                                    byte[] bytes = retained.readBytes();
 
-                    if (bytes.length == 0) {
-                      corruptedMessagesCount.incrementAndGet();
-                    } else {
-                      long totalBytes = processedBytesCount.addAndGet(bytes.length);
-                      processedMessagesCount.set((int) (totalBytes / 19L));
+                                    if (bytes.length == 0) {
+                                      corruptedMessagesCount.incrementAndGet();
+                                    } else {
+                                      long totalBytes = processedBytesCount.addAndGet(bytes.length);
+                                      processedMessagesCount.set((int) (totalBytes / 19L));
+                                    }
+
+                                    // Echo back to client
+                                    stream.write(bytes);
+                                  } catch (Exception e) {
+                                    log.error("Async worker error", e);
+                                    corruptedMessagesCount.incrementAndGet();
+                                  } finally {
+                                    retained.release();
+                                  }
+                                });
+                          });
                     }
-
-                    // Echo back to client
-                    stream.write(bytes);
-                  } catch (Exception e) {
-                    log.error("Async worker error", e);
-                    corruptedMessagesCount.incrementAndGet();
-                  } finally {
-                    retained.release();
                   }
-                });
-              });
-            }
-          }
 
-          @Override
-          public void onSessionReady(@NonNull WebTransportSession session) {}
+                  @Override
+                  public void onSessionReady(@NonNull WebTransportSession session) {}
 
-          @Override
-          public void onSessionClosed(@NonNull WebTransportSession session) {}
-        })
-        .build();
+                  @Override
+                  public void onSessionClosed(@NonNull WebTransportSession session) {}
+                })
+            .build();
 
     server.start();
     int serverPort = server.getPort();
@@ -131,62 +138,87 @@ public class WebTransportThreadSafetyIntegrationTest {
     // Setup client QUIC channel
     clientGroup = new MultiThreadIoEventLoopGroup(2, NioIoHandler.newFactory());
 
-    QuicSslContext sslCtx = QuicSslContextBuilder.forClient()
-        .trustManager(InsecureTrustManagerFactory.INSTANCE)
-        .applicationProtocols(Http3.supportedApplicationProtocols())
-        .build();
+    QuicSslContext sslCtx =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .build();
 
-    ChannelHandler codec = Http3.newQuicClientCodecBuilder()
-        .sslContext(sslCtx)
-        .maxIdleTimeout(15_000, TimeUnit.MILLISECONDS)
-        .initialMaxData(10_000_000)
-        .initialMaxStreamDataBidirectionalLocal(1_000_000)
-        .initialMaxStreamDataBidirectionalRemote(1_000_000)
-        .initialMaxStreamsBidirectional(CONCURRENT_STREAMS + 10)
-        .build();
+    ChannelHandler codec =
+        Http3.newQuicClientCodecBuilder()
+            .sslContext(sslCtx)
+            .maxIdleTimeout(15_000, TimeUnit.MILLISECONDS)
+            .initialMaxData(10_000_000)
+            .initialMaxStreamDataBidirectionalLocal(1_000_000)
+            .initialMaxStreamDataBidirectionalRemote(1_000_000)
+            .initialMaxStreamsBidirectional(CONCURRENT_STREAMS + 10)
+            .build();
 
-    clientUdpChannel = new Bootstrap()
-        .group(clientGroup)
-        .channel(NioDatagramChannel.class)
-        .handler(codec)
-        .bind(0).sync().channel();
+    clientUdpChannel =
+        new Bootstrap()
+            .group(clientGroup)
+            .channel(NioDatagramChannel.class)
+            .handler(codec)
+            .bind(0)
+            .sync()
+            .channel();
 
     Http3Settings settings = new Http3Settings((id, v) -> true);
     settings.enableConnectProtocol(true);
     settings.enableH3Datagram(true);
 
-    clientQuicChannel = QuicChannel.newBootstrap(clientUdpChannel)
-        .handler(new ChannelInitializer<QuicChannel>() {
-          @Override
-          protected void initChannel(QuicChannel ch) {
-            ch.pipeline().addLast(new Http3ClientConnectionHandler(
-                null, null, new UnknownStreamHandlerFactory(),
-                new DefaultHttp3SettingsFrame(settings), false, (id, v) -> true));
-          }
-        })
-        .remoteAddress(new InetSocketAddress("127.0.0.1", serverPort))
-        .connect().get(5, TimeUnit.SECONDS);
+    clientQuicChannel =
+        QuicChannel.newBootstrap(clientUdpChannel)
+            .handler(
+                new ChannelInitializer<QuicChannel>() {
+                  @Override
+                  protected void initChannel(QuicChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ClientConnectionHandler(
+                                null,
+                                null,
+                                new UnknownStreamHandlerFactory(),
+                                new DefaultHttp3SettingsFrame(settings),
+                                false,
+                                (id, v) -> true));
+                  }
+                })
+            .remoteAddress(new InetSocketAddress("127.0.0.1", serverPort))
+            .connect()
+            .get(5, TimeUnit.SECONDS);
 
     // Establish CONNECT session
     CountDownLatch sessionLatch = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
 
-    final QuicStreamChannel connectStream = Http3.newRequestStream(clientQuicChannel,
-        new ChannelInitializer<QuicStreamChannel>() {
-          @Override
-          protected void initChannel(QuicStreamChannel ch) {
-            ch.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
-              @Override
-              protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                if (msg instanceof Http3HeadersFrame
-                    && "200".equals(((Http3HeadersFrame) msg).headers().status().toString())) {
-                  connectHolder[0] = (QuicStreamChannel) ctx.channel();
-                  sessionLatch.countDown();
-                }
-              }
-            });
-          }
-        }).sync().getNow();
+    final QuicStreamChannel connectStream =
+        Http3.newRequestStream(
+                clientQuicChannel,
+                new ChannelInitializer<QuicStreamChannel>() {
+                  @Override
+                  protected void initChannel(QuicStreamChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new SimpleChannelInboundHandler<Object>() {
+                              @Override
+                              protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
+                                if (msg instanceof Http3HeadersFrame
+                                    && "200"
+                                        .equals(
+                                            ((Http3HeadersFrame) msg)
+                                                .headers()
+                                                .status()
+                                                .toString())) {
+                                  connectHolder[0] = (QuicStreamChannel) ctx.channel();
+                                  sessionLatch.countDown();
+                                }
+                              }
+                            });
+                  }
+                })
+            .sync()
+            .getNow();
 
     Http3Headers h = new DefaultHttp3Headers();
     h.method("CONNECT");
@@ -239,21 +271,29 @@ public class WebTransportThreadSafetyIntegrationTest {
     // Launch CONCURRENT_STREAMS bidi streams concurrently
     for (int s = 0; s < CONCURRENT_STREAMS; s++) {
       final int streamIdx = s;
-      QuicStreamChannel bidiStream = clientQuicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-          new ChannelInitializer<QuicStreamChannel>() {
-            @Override
-            protected void initChannel(QuicStreamChannel ch) {
-              ch.pipeline().addLast(new SimpleChannelInboundHandler<ByteBuf>() {
-                @Override
-                protected void channelRead0(ChannelHandlerContext ctx, ByteBuf msg) {
-                  long total = rxBytesCounter.addAndGet(msg.readableBytes());
-                  if (total >= expectedTotalBytes) {
-                    allResponsesReceivedLatch.countDown();
-                  }
-                }
-              });
-            }
-          }).sync().getNow();
+      QuicStreamChannel bidiStream =
+          clientQuicChannel
+              .createStream(
+                  QuicStreamType.BIDIRECTIONAL,
+                  new ChannelInitializer<QuicStreamChannel>() {
+                    @Override
+                    protected void initChannel(QuicStreamChannel ch) {
+                      ch.pipeline()
+                          .addLast(
+                              new SimpleChannelInboundHandler<ByteBuf>() {
+                                @Override
+                                protected void channelRead0(
+                                    ChannelHandlerContext ctx, ByteBuf msg) {
+                                  long total = rxBytesCounter.addAndGet(msg.readableBytes());
+                                  if (total >= expectedTotalBytes) {
+                                    allResponsesReceivedLatch.countDown();
+                                  }
+                                }
+                              });
+                    }
+                  })
+              .sync()
+              .getNow();
 
       // Write WebTransport stream header (0x41 = BI stream) + session ID
       ByteBuf header = Unpooled.buffer(16);
@@ -278,7 +318,8 @@ public class WebTransportThreadSafetyIntegrationTest {
 
     // Give worker threads up to 15 seconds to complete atomic counter increments after network echo
     long deadline = System.currentTimeMillis() + 15000;
-    while (processedBytesCount.get() < expectedTotalBytes && System.currentTimeMillis() < deadline) {
+    while (processedBytesCount.get() < expectedTotalBytes
+        && System.currentTimeMillis() < deadline) {
       Thread.sleep(10);
     }
 
@@ -294,7 +335,8 @@ public class WebTransportThreadSafetyIntegrationTest {
         (long) totalExpectedMessages,
         (long) processedMessagesCount.get());
 
-    log.info("✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "
+    log.info(
+        "✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "
             + "8 worker threads with ZERO corruption!",
         totalExpectedMessages);
   }

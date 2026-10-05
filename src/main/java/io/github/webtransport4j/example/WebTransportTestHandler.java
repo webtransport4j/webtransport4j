@@ -70,60 +70,79 @@ public class WebTransportTestHandler implements WebTransportHandler {
     logger.info("🚀 [TEST HANDLER] Creating server-initiated unidirectional stream...");
     session
         .createUniStream()
-        .whenComplete((stream, err) -> {
-          if (err == null) {
-            logger.info("   👉 Unidirectional stream created successfully. ID: {}", stream.streamId());
-            stream
-                .writeText("Hello from Server-Initiated Unidirectional Stream! [ID: " + stream.streamId() + "]")
-                .whenComplete((res, writeErr) -> {
-                  if (writeErr == null) {
-                    logger.info("   ✅ Sent data over server uni stream {}", stream.streamId());
-                  } else {
-                    logger.error("   ❌ Failed to write to server uni stream", writeErr);
-                  }
-                });
-          } else {
-            logger.error("   ❌ Failed to create server-initiated unidirectional stream", err);
-          }
-        });
+        .whenComplete(
+            (stream, err) -> {
+              if (err == null) {
+                logger.info(
+                    "   👉 Unidirectional stream created successfully. ID: {}", stream.streamId());
+                stream
+                    .writeText(
+                        "Hello from Server-Initiated Unidirectional Stream! [ID: "
+                            + stream.streamId()
+                            + "]")
+                    .whenComplete(
+                        (res, writeErr) -> {
+                          if (writeErr == null) {
+                            logger.info(
+                                "   ✅ Sent data over server uni stream {}", stream.streamId());
+                          } else {
+                            logger.error("   ❌ Failed to write to server uni stream", writeErr);
+                          }
+                        });
+              } else {
+                logger.error("   ❌ Failed to create server-initiated unidirectional stream", err);
+              }
+            });
 
     // 2. Initiate a Server-to-Client Bidirectional Stream
     logger.info("🚀 [TEST HANDLER] Creating server-initiated bidirectional stream...");
     session
         .createBiStream()
-        .whenComplete((stream, err) -> {
-          if (err == null) {
-            logger.info("   👉 Bidirectional stream created successfully. ID: {}", stream.streamId());
+        .whenComplete(
+            (stream, err) -> {
+              if (err == null) {
+                logger.info(
+                    "   👉 Bidirectional stream created successfully. ID: {}", stream.streamId());
 
-            // Listen to client responses on this stream
-            stream.onData(
-                data -> {
-                  String content = new String(data.readBytes(), StandardCharsets.UTF_8);
-                  logger.info(
-                      "   📩 Received response on server-initiated bidi stream {}: {}",
-                      stream.streamId(),
-                      content);
-                });
+                // Listen to client responses on this stream
+                stream.onData(
+                    data -> {
+                      String content = new String(data.readBytes(), StandardCharsets.UTF_8);
+                      logger.info(
+                          "   📩 Received response on server-initiated bidi stream {}: {}",
+                          stream.streamId(),
+                          content);
+                    });
 
-            stream.onClose(
-                () -> logger.info("   🔒 Server-initiated bidi stream {} closed.", stream.streamId()));
-            stream.onError(
-                e -> logger.error("   ❌ Server-initiated bidi stream {} error", stream.streamId(), e));
+                stream.onClose(
+                    () ->
+                        logger.info(
+                            "   🔒 Server-initiated bidi stream {} closed.", stream.streamId()));
+                stream.onError(
+                    e ->
+                        logger.error(
+                            "   ❌ Server-initiated bidi stream {} error", stream.streamId(), e));
 
-            // Write test greeting
-            stream
-                .writeText("Hello from Server-Initiated Bidirectional Stream! [ID: " + stream.streamId() + "]")
-                .whenComplete((res, writeErr) -> {
-                  if (writeErr == null) {
-                    logger.info("   ✅ Sent greeting on server bidi stream {}", stream.streamId());
-                  } else {
-                    logger.error("   ❌ Failed to send greeting on server bidi stream", writeErr);
-                  }
-                });
-          } else {
-            logger.error("   ❌ Failed to create server-initiated bidirectional stream", err);
-          }
-        });
+                // Write test greeting
+                stream
+                    .writeText(
+                        "Hello from Server-Initiated Bidirectional Stream! [ID: "
+                            + stream.streamId()
+                            + "]")
+                    .whenComplete(
+                        (res, writeErr) -> {
+                          if (writeErr == null) {
+                            logger.info(
+                                "   ✅ Sent greeting on server bidi stream {}", stream.streamId());
+                          } else {
+                            logger.error(
+                                "   ❌ Failed to send greeting on server bidi stream", writeErr);
+                          }
+                        });
+              } else {
+                logger.error("   ❌ Failed to create server-initiated bidirectional stream", err);
+              }
+            });
   }
 
   @Override
@@ -154,40 +173,48 @@ public class WebTransportTestHandler implements WebTransportHandler {
 
           String prefixCheck =
               new String(bytes, 0, Math.min(bytes.length, 20), StandardCharsets.UTF_8);
-          Runnable process = () -> {
-            if (isBidi) {
-              if (!stream.hasAttribute("prefixed")) {
-                stream.setAttribute("prefixed", true);
-                byte[] prefixBytes = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
-                byte[] outBytes = new byte[prefixBytes.length + bytes.length];
-                System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
-                System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-                stream
-                    .write(outBytes)
-                    .whenComplete((res, err) -> {
-                      if (err == null) {
-                        logger.info("✅ Echoed response to client on bidi stream {}", stream.streamId());
-                      } else {
-                        logger.error("❌ Failed to echo to client on bidi stream {}", stream.streamId(), err);
-                      }
-                    });
-              } else {
-                // Already prefixed this stream, just echo the raw chunk
-                stream.write(bytes);
-              }
-            } else {
-              // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
-              session
-                  .createUniStream()
-                  .thenAccept(ackStream -> {
-                    byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+          Runnable process =
+              () -> {
+                if (isBidi) {
+                  if (!stream.hasAttribute("prefixed")) {
+                    stream.setAttribute("prefixed", true);
+                    byte[] prefixBytes = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
                     byte[] outBytes = new byte[prefixBytes.length + bytes.length];
                     System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
                     System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-                    ackStream.write(outBytes).thenRun(ackStream::close);
-                  });
-            }
-          };
+                    stream
+                        .write(outBytes)
+                        .whenComplete(
+                            (res, err) -> {
+                              if (err == null) {
+                                logger.info(
+                                    "✅ Echoed response to client on bidi stream {}",
+                                    stream.streamId());
+                              } else {
+                                logger.error(
+                                    "❌ Failed to echo to client on bidi stream {}",
+                                    stream.streamId(),
+                                    err);
+                              }
+                            });
+                  } else {
+                    // Already prefixed this stream, just echo the raw chunk
+                    stream.write(bytes);
+                  }
+                } else {
+                  // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
+                  session
+                      .createUniStream()
+                      .thenAccept(
+                          ackStream -> {
+                            byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                            byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                            System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                            System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+                            ackStream.write(outBytes).thenRun(ackStream::close);
+                          });
+                }
+              };
 
           if (prefixCheck.startsWith("SleepServer_")) {
             if (!delayAdmissionSemaphore.tryAcquire()) {
@@ -199,7 +226,8 @@ public class WebTransportTestHandler implements WebTransportHandler {
               return;
             }
             logger.info(
-                "😴 Server received Sleep command on stream {}. Scheduling non-blocking delayed task...",
+                "😴 Server received Sleep command on stream {}. Scheduling non-blocking delayed"
+                    + " task...",
                 stream.streamId());
             try {
               delayScheduler.schedule(
@@ -239,8 +267,9 @@ public class WebTransportTestHandler implements WebTransportHandler {
     String replyText = "ACK DG: " + content;
     session
         .createUniStream()
-        .thenAccept(ackStream -> {
-          ackStream.writeText(replyText).thenRun(ackStream::close);
-        });
+        .thenAccept(
+            ackStream -> {
+              ackStream.writeText(replyText).thenRun(ackStream::close);
+            });
   }
 }
