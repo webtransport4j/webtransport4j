@@ -73,6 +73,11 @@ public interface WebTransportSession {
   boolean isDraining();
 
   /**
+   * Marks this session as draining upon receiving or sending a {@code WT_DRAIN_SESSION} capsule.
+   */
+  default void markDraining() {}
+
+  /**
    * Begins graceful draining. New streams and datagrams remain permitted until the session closes;
    * applications should finish their work and terminate promptly (Draft-16 Section 4.7).
    *

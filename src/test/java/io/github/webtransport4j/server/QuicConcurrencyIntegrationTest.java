@@ -189,19 +189,27 @@ public class QuicConcurrencyIntegrationTest {
         .build();
   }
 
-  private static final class Client implements AutoCloseable {
+  static final class Client implements AutoCloseable {
     final EventLoopGroup group = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
     Channel udp;
     QuicChannel quic;
     QuicStreamChannel connect;
 
     Client(int port, SelfSignedCertificate certificate) throws Exception {
+      this(port, certificate, null);
+    }
+
+    Client(int port, SelfSignedCertificate certificate, SelfSignedCertificate identity)
+        throws Exception {
       try {
-        QuicSslContext ssl =
+        QuicSslContextBuilder sslBuilder =
             QuicSslContextBuilder.forClient()
                 .trustManager(certificate.certificate())
-                .applicationProtocols("h3")
-                .build();
+                .applicationProtocols("h3");
+        if (identity != null) {
+          sslBuilder.keyManager(identity.privateKey(), null, identity.certificate());
+        }
+        QuicSslContext ssl = sslBuilder.build();
         udp =
             new Bootstrap()
                 .group(group)
