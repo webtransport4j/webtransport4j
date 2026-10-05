@@ -61,6 +61,14 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class FramingLayerTest {
 
+  private static QuicChannel mockQuicChannel() {
+    QuicChannel channel = mock(QuicChannel.class);
+    io.netty.util.DefaultAttributeMap attributes = new io.netty.util.DefaultAttributeMap();
+    when(channel.attr(org.mockito.ArgumentMatchers.any()))
+        .thenAnswer(invocation -> attributes.attr(invocation.getArgument(0)));
+    return channel;
+  }
+
   private static ChannelFuture mockWriteFuture() {
     return mockWriteFuture(mock(Channel.class));
   }
@@ -276,7 +284,7 @@ public class FramingLayerTest {
   public void testMessageDispatcherStreamFrame() throws Exception {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -387,7 +395,7 @@ public class FramingLayerTest {
     final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -483,7 +491,7 @@ public class FramingLayerTest {
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStreamChannel);
     when(mockStreamChannel.parent()).thenReturn(mockParent);
@@ -572,7 +580,7 @@ public class FramingLayerTest {
     final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -597,7 +605,7 @@ public class FramingLayerTest {
 
   @Test
   public void testServerInitiatedStreamLimits() throws Exception {
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
@@ -688,7 +696,7 @@ public class FramingLayerTest {
     WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -823,7 +831,7 @@ public class FramingLayerTest {
       final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
       ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
       QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-      QuicChannel mockParent = mock(QuicChannel.class);
+      QuicChannel mockParent = mockQuicChannel();
 
       when(mockCtx.channel()).thenReturn(mockStream);
       when(mockStream.parent()).thenReturn(mockParent);
@@ -909,7 +917,7 @@ public class FramingLayerTest {
       final WebTransportHeadersHandler handler = new WebTransportHeadersHandler();
       ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
       QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-      QuicChannel mockParent = mock(QuicChannel.class);
+      QuicChannel mockParent = mockQuicChannel();
 
       when(mockCtx.channel()).thenReturn(mockStream);
       when(mockStream.parent()).thenReturn(mockParent);
@@ -1088,7 +1096,7 @@ public class FramingLayerTest {
   public void testMessageDispatcherEventLoopMode() throws Exception {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -1116,7 +1124,7 @@ public class FramingLayerTest {
   public void testMessageDispatcherVirtualThreadsMode() throws Exception {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
@@ -1177,7 +1185,7 @@ public class FramingLayerTest {
   public void testMessageDispatcherFixedThreadPoolMode() throws Exception {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
