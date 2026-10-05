@@ -9,6 +9,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientHandler;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -179,6 +180,29 @@ public class QuicConcurrencyIntegrationTest {
       server.close();
       first.delete();
       second.delete();
+    }
+  }
+
+  @Test(timeout = 30000)
+  public void admittedSessionReleasesOverloadPermitOnDisconnect() throws Exception {
+    SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
+    OverloadProtectionPolicy policy = org.mockito.Mockito.mock(OverloadProtectionPolicy.class);
+    org.mockito.Mockito.when(policy.tryAcquire(org.mockito.ArgumentMatchers.anyInt()))
+        .thenReturn(OverloadProtectionPolicy.AdmissionResult.allowed());
+    try (WebTransportServer server = WebTransportServer.builder()
+        .port(0)
+        .sslContext(context(certificate))
+        .overloadProtectionPolicy(policy)
+        .defaultHandler(new WebTransportHandler() {})
+        .build()) {
+      server.start();
+      try (Client client = new Client(server.getPort(), certificate)) {
+        assertTrue(client.quic.isActive());
+        org.mockito.Mockito.verify(policy).tryAcquire(org.mockito.ArgumentMatchers.anyInt());
+      }
+      org.mockito.Mockito.verify(policy, org.mockito.Mockito.timeout(5000)).release();
+    } finally {
+      certificate.delete();
     }
   }
 

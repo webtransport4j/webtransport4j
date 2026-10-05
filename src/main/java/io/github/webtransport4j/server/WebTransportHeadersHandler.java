@@ -246,6 +246,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             .closeFuture()
             .addListener(
                 f -> {
+                  if (overloadPolicy != null) {
+                    overloadPolicy.release();
+                  }
                   if (pending.compareAndSet(true, false)) {
                     mgr.releaseReservation();
                     if (globalSlots != null) {
