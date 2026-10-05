@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webtransport-prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webtransport4j-cluster
+  namespace: webtransport-prod
+  labels:
+    app.kubernetes.io/name: webtransport4j
+    app.kubernetes.io/component: quic-gateway
+    app.kubernetes.io/part-of: streaming-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webtransport4j
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webtransport4j
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Spread replicas across distinct physical K8s nodes for high availability
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: ["webtransport4j"]
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: webtransport4j-node
+          image: ghcr.io/webtransport4j/webtransport4j:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: quic-udp
+              containerPort: 4433
+              protocol: UDP
+            - name: health-tcp
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: MANAGEMENT_BIND_HOST
+              value: "0.0.0.0"
+            - name: MANAGEMENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: webtransport4j-cluster-secret
+                  key: MANAGEMENT_AUTH_TOKEN
+            - name: PORT
+              value: "4433"
+            - name: METRICS_PORT
+              value: "8080"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CLUSTER_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: webtransport4j-cluster-secret
+                  key: CLUSTER_HMAC_KEY
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.webtransport-prod.svc.cluster.local:4318/v1/metrics"
+            - name: JAVA_OPTS
+              value: "-XX:+UseZGC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError -Dio.netty.leakDetection.level=SIMPLE -Dio.netty.allocator.type=pooled"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtransport4j-service
+  namespace: webtransport-prod
+  labels:
+    app.kubernetes.io/name: webtransport4j
+spec:
+  type: LoadBalancer
+  # Critical for QUIC: preserves real client IP for connection migration, BBR pacing, and geo-routing
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: webtransport4j
+  ports:
+    - name: quic-udp
+      port: 4433
+      targetPort: 4433
+      protocol: UDP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtransport4j-management
+  namespace: webtransport-prod
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: webtransport4j
+  ports:
+    - name: management
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

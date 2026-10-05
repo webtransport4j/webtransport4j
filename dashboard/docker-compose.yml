@@ -1,0 +1,53 @@
+services:
+  webtransport-dashboard:
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "10001:10001"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    ports:
+      - "${WT4J_PORTAL_BIND_IP:-0.0.0.0}:${WT4J_PORTAL_PORT:-8443}:8085"
+    environment:
+      WT4J_ADMIN_USERNAME: ${WT4J_ADMIN_USERNAME:?Set the operator username}
+      WT4J_ADMIN_PASSWORD: ${WT4J_ADMIN_PASSWORD:?Set a unique strong password}
+      WT4J_NODE_MANAGEMENT_TOKEN: ${WT4J_NODE_MANAGEMENT_TOKEN:?Set the existing node management token}
+      WT4J_CLUSTER_NODES: ${WT4J_CLUSTER_NODES:?Set remote HTTP(S) node management origins}
+      WT4J_PROMETHEUS_TARGETS: ${WT4J_PROMETHEUS_TARGETS:-http://otel-collector:8889/metrics}
+      WT4J_OTLP_TOKEN: ${WT4J_OTLP_TOKEN:?Set a separate OTLP ingestion token}
+      WT4J_MAX_PAYLOAD_BYTES: "1048576"
+    volumes:
+      - ${WT4J_TLS_DIR:?Set the absolute TLS directory}:/run/tls:ro
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+    networks: [telemetry]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    # No host-published telemetry ports. Producers must join this private network.
+    networks: [telemetry]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [telemetry]
+
+networks:
+  telemetry:
+volumes:
+  prometheus-data:

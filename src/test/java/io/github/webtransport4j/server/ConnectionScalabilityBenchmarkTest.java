@@ -48,10 +48,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Client-side connection benchmark for an external {@link BenchmarkServerRunner}.
  *
- * <p>Start {@code BenchmarkServerRunner} in a separate JVM, then run this test with
- * {@code -Dtarget.port=<port>}. The final configured tier remains open for
- * {@code -Dbenchmark.hold.seconds} (30 seconds by default), so the runner can report memory while
- * every connection is live. Keeping the server separate means the benchmark reports the runner's
+ * <p>Start {@code BenchmarkServerRunner} in a separate JVM, then run this test with {@code
+ * -Dtarget.port=<port>}. The final configured tier remains open for {@code
+ * -Dbenchmark.hold.seconds} (30 seconds by default), so the runner can report memory while every
+ * connection is live. Keeping the server separate means the benchmark reports the runner's
  * server-side behavior rather than contention between client and server in one JVM.
  */
 public class ConnectionScalabilityBenchmarkTest {
@@ -71,8 +71,8 @@ public class ConnectionScalabilityBenchmarkTest {
   private static final int MAX_CLIENT_THREADS = 64;
   private static final int MAX_CLIENT_UDP_CHANNELS = 64;
   private static final long CONNECTION_TIMEOUT_SECONDS = 30;
-  private static final long IDLE_TIMEOUT_SECONDS = positiveProperty(
-      "benchmark.idle.timeout.seconds", 600);
+  private static final long IDLE_TIMEOUT_SECONDS =
+      positiveProperty("benchmark.idle.timeout.seconds", 600);
   private static final long HOLD_SECONDS = nonNegativeProperty("benchmark.hold.seconds", 30);
 
   static {
@@ -84,9 +84,7 @@ public class ConnectionScalabilityBenchmarkTest {
   private String host;
   private int port;
 
-  /**
-   * Sets up test configuration.
-   */
+  /** Sets up test configuration. */
   @Before
   public void setUp() {
     String configuredPort = System.getProperty("target.port");
@@ -97,7 +95,8 @@ public class ConnectionScalabilityBenchmarkTest {
     try {
       port = Integer.parseInt(configuredPort);
     } catch (NumberFormatException e) {
-      throw new IllegalArgumentException("target.port must be a valid TCP/UDP port: " + configuredPort, e);
+      throw new IllegalArgumentException(
+          "target.port must be a valid TCP/UDP port: " + configuredPort, e);
     }
     if (port < 1 || port > 65_535) {
       throw new IllegalArgumentException("target.port must be between 1 and 65535: " + port);
@@ -216,13 +215,14 @@ public class ConnectionScalabilityBenchmarkTest {
       throws InterruptedException {
     QuicSslContext sslContext = createClientSslContext();
     try {
-      Channel channel = new Bootstrap()
-          .group(eventLoopGroup)
-          .channel(NioDatagramChannel.class)
-          .handler(newClientCodec(sslContext))
-          .bind(0)
-          .sync()
-          .channel();
+      Channel channel =
+          new Bootstrap()
+              .group(eventLoopGroup)
+              .channel(NioDatagramChannel.class)
+              .handler(newClientCodec(sslContext))
+              .bind(0)
+              .sync()
+              .channel();
       return new ClientDatagramChannel(channel, sslContext);
     } catch (InterruptedException | RuntimeException | Error failure) {
       throw failure;
@@ -285,14 +285,16 @@ public class ConnectionScalabilityBenchmarkTest {
             new ChannelInitializer<QuicChannel>() {
               @Override
               protected void initChannel(QuicChannel channel) {
-                channel.pipeline().addLast(
-                    new Http3ClientConnectionHandler(
-                        null,
-                        null,
-                        new UnknownStreamHandlerFactory(),
-                        new DefaultHttp3SettingsFrame(settings),
-                        false,
-                        (id, value) -> true));
+                channel
+                    .pipeline()
+                    .addLast(
+                        new Http3ClientConnectionHandler(
+                            null,
+                            null,
+                            new UnknownStreamHandlerFactory(),
+                            new DefaultHttp3SettingsFrame(settings),
+                            false,
+                            (id, value) -> true));
               }
             })
         .remoteAddress(new InetSocketAddress(host, port))
@@ -304,14 +306,16 @@ public class ConnectionScalabilityBenchmarkTest {
       QuicChannel quicChannel,
       CompletableFuture<Long> sessionId,
       AtomicReference<Throwable> lifecycleFailure,
-      AtomicBoolean closing) throws InterruptedException {
+      AtomicBoolean closing)
+      throws InterruptedException {
     return Http3.newRequestStream(
             quicChannel,
             new ChannelInitializer<QuicStreamChannel>() {
               @Override
               protected void initChannel(QuicStreamChannel channel) {
-                channel.pipeline().addLast(
-                    new ConnectResponseHandler(sessionId, lifecycleFailure, closing));
+                channel
+                    .pipeline()
+                    .addLast(new ConnectResponseHandler(sessionId, lifecycleFailure, closing));
               }
             })
         .sync()
@@ -325,7 +329,9 @@ public class ConnectionScalabilityBenchmarkTest {
     headers.path("/bench");
     headers.authority(host + ':' + port);
     headers.set(":protocol", "webtransport");
-    connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3HeadersFrame(headers)).sync();
+    connectStream
+        .writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3HeadersFrame(headers))
+        .sync();
   }
 
   private long sendAndVerifyEchoes(
@@ -334,7 +340,8 @@ public class ConnectionScalabilityBenchmarkTest {
       List<QuicStreamChannel> dataStreams,
       MessageCounts messageCounts,
       AtomicReference<Throwable> lifecycleFailure,
-      AtomicBoolean closing) throws Exception {
+      AtomicBoolean closing)
+      throws Exception {
     long bytesPerStream = (long) MESSAGES_PER_STREAM * MESSAGE_LENGTH;
     CompletableFuture<Long> echoedMessages = new CompletableFuture<Long>();
     AtomicInteger remainingStreams = new AtomicInteger(STREAMS_PER_CONNECTION);
@@ -351,15 +358,17 @@ public class ConnectionScalabilityBenchmarkTest {
                   new ChannelInitializer<QuicStreamChannel>() {
                     @Override
                     protected void initChannel(QuicStreamChannel channel) {
-                      channel.pipeline().addLast(
-                          new EchoResponseHandler(
-                              bytesPerStream,
-                              remainingStreams,
-                              echoedMessages,
-                              sentMessageOne,
-                              messageCounts,
-                              lifecycleFailure,
-                              closing));
+                      channel
+                          .pipeline()
+                          .addLast(
+                              new EchoResponseHandler(
+                                  bytesPerStream,
+                                  remainingStreams,
+                                  echoedMessages,
+                                  sentMessageOne,
+                                  messageCounts,
+                                  lifecycleFailure,
+                                  closing));
                     }
                   })
               .sync()
@@ -393,13 +402,18 @@ public class ConnectionScalabilityBenchmarkTest {
       boolean finished,
       List<Throwable> failures) {
     Assert.assertTrue(
-        "Timed out after " + tierTimeoutSeconds(connections) + " seconds; "
-            + successfulConnections + "/" + connections + " connections completed",
+        "Timed out after "
+            + tierTimeoutSeconds(connections)
+            + " seconds; "
+            + successfulConnections
+            + "/"
+            + connections
+            + " connections completed",
         finished);
 
     if (!failures.isEmpty()) {
-      AssertionError failure = new AssertionError(
-          failures.size() + " of " + connections + " connections failed");
+      AssertionError failure =
+          new AssertionError(failures.size() + " of " + connections + " connections failed");
       failure.initCause(failures.get(0));
       for (int i = 1; i < failures.size(); i++) {
         failure.addSuppressed(failures.get(i));
@@ -425,7 +439,8 @@ public class ConnectionScalabilityBenchmarkTest {
   private static void assertOpenConnections(
       List<OpenConnection> openConnections, int expectedConnections) {
     List<OpenConnection> connections = new ArrayList<OpenConnection>(openConnections);
-    Assert.assertEquals("Every successful connection must remain open", expectedConnections, connections.size());
+    Assert.assertEquals(
+        "Every successful connection must remain open", expectedConnections, connections.size());
     for (OpenConnection connection : connections) {
       connection.assertHealthy();
     }
@@ -449,10 +464,12 @@ public class ConnectionScalabilityBenchmarkTest {
       try {
         tiers[i] = Integer.parseInt(values[i].trim());
       } catch (NumberFormatException e) {
-        throw new IllegalArgumentException("benchmark.connections must be comma-separated integers", e);
+        throw new IllegalArgumentException(
+            "benchmark.connections must be comma-separated integers", e);
       }
       if (tiers[i] < 1) {
-        throw new IllegalArgumentException("benchmark.connections values must be positive: " + tiers[i]);
+        throw new IllegalArgumentException(
+            "benchmark.connections values must be positive: " + tiers[i]);
       }
     }
     return tiers;
@@ -565,15 +582,22 @@ public class ConnectionScalabilityBenchmarkTest {
       this.echoedMessages = echoedMessages;
       this.lifecycleFailure = lifecycleFailure;
       this.closing = closing;
-      channel.closeFuture().addListener(
-          ignored -> recordFailure(lifecycleFailure, closing,
-              new IllegalStateException("QUIC connection closed before benchmark release")));
+      channel
+          .closeFuture()
+          .addListener(
+              ignored ->
+                  recordFailure(
+                      lifecycleFailure,
+                      closing,
+                      new IllegalStateException(
+                          "QUIC connection closed before benchmark release")));
     }
 
     private void assertHealthy() {
       Throwable failure = lifecycleFailure.get();
       if (failure != null) {
-        AssertionError assertion = new AssertionError("An open connection failed during the hold period");
+        AssertionError assertion =
+            new AssertionError("An open connection failed during the hold period");
         assertion.initCause(failure);
         throw assertion;
       }
@@ -618,7 +642,8 @@ public class ConnectionScalabilityBenchmarkTest {
       if ("200".equals(status)) {
         sessionId.complete(((QuicStreamChannel) context.channel()).streamId());
       } else {
-        IllegalStateException failure = new IllegalStateException("CONNECT returned HTTP " + status);
+        IllegalStateException failure =
+            new IllegalStateException("CONNECT returned HTTP " + status);
         recordFailure(lifecycleFailure, closing, failure);
         sessionId.completeExceptionally(failure);
       }
@@ -633,7 +658,8 @@ public class ConnectionScalabilityBenchmarkTest {
 
     @Override
     public void channelInactive(ChannelHandlerContext context) {
-      IllegalStateException failure = new IllegalStateException("CONNECT stream closed before success");
+      IllegalStateException failure =
+          new IllegalStateException("CONNECT stream closed before success");
       recordFailure(lifecycleFailure, closing, failure);
       sessionId.completeExceptionally(failure);
     }
@@ -714,14 +740,21 @@ public class ConnectionScalabilityBenchmarkTest {
 
         boolean isMessageOne = expectedMessageOne[receivedMessageIndex];
         byte[] expectedPayload = isMessageOne ? MESSAGE_ONE_BYTES : MESSAGE_TWO_BYTES;
-        int bytesToVerify = Math.min(MESSAGE_LENGTH - bytesInMessage, readableBytes - consumedBytes);
+        int bytesToVerify =
+            Math.min(MESSAGE_LENGTH - bytesInMessage, readableBytes - consumedBytes);
         for (int i = 0; i < bytesToVerify; i++) {
           byte actual = message.getByte(readerIndex + consumedBytes + i);
           byte expected = expectedPayload[bytesInMessage + i];
           if (actual != expected) {
             throw new IllegalStateException(
-                "Echo payload mismatch in message " + receivedMessageIndex + " at byte "
-                    + (bytesInMessage + i) + ": expected " + expected + ", received " + actual);
+                "Echo payload mismatch in message "
+                    + receivedMessageIndex
+                    + " at byte "
+                    + (bytesInMessage + i)
+                    + ": expected "
+                    + expected
+                    + ", received "
+                    + actual);
           }
         }
 
@@ -739,5 +772,4 @@ public class ConnectionScalabilityBenchmarkTest {
       }
     }
   }
-
 }

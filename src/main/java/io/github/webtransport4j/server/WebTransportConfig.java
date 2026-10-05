@@ -1,9 +1,11 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.internal.EventLoopSafety;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -15,6 +17,8 @@ public class WebTransportConfig {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
 
   private static final Properties staticProperties = new Properties();
+  private static final AtomicLong revision = new AtomicLong();
+  // Published generations are never mutated; writers replace them under the revision monitor.
   private static volatile Properties dynamicProperties = new Properties();
 
   private WebTransportConfig() {
@@ -33,7 +37,9 @@ public class WebTransportConfig {
     if (localFile.exists()) {
       try (InputStream in = new FileInputStream(localFile)) {
         staticProperties.load(in);
-        logger.info("📡 Loaded static configuration from local filesystem: {}", localFile.getAbsolutePath());
+        logger.info(
+            "📡 Loaded static configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
         return;
       } catch (Exception e) {
         logger.error("❌ Failed to load local properties file, falling back", e);
@@ -57,14 +63,18 @@ public class WebTransportConfig {
     if (localFile.exists()) {
       try (InputStream in = new FileInputStream(localFile)) {
         target.load(in);
-        logger.info("📡 Loaded dynamic configuration from local filesystem: {}", localFile.getAbsolutePath());
+        logger.info(
+            "📡 Loaded dynamic configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
         return;
       } catch (Exception e) {
         logger.error("❌ Failed to load local dynamic properties file, falling back", e);
       }
     }
     try (InputStream in =
-        WebTransportConfig.class.getClassLoader().getResourceAsStream("webtransport-dynamic.properties")) {
+        WebTransportConfig.class
+            .getClassLoader()
+            .getResourceAsStream("webtransport-dynamic.properties")) {
       if (in != null) {
         target.load(in);
         logger.debug("📡 Loaded default dynamic configuration from classpath resources");
@@ -102,7 +112,50 @@ public class WebTransportConfig {
     return getVal(key, defaultValue);
   }
 
+  /** Captures one dynamic configuration generation for related reads. */
+  public static @NonNull Snapshot snapshot() {
+    return new Snapshot(dynamicProperties);
+  }
+
+  /** A stable dynamic generation; system properties and environment retain their precedence. */
+  public static final class Snapshot {
+    private final Properties properties;
+
+    private Snapshot(Properties properties) {
+      this.properties = properties;
+    }
+
+    /** Resolves a key against the captured dynamic generation. */
+    public @Nullable String get(@NonNull String key, @Nullable String defaultValue) {
+      return getVal(properties, key, defaultValue);
+    }
+
+    /** Resolves a non-null value against the captured dynamic generation. */
+    public @NonNull String getNonNull(@NonNull String key, @NonNull String defaultValue) {
+      return getVal(properties, key, defaultValue);
+    }
+
+    /** Resolves an integer using the same parsing and fallback as the ordinary getter. */
+    public int getInt(@NonNull String key, int defaultValue) {
+      return WebTransportConfig.getInt(properties, key, defaultValue);
+    }
+
+    /** Resolves a long using the same parsing and fallback as the ordinary getter. */
+    public long getLong(@NonNull String key, long defaultValue) {
+      return WebTransportConfig.getLong(properties, key, defaultValue);
+    }
+
+    /** Resolves a boolean against the captured dynamic generation. */
+    public boolean getBoolean(@NonNull String key, boolean defaultValue) {
+      return Boolean.parseBoolean(get(key, String.valueOf(defaultValue)));
+    }
+  }
+
   private static String getVal(String key, String defaultVal) {
+    return getVal(dynamicProperties, key, defaultVal);
+  }
+
+  private static String getVal(Properties properties, String key, String defaultVal) {
     // 1. Check System Properties (-Dserver.port=...)
     String value = System.getProperty(key);
     if (value != null) {
@@ -115,7 +168,7 @@ public class WebTransportConfig {
       return value;
     }
     // 3. Check dynamic properties
-    value = dynamicProperties.getProperty(key);
+    value = properties.getProperty(key);
     if (value != null) {
       return value;
     }
@@ -138,7 +191,11 @@ public class WebTransportConfig {
 
   /** Returns the int. */
   public static int getInt(@NonNull String key, int defaultValue) {
-    String val = get(key, null);
+    return getInt(dynamicProperties, key, defaultValue);
+  }
+
+  private static int getInt(Properties properties, String key, int defaultValue) {
+    String val = getVal(properties, key, null);
     if (val == null) {
       return defaultValue;
     }
@@ -157,7 +214,11 @@ public class WebTransportConfig {
 
   /** Returns the long. */
   public static long getLong(@NonNull String key, long defaultValue) {
-    String val = get(key, null);
+    return getLong(dynamicProperties, key, defaultValue);
+  }
+
+  private static long getLong(Properties properties, String key, long defaultValue) {
+    String val = getVal(properties, key, null);
     if (val == null) {
       return defaultValue;
     }
@@ -179,14 +240,21 @@ public class WebTransportConfig {
   }
 
   /**
-   * Programmatically sets a configuration property at runtime.
-   * Properties set via this method override file defaults.
+   * Programmatically sets a configuration property at runtime. Properties set via this method
+   * override file defaults.
    *
    * @param key the property key (non-null)
    * @param value the property value (non-null)
    */
   public static void setProperty(@NonNull String key, @NonNull String value) {
-    dynamicProperties.setProperty(key, value);
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (revision) {
+      Properties updated = new Properties();
+      updated.putAll(dynamicProperties);
+      updated.setProperty(key, value);
+      revision.incrementAndGet();
+      dynamicProperties = updated;
+    }
   }
 
   /**
@@ -195,19 +263,34 @@ public class WebTransportConfig {
    * @param key the property key to remove (non-null)
    */
   public static void removeProperty(@NonNull String key) {
-    dynamicProperties.remove(key);
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (revision) {
+      Properties updated = new Properties();
+      updated.putAll(dynamicProperties);
+      updated.remove(key);
+      revision.incrementAndGet();
+      dynamicProperties = updated;
+    }
   }
 
-  /**
-   * Reloads dynamic configuration properties.
-   */
+  /** Reloads dynamic configuration properties. */
   public static boolean reload() {
+    EventLoopSafety.requireBlockingAllowed();
+    final long token;
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (revision) {
+      token = revision.incrementAndGet();
+    }
     Properties newDynamic = new Properties();
     loadDynamicConfig(newDynamic);
-    if (newDynamic.equals(dynamicProperties)) {
-      return false;
+    boolean unchanged = newDynamic.equals(dynamicProperties);
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (revision) {
+      if (token != revision.get() || unchanged) {
+        return false;
+      }
+      dynamicProperties = newDynamic;
     }
-    dynamicProperties = newDynamic;
     logger.info("📡 Dynamic config reloaded successfully.");
     return true;
   }

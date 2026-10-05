@@ -12,7 +12,6 @@ import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
 import io.github.webtransport4j.server.WebTransportCapsuleDecoder;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;
-import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -26,20 +25,15 @@ import org.junit.Test;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 6: Session Termination.
- * Directly exercises application classes: {@link WebTransportCapsuleDecoder} and
- * {@link WebTransportCapsuleHandler}.
+ * Directly exercises application classes: {@link WebTransportCapsuleDecoder} and {@link
+ * WebTransportCapsuleHandler}.
  */
 public class Draft16Section6SessionTerminationTest {
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "WT_CLOSE_SESSION Capsule {
-   *   Type (i) = 0x2843,
-   *   Length (i),
-   *   Application Error Code (32),
-   *   Application Error Message (..),
-   * }"
-   * MANDATORY: Test WebTransportCapsuleDecoder parses wire capsule with type 0x2843.
+   * Section 6.1: Close WebTransport Session Capsule. "WT_CLOSE_SESSION Capsule { Type (i) = 0x2843,
+   * Length (i), Application Error Code (32), Application Error Message (..), }" MANDATORY: Test
+   * WebTransportCapsuleDecoder parses wire capsule with type 0x2843.
    */
   @Test
   public void testSection6_1_CloseCapsuleDecodingInApplication() {
@@ -64,14 +58,15 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "Application Error Message: A UTF-8-encoded [RFC3629] explanation of the session termination.
-   * The length of this field MUST NOT exceed 1024 bytes. An endpoint that receives an Application
-   * Error Message longer than 1024 bytes MUST reset the CONNECT stream with an H3_MESSAGE_ERROR."
-   * MANDATORY: Test WebTransportCapsuleHandler resets with H3_MESSAGE_ERROR when message > 1024 bytes.
+   * Section 6.1: Close WebTransport Session Capsule. "Application Error Message: A UTF-8-encoded
+   * [RFC3629] explanation of the session termination. The length of this field MUST NOT exceed 1024
+   * bytes. An endpoint that receives an Application Error Message longer than 1024 bytes MUST reset
+   * the CONNECT stream with an H3_MESSAGE_ERROR." MANDATORY: Test WebTransportCapsuleHandler resets
+   * with H3_MESSAGE_ERROR when message > 1024 bytes.
    */
   @Test
-  public void testSection6_1_ReasonPhraseExceeding1024BytesResetsWithH3MessageError() throws Exception {
+  public void testSection6_1_ReasonPhraseExceeding1024BytesResetsWithH3MessageError()
+      throws Exception {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockQuic = mock(QuicChannel.class);
@@ -93,10 +88,10 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "If an endpoint receives a CLOSE_WEBTRANSPORT_SESSION capsule where the error message contains
-   * invalid UTF-8, it MUST reset the connect stream with the error code H3_MESSAGE_ERROR."
-   * MANDATORY: Test WebTransportCapsuleHandler resets with H3_MESSAGE_ERROR on malformed UTF-8.
+   * Section 6.1: Close WebTransport Session Capsule. "If an endpoint receives a
+   * CLOSE_WEBTRANSPORT_SESSION capsule where the error message contains invalid UTF-8, it MUST
+   * reset the connect stream with the error code H3_MESSAGE_ERROR." MANDATORY: Test
+   * WebTransportCapsuleHandler resets with H3_MESSAGE_ERROR on malformed UTF-8.
    */
   @Test
   public void testSection6_1_InvalidUtf8InCloseMessageResetsWithH3MessageError() throws Exception {
@@ -122,10 +117,10 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "If an endpoint receives a CLOSE_WEBTRANSPORT_SESSION capsule whose length is less than four
-   * bytes, it MUST reset the connect stream with the error code H3_MESSAGE_ERROR."
-   * MANDATORY: Test WebTransportCapsuleHandler resets with H3_MESSAGE_ERROR on truncated payload.
+   * Section 6.1: Close WebTransport Session Capsule. "If an endpoint receives a
+   * CLOSE_WEBTRANSPORT_SESSION capsule whose length is less than four bytes, it MUST reset the
+   * connect stream with the error code H3_MESSAGE_ERROR." MANDATORY: Test
+   * WebTransportCapsuleHandler resets with H3_MESSAGE_ERROR on truncated payload.
    */
   @Test
   public void testSection6_1_PayloadLessThan4BytesResetsWithH3MessageError() throws Exception {
@@ -149,10 +144,9 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "A clean session closure corresponds to the Application Error Code of 0 and an empty Application
-   * Error Message."
-   * MANDATORY: Test WebTransportCapsuleHandler cleanly closes session on code 0 and empty message.
+   * Section 6.1: Close WebTransport Session Capsule. "A clean session closure corresponds to the
+   * Application Error Code of 0 and an empty Application Error Message." MANDATORY: Test
+   * WebTransportCapsuleHandler cleanly closes session on code 0 and empty message.
    */
   @Test
   public void testSection6_1_CleanCloseCodeZeroEmptyMessage() throws Exception {
@@ -170,10 +164,9 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.1: Close WebTransport Session Capsule.
-   * "The endpoint MAY wait for the peer to close the stream in response to receiving the
-   * WT_CLOSE_SESSION capsule..."
-   * OPTIONAL: Waiting before closing underlying QUIC stream.
+   * Section 6.1: Close WebTransport Session Capsule. "The endpoint MAY wait for the peer to close
+   * the stream in response to receiving the WT_CLOSE_SESSION capsule..." OPTIONAL: Waiting before
+   * closing underlying QUIC stream.
    */
   @Test
   public void testSection6_1_WaitBeforeCloseUnderlyingStream_Optional() {
@@ -181,9 +174,8 @@ public class Draft16Section6SessionTerminationTest {
   }
 
   /**
-   * Section 6.2: Immediate Closure.
-   * "WT_SESSION_GONE (0x170d7b68) is used when the session is closed abruptly."
-   * MANDATORY: Assert session gone error code codepoint.
+   * Section 6.2: Immediate Closure. "WT_SESSION_GONE (0x170d7b68) is used when the session is
+   * closed abruptly." MANDATORY: Assert session gone error code codepoint.
    */
   @Test
   public void testSection6_2_ImmediateClosureSessionGoneCodepoint() {

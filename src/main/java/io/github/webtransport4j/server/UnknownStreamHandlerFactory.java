@@ -30,12 +30,14 @@ public final class UnknownStreamHandlerFactory implements LongFunction<ChannelHa
     return new ChannelInitializer<Channel>() {
       @Override
       protected void initChannel(Channel ch) {
-        ch.eventLoop().execute(() -> {
-          if (ch instanceof QuicStreamChannel) {
-            ((QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
-          }
-          ch.close();
-        });
+        ch.eventLoop()
+            .execute(
+                () -> {
+                  if (ch instanceof QuicStreamChannel) {
+                    ((QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
+                  }
+                  ch.close();
+                });
       }
     };
   }

@@ -2,11 +2,12 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.channel.Channel;
-import java.util.ArrayDeque;
 import java.util.Objects;
-import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,8 @@ import org.slf4j.LoggerFactory;
  * Sequential per-connection datagram dispatcher with batch draining and overload drop protection.
  *
  * <p>Unreliable datagrams are enqueued up to a bounded capacity. When overloaded or rejected,
- * datagrams are discarded with metric recording rather than aborting the underlying QUIC connection.
+ * datagrams are discarded with metric recording rather than aborting the underlying QUIC
+ * connection. Lock-free design ensures Netty EventLoop threads never synchronize or block.
  */
 public final class DatagramMailbox implements Runnable {
 
@@ -28,17 +30,15 @@ public final class DatagramMailbox implements Runnable {
         throws Exception;
   }
 
-  private final Object lock = new Object();
   private final Channel channel;
-  private final Queue<WebTransportFrame> queue = new ArrayDeque<>();
+  private final ConcurrentLinkedQueue<WebTransportFrame> queue = new ConcurrentLinkedQueue<>();
+  private final AtomicInteger size = new AtomicInteger();
+  private final AtomicBoolean processing = new AtomicBoolean();
+  private final AtomicBoolean closed = new AtomicBoolean();
   private final ExecutorService executor;
   private final FrameDispatcher dispatcher;
   private final int maxCapacity;
   private final int maxBatchSize;
-
-  // Guarded by lock. processing means a worker is scheduled or actively draining.
-  private boolean processing;
-  private boolean closed;
 
   /**
    * Constructs a datagram mailbox for a connection channel.
@@ -54,10 +54,8 @@ public final class DatagramMailbox implements Runnable {
     this.channel = Objects.requireNonNull(channel, "channel must not be null");
     this.executor = Objects.requireNonNull(executor, "executor must not be null");
     this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher must not be null");
-    this.maxCapacity =
-        WebTransportConfig.getInt("webtransport4j.datagram.mailbox.capacity", 1024);
-    this.maxBatchSize =
-        WebTransportConfig.getInt("webtransport4j.datagram.mailbox.batch_size", 64);
+    this.maxCapacity = WebTransportConfig.getInt("webtransport4j.datagram.mailbox.capacity", 1024);
+    this.maxBatchSize = WebTransportConfig.getInt("webtransport4j.datagram.mailbox.batch_size", 64);
     if (maxCapacity < 1 || maxBatchSize < 1) {
       throw new IllegalArgumentException("capacity and batch size must be positive");
     }
@@ -75,29 +73,35 @@ public final class DatagramMailbox implements Runnable {
    * @param frame the datagram frame to enqueue
    */
   public void enqueue(@NonNull WebTransportFrame frame) {
-    boolean schedule;
-    synchronized (lock) {
-      if (closed) {
-        discardFrame(frame, "mailbox_closed");
-        return;
-      }
-      if (queue.size() >= maxCapacity) {
-        discardFrame(frame, "mailbox_full");
-        return;
-      }
-      frame.retain();
-      try {
-        queue.add(frame);
-      } catch (RuntimeException | Error failure) {
-        frame.release();
-        throw failure;
-      }
-      schedule = !processing;
-      if (schedule) {
-        processing = true;
-      }
+    if (closed.get()) {
+      discardFrame(frame, "mailbox_closed");
+      return;
+    }
+    int current = size.incrementAndGet();
+    if (current > maxCapacity) {
+      size.decrementAndGet();
+      discardFrame(frame, "mailbox_full");
+      return;
+    }
+    if (closed.get()) {
+      size.decrementAndGet();
+      discardFrame(frame, "mailbox_closed");
+      return;
+    }
+    frame.retain();
+    try {
+      queue.add(frame);
+    } catch (RuntimeException | Error failure) {
+      size.decrementAndGet();
+      frame.release();
+      throw failure;
+    }
+    if (closed.get()) {
+      drainAndRelease("mailbox_closed");
+      return;
     }
 
+    boolean schedule = processing.compareAndSet(false, true);
     if (schedule) {
       try {
         executor.execute(this);
@@ -120,17 +124,10 @@ public final class DatagramMailbox implements Runnable {
    * @param reason the reason for draining
    */
   public void drainAndRelease(@NonNull String reason) {
-    synchronized (lock) {
-      closed = true;
-    }
-    for (;;) {
-      WebTransportFrame frame;
-      synchronized (lock) {
-        frame = queue.poll();
-      }
-      if (frame == null) {
-        return;
-      }
+    closed.set(true);
+    WebTransportFrame frame;
+    while ((frame = queue.poll()) != null) {
+      size.decrementAndGet();
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
       if (metrics != null) {
         metrics.onDatagramDiscarded(frame.sessionId(), reason);
@@ -141,21 +138,22 @@ public final class DatagramMailbox implements Runnable {
 
   @Override
   public void run() {
-    for (;;) {
+    for (; ; ) {
       int processedCount = 0;
       while (processedCount < maxBatchSize) {
-        WebTransportFrame frame;
-        synchronized (lock) {
-          if (closed) {
-            processing = false;
-            return;
-          }
-          frame = queue.poll();
-          if (frame == null) {
-            processing = false;
-            return;
-          }
+        if (closed.get()) {
+          processing.set(false);
+          return;
         }
+        WebTransportFrame frame = queue.poll();
+        if (frame == null) {
+          processing.set(false);
+          if (!queue.isEmpty() && processing.compareAndSet(false, true)) {
+            continue;
+          }
+          return;
+        }
+        size.decrementAndGet();
 
         try {
           dispatcher.dispatch(channel, frame.sessionId(), frame);
@@ -168,17 +166,16 @@ public final class DatagramMailbox implements Runnable {
       }
 
       // Check if more frames remain after completing batch
-      boolean hasMore;
-      synchronized (lock) {
-        if (closed) {
-          processing = false;
-          return;
+      if (closed.get()) {
+        processing.set(false);
+        return;
+      }
+      if (queue.isEmpty()) {
+        processing.set(false);
+        if (!queue.isEmpty() && processing.compareAndSet(false, true)) {
+          continue;
         }
-        hasMore = !queue.isEmpty();
-        if (!hasMore) {
-          processing = false;
-          return;
-        }
+        return;
       }
 
       // Reschedule onto executor to yield fairly to other tasks
@@ -212,9 +209,7 @@ public final class DatagramMailbox implements Runnable {
 
   private void failMailbox(String message, Throwable failure) {
     logger.warn("{}: {}", message, failure.getMessage());
-    synchronized (lock) {
-      processing = false;
-    }
+    processing.set(false);
     drainAndRelease("executor_rejected");
   }
 }

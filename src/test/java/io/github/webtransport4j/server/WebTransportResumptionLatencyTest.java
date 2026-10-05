@@ -26,7 +26,6 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicChannelBootstrap;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
-import io.netty.handler.codec.quic.QuicSslSessionContext;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
@@ -60,7 +59,9 @@ public class WebTransportResumptionLatencyTest {
   /** Sets up test fixtures. */
   @Before
   public void setUp() throws Exception {
-    webTransportServer = new WebTransportServer();
+    webTransportServer = org.mockito.Mockito.spy(new WebTransportServer());
+    // This test owns the QUIC listener directly; the server supplies its handler registry.
+    org.mockito.Mockito.doReturn(true).when(webTransportServer).isAcceptingSessions();
     webTransportServer.registerHandler(
         "/test-resumption",
         new WebTransportHandler() {
@@ -74,8 +75,7 @@ public class WebTransportResumptionLatencyTest {
     clientGroup = new NioEventLoopGroup(1);
 
     // Build Server SSL Context
-    SelfSignedCertificate ssc =
-        new SelfSignedCertificate();
+    SelfSignedCertificate ssc = new SelfSignedCertificate();
     QuicSslContext serverSslContext =
         QuicSslContextBuilder.forServer(ssc.privateKey(), null, ssc.certificate())
             .earlyData(true)
@@ -91,8 +91,7 @@ public class WebTransportResumptionLatencyTest {
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes(),
               "1234567890123456".getBytes());
-      serverSslContext.sessionContext()
-          .setTicketKeys(ticketKey);
+      serverSslContext.sessionContext().setTicketKeys(ticketKey);
     }
 
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
@@ -389,7 +388,9 @@ public class WebTransportResumptionLatencyTest {
       log.warn(
           "⚠️ Microbenchmark CPU Jitter Notice: Resumed: {}ms vs Full: {}ms "
               + "(Session resumption verified at TLS layer: {})",
-          durationResumedMs, durationFullMs, clientResumed);
+          durationResumedMs,
+          durationFullMs,
+          clientResumed);
     }
 
     quicClient2.close().sync();
