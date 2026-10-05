@@ -16,13 +16,20 @@ python3 verification/tla/check.py --jar /tmp/tla2tools.jar --output /tmp/webtran
 ```
 
 The runner verifies SHA-256
-`c2fe4e56e43bde19f213b4a7e441d037297fda733e503579623e859b79348239`
+`411ab54221cf0c9fa7ae18f07a3e0ebbdf9e5ba6254b79017e7007f1feb44e89`
 before executing the downloaded JAR. It runs the lifecycle/admission checks, six additional concurrency models,
 negative controls, and retained counterexamples for unguarded historical abstractions. A negative control passes only when TLC
 reports its expected invariant violation; parser errors and unrelated failures
 fail the runner. Logs and counterexample traces are retained with `--output`.
 Without that option, temporary output is removed when the run ends. Each check
 has a two-minute timeout and uses one worker for reproducibility.
+
+This pin matches the [official v1.8.0 release asset](https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0)
+published on 2026-10-05, with SHA-256 confirmed against GitHub's release metadata
+and a fresh download. An earlier artifact at the same URL had SHA-256
+`c2fe4e56e43bde19f213b4a7e441d037297fda733e503579623e859b79348239`.
+Replacing a release asset does not automatically authorize a new checksum:
+verify its provenance and rerun all models before updating the pin.
 
 To open a model in the TLA+ Toolbox, use the module's accompanying `.cfg` values,
 invariants, and properties. Background: [TLC configuration documentation](https://docs.tlapl.us/using:tlc:config_file)
