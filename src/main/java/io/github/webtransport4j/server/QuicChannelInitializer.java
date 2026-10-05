@@ -170,6 +170,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT).set(this.globalActiveSessions);
     ch.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS).set(this.globalSessionSlots);
     WebTransportSessionManager sessionManager = new WebTransportSessionManager();
+    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(sessionManager);
     this.server.registerQuicChannel(ch);
     ch.closeFuture()
         .addListener(
