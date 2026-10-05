@@ -1,6 +1,7 @@
 package io.github.webtransport4j.api;
 
 import java.net.SocketAddress;
+import java.security.cert.Certificate;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
@@ -209,6 +210,16 @@ public interface WebTransportSession {
    */
   default int getCloseCode() {
     return 0;
+  }
+
+  /**
+   * Returns the peer certificates presented during the TLS handshake, or an empty array if no
+   * client certificates were presented or verified.
+   *
+   * @return array of client certificates, or empty array if none
+   */
+  default Certificate[] getPeerCertificates() {
+    return new Certificate[0];
   }
 
   /**

@@ -1,5 +1,7 @@
 package io.github.webtransport4j.server;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -8,6 +10,7 @@ import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Rule;
 import org.junit.Test;
@@ -17,6 +20,39 @@ import org.junit.rules.TemporaryFolder;
 public class TlsCertificateHotReloadTest {
 
   @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+
+  @Test(timeout = 10000)
+  public void failedReloadRetriesWithSecurityCustomization() throws Exception {
+    SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
+    AtomicInteger customized = new AtomicInteger();
+    AtomicInteger installed = new AtomicInteger();
+    TlsCertificateWatcher watcher =
+        new TlsCertificateWatcher(
+            certificate.privateKey().getAbsolutePath(),
+            certificate.certificate().getAbsolutePath(),
+            context -> {
+              if (installed.getAndIncrement() == 0) {
+                throw new IllegalStateException("Simulated context installation failure");
+              }
+            },
+            builder -> {
+              builder
+                  .clientAuth(io.netty.handler.ssl.ClientAuth.REQUIRE)
+                  .trustManager(certificate.certificate());
+              customized.incrementAndGet();
+            },
+            1);
+    try {
+      assertFalse(watcher.checkAndReload());
+      assertTrue(watcher.checkAndReload());
+      assertFalse(watcher.checkAndReload());
+      assertEquals(2, customized.get());
+      assertEquals(2, installed.get());
+    } finally {
+      watcher.stop();
+      certificate.delete();
+    }
+  }
 
   @Test
   public void testTlsCertificateHotReloadWatcher() throws Exception {

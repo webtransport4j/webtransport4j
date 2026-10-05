@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-CHECKSUM = "c2fe4e56e43bde19f213b4a7e441d037297fda733e503579623e859b79348239"
+CHECKSUM = "411ab54221cf0c9fa7ae18f07a3e0ebbdf9e5ba6254b79017e7007f1feb44e89"
 
 
 def run(jar, output, label, model, config, expected=None, diagnostic=False):
@@ -80,8 +80,14 @@ def main():
     jar = args.jar.resolve()
     if not shutil.which("java"):
         parser.error("Java is required")
-    if not jar.is_file() or hashlib.sha256(jar.read_bytes()).hexdigest() != CHECKSUM:
-        parser.error("Provide the official v1.8.0 tla2tools.jar matching the documented SHA-256")
+    if not jar.is_file():
+        parser.error(f"TLC JAR does not exist: {jar}")
+    actual_checksum = hashlib.sha256(jar.read_bytes()).hexdigest()
+    if actual_checksum != CHECKSUM:
+        parser.error(
+            f"TLC v1.8.0 JAR checksum mismatch: expected {CHECKSUM}, got {actual_checksum}. "
+            "Use the verified official release artifact; do not bypass checksum verification."
+        )
     with tempfile.TemporaryDirectory(prefix="wt4j-tlc-") as temporary:
         output = args.output.resolve() if args.output else Path(temporary)
         additional_models(jar, output)
