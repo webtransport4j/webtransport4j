@@ -11,7 +11,6 @@ import io.github.webtransport4j.internal.EventLoopSafety;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -23,7 +22,6 @@ import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.EpollQuicUtils;
@@ -60,7 +58,6 @@ import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -162,7 +159,6 @@ public class WebTransportServer implements AutoCloseable {
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
-  private final AtomicBoolean draining = new AtomicBoolean(false);
   private final Set<QuicChannel> activeQuicChannels = ConcurrentHashMap.newKeySet();
 
   private volatile WebTransportMetricsListener metricsListener =
@@ -740,7 +736,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns true if the server is in a coordinated draining phase. */
   public boolean isDraining() {
-    return draining.get();
+    return state.get() == ServerState.DRAINING;
   }
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
@@ -770,43 +766,14 @@ public class WebTransportServer implements AutoCloseable {
    * @param unit the time unit of the timeout argument
    */
   public void drain(long timeout, @NonNull TimeUnit unit) {
+    EventLoopSafety.requireBlockingAllowed();
     Objects.requireNonNull(unit, "unit");
-    if (!draining.compareAndSet(false, true)) {
-      return;
+    if (timeout < 0L) {
+      throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
     }
-    logger.info("Initiating graceful WebTransport server drain (timeout: {} {})", timeout, unit);
-
-    for (QuicChannel qch : activeQuicChannels) {
-      if (qch.isActive()) {
-        WebTransportSessionManager mgr = qch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-        if (mgr != null) {
-          for (WebTransportSession s : mgr.getSessions()) {
-            s.markDraining();
-            if (s instanceof DefaultWebTransportSession) {
-              QuicStreamChannel connectStream = ((DefaultWebTransportSession) s).getConnectStream();
-              if (connectStream != null && connectStream.isActive()) {
-                ByteBuf buf = qch.alloc().buffer(8);
-                WebTransportUtils.writeVarInt(buf, 0x78aeL);
-                WebTransportUtils.writeVarInt(buf, 0L);
-                connectStream.writeAndFlush(new DefaultHttp3DataFrame(buf));
-              }
-            }
-          }
-        }
-      }
-    }
-
-    long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-    while (globalActiveSessions.get() > 0 && System.currentTimeMillis() < deadline) {
-      try {
-        Thread.sleep(50);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
-      }
-    }
-
-    stop(5, TimeUnit.SECONDS);
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    drain();
+    stop(Math.max(0L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
   }
 
   /** Stops admitting sessions and notifies existing sessions without closing their streams. */
@@ -830,11 +797,13 @@ public class WebTransportServer implements AutoCloseable {
   public void reloadTlsCertificate(@NonNull File certFile, @NonNull File keyFile) throws Exception {
     Objects.requireNonNull(certFile, "certFile");
     Objects.requireNonNull(keyFile, "keyFile");
-    QuicSslContext newContext =
+    EventLoopSafety.requireBlockingAllowed();
+    QuicSslContextBuilder sslBuilder =
         QuicSslContextBuilder.forServer(keyFile, null, certFile)
             .applicationProtocols(Http3.supportedApplicationProtocols())
-            .earlyData(true)
-            .build();
+            .earlyData(true);
+    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContext newContext = sslBuilder.build();
     installReloadedSslContext(newContext);
   }
 
