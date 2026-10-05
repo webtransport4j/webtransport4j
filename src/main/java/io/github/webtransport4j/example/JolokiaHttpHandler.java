@@ -20,9 +20,7 @@ import java.lang.reflect.Method;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +28,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import javax.management.Attribute;
 import javax.management.MBeanAttributeInfo;
 import javax.management.MBeanInfo;
 import javax.management.MBeanOperationInfo;
@@ -328,7 +325,7 @@ public class JolokiaHttpHandler implements HttpHandler {
 
   private String executeOperation(
       String mbeanName, String operation, String[] args, long timestamp) {
-    if (!"java.lang:type=Memory".equals(mbeanName) || !"gc".equals(operation)) {
+    if (!"java.lang:type=Memory".equals(mbeanName) || !"gc".equals(operation) || args.length != 0) {
       return "{\"status\":403,\"error\":\"Operation is not allowed\"}";
     }
     System.gc();

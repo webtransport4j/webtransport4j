@@ -12,6 +12,7 @@ import sys
 import os
 import time
 import json
+import re
 import uuid
 import subprocess
 import urllib.request
@@ -31,6 +32,7 @@ if sys.platform.startswith("win"):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
+        # Console reconfiguration is optional on older Windows Python runtimes.
         pass
 
 # Environment & Command Line Configurable Parameters
@@ -300,6 +302,7 @@ def close_all_server_sessions():
             with urllib.request.urlopen(req, timeout=1.0) as resp:
                 pass
         except Exception:
+            # Session closure succeeded at the node; process cleanup is best effort.
             pass
     for sess_id, p in list(SESSION_PROCESSES.items()):
         try:
@@ -1417,6 +1420,7 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(data).encode('utf-8'))
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            # The client disconnected before the response could be written.
             pass
 
     def handle_jolokia_proxy(self):
@@ -2048,8 +2052,11 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                             target_session["activeStreamsUni"] = t_act_u
 
                     # Always append W3C trace span to telemetry traces table
-                    t_id = traceparent.split('-')[1] if (traceparent and '-' in traceparent) else uuid.uuid4().hex
-                    s_id = traceparent.split('-')[2] if (traceparent and '-' in traceparent and len(traceparent.split('-')) > 2) else uuid.uuid4().hex[:16]
+                    parent_parts = traceparent.split('-')
+                    valid_parent = (re.fullmatch(r'(?!ff)[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}', traceparent)
+                                    and parent_parts[1] != '0' * 32 and parent_parts[2] != '0' * 16)
+                    t_id = parent_parts[1] if valid_parent else uuid.uuid4().hex
+                    s_id = uuid.uuid4().hex[:16]
                     dur_val = float(result.get("rttMs", result.get("durationMs", 4)))
                     st_val = "OK" if result.get("status") == "SUCCESS" else "ERROR"
                     LIVE_TELEMETRY["traces"].insert(0, {
@@ -2736,31 +2743,32 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
         if self.path == '/v1/metrics':
             try:
                 data = json.loads(body.decode('utf-8'))
-                LIVE_TELEMETRY['last_seen_ts'] = time.time()
-                LIVE_TELEMETRY['source_type'] = 'live-otlp'
                 # Parse OTLP resource metrics
                 for rm in data.get('resourceMetrics', []):
                     for sm in rm.get('scopeMetrics', []):
                         for m in sm.get('metrics', []):
                             m_name = m.get('name', '')
                             # Extract gauge or sum values
-                            if 'sessions' in m_name and 'gauge' in m:
+                            if m_name == 'webtransport.sessions.active' and 'gauge' in m:
                                 dp = m['gauge'].get('dataPoints', [])
                                 if dp:
-                                    LIVE_TELEMETRY['activeSessions'] = int(dp[-1].get('asInt', 0))
-                            elif 'streams' in m_name and 'gauge' in m:
+                                    LIVE_TELEMETRY['activeSessions'] = int(dp[-1].get('asDouble', dp[-1].get('asInt', 0)))
+                            elif m_name == 'webtransport.streams.active' and 'gauge' in m:
                                 dp = m['gauge'].get('dataPoints', [])
                                 if dp:
-                                    LIVE_TELEMETRY['activeStreams'] = int(dp[-1].get('asInt', 0))
-                            elif 'datagrams' in m_name and 'sum' in m:
+                                    LIVE_TELEMETRY['activeStreams'] = int(dp[-1].get('asDouble', dp[-1].get('asInt', 0)))
+                            elif m_name in ('webtransport.datagrams.sent', 'webtransport.datagrams.dropped') and 'sum' in m:
                                 dp = m['sum'].get('dataPoints', [])
                                 if dp:
                                     if 'dropped' in m_name:
-                                        LIVE_TELEMETRY['datagramsDroppedRate'] = int(dp[-1].get('asInt', 0))
+                                        LIVE_TELEMETRY['datagramsDroppedRate'] = int(dp[-1].get('asDouble', dp[-1].get('asInt', 0)))
                                     elif 'sent' in m_name:
-                                        LIVE_TELEMETRY['totalDatagramsProcessed'] = int(dp[-1].get('asInt', 0))
-            except Exception:
-                pass
+                                        LIVE_TELEMETRY['totalDatagramsProcessed'] = int(dp[-1].get('asDouble', dp[-1].get('asInt', 0)))
+                LIVE_TELEMETRY['last_seen_ts'] = time.time()
+                LIVE_TELEMETRY['source_type'] = 'live-otlp'
+            except (ValueError, TypeError, AttributeError, KeyError, OverflowError):
+                self.send_json(400, {"error": "Invalid OTLP JSON metrics payload"})
+                return
             self.send_json(200, {"partialSuccess": {}})
             return
 
@@ -2784,8 +2792,9 @@ webtransport_netty_direct_memory_bytes {LIVE_TELEMETRY['nettyDirectMemoryMb'] * 
                             })
                 if len(LIVE_TELEMETRY["traces"]) > 50:
                     LIVE_TELEMETRY["traces"] = LIVE_TELEMETRY["traces"][:50]
-            except Exception:
-                pass
+            except (ValueError, TypeError, AttributeError, KeyError, OverflowError):
+                self.send_json(400, {"error": "Invalid OTLP JSON traces payload"})
+                return
             self.send_json(200, {"partialSuccess": {}})
             return
 

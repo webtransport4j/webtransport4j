@@ -10,6 +10,22 @@ import org.slf4j.MDC;
 public class WebTransportMdcContextTest {
 
   @Test
+  public void testNestedNullMetadataIsClearedAndOuterScopeRestored() {
+    try (WebTransportMdcContext.Scope outer =
+        WebTransportMdcContext.open(1, "/outer", "remote", "conn")) {
+      try (WebTransportMdcContext.Scope inner = WebTransportMdcContext.open(2, null, null, null)) {
+        assertEquals("2", MDC.get(WebTransportMdcContext.KEY_SESSION_ID));
+        assertNull(MDC.get(WebTransportMdcContext.KEY_PATH));
+        assertNull(MDC.get(WebTransportMdcContext.KEY_REMOTE_ADDRESS));
+        assertNull(MDC.get(WebTransportMdcContext.KEY_CONNECTION_ID));
+      }
+      assertEquals("/outer", MDC.get(WebTransportMdcContext.KEY_PATH));
+      assertEquals("remote", MDC.get(WebTransportMdcContext.KEY_REMOTE_ADDRESS));
+      assertEquals("conn", MDC.get(WebTransportMdcContext.KEY_CONNECTION_ID));
+    }
+  }
+
+  @Test
   public void testMdcScopePopulatesAndRestores() {
     assertNull(MDC.get(WebTransportMdcContext.KEY_SESSION_ID));
     assertNull(MDC.get(WebTransportMdcContext.KEY_PATH));

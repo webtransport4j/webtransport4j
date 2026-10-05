@@ -290,7 +290,7 @@ public class WebTransportSessionManager {
     try {
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
       if (metrics != null) {
-        metrics.onSessionOpened(sessionStreamId, pathStr);
+        metrics.onSessionOpened(sessionStreamId, session.getUniqueSessionId(), pathStr);
       }
     } catch (Exception e) {
       logger.error("Error firing onSessionOpened metric for session {}", sessionStreamId, e);
@@ -413,7 +413,8 @@ public class WebTransportSessionManager {
       try {
         WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
         if (metrics != null) {
-          metrics.onSessionClosed(sessionStreamId, removed.getCloseCode());
+          metrics.onSessionClosed(
+              sessionStreamId, removed.getUniqueSessionId(), removed.getCloseCode());
         }
       } catch (Exception e) {
         logger.error("Error in metrics onSessionClosed for session {}", sessionStreamId, e);

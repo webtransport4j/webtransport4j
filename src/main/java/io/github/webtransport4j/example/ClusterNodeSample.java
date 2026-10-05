@@ -82,9 +82,12 @@ public class ClusterNodeSample {
 
   static String requireSecret(String name) {
     String value = System.getenv(name);
-    if (value == null || value.trim().isEmpty()
-        || ("CLUSTER_HMAC_KEY".equals(name) && value.getBytes(StandardCharsets.UTF_8).length < 32)) {
-      throw new IllegalStateException(name + " must be provisioned explicitly (HMAC: at least 32 bytes)");
+    if (value == null
+        || value.trim().isEmpty()
+        || ("CLUSTER_HMAC_KEY".equals(name)
+            && value.getBytes(StandardCharsets.UTF_8).length < 32)) {
+      throw new IllegalStateException(
+          name + " must be provisioned explicitly (HMAC: at least 32 bytes)");
     }
     return value;
   }
@@ -101,11 +104,9 @@ public class ClusterNodeSample {
     final String nodeName = System.getenv().getOrDefault("POD_NAME", "wt-node-local");
     final String managementBindHost =
         System.getenv().getOrDefault("MANAGEMENT_BIND_HOST", "127.0.0.1");
-    final String managementToken =
-        requireSecret("MANAGEMENT_AUTH_TOKEN");
+    final String managementToken = requireSecret("MANAGEMENT_AUTH_TOKEN");
     final String otlpEndpoint = System.getenv("OTEL_EXPORTER_OTLP_ENDPOINT");
-    final String hmacKeyStr =
-        requireSecret("CLUSTER_HMAC_KEY");
+    final String hmacKeyStr = requireSecret("CLUSTER_HMAC_KEY");
 
     log.info(
         "🚀 Starting WebTransport4J Clustered Node '{}' on QUIC port {} (Health on {})",
@@ -161,7 +162,10 @@ public class ClusterNodeSample {
         System.getenv("SSL_CERT_PATH") != null
             ? System.getenv("SSL_CERT_PATH")
             : System.getProperty("webtransport4j.ssl.cert.path");
-    if (sslKeyPath != null && sslCertPath != null && !sslKeyPath.trim().isEmpty() && !sslCertPath.trim().isEmpty()) {
+    if (sslKeyPath != null
+        && sslCertPath != null
+        && !sslKeyPath.trim().isEmpty()
+        && !sslCertPath.trim().isEmpty()) {
       log.info("🔒 Loaded TLS certificate: key={}, cert={}", sslKeyPath, sslCertPath);
       serverBuilder.ssl(sslKeyPath.trim(), sslCertPath.trim());
     }
@@ -222,9 +226,12 @@ public class ClusterNodeSample {
           if (!isAuthorized(exchange, managementToken)) {
             return;
           }
-          log.info("🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'", nodeName);
+          log.info(
+              "🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'",
+              nodeName);
           server.drain();
-          byte[] resp = "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
+          byte[] resp =
+              "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
@@ -250,16 +257,20 @@ public class ClusterNodeSample {
 
     // Jolokia / Hawtio JMX management HTTP handlers
     JolokiaHttpHandler jolokiaHandler = new JolokiaHttpHandler(nodeName);
-    healthHttpServer.createContext("/jolokia", exchange -> {
-      if (isAuthorized(exchange, managementToken)) {
-        jolokiaHandler.handle(exchange);
-      }
-    });
-    healthHttpServer.createContext("/api/node/jmx", exchange -> {
-      if (isAuthorized(exchange, managementToken)) {
-        jolokiaHandler.handle(exchange);
-      }
-    });
+    healthHttpServer.createContext(
+        "/jolokia",
+        exchange -> {
+          if (isAuthorized(exchange, managementToken)) {
+            jolokiaHandler.handle(exchange);
+          }
+        });
+    healthHttpServer.createContext(
+        "/api/node/jmx",
+        exchange -> {
+          if (isAuthorized(exchange, managementToken)) {
+            jolokiaHandler.handle(exchange);
+          }
+        });
 
     // Node runtime info endpoint: strictly real values from JVM and Netty server
     healthHttpServer.createContext(
@@ -541,14 +552,19 @@ public class ClusterNodeSample {
               return;
             }
             long targetSessionId = -1;
-            Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
-            if (m.find()) {
-              targetSessionId = Long.parseLong(m.group(1));
-            } else {
-              Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
-              if (m2.find()) {
-                targetSessionId = Long.parseLong(m2.group(1));
+            try {
+              Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
+              if (m.find()) {
+                targetSessionId = Long.parseLong(m.group(1));
+              } else {
+                Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
+                if (m2.find()) {
+                  targetSessionId = Long.parseLong(m2.group(1));
+                }
               }
+            } catch (NumberFormatException invalidId) {
+              exchange.sendResponseHeaders(400, -1);
+              return;
             }
             boolean drainAll =
                 body.contains("\"all\"")
@@ -614,14 +630,19 @@ public class ClusterNodeSample {
               return;
             }
             long targetSessionId = -1;
-            Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
-            if (m.find()) {
-              targetSessionId = Long.parseLong(m.group(1));
-            } else {
-              Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
-              if (m2.find()) {
-                targetSessionId = Long.parseLong(m2.group(1));
+            try {
+              Matcher m = Pattern.compile("\"sessionId\"\\s*:\\s*(\\d+)").matcher(body);
+              if (m.find()) {
+                targetSessionId = Long.parseLong(m.group(1));
+              } else {
+                Matcher m2 = Pattern.compile("\"id\"\\s*:\\s*\"wt-sess-(\\d+)\"").matcher(body);
+                if (m2.find()) {
+                  targetSessionId = Long.parseLong(m2.group(1));
+                }
               }
+            } catch (NumberFormatException invalidId) {
+              exchange.sendResponseHeaders(400, -1);
+              return;
             }
             boolean closeAll =
                 body.contains("\"all\"")

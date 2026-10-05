@@ -53,16 +53,19 @@ public final class RealTrafficGenerator {
     private final QuicStreamChannel connectStream;
     private final long sessionId;
     private final EventLoopGroup group;
+    private final Channel udpChannel;
 
     LiveSession(
         final QuicChannel quicChannel,
         final QuicStreamChannel connectStream,
         final long sessionId,
-        final EventLoopGroup group) {
+        final EventLoopGroup group,
+        final Channel udpChannel) {
       this.quicChannel = quicChannel;
       this.connectStream = connectStream;
       this.sessionId = sessionId;
       this.group = group;
+      this.udpChannel = udpChannel;
     }
 
     public QuicChannel getQuicChannel() {
@@ -86,6 +89,9 @@ public final class RealTrafficGenerator {
       } catch (final Exception e) {
         log.warn("Error closing QuicChannel", e);
       } finally {
+        if (udpChannel != null) {
+          udpChannel.close();
+        }
         if (group != null) {
           group.shutdownGracefully(0, 50, TimeUnit.MILLISECONDS);
         }
@@ -96,106 +102,146 @@ public final class RealTrafficGenerator {
   /** Establishes a genuine WebTransport session with the specified target server. */
   public static LiveSession connect(final String rawUrl, final String traceparent)
       throws Exception {
+    return connect(rawUrl, traceparent, new NioEventLoopGroup(1));
+  }
+
+  // Transfers ownership of the client group, including on failed handshakes.
+  static LiveSession connect(
+      final String rawUrl, final String traceparent, final EventLoopGroup group) throws Exception {
+    try {
+      return connectWithGroup(rawUrl, traceparent, group);
+    } catch (Exception failure) {
+      group.shutdownGracefully(0, 50, TimeUnit.MILLISECONDS);
+      throw failure;
+    }
+  }
+
+  private static LiveSession connectWithGroup(
+      final String rawUrl, final String traceparent, final EventLoopGroup group) throws Exception {
     final URI uri = new URI(rawUrl);
     final String host = uri.getHost() == null ? "127.0.0.1" : uri.getHost();
     final int port = uri.getPort() == -1 ? 4433 : uri.getPort();
     final String path = uri.getPath() == null || uri.getPath().isEmpty() ? "/echo" : uri.getPath();
 
-    final EventLoopGroup group = new NioEventLoopGroup(1);
-    final QuicSslContext sslCtx =
-        QuicSslContextBuilder.forClient()
-            .trustManager(InsecureTrustManagerFactory.INSTANCE)
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .build();
+    Channel udpChannel = null;
+    QuicChannel connectedChannel = null;
+    boolean established = false;
+    try {
+      final QuicSslContext sslCtx =
+          QuicSslContextBuilder.forClient()
+              .trustManager(InsecureTrustManagerFactory.INSTANCE)
+              .applicationProtocols(Http3.supportedApplicationProtocols())
+              .build();
 
-    final ChannelHandler codec =
-        Http3.newQuicClientCodecBuilder()
-            .sslContext(sslCtx)
-            .maxIdleTimeout(30000, TimeUnit.MILLISECONDS)
-            .initialMaxData(1073741824)
-            .initialMaxStreamDataBidirectionalLocal(107374182)
-            .initialMaxStreamDataBidirectionalRemote(107374182)
-            .initialMaxStreamsUnidirectional(1000)
-            .initialMaxStreamDataUnidirectional(107374182)
-            .initialMaxStreamsBidirectional(1000)
-            .datagram(10000, 10000)
-            .build();
+      final ChannelHandler codec =
+          Http3.newQuicClientCodecBuilder()
+              .sslContext(sslCtx)
+              .maxIdleTimeout(30000, TimeUnit.MILLISECONDS)
+              .initialMaxData(1073741824)
+              .initialMaxStreamDataBidirectionalLocal(107374182)
+              .initialMaxStreamDataBidirectionalRemote(107374182)
+              .initialMaxStreamsUnidirectional(1000)
+              .initialMaxStreamDataUnidirectional(107374182)
+              .initialMaxStreamsBidirectional(1000)
+              .datagram(10000, 10000)
+              .build();
 
-    final Channel nettyChannel =
-        new Bootstrap()
-            .group(group)
-            .channel(NioDatagramChannel.class)
-            .handler(codec)
-            .bind(0)
-            .sync()
-            .channel();
+      final Channel nettyChannel =
+          new Bootstrap()
+              .group(group)
+              .channel(NioDatagramChannel.class)
+              .handler(codec)
+              .bind(0)
+              .sync()
+              .channel();
+      udpChannel = nettyChannel;
 
-    final Http3Settings settings = new Http3Settings((id, value) -> true);
-    settings.enableConnectProtocol(true);
-    settings.enableH3Datagram(true);
-    settings.put(0x2b64L, 1000L);
-    settings.put(0x2b65L, 1000L);
-    settings.put(0x2b61L, 10737418240L);
+      final Http3Settings settings = new Http3Settings((id, value) -> true);
+      settings.enableConnectProtocol(true);
+      settings.enableH3Datagram(true);
+      settings.put(0x2b64L, 1000L);
+      settings.put(0x2b65L, 1000L);
+      settings.put(0x2b61L, 10737418240L);
 
-    final QuicChannel quicChannel =
-        QuicChannel.newBootstrap(nettyChannel)
-            .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true))
-            .remoteAddress(new InetSocketAddress(host, port))
-            .connect()
-            .get();
+      final QuicChannel quicChannel =
+          QuicChannel.newBootstrap(nettyChannel)
+              .handler(new WebTransportClientHandler(new DefaultHttp3SettingsFrame(settings), true))
+              .remoteAddress(new InetSocketAddress(host, port))
+              .connect()
+              .get();
+      connectedChannel = quicChannel;
 
-    final CountDownLatch handshakeLatch = new CountDownLatch(1);
-    final QuicStreamChannel[] connectStreamContainer = new QuicStreamChannel[1];
+      final CountDownLatch handshakeLatch = new CountDownLatch(1);
+      final QuicStreamChannel[] connectStreamContainer = new QuicStreamChannel[1];
 
-    final QuicStreamChannel connectStream =
-        Http3.newRequestStream(
-                quicChannel,
-                new ChannelInitializer<QuicStreamChannel>() {
-                  @Override
-                  protected void initChannel(final QuicStreamChannel ch) {
-                    ch.pipeline()
-                        .addLast(
-                            new SimpleChannelInboundHandler<Object>() {
-                              @Override
-                              protected void channelRead0(
-                                  final ChannelHandlerContext ctx, final Object msg) {
-                                if (msg instanceof Http3HeadersFrame) {
-                                  final Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
-                                  final String status =
-                                      headersFrame.headers().status() != null
-                                          ? headersFrame.headers().status().toString()
-                                          : "";
-                                  if ("200".equals(status)) {
-                                    connectStreamContainer[0] = (QuicStreamChannel) ctx.channel();
-                                    handshakeLatch.countDown();
+      final QuicStreamChannel connectStream =
+          Http3.newRequestStream(
+                  quicChannel,
+                  new ChannelInitializer<QuicStreamChannel>() {
+                    @Override
+                    protected void initChannel(final QuicStreamChannel ch) {
+                      ch.pipeline()
+                          .addLast(
+                              new SimpleChannelInboundHandler<Object>() {
+                                @Override
+                                protected void channelRead0(
+                                    final ChannelHandlerContext ctx, final Object msg) {
+                                  if (msg instanceof Http3HeadersFrame) {
+                                    final Http3HeadersFrame headersFrame = (Http3HeadersFrame) msg;
+                                    final String status =
+                                        headersFrame.headers().status() != null
+                                            ? headersFrame.headers().status().toString()
+                                            : "";
+                                    if ("200".equals(status)) {
+                                      connectStreamContainer[0] = (QuicStreamChannel) ctx.channel();
+                                    }
+                                    if (!status.isEmpty() && !status.startsWith("1")) {
+                                      handshakeLatch.countDown();
+                                    }
                                   }
                                 }
-                              }
-                            });
-                  }
-                })
-            .sync()
-            .getNow();
+                              });
+                    }
+                  })
+              .sync()
+              .getNow();
 
-    final Http3Headers headers = new DefaultHttp3Headers();
-    headers.method("CONNECT");
-    headers.scheme("https");
-    headers.authority(host + ":" + port);
-    headers.path(path);
-    headers.set(":protocol", "webtransport");
-    if (traceparent != null && !traceparent.isEmpty()) {
-      headers.set("traceparent", traceparent);
+      final Http3Headers headers = new DefaultHttp3Headers();
+      headers.method("CONNECT");
+      headers.scheme("https");
+      headers.authority(host + ":" + port);
+      headers.path(path);
+      headers.set(":protocol", "webtransport");
+      if (traceparent != null && !traceparent.isEmpty()) {
+        headers.set("traceparent", traceparent);
+      }
+
+      connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
+
+      if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
+        throw new IllegalStateException(
+            "Timeout establishing WebTransport handshake with " + rawUrl);
+      }
+      if (connectStreamContainer[0] == null) {
+        throw new IllegalStateException("WebTransport handshake rejected by " + rawUrl);
+      }
+
+      final long sessionId = connectStreamContainer[0].streamId();
+      LiveSession session =
+          new LiveSession(quicChannel, connectStreamContainer[0], sessionId, group, nettyChannel);
+      established = true;
+      return session;
+    } finally {
+      if (!established) {
+        if (connectedChannel != null) {
+          connectedChannel.close();
+        }
+        if (udpChannel != null) {
+          udpChannel.close();
+        }
+        group.shutdownGracefully(0, 50, TimeUnit.MILLISECONDS);
+      }
     }
-
-    connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-
-    if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
-      group.shutdownGracefully();
-      throw new IllegalStateException("Timeout establishing WebTransport handshake with " + rawUrl);
-    }
-
-    final long sessionId = connectStreamContainer[0].streamId();
-    return new LiveSession(quicChannel, connectStreamContainer[0], sessionId, group);
   }
 
   /** Transmits real WebTransport datagrams at high velocity over the QUIC channel. */
@@ -257,13 +303,18 @@ public final class RealTrafficGenerator {
                       ch.pipeline()
                           .addLast(
                               new ChannelInboundHandlerAdapter() {
+                                private boolean responded;
+
                                 @Override
                                 public void channelRead(
                                     final ChannelHandlerContext ctx, final Object msg) {
                                   if (msg instanceof ByteBuf) {
                                     ((ByteBuf) msg).release();
-                                    completed.incrementAndGet();
-                                    latch.countDown();
+                                    if (!responded) {
+                                      responded = true;
+                                      completed.incrementAndGet();
+                                      latch.countDown();
+                                    }
                                   }
                                 }
                               });
@@ -287,7 +338,10 @@ public final class RealTrafficGenerator {
     }
 
     if (bidi) {
-      latch.await(5, TimeUnit.SECONDS);
+      if (!latch.await(5, TimeUnit.SECONDS)) {
+        throw new java.util.concurrent.TimeoutException(
+            "Stream responses timed out: " + completed.get() + "/" + count);
+      }
     }
     return completed.get();
   }
@@ -513,7 +567,13 @@ public final class RealTrafficGenerator {
       log.error("Traffic generation execution failed", ex);
       System.out.printf(
           "{\"status\":\"ERROR\",\"command\":\"%s\",\"error\":\"%s\",\"target\":\"%s\"}%n",
-          command, ex.getMessage().replace("\"", "'"), url);
+          command,
+          String.valueOf(ex.getMessage())
+              .replace("\"", "'")
+              .replace("\n", " ")
+              .replace("\r", " ")
+              .replace("\\", "\\\\"),
+          url);
       System.exit(1);
     }
   }

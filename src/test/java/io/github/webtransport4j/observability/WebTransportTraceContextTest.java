@@ -12,6 +12,19 @@ import org.junit.Test;
 public class WebTransportTraceContextTest {
 
   @Test
+  public void testFutureVersionChildUsesSupportedVersionAndSampledFlagOnly() {
+    WebTransportTraceContext parent =
+        WebTransportTraceContext.fromHeaders(
+            "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-ff-extra", null);
+    assertNotNull(parent);
+    WebTransportTraceContext child = parent.createChildSpan();
+    assertEquals("00", child.getVersion());
+    assertEquals("01", child.getTraceFlags());
+    assertEquals(parent.getTraceId(), child.getTraceId());
+    assertFalse(parent.getSpanId().equals(child.getSpanId()));
+  }
+
+  @Test
   public void testParseValidTraceparent() {
     String header = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     WebTransportTraceContext ctx =

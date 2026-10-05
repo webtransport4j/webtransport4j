@@ -65,11 +65,14 @@ public final class WebTransportTraceContext {
       return null;
     }
     final String s = traceparent.toString().trim();
-    final String[] parts = s.split("-");
-    if (parts.length != 4) {
+    final String[] parts = s.split("-", 5);
+    if (parts.length < 4) {
       return null;
     }
     final String ver = parts[0];
+    if (VERSION.equals(ver) && parts.length != 4) {
+      return null;
+    }
     final String traceId = parts[1];
     final String parentId = parts[2];
     final String flags = parts[3];
@@ -121,7 +124,8 @@ public final class WebTransportTraceContext {
     final byte[] childSpanBytes = new byte[8];
     RANDOM.nextBytes(childSpanBytes);
     final String newSpanId = bytesToHex(childSpanBytes);
-    return new WebTransportTraceContext(version, traceId, newSpanId, traceFlags, tracestate);
+    return new WebTransportTraceContext(
+        VERSION, traceId, newSpanId, isSampled() ? "01" : "00", tracestate);
   }
 
   /**

@@ -20,6 +20,12 @@ jobs:
           python3 -m unittest discover -s dashboard -p test_production_security.py
           node --check dashboard/app.js
           node --check dashboard/admin.js
+          node --test dashboard/test_admin_logout.cjs
+      - name: Verify logout races in Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/wt4j-browser-tests" --no-save --ignore-scripts playwright@1.62.1
+          node "$RUNNER_TEMP/wt4j-browser-tests/node_modules/playwright/cli.js" install --with-deps chromium
+          NODE_PATH="$RUNNER_TEMP/wt4j-browser-tests/node_modules" node --test dashboard/test_admin_logout_browser.cjs
       - name: Validate deployment and build portal
         env:
           CLUSTER_HMAC_KEY: ci-test-only-hmac-key-at-least-32-bytes

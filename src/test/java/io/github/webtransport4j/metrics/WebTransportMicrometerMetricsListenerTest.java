@@ -17,6 +17,58 @@ import org.junit.Test;
  */
 public class WebTransportMicrometerMetricsListenerTest {
 
+  @Test
+  public void testAsyncAdapterPreservesSessionIdentityAcrossConnections() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WebTransportMicrometerMetricsListener metrics =
+        new WebTransportMicrometerMetricsListener("async");
+    metrics.bindTo(registry);
+    try {
+      try (io.github.webtransport4j.api.AsyncWebTransportMetricsListener adapter =
+          new io.github.webtransport4j.api.AsyncWebTransportMetricsListener(metrics)) {
+        adapter.onSessionOpened(0, 101, "/first");
+        adapter.onSessionOpened(0, 102, "/second");
+        adapter.onSessionClosed(0, 101, 0);
+        adapter.onSessionClosed(0, 102, 0);
+      }
+      assertEquals(2, registry.get("async.session.duration").timer().count());
+      assertEquals(0.0, registry.get("async.sessions.active").gauge().value(), 0.0);
+    } finally {
+      registry.close();
+    }
+  }
+
+  @Test
+  public void testMultipleRegistriesReceiveAllCallbacksAndBindingIsIdempotent() {
+    WebTransportMicrometerMetricsListener metrics =
+        new WebTransportMicrometerMetricsListener("multi");
+    SimpleMeterRegistry first = new SimpleMeterRegistry();
+    SimpleMeterRegistry second = new SimpleMeterRegistry();
+    try {
+      metrics.bindTo(first);
+      metrics.bindTo(second);
+      metrics.bindTo(first);
+      metrics.onSessionOpened(0, 101, "/test");
+      metrics.onSessionOpened(0, 102, "/test");
+      metrics.onDatagramSent(0, 16);
+      metrics.onStreamOpened(0, 4, true);
+      metrics.onStreamClosed(0, 4);
+      metrics.onSessionClosed(0, 101, 0);
+      metrics.onSessionClosed(0, 102, 0);
+      for (SimpleMeterRegistry registry : new SimpleMeterRegistry[] {first, second}) {
+        assertEquals(0.0, registry.get("multi.sessions.active").gauge().value(), 0.0);
+        assertEquals(2.0, registry.get("multi.sessions.opened").counter().count(), 0.0);
+        assertEquals(2, registry.get("multi.session.duration").timer().count());
+        assertEquals(1.0, registry.get("multi.datagrams.sent").counter().count(), 0.0);
+        assertEquals(16.0, registry.get("multi.datagram.sent.bytes").summary().totalAmount(), 0.0);
+        assertEquals(1.0, registry.get("multi.streams.closed").counter().count(), 0.0);
+      }
+    } finally {
+      first.close();
+      second.close();
+    }
+  }
+
   private MeterRegistry registry;
   private WebTransportMicrometerMetricsListener listener;
 

@@ -83,6 +83,8 @@ def unit_checks():
     for name in ("app.js", "admin.js"):
         command([node, "--check", str(HERE.parent / name)])
         print(f"PASS JavaScript syntax: {name}", flush=True)
+    command([node, "--test", str(HERE.parent / "test_admin_logout.cjs")])
+    print("PASS admin logout races", flush=True)
 
 
 def main():

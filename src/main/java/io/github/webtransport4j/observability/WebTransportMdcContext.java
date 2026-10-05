@@ -49,12 +49,18 @@ public final class WebTransportMdcContext {
     MDC.put(KEY_SESSION_ID, String.valueOf(sessionId));
     if (path != null) {
       MDC.put(KEY_PATH, path);
+    } else {
+      MDC.remove(KEY_PATH);
     }
     if (remoteAddress != null) {
       MDC.put(KEY_REMOTE_ADDRESS, remoteAddress);
+    } else {
+      MDC.remove(KEY_REMOTE_ADDRESS);
     }
     if (connectionId != null) {
       MDC.put(KEY_CONNECTION_ID, connectionId);
+    } else {
+      MDC.remove(KEY_CONNECTION_ID);
     }
 
     return new Scope(prevSessionId, prevPath, prevRemoteAddress, prevConnectionId);

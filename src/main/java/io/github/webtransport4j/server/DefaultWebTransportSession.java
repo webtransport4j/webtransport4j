@@ -163,8 +163,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       ByteBuf capsule = connectStream.alloc().buffer(5);
       WebTransportUtils.writeVarInt(capsule, 0x78ae);
       WebTransportUtils.writeVarInt(capsule, 0);
-      connectStream.writeAndFlush(
-          new io.netty.handler.codec.http3.DefaultHttp3DataFrame(capsule));
+      connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(capsule));
       markDraining();
     }
   }
@@ -753,6 +752,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @param streamHandler channel handler to add to the stream pipeline
    * @return a future that completes with the opened stream
    */
+  @Override
   public @NonNull CompletableFuture<WebTransportStream> createBiStream(
       @NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createBiStream(connectStream, false, streamHandler));

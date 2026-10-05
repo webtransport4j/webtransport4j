@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.binder.MeterBinder;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,9 +31,9 @@ public class WebTransportMicrometerMetricsListener
       new java.util.concurrent.atomic.AtomicReference<>(java.util.Collections.emptySet());
   private final AtomicLong activeSessions = new AtomicLong(0);
   private final AtomicLong activeStreams = new AtomicLong(0);
-  private final Map<Long, Long> sessionStartTimes = new ConcurrentHashMap<>();
+  private final Map<String, Long> sessionStartTimes = new ConcurrentHashMap<>();
 
-  private MeterRegistry registry;
+  private final CompositeMeterRegistry registry = new CompositeMeterRegistry();
   private Counter datagramsSentCounter;
   private Counter datagramsReceivedCounter;
   private Counter datagramsDroppedCounter;
@@ -52,6 +53,7 @@ public class WebTransportMicrometerMetricsListener
    */
   public WebTransportMicrometerMetricsListener(@NonNull String prefix) {
     this.prefix = Objects.requireNonNull(prefix, "prefix");
+    initializeMeters();
   }
 
   /**
@@ -61,7 +63,10 @@ public class WebTransportMicrometerMetricsListener
    */
   @Override
   public void bindTo(@NonNull MeterRegistry registry) {
-    this.registry = Objects.requireNonNull(registry, "registry");
+    this.registry.add(Objects.requireNonNull(registry, "registry"));
+  }
+
+  private void initializeMeters() {
 
     Gauge.builder(prefix + ".sessions.active", activeSessions, AtomicLong::get)
         .description("Number of currently active WebTransport sessions")
@@ -112,8 +117,17 @@ public class WebTransportMicrometerMetricsListener
    */
   @Override
   public void onSessionOpened(long sessionId, @NonNull String path) {
+    recordSessionOpened("legacy:" + sessionId, path);
+  }
+
+  @Override
+  public void onSessionOpened(long sessionId, long uniqueSessionId, @NonNull String path) {
+    recordSessionOpened("session:" + uniqueSessionId, path);
+  }
+
+  private void recordSessionOpened(String key, String path) {
     activeSessions.incrementAndGet();
-    sessionStartTimes.put(sessionId, System.nanoTime());
+    sessionStartTimes.put(key, System.nanoTime());
     if (registry != null) {
       final String safePath = sanitizePath(path);
       registry.counter(prefix + ".sessions.opened", "path", safePath).increment();
@@ -128,8 +142,17 @@ public class WebTransportMicrometerMetricsListener
    */
   @Override
   public void onSessionClosed(long sessionId, int closeCode) {
+    recordSessionClosed("legacy:" + sessionId, closeCode);
+  }
+
+  @Override
+  public void onSessionClosed(long sessionId, long uniqueSessionId, int closeCode) {
+    recordSessionClosed("session:" + uniqueSessionId, closeCode);
+  }
+
+  private void recordSessionClosed(String key, int closeCode) {
     activeSessions.decrementAndGet();
-    final Long startTime = sessionStartTimes.remove(sessionId);
+    final Long startTime = sessionStartTimes.remove(key);
     if (startTime != null && sessionDurationTimer != null) {
       sessionDurationTimer.record(System.nanoTime() - startTime, TimeUnit.NANOSECONDS);
     }

@@ -8,8 +8,6 @@ and RFC 9297 wire capsule logic in complete isolation without network dependenci
 import unittest
 import time
 import hashlib
-import hmac
-import json
 import os
 import sys
 import urllib.parse
@@ -52,7 +50,6 @@ class TestAdminSecurityUnit(unittest.TestCase):
             "login_time": time.time() - 4000,
             "expires_at": time.time() - 400  # Expired
         }
-        handler = server.EnterpriseObservabilityHandler
         # Token expired
         self.assertTrue(time.time() > server.ADMIN_SESSIONS[token]["expires_at"])
 
@@ -138,7 +135,6 @@ class TestSessionLifecycleUnit(unittest.TestCase):
     def test_active_session_status_states(self):
         """CONNECTED and DRAINING are active; CLOSED and CLOSED_ABRUPT are inactive."""
         active_statuses = {"CONNECTED", "DRAINING"}
-        inactive_statuses = {"CLOSED", "CLOSED_ABRUPT"}
 
         test_sessions = {
             "s1": {"status": "CONNECTED"},

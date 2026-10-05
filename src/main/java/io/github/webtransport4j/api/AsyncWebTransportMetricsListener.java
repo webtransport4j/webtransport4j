@@ -108,8 +108,18 @@ public final class AsyncWebTransportMetricsListener
   }
 
   @Override
+  public void onSessionOpened(long sessionId, long uniqueSessionId, @NonNull String path) {
+    dispatch(() -> delegate.onSessionOpened(sessionId, uniqueSessionId, path));
+  }
+
+  @Override
   public void onSessionClosed(long sessionId, int closeCode) {
     dispatch(() -> delegate.onSessionClosed(sessionId, closeCode));
+  }
+
+  @Override
+  public void onSessionClosed(long sessionId, long uniqueSessionId, int closeCode) {
+    dispatch(() -> delegate.onSessionClosed(sessionId, uniqueSessionId, closeCode));
   }
 
   @Override

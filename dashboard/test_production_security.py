@@ -11,6 +11,27 @@ import server
 
 
 class ProductionSecurityTest(unittest.TestCase):
+    def test_otlp_double_values_and_exact_metric_names(self):
+        metrics = [
+            {"name": "webtransport.sessions.active", "gauge": {"dataPoints": [{"asDouble": 7.0}]}},
+            {"name": "unrelated.sessions.active", "gauge": {"dataPoints": [{"asInt": 99}]}},
+            {"name": "webtransport.streams.active", "gauge": {"dataPoints": [{"asInt": "14"}]}},
+            {"name": "webtransport.datagrams.sent", "sum": {"dataPoints": [{"asDouble": 250.0}]}},
+        ]
+        previous = dict(server.LIVE_TELEMETRY)
+        try:
+            with patch.object(server, "OTLP_TOKEN", "test-otlp"):
+                status, _, _ = self.request("/v1/metrics", "POST", {
+                    "resourceMetrics": [{"scopeMetrics": [{"metrics": metrics}]}]
+                }, headers={"Authorization": "Bearer test-otlp"})
+            self.assertEqual(status, 200)
+            self.assertEqual(server.LIVE_TELEMETRY["activeSessions"], 7)
+            self.assertEqual(server.LIVE_TELEMETRY["activeStreams"], 14)
+            self.assertEqual(server.LIVE_TELEMETRY["totalDatagramsProcessed"], 250)
+        finally:
+            server.LIVE_TELEMETRY.clear()
+            server.LIVE_TELEMETRY.update(previous)
+
     @classmethod
     def setUpClass(cls):
         cls.httpd = server.BoundedThreadingServer(("127.0.0.1", 0), server.EnterpriseObservabilityHandler)

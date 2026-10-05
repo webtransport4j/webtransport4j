@@ -333,7 +333,7 @@ public class WebTransportClientTestSuite {
       testNoHeadOfLineBlocking(session.quicChannel, session.sessionId);
       System.out.println("");
 
-      testStreamFlowControl(session.quicChannel, session.sessionId);
+      testStreamFlowControl(session.quicChannel);
       System.out.println("");
 
       testHeartbeatIdle(session);
@@ -761,7 +761,7 @@ public class WebTransportClientTestSuite {
     return false;
   }
 
-  static void testStreamFlowControl(QuicChannel quicChannel, long sessionId) throws Exception {
+  static void testStreamFlowControl(QuicChannel quicChannel) throws Exception {
     logger.info("🧪 --- Running Stream Limit Exhaustion Test ---");
     List<QuicStreamChannel> streams = new ObjectArrayList<>();
     boolean blocked = false;

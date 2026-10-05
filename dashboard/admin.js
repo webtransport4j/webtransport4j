@@ -193,17 +193,38 @@
   };
 
   window.logoutAdmin = async function () {
-    try {
-      await fetch('/api/admin/logout', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${sessionToken}` }
-      });
-    } catch (_) {}
+    const logoutToken = sessionToken;
     sessionToken = '';
     operatorUser = '';
+    isLiveMonitoring = false;
+    if (liveMonitorInterval) clearInterval(liveMonitorInterval);
+    liveMonitorInterval = null;
+    cachedSessions = [];
+    currentSessionId = null;
+    expandedStreamHistories.clear();
+    for (const key of ['sessionCardsContainer', 'streamsTbody', 'sessDgHistory', 'sessWireEvents', 'auditTbody', 'terminal']) {
+      if (elements[key]) elements[key].textContent = '';
+    }
+    for (const key of Object.keys(elements).filter(key => key.startsWith('detail'))) {
+      if (elements[key]) elements[key].textContent = '';
+    }
+    updateMiniCounters({ activeSessions: 0, activeStreams: 0, totalDatagrams: 0, drops: 0 });
+    if (elements.sessionDetailContent) elements.sessionDetailContent.style.display = 'none';
+    if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'flex';
+    if (elements.sessionCountBadge) elements.sessionCountBadge.textContent = '0';
+    if (elements.btnLiveMonitor) {
+      elements.btnLiveMonitor.classList.remove('monitoring');
+      elements.btnLiveMonitor.textContent = '📡 Live Monitor: OFF';
+    }
     sessionStorage.removeItem('wt_admin_token');
     sessionStorage.removeItem('wt_admin_user');
     elements.authModal.style.display = 'flex';
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${logoutToken}` }
+      });
+    } catch (_) {}
   };
 
   async function checkExistingAuth() {
@@ -267,8 +288,11 @@
   // =========================================================================
 
   window.loadSessions = async function (autoSelectFirst = false) {
+    const token = sessionToken;
+    if (!token) return;
     try {
       const data = await apiGet('/api/admin/sessions');
+      if (sessionToken !== token) return;
       cachedSessions = data.sessions || [];
 
       if (elements.sessionCountBadge) {
@@ -369,13 +393,17 @@
   }
 
   window.selectSession = async function (sessionId, reHighlightCards = true) {
+    const token = sessionToken;
+    if (!token) return;
     currentSessionId = sessionId;
     if (reHighlightCards) window.filterSessions();
 
     try {
       const session = await apiGet(`/api/admin/sessions/${sessionId}`);
+      if (sessionToken !== token || currentSessionId !== sessionId) return;
       renderSessionDetail(session);
     } catch (err) {
+      if (sessionToken !== token || currentSessionId !== sessionId) return;
       if (elements.sessionDetailEmpty) elements.sessionDetailEmpty.style.display = 'flex';
       if (elements.sessionDetailContent) elements.sessionDetailContent.style.display = 'none';
     }
@@ -1235,8 +1263,11 @@
   };
 
   async function fetchLiveMonitoringData() {
+    const token = sessionToken;
+    if (!token || !isLiveMonitoring) return;
     try {
       const data = await apiGet('/api/admin/sessions/monitor');
+      if (sessionToken !== token || !isLiveMonitoring) return;
       if (data.activeSessions !== undefined) {
         updateMiniCounters({
           activeSessions: data.activeSessions,
@@ -1248,10 +1279,12 @@
       // Refresh current session state quietly
       if (currentSessionId) {
         const sess = await apiGet(`/api/admin/sessions/${currentSessionId}`);
+        if (sessionToken !== token || !isLiveMonitoring) return;
         renderSessionDetail(sess);
       }
       // Refresh session list quietly
       const listData = await apiGet('/api/admin/sessions');
+      if (sessionToken !== token || !isLiveMonitoring) return;
       cachedSessions = listData.sessions || [];
       if (elements.sessionCountBadge) {
         const activeCount = cachedSessions.filter(s => s.status === 'CONNECTED' || s.status === 'DRAINING').length;
@@ -1405,10 +1438,13 @@
   }
 
   async function fetchLiveTelemetry() {
+    const token = sessionToken;
+    if (!token) return;
     try {
       const res = await fetch('/api/live-telemetry');
       if (res.ok) {
         const data = await res.json();
+        if (sessionToken !== token) return;
         updateMiniCounters({
           activeSessions: data.activeSessions,
           activeStreams: data.activeStreams,
@@ -1423,11 +1459,13 @@
   }
 
   window.loadAuditLog = async function () {
-    if (!elements.auditTbody) return;
+    const token = sessionToken;
+    if (!elements.auditTbody || !token) return;
     try {
       const res = await fetch('/api/admin/audit-log');
       if (!res.ok) return;
       const data = await res.json();
+      if (sessionToken !== token) return;
       const logs = data.logs || [];
 
       if (logs.length === 0) {

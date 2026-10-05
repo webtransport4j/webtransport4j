@@ -74,7 +74,7 @@ public class WebTransportClientTestSuiteUnitTest {
     when(mockFuture.await(1000, TimeUnit.MILLISECONDS)).thenReturn(false);
 
     // Should complete successfully because blocked was set to true due to timeout
-    WebTransportClientTestSuite.testStreamFlowControl(mockChannel, 0L);
+    WebTransportClientTestSuite.testStreamFlowControl(mockChannel);
   }
 
   @Test
@@ -90,7 +90,7 @@ public class WebTransportClientTestSuiteUnitTest {
     when(mockFuture.cause()).thenReturn(new QuicException(QuicTransportError.STREAM_LIMIT_ERROR));
 
     // Should complete successfully because blocked was set to true due to stream-limit rejection
-    WebTransportClientTestSuite.testStreamFlowControl(mockChannel, 0L);
+    WebTransportClientTestSuite.testStreamFlowControl(mockChannel);
   }
 
   @Test
@@ -111,7 +111,7 @@ public class WebTransportClientTestSuiteUnitTest {
     when(mockFuture.cause()).thenReturn(closedEx);
 
     try {
-      WebTransportClientTestSuite.testStreamFlowControl(mockChannel, 0L);
+      WebTransportClientTestSuite.testStreamFlowControl(mockChannel);
       fail("Expected ClosedChannelException to be propagated");
     } catch (ClosedChannelException e) {
       // Success: unrelated exception was propagated rather than swallowed as blocked
@@ -136,7 +136,7 @@ public class WebTransportClientTestSuiteUnitTest {
     }
 
     try {
-      WebTransportClientTestSuite.testStreamFlowControl(mockChannel, 0L);
+      WebTransportClientTestSuite.testStreamFlowControl(mockChannel);
       fail("Expected InterruptedException to be propagated");
     } catch (InterruptedException e) {
       // Success: InterruptedException propagated and interrupted flag is preserved
@@ -167,7 +167,7 @@ public class WebTransportClientTestSuiteUnitTest {
     when(mockFuture.getNow()).thenReturn(mockStream);
 
     try {
-      WebTransportClientTestSuite.testStreamFlowControl(mockChannel, 0L);
+      WebTransportClientTestSuite.testStreamFlowControl(mockChannel);
       fail("Expected Exception when server limit was not reached within 150 streams");
     } catch (Exception e) {
       assertTrue(e.getMessage().contains("server limit was not reached"));
