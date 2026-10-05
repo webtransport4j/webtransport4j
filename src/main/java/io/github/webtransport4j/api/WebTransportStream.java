@@ -152,8 +152,8 @@ public interface WebTransportStream {
   /**
    * Configures whether data from this stream is read automatically from the network.
    *
-   * <p>When auto-read is disabled (false), incoming bytes will remain in the QUIC transport
-   * receive window on the wire, exerting flow control backpressure against the remote peer.
+   * <p>When auto-read is disabled (false), incoming bytes will remain in the QUIC transport receive
+   * window on the wire, exerting flow control backpressure against the remote peer.
    *
    * @param autoRead true to enable automatic reading, false to disable
    */
@@ -169,8 +169,8 @@ public interface WebTransportStream {
   }
 
   /**
-   * Requests an explicit read of incoming data from the underlying transport.
-   * Used when {@link #isAutoRead()} is false to read the next chunk of data from the wire.
+   * Requests an explicit read of incoming data from the underlying transport. Used when {@link
+   * #isAutoRead()} is false to read the next chunk of data from the wire.
    */
   default void read() {}
 }

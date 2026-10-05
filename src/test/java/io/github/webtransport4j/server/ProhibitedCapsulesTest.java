@@ -18,8 +18,8 @@ import io.netty.util.Attribute;
 import org.junit.Test;
 
 /**
- * Tests enforcing draft-16 Section 5.4 prohibition of stream-level flow control
- * capsules (WT_MAX_STREAM_DATA and WT_STREAM_DATA_BLOCKED).
+ * Tests enforcing draft-16 Section 5.4 prohibition of stream-level flow control capsules
+ * (WT_MAX_STREAM_DATA and WT_STREAM_DATA_BLOCKED).
  */
 public class ProhibitedCapsulesTest {
 

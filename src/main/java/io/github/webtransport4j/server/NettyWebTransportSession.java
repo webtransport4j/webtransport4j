@@ -14,8 +14,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * Netty-specific SPI extension of {@link WebTransportSession}.
  *
- * <p>Exposes low-level Netty QUIC channel management, draft-16 flow control counters,
- * capsule state, and internal stream tracking required by the Netty server engine handlers.
+ * <p>Exposes low-level Netty QUIC channel management, draft-16 flow control counters, capsule
+ * state, and internal stream tracking required by the Netty server engine handlers.
  *
  * @author https://github.com/sanjomo
  */
@@ -35,9 +35,7 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   void updateConnectStream(@NonNull QuicStreamChannel newConnectStream);
 
-  /**
-   * Marks this session as draining upon receiving a {@code WT_DRAIN_SESSION} capsule.
-   */
+  /** Marks this session as draining upon receiving a {@code WT_DRAIN_SESSION} capsule. */
   void markDraining();
 
   /**
@@ -47,9 +45,7 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   long getLastReadTime();
 
-  /**
-   * Updates the timestamp of the last read activity to the current system time.
-   */
+  /** Updates the timestamp of the last read activity to the current system time. */
   void updateLastReadTime();
 
   /**
@@ -321,7 +317,8 @@ public interface NettyWebTransportSession extends WebTransportSession {
   long incrementCumulativeBytesReceived(long value);
 
   /**
-   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was sent.
+   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
+   * sent.
    *
    * @return AtomicLong tracking data blocked limit
    */
@@ -342,9 +339,7 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   void setCloseCode(int closeCode);
 
-  /**
-   * Rotates the session resumption token.
-   */
+  /** Rotates the session resumption token. */
   void rotateResumptionToken();
 
   /**

@@ -10,8 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Lifecycle manager and endpoint discovery helper for Quarkus and CDI microservices.
- * Supports non-blocking startup during Quarkus {@code StartupEvent} and graceful shutdown on {@code ShutdownEvent}.
+ * Lifecycle manager and endpoint discovery helper for Quarkus and CDI microservices. Supports
+ * non-blocking startup during Quarkus {@code StartupEvent} and graceful shutdown on {@code
+ * ShutdownEvent}.
  */
 public class QuarkusWebTransportManager {
 
@@ -52,8 +53,11 @@ public class QuarkusWebTransportManager {
         if (ann != null) {
           String path = ann.path();
           boolean isDefault = ann.isDefault();
-          logger.info("⚡ Discovered Quarkus/CDI WebTransport Endpoint: path='{}', default={}, bean='{}'",
-              path, isDefault, bean.getClass().getName());
+          logger.info(
+              "⚡ Discovered Quarkus/CDI WebTransport Endpoint: path='{}', default={}, bean='{}'",
+              path,
+              isDefault,
+              bean.getClass().getName());
 
           if (bean instanceof WebTransportHandler) {
             WebTransportHandler handler = (WebTransportHandler) bean;
@@ -70,8 +74,9 @@ public class QuarkusWebTransportManager {
               builder.reactiveHandler(path, reactiveHandler);
             }
           } else {
-            logger.warn("⚠️ Bean '{}' has @WebTransportEndpoint but does not implement "
-                + "WebTransportHandler or ReactiveWebTransportHandler",
+            logger.warn(
+                "⚠️ Bean '{}' has @WebTransportEndpoint but does not implement "
+                    + "WebTransportHandler or ReactiveWebTransportHandler",
                 bean.getClass().getName());
           }
         }
@@ -82,7 +87,8 @@ public class QuarkusWebTransportManager {
   }
 
   /**
-   * Starts the WebTransport server non-blockingly (suitable for calling inside Quarkus {@code StartupEvent}).
+   * Starts the WebTransport server non-blockingly (suitable for calling inside Quarkus {@code
+   * StartupEvent}).
    */
   public void onStartup() {
     try {
@@ -95,9 +101,7 @@ public class QuarkusWebTransportManager {
     }
   }
 
-  /**
-   * Stops the WebTransport server (suitable for calling inside Quarkus {@code ShutdownEvent}).
-   */
+  /** Stops the WebTransport server (suitable for calling inside Quarkus {@code ShutdownEvent}). */
   public void onShutdown() {
     logger.info("⚡ Stopping Quarkus WebTransport Server...");
     try {

@@ -1,6 +1,5 @@
 package io.github.webtransport4j.server;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -29,8 +28,10 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
   protected void channelRead0(
       @NonNull ChannelHandlerContext ctx, @NonNull WebTransportCapsule capsule) throws Exception {
     if (logger.isDebugEnabled()) {
-      logger.debug("💊 CAPSULE_RECEIVED: type=0x{}, sessionId={}",
-          Long.toHexString(capsule.capsuleType()), capsule.sessionId());
+      logger.debug(
+          "💊 CAPSULE_RECEIVED: type=0x{}, sessionId={}",
+          Long.toHexString(capsule.capsuleType()),
+          capsule.sessionId());
     }
     if (capsule.capsuleType() == 0x2843L) {
       ByteBuf content = capsule.content();
@@ -275,12 +276,12 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               if (extendAmount > 0) {
                 long newLimit = session.getSettingsMaxData() + extendAmount;
                 session.setSettingsMaxData(newLimit);
-                 logger.info(
-                     "📈 Received WT_DATA_BLOCKED. Extending local settings max data to {}"
-                         + " (extended by {}) for session {}",
-                     newLimit,
-                     extendAmount,
-                     capsule.sessionId());
+                logger.info(
+                    "📈 Received WT_DATA_BLOCKED. Extending local settings max data to {}"
+                        + " (extended by {}) for session {}",
+                    newLimit,
+                    extendAmount,
+                    capsule.sessionId());
                 WebTransportUtils.sendMaxDataCapsule(session.getConnectStream(), newLimit);
               } else {
                 logger.info(
@@ -380,8 +381,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           capsule.sessionId());
       QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
       if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
-        WebTransportSessionManager mgr =
-            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
           NettyWebTransportSession session = mgr.get(capsule.sessionId());
           if (session != null) {
@@ -396,8 +396,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           Long.toHexString(capsule.capsuleType()));
       QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
       if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
-        WebTransportSessionManager mgr =
-            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null && mgr.closeSessionWithFlowControlError(capsule.sessionId())) {
           return;
         }
@@ -419,8 +418,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
       QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
       if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
-        WebTransportSessionManager mgr =
-            quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+        WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
         if (mgr != null) {
           mgr.unregister(streamChannel);
         }

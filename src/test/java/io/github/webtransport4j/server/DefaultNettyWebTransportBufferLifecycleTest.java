@@ -105,18 +105,20 @@ public class DefaultNettyWebTransportBufferLifecycleTest {
     try {
       for (int i = 0; i < 4; i++) {
         buffer.retain();
-        futures.add(executor.submit(() -> {
-          try {
-            start.await();
-            for (int j = 0; j < 1000; j++) {
-              buffer.retain();
-              buffer.release();
-            }
-          } finally {
-            buffer.release();
-          }
-          return null;
-        }));
+        futures.add(
+            executor.submit(
+                () -> {
+                  try {
+                    start.await();
+                    for (int j = 0; j < 1000; j++) {
+                      buffer.retain();
+                      buffer.release();
+                    }
+                  } finally {
+                    buffer.release();
+                  }
+                  return null;
+                }));
       }
       buffer.release();
       start.countDown();
@@ -141,20 +143,24 @@ public class DefaultNettyWebTransportBufferLifecycleTest {
         ByteBuf delegate = Unpooled.buffer(8);
         DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(delegate);
         CountDownLatch start = new CountDownLatch(1);
-        Future<Boolean> retain = executor.submit(() -> {
-          start.await();
-          try {
-            buffer.retain();
-            return true;
-          } catch (IllegalStateException expected) {
-            return false;
-          }
-        });
-        Future<?> release = executor.submit(() -> {
-          start.await();
-          buffer.release();
-          return null;
-        });
+        Future<Boolean> retain =
+            executor.submit(
+                () -> {
+                  start.await();
+                  try {
+                    buffer.retain();
+                    return true;
+                  } catch (IllegalStateException expected) {
+                    return false;
+                  }
+                });
+        Future<?> release =
+            executor.submit(
+                () -> {
+                  start.await();
+                  buffer.release();
+                  return null;
+                });
         start.countDown();
         boolean acquired = retain.get(5, TimeUnit.SECONDS);
         release.get(5, TimeUnit.SECONDS);

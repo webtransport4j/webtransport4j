@@ -20,10 +20,12 @@ public final class WebTransportStreamChannelInitializer
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
     stream.config().setAllowHalfClosure(true);
-    int lowWaterMark = WebTransportConfig.getInt(
-        "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024);
-    int highWaterMark = WebTransportConfig.getInt(
-        "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024);
+    int lowWaterMark =
+        WebTransportConfig.getInt(
+            "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024);
+    int highWaterMark =
+        WebTransportConfig.getInt(
+            "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024);
     stream.config().setWriteBufferWaterMark(new WriteBufferWaterMark(lowWaterMark, highWaterMark));
 
     WebTransportUtils.addTrafficShapers(stream);
@@ -88,7 +90,8 @@ public final class WebTransportStreamChannelInitializer
               @Override
               public void exceptionCaught(
                   @NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
-                if (cause instanceof AssertionError || cause.getClass().getName().contains("Qpack")) {
+                if (cause instanceof AssertionError
+                    || cause.getClass().getName().contains("Qpack")) {
                   logger.debug("QPACK encoder teardown notice: {}", cause.getMessage());
                   return;
                 }

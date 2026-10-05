@@ -8,8 +8,8 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Tests concurrency, state isolation, and lifecycle hygiene across multiple
- * {@link WebTransportServer} instances running within the same JVM process.
+ * Tests concurrency, state isolation, and lifecycle hygiene across multiple {@link
+ * WebTransportServer} instances running within the same JVM process.
  */
 public class WebTransportMultiServerInstanceTest {
 
@@ -50,19 +50,27 @@ public class WebTransportMultiServerInstanceTest {
 
       Assert.assertNotNull("Server 1 should have a traffic shaper", shaper1);
       Assert.assertNotNull("Server 2 should have a traffic shaper", shaper2);
-      Assert.assertNotSame("Servers should have distinct traffic shaper instances", shaper1, shaper2);
+      Assert.assertNotSame(
+          "Servers should have distinct traffic shaper instances", shaper1, shaper2);
 
       // Stop server 1
       server1.stop();
 
       Assert.assertFalse("Server 1 should be stopped", server1.isStarted());
-      Assert.assertNull("Server 1 shaper should be released and cleared", server1.getTrafficShaper());
+      Assert.assertNull(
+          "Server 1 shaper should be released and cleared", server1.getTrafficShaper());
 
       // Server 2 must remain completely intact and running
-      Assert.assertTrue("Server 2 should still be started after Server 1 stops", server2.isStarted());
-      Assert.assertTrue("Server 2 should still be running after Server 1 stops", server2.isRunning());
-      Assert.assertNotNull("Server 2 traffic shaper should remain intact", server2.getTrafficShaper());
-      Assert.assertSame("Server 2 traffic shaper should be the original instance", shaper2, server2.getTrafficShaper());
+      Assert.assertTrue(
+          "Server 2 should still be started after Server 1 stops", server2.isStarted());
+      Assert.assertTrue(
+          "Server 2 should still be running after Server 1 stops", server2.isRunning());
+      Assert.assertNotNull(
+          "Server 2 traffic shaper should remain intact", server2.getTrafficShaper());
+      Assert.assertSame(
+          "Server 2 traffic shaper should be the original instance",
+          shaper2,
+          server2.getTrafficShaper());
     } finally {
       server1.stop();
       server2.stop();
@@ -75,10 +83,7 @@ public class WebTransportMultiServerInstanceTest {
   @Test
   public void testCustomTrafficShaperInjection() throws Exception {
     WebTransportServer server =
-        WebTransportServer.builder()
-            .port(0)
-            .defaultHandler(new WebTransportHandler() {})
-            .build();
+        WebTransportServer.builder().port(0).defaultHandler(new WebTransportHandler() {}).build();
 
     NioEventLoopGroup group = new NioEventLoopGroup(1);
     GlobalTrafficShapingHandler customShaper = null;
@@ -113,18 +118,22 @@ public class WebTransportMultiServerInstanceTest {
   public void testInjectedHandlerCannotBeSharedAcrossServers() {
     ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     executor.setRemoveOnCancelPolicy(true);
-    GlobalTrafficShapingHandler shaper = new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
+    GlobalTrafficShapingHandler shaper =
+        new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
     WebTransportServerBuilder builder = WebTransportServer.builder().trafficShaper(shaper);
     WebTransportServer owner = builder.build();
     WebTransportServer other = WebTransportServer.builder().build();
     try {
       Assert.assertThrows(IllegalStateException.class, builder::build);
-      Assert.assertThrows(IllegalStateException.class,
+      Assert.assertThrows(
+          IllegalStateException.class,
           () -> WebTransportServer.builder().trafficShaper(shaper).build());
       Assert.assertThrows(IllegalStateException.class, () -> other.setTrafficShaper(shaper));
       Assert.assertNull(other.getTrafficShaper());
       Assert.assertSame(shaper, owner.getTrafficShaper());
-      Assert.assertEquals("Rejected ownership transfers must leave the owner's timer active", 1,
+      Assert.assertEquals(
+          "Rejected ownership transfers must leave the owner's timer active",
+          1,
           executor.getQueue().size());
     } finally {
       shaper.release();
@@ -142,22 +151,30 @@ public class WebTransportMultiServerInstanceTest {
   public void testStartupFailurePreservesInjectedHandlerUntilTerminalClose() {
     ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1);
     executor.setRemoveOnCancelPolicy(true);
-    GlobalTrafficShapingHandler shaper = new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
-    WebTransportServer server = WebTransportServer.builder()
-        .port(0).transportType("nio").ssl("missing-key.pem", "missing-cert.pem")
-        .trafficShaper(shaper).build();
+    GlobalTrafficShapingHandler shaper =
+        new GlobalTrafficShapingHandler(executor, 2000L, 2000L, 60000L);
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .transportType("nio")
+            .ssl("missing-key.pem", "missing-cert.pem")
+            .trafficShaper(shaper)
+            .build();
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
       Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
       // Injected shaper survives restartable stop() so server can be retried
       Assert.assertSame(shaper, server.getTrafficShaper());
-      Assert.assertFalse("Traffic counter must remain active across restartable stop", executor.getQueue().isEmpty());
+      Assert.assertFalse(
+          "Traffic counter must remain active across restartable stop",
+          executor.getQueue().isEmpty());
 
       // Terminal close must release and clear the injected shaper
       server.close();
       Assert.assertEquals(WebTransportServer.ServerState.CLOSED, server.getState());
       Assert.assertNull(server.getTrafficShaper());
-      Assert.assertTrue("Terminal close must cancel the traffic counter", executor.getQueue().isEmpty());
+      Assert.assertTrue(
+          "Terminal close must cancel the traffic counter", executor.getQueue().isEmpty());
     } finally {
       server.close();
       shaper.release();
@@ -167,9 +184,13 @@ public class WebTransportMultiServerInstanceTest {
 
   @Test
   public void testStartupFailureClearsAutomaticallyCreatedHandler() {
-    WebTransportServer server = WebTransportServer.builder()
-        .port(0).transportType("nio").ssl("missing-key.pem", "missing-cert.pem")
-        .globalTrafficLimits(2000L, 2000L).build();
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .transportType("nio")
+            .ssl("missing-key.pem", "missing-cert.pem")
+            .globalTrafficLimits(2000L, 2000L)
+            .build();
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
       Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());

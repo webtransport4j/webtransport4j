@@ -16,9 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import org.junit.Test;
 
-/**
- * Tests for CLOSE_WEBTRANSPORT_SESSION capsule bounds and validation per draft-16 § 6.1.
- */
+/** Tests for CLOSE_WEBTRANSPORT_SESSION capsule bounds and validation per draft-16 § 6.1. */
 public class CloseSessionCapsuleTest {
 
   @Test

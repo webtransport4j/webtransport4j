@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
+import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.ssl.ClientAuth;
@@ -25,9 +26,7 @@ import javax.net.ssl.TrustManagerFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Fluent builder for creating and configuring {@link WebTransportServer} instances.
- */
+/** Fluent builder for creating and configuring {@link WebTransportServer} instances. */
 public class WebTransportServerBuilder {
 
   private Integer port;
@@ -39,6 +38,7 @@ public class WebTransportServerBuilder {
   private ExecutorService businessExecutor;
   private WebTransportMetricsListener metricsListener;
   private QuicTokenHandler quicTokenHandler;
+  private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
   private Long idleTimeoutSeconds;
   private Long initialMaxStreamsBidi;
@@ -85,7 +85,8 @@ public class WebTransportServerBuilder {
   }
 
   /** Configures SSL key and certificate paths. */
-  public @NonNull WebTransportServerBuilder ssl(@Nullable String keyPath, @Nullable String certPath) {
+  public @NonNull WebTransportServerBuilder ssl(
+      @Nullable String keyPath, @Nullable String certPath) {
     this.sslKeyPath = keyPath;
     this.sslCertPath = certPath;
     return this;
@@ -163,7 +164,8 @@ public class WebTransportServerBuilder {
    * @param certificates trusted X.509 certificates
    * @return this builder
    */
-  public @NonNull WebTransportServerBuilder trustManager(X509Certificate @Nullable ... certificates) {
+  public @NonNull WebTransportServerBuilder trustManager(
+      X509Certificate @Nullable ... certificates) {
     this.trustCertificates = certificates;
     return this;
   }
@@ -174,7 +176,8 @@ public class WebTransportServerBuilder {
    * @param trustManagerFactory trust manager factory
    * @return this builder
    */
-  public @NonNull WebTransportServerBuilder trustManager(@Nullable TrustManagerFactory trustManagerFactory) {
+  public @NonNull WebTransportServerBuilder trustManager(
+      @Nullable TrustManagerFactory trustManagerFactory) {
     this.trustManagerFactory = trustManagerFactory;
     return this;
   }
@@ -196,7 +199,8 @@ public class WebTransportServerBuilder {
    * @param originValidator the origin validator
    * @return this builder
    */
-  public @NonNull WebTransportServerBuilder originValidator(@Nullable OriginValidator originValidator) {
+  public @NonNull WebTransportServerBuilder originValidator(
+      @Nullable OriginValidator originValidator) {
     this.originValidator = originValidator;
     return this;
   }
@@ -213,20 +217,48 @@ public class WebTransportServerBuilder {
   }
 
   /** Sets the business executor for offloading handler callbacks. */
-  public @NonNull WebTransportServerBuilder businessExecutor(@Nullable ExecutorService businessExecutor) {
+  public @NonNull WebTransportServerBuilder businessExecutor(
+      @Nullable ExecutorService businessExecutor) {
     this.businessExecutor = businessExecutor;
     return this;
   }
 
   /** Sets the observability metrics listener. */
-  public @NonNull WebTransportServerBuilder metricsListener(@Nullable WebTransportMetricsListener metricsListener) {
+  public @NonNull WebTransportServerBuilder metricsListener(
+      @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
     return this;
   }
 
   /** Sets the custom QUIC token handler. */
-  public @NonNull WebTransportServerBuilder quicTokenHandler(@Nullable QuicTokenHandler quicTokenHandler) {
+  public @NonNull WebTransportServerBuilder quicTokenHandler(
+      @Nullable QuicTokenHandler quicTokenHandler) {
     this.quicTokenHandler = quicTokenHandler;
+    return this;
+  }
+
+  /**
+   * Sets a custom {@link QuicConnectionIdGenerator} for generating server Destination Connection
+   * IDs (DCIDs).
+   *
+   * @param connectionIdGenerator custom connection ID generator
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder connectionIdGenerator(
+      @Nullable QuicConnectionIdGenerator connectionIdGenerator) {
+    this.connectionIdGenerator = connectionIdGenerator;
+    return this;
+  }
+
+  /**
+   * Configures QUIC-LB Server ID routing (draft-ietf-quic-load-balancers) with a single-byte server
+   * ID (0 to 255). Incoming packets can be routed by L4 balancers using the Connection ID prefix.
+   *
+   * @param serverId unique server ID (0 to 255)
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder serverId(int serverId) {
+    this.connectionIdGenerator = new ServerIdConnectionIdGenerator(serverId);
     return this;
   }
 
@@ -256,7 +288,8 @@ public class WebTransportServerBuilder {
   }
 
   /** Sets the default handler for unregistered routes. */
-  public @NonNull WebTransportServerBuilder defaultHandler(@NonNull WebTransportHandler defaultHandler) {
+  public @NonNull WebTransportServerBuilder defaultHandler(
+      @NonNull WebTransportHandler defaultHandler) {
     this.defaultHandler = defaultHandler;
     return this;
   }
@@ -301,7 +334,8 @@ public class WebTransportServerBuilder {
    * Building another server with the same handler (including through another builder) is rejected.
    * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
    */
-  public @NonNull WebTransportServerBuilder trafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+  public @NonNull WebTransportServerBuilder trafficShaper(
+      @Nullable GlobalTrafficShapingHandler trafficShaper) {
     this.trafficShaper = trafficShaper;
     return this;
   }
@@ -348,6 +382,10 @@ public class WebTransportServerBuilder {
 
   QuicTokenHandler getQuicTokenHandler() {
     return quicTokenHandler;
+  }
+
+  QuicConnectionIdGenerator getConnectionIdGenerator() {
+    return connectionIdGenerator;
   }
 
   String getTransportType() {
@@ -421,7 +459,6 @@ public class WebTransportServerBuilder {
   Boolean getStrictOriginValidation() {
     return strictOriginValidation;
   }
-
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
   public @NonNull WebTransportServer build() {

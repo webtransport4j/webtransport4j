@@ -13,15 +13,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
-/**
- * Tests for {@link WebTransportFlowPublisher}.
- */
+/** Tests for {@link WebTransportFlowPublisher}. */
 public class WebTransportFlowPublisherTest {
 
   @Test
@@ -45,26 +42,26 @@ public class WebTransportFlowPublisherTest {
     publisher.emitNext(1);
     publisher.emitNext(2);
 
-    publisher.subscribe(new Subscriber<Integer>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        subRef.set(s);
-      }
+    publisher.subscribe(
+        new Subscriber<Integer>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            subRef.set(s);
+          }
 
-      @Override
-      public void onNext(Integer item) {
-        received.add(item);
-      }
+          @Override
+          public void onNext(Integer item) {
+            received.add(item);
+          }
 
-      @Override
-      public void onError(Throwable t) {
-      }
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {
-        completed.set(true);
-      }
-    });
+          @Override
+          public void onComplete() {
+            completed.set(true);
+          }
+        });
 
     // Zero demand -> nothing delivered yet
     assertEquals(0, received.size());
@@ -100,57 +97,59 @@ public class WebTransportFlowPublisherTest {
     CountDownLatch completedLatch = new CountDownLatch(1);
     AtomicReference<Subscription> subRef = new AtomicReference<>();
 
-    publisher.subscribe(new Subscriber<Integer>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        subRef.set(s);
-      }
+    publisher.subscribe(
+        new Subscriber<Integer>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            subRef.set(s);
+          }
 
-      @Override
-      public void onNext(Integer item) {
-        if (!inSignal.compareAndSet(false, true)) {
-          concurrentSignalViolation.set(true);
-        }
-        received.add(item);
-        inSignal.set(false);
-      }
+          @Override
+          public void onNext(Integer item) {
+            if (!inSignal.compareAndSet(false, true)) {
+              concurrentSignalViolation.set(true);
+            }
+            received.add(item);
+            inSignal.set(false);
+          }
 
-      @Override
-      public void onError(Throwable t) {
-      }
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {
-        if (!inSignal.compareAndSet(false, true)) {
-          concurrentSignalViolation.set(true);
-        }
-        completedLatch.countDown();
-        inSignal.set(false);
-      }
-    });
+          @Override
+          public void onComplete() {
+            if (!inSignal.compareAndSet(false, true)) {
+              concurrentSignalViolation.set(true);
+            }
+            completedLatch.countDown();
+            inSignal.set(false);
+          }
+        });
 
     ExecutorService executor = Executors.newFixedThreadPool(4);
     try {
       // Thread 1 emits items
-      executor.submit(() -> {
-        for (int i = 0; i < itemCount; i++) {
-          publisher.emitNext(i);
-        }
-        publisher.emitComplete();
-      });
+      executor.submit(
+          () -> {
+            for (int i = 0; i < itemCount; i++) {
+              publisher.emitNext(i);
+            }
+            publisher.emitComplete();
+          });
 
       // Thread 2 & 3 request items concurrently
       for (int t = 0; t < 2; t++) {
-        executor.submit(() -> {
-          for (int i = 0; i < itemCount / 2; i++) {
-            subRef.get().request(1);
-          }
-        });
+        executor.submit(
+            () -> {
+              for (int i = 0; i < itemCount / 2; i++) {
+                subRef.get().request(1);
+              }
+            });
       }
 
       assertTrue(completedLatch.await(5, TimeUnit.SECONDS));
-      assertFalse("Subscriber signals must not be called concurrently",
-          concurrentSignalViolation.get());
+      assertFalse(
+          "Subscriber signals must not be called concurrently", concurrentSignalViolation.get());
       assertEquals(itemCount, received.size());
       for (int i = 0; i < itemCount; i++) {
         assertEquals(Integer.valueOf(i), received.get(i));
@@ -165,25 +164,24 @@ public class WebTransportFlowPublisherTest {
     WebTransportFlowPublisher<String> publisher = new WebTransportFlowPublisher<>();
     AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
-    publisher.subscribe(new Subscriber<String>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.request(0);
-      }
+    publisher.subscribe(
+        new Subscriber<String>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            s.request(0);
+          }
 
-      @Override
-      public void onNext(String s) {
-      }
+          @Override
+          public void onNext(String s) {}
 
-      @Override
-      public void onError(Throwable t) {
-        errorRef.set(t);
-      }
+          @Override
+          public void onError(Throwable t) {
+            errorRef.set(t);
+          }
 
-      @Override
-      public void onComplete() {
-      }
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     assertTrue(errorRef.get() instanceof IllegalArgumentException);
   }
@@ -197,24 +195,22 @@ public class WebTransportFlowPublisherTest {
     publisher.emitNext(item1);
     publisher.emitNext(item2);
 
-    publisher.subscribe(new Subscriber<TestCloseable>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-        s.cancel();
-      }
+    publisher.subscribe(
+        new Subscriber<TestCloseable>() {
+          @Override
+          public void onSubscribe(Subscription s) {
+            s.cancel();
+          }
 
-      @Override
-      public void onNext(TestCloseable item) {
-      }
+          @Override
+          public void onNext(TestCloseable item) {}
 
-      @Override
-      public void onError(Throwable t) {
-      }
+          @Override
+          public void onError(Throwable t) {}
 
-      @Override
-      public void onComplete() {
-      }
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     assertTrue(item1.closed);
     assertTrue(item2.closed);
@@ -242,24 +238,22 @@ public class WebTransportFlowPublisherTest {
     publisher.subscribe(new NoopSubscriber<>());
 
     AtomicReference<Throwable> secondError = new AtomicReference<>();
-    publisher.subscribe(new Subscriber<String>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-      }
+    publisher.subscribe(
+        new Subscriber<String>() {
+          @Override
+          public void onSubscribe(Subscription s) {}
 
-      @Override
-      public void onNext(String s) {
-      }
+          @Override
+          public void onNext(String s) {}
 
-      @Override
-      public void onError(Throwable t) {
-        secondError.set(t);
-      }
+          @Override
+          public void onError(Throwable t) {
+            secondError.set(t);
+          }
 
-      @Override
-      public void onComplete() {
-      }
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     assertTrue(secondError.get() instanceof IllegalStateException);
   }
@@ -270,24 +264,22 @@ public class WebTransportFlowPublisherTest {
     AtomicReference<Throwable> errorRef = new AtomicReference<>();
     RuntimeException expectedError = new RuntimeException("test error");
 
-    publisher.subscribe(new Subscriber<String>() {
-      @Override
-      public void onSubscribe(Subscription s) {
-      }
+    publisher.subscribe(
+        new Subscriber<String>() {
+          @Override
+          public void onSubscribe(Subscription s) {}
 
-      @Override
-      public void onNext(String s) {
-      }
+          @Override
+          public void onNext(String s) {}
 
-      @Override
-      public void onError(Throwable t) {
-        errorRef.set(t);
-      }
+          @Override
+          public void onError(Throwable t) {
+            errorRef.set(t);
+          }
 
-      @Override
-      public void onComplete() {
-      }
-    });
+          @Override
+          public void onComplete() {}
+        });
 
     publisher.emitError(expectedError);
     assertEquals(expectedError, errorRef.get());
@@ -304,19 +296,15 @@ public class WebTransportFlowPublisherTest {
 
   private static class NoopSubscriber<T> implements Subscriber<T> {
     @Override
-    public void onSubscribe(Subscription s) {
-    }
+    public void onSubscribe(Subscription s) {}
 
     @Override
-    public void onNext(T t) {
-    }
+    public void onNext(T t) {}
 
     @Override
-    public void onError(Throwable t) {
-    }
+    public void onError(Throwable t) {}
 
     @Override
-    public void onComplete() {
-    }
+    public void onComplete() {}
   }
 }

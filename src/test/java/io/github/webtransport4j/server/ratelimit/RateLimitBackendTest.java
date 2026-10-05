@@ -1,17 +1,12 @@
 package io.github.webtransport4j.server.ratelimit;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 import io.github.webtransport4j.server.IpRateLimitingHandler;
-import io.github.webtransport4j.server.WebTransportConfig;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * Tests for rate limit backend implementations.
- */
+/** Tests for rate limit backend implementations. */
 public class RateLimitBackendTest {
 
   @Before
@@ -44,12 +39,15 @@ public class RateLimitBackendTest {
 
   @Test
   public void testRedisRateLimitBackendWithCustomFunction() {
-    RedisRateLimitBackend redisBackend = new RedisRateLimitBackend((key, min) -> {
-      if (key.contains("1.1.1.1")) {
-        return 42;
-      }
-      return null; // trigger fallback
-    }, "test:ratelimit:");
+    RedisRateLimitBackend redisBackend =
+        new RedisRateLimitBackend(
+            (key, min) -> {
+              if (key.contains("1.1.1.1")) {
+                return 42;
+              }
+              return null; // trigger fallback
+            },
+            "test:ratelimit:");
 
     assertEquals(42, redisBackend.incrementAndGet("1.1.1.1", 2000L, 100));
     assertEquals(1, redisBackend.incrementAndGet("2.2.2.2", 2000L, 100)); // Fell back to local

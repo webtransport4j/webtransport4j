@@ -17,10 +17,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Sample Quarkus / CDI application demonstrating WebTransport4J endpoint discovery (@WebTransportEndpoint),
- * non-blocking Quarkus lifecycle management (StartupEvent / ShutdownEvent), and automated client interactions.
+ * Sample Quarkus / CDI application demonstrating WebTransport4J endpoint discovery
+ * (@WebTransportEndpoint), non-blocking Quarkus lifecycle management (StartupEvent /
+ * ShutdownEvent), and automated client interactions.
  *
  * <p>Run in a single command:
+ *
  * <pre>
  * mvn compile exec:java -Dexec.mainClass="io.github.webtransport4j.example.quarkus.QuarkusWebTransportSampleApp"
  * </pre>
@@ -38,51 +40,70 @@ public class QuarkusWebTransportSampleApp {
       logger.info("⚡ [Quarkus Endpoint] Client session established: {}", session.path());
 
       // Initiate server-to-client unidirectional stream
-      session.createUniStream().thenAccept(stream -> {
-        stream.writeText("Hello from Server-Initiated Unidirectional Stream! [ID: " + stream.streamId() + "]");
-      });
+      session
+          .createUniStream()
+          .thenAccept(
+              stream -> {
+                stream.writeText(
+                    "Hello from Server-Initiated Unidirectional Stream! [ID: "
+                        + stream.streamId()
+                        + "]");
+              });
 
       // Initiate server-to-client bidirectional stream
-      session.createBiStream().thenAccept(stream -> {
-        stream.onData(data -> {
-          logger.info("  📩 Response on server-initiated bidi stream {}: {}",
-              stream.streamId(), new String(data.readBytes(), StandardCharsets.UTF_8));
-        });
-        stream.writeText("Hello from Server-Initiated Bidirectional Stream! [ID: " + stream.streamId() + "]");
-      });
+      session
+          .createBiStream()
+          .thenAccept(
+              stream -> {
+                stream.onData(
+                    data -> {
+                      logger.info(
+                          "  📩 Response on server-initiated bidi stream {}: {}",
+                          stream.streamId(),
+                          new String(data.readBytes(), StandardCharsets.UTF_8));
+                    });
+                stream.writeText(
+                    "Hello from Server-Initiated Bidirectional Stream! [ID: "
+                        + stream.streamId()
+                        + "]");
+              });
     }
 
     @Override
     public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
       boolean isBidi = stream.isBidirectional();
-      stream.onData(buffer -> {
-        byte[] bytes = buffer.readBytes();
-        String content = new String(bytes, StandardCharsets.UTF_8);
-        logger.info("⚡ [Quarkus Endpoint] Incoming stream data: {}", content);
+      stream.onData(
+          buffer -> {
+            byte[] bytes = buffer.readBytes();
+            String content = new String(bytes, StandardCharsets.UTF_8);
+            logger.info("⚡ [Quarkus Endpoint] Incoming stream data: {}", content);
 
-        if (content.startsWith("SleepServer_")) {
-          logger.info("😴 Server sleeping on stream {}...", stream.streamId());
-          try {
-            Thread.sleep(3000);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-          }
-          logger.info("⏰ Server awake on stream {}!", stream.streamId());
-        }
+            if (content.startsWith("SleepServer_")) {
+              logger.info("😴 Server sleeping on stream {}...", stream.streamId());
+              try {
+                Thread.sleep(3000);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+              logger.info("⏰ Server awake on stream {}!", stream.streamId());
+            }
 
-        if (isBidi) {
-          if (!stream.hasAttribute("prefixed")) {
-            stream.setAttribute("prefixed", true);
-            stream.writeText("ACK BI: " + content);
-          } else {
-            stream.write(bytes);
-          }
-        } else {
-          session.createUniStream().thenAccept(ackStream -> {
-            ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
+            if (isBidi) {
+              if (!stream.hasAttribute("prefixed")) {
+                stream.setAttribute("prefixed", true);
+                stream.writeText("ACK BI: " + content);
+              } else {
+                stream.write(bytes);
+              }
+            } else {
+              session
+                  .createUniStream()
+                  .thenAccept(
+                      ackStream -> {
+                        ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
+                      });
+            }
           });
-        }
-      });
     }
 
     @Override
@@ -90,9 +111,12 @@ public class QuarkusWebTransportSampleApp {
       byte[] payload = data.readBytes();
       String content = new String(payload, StandardCharsets.UTF_8);
       logger.info("⚡ [Quarkus Endpoint] Datagram payload: {}", content);
-      session.createUniStream().thenAccept(ackStream -> {
-        ackStream.writeText("ACK DG: " + content).thenRun(ackStream::close);
-      });
+      session
+          .createUniStream()
+          .thenAccept(
+              ackStream -> {
+                ackStream.writeText("ACK DG: " + content).thenRun(ackStream::close);
+              });
     }
   }
 
@@ -124,16 +148,15 @@ public class QuarkusWebTransportSampleApp {
     // Simulate CDI discovery of @WebTransportEndpoint annotated beans
     QuarkusEchoEndpoint endpointBean = new QuarkusEchoEndpoint();
 
-    WebTransportServerBuilder builder = WebTransportServer.builder()
-        .port(8444)
-        .ssl(keyPath, certPath)
-        .allowedOrigins("*")
-        .transportType("auto");
+    WebTransportServerBuilder builder =
+        WebTransportServer.builder()
+            .port(8444)
+            .ssl(keyPath, certPath)
+            .allowedOrigins("*")
+            .transportType("auto");
 
-    QuarkusWebTransportManager manager = QuarkusWebTransportManager.create(
-        builder,
-        Collections.singletonList(endpointBean)
-    );
+    QuarkusWebTransportManager manager =
+        QuarkusWebTransportManager.create(builder, Collections.singletonList(endpointBean));
 
     // Simulate Quarkus StartupEvent observer
     manager.onStartup();

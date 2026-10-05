@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webtransport4j-dashboard
+  namespace: webtransport-prod
+spec:
+  # Sessions/history are process-local. Multiple replicas require shared state first.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webtransport4j-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webtransport4j-dashboard
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          # Replace with the digest of your tested image before applying.
+          image: ghcr.io/webtransport4j/webtransport4j-dashboard:production
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8085
+              name: https
+          env:
+            - name: WT4J_ENV
+              value: production
+            - name: WT4J_BIND_HOST
+              value: 0.0.0.0
+            - name: WT4J_ADMIN_PORT
+              value: "8085"
+            - name: WT4J_TLS_CERT_FILE
+              value: /run/tls/tls.crt
+            - name: WT4J_TLS_KEY_FILE
+              value: /run/tls/tls.key
+            - name: WT4J_MAX_PAYLOAD_BYTES
+              value: "1048576"
+          envFrom:
+            - secretRef:
+                name: webtransport4j-dashboard-config
+          volumeMounts:
+            - name: tls
+              mountPath: /run/tls
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+            periodSeconds: 5
+      volumes:
+        - name: tls
+          secret:
+            secretName: webtransport4j-dashboard-tls
+            defaultMode: 0440
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtransport4j-dashboard-service
+  namespace: webtransport-prod
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: webtransport4j-dashboard
+  ports:
+    - name: https
+      port: 443
+      targetPort: https

@@ -4,12 +4,15 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
 
 /**
- * Configuration properties for WebTransport4J in Spring Boot.
- * Binds to properties prefixed with {@code webtransport4j.*}.
+ * Configuration properties for WebTransport4J in Spring Boot. Binds to properties prefixed with
+ * {@code webtransport4j.*}.
  */
 public class WebTransportProperties {
 
-  private int port = 4433;
+  private int port =
+      Integer.parseInt(
+          System.getProperty(
+              "webtransport4j.port", System.getProperty("webtransport4j.server.port", "4433")));
   private String sslKeyPath;
   private String sslCertPath;
   private List<String> allowedOrigins = new ObjectArrayList<>();

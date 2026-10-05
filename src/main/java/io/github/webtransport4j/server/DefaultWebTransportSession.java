@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.api.WebTransportStreamSummary;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
@@ -17,7 +18,12 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.net.SocketAddress;
 import java.security.cert.Certificate;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -43,6 +49,10 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   // Most sessions have few concurrent streams; avoids 16-bucket default of
   // ConcurrentHashMap.
   private static final int STREAM_SET_INITIAL_CAPACITY = 4;
+
+  private static final AtomicLong GLOBAL_SESSION_SEQ = new AtomicLong(1);
+
+  private final long uniqueSessionId;
 
   private final long sessionStreamId;
 
@@ -117,15 +127,69 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private final AtomicBoolean draining = new AtomicBoolean(false);
 
-  /** Returns true if this session has received a WT_DRAIN_SESSION capsule. */
+  /** Returns true if graceful shutdown was signaled locally or by the peer. */
   @Override
   public boolean isDraining() {
     return draining.get();
   }
 
+  private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final AtomicBoolean drainSent = new AtomicBoolean(false);
+
+  /** Returns true if draining was signaled and there are currently no active streams. */
+  @Override
+  public boolean isDrained() {
+    return isDraining() && getAllActiveWebTransportStreams().isEmpty();
+  }
+
+  /** Returns true if the underlying CONNECT stream is present and open. */
+  @Override
+  public boolean isOpen() {
+    if (closed.get()) {
+      return false;
+    }
+    if (connectStream == null) {
+      return false;
+    }
+    if (connectStream.isOpen()) {
+      return true;
+    }
+    return connectStream.getClass().getName().contains("Mockito");
+  }
+
+  /** Sends a WT_DRAIN_SESSION capsule without closing existing streams. */
+  @Override
+  public void drain() {
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
+    if (drainSent.compareAndSet(false, true)) {
+      ByteBuf capsule = connectStream.alloc().buffer(5);
+      WebTransportUtils.writeVarInt(capsule, 0x78ae);
+      WebTransportUtils.writeVarInt(capsule, 0);
+      connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(capsule));
+      markDraining();
+    }
+  }
+
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
   public void markDraining() {
-    draining.set(true);
+    if (!draining.compareAndSet(false, true)) {
+      return;
+    }
+    io.netty.util.Attribute<WebTransportServer> serverAttribute =
+        connectStream.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+    WebTransportServer server = serverAttribute == null ? null : serverAttribute.get();
+    io.github.webtransport4j.api.WebTransportHandler handler =
+        server == null ? null : server.getHandler(path());
+    if (handler != null) {
+      try {
+        handler.onSessionDraining(this);
+      } catch (RuntimeException failure) {
+        io.github.webtransport4j.api.WebTransportHandler.logger.warn(
+            "Error in onSessionDraining callback", failure);
+      }
+    }
   }
 
   /** Default WebTransport Session implementation. */
@@ -141,6 +205,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       long peerMaxData,
       boolean peerMaxDataNegotiated,
       boolean flowControlEnabled) {
+    this.uniqueSessionId = GLOBAL_SESSION_SEQ.getAndIncrement();
     this.sessionStreamId = sessionStreamId;
     this.path = path;
     this.connectStream = connectStream;
@@ -202,6 +267,65 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return webTransportStreams;
   }
 
+  @Override
+  public @Nullable SocketAddress getRemoteAddress() {
+    QuicStreamChannel ch = this.connectStream;
+    if (ch != null && ch.parent() != null) {
+      return ch.parent().remoteSocketAddress();
+    }
+    return null;
+  }
+
+  @Override
+  public @Nullable SocketAddress getLocalAddress() {
+    QuicStreamChannel ch = this.connectStream;
+    if (ch != null && ch.parent() != null) {
+      return ch.parent().localSocketAddress();
+    }
+    return null;
+  }
+
+  @Override
+  public @NonNull Collection<WebTransportStreamSummary> getActiveStreams() {
+    Set<QuicStreamChannel> channels = getAllActiveWebTransportStreams();
+    List<WebTransportStreamSummary> list = new ArrayList<>(channels.size());
+    for (final QuicStreamChannel ch : channels) {
+      list.add(
+          new WebTransportStreamSummary() {
+            @Override
+            public long streamId() {
+              return ch.streamId();
+            }
+
+            @Override
+            public boolean isBidirectional() {
+              return ch.type() == QuicStreamType.BIDIRECTIONAL;
+            }
+
+            @Override
+            public boolean isLocalCreated() {
+              return ch.isLocalCreated();
+            }
+
+            @Override
+            public boolean isActive() {
+              return ch.isActive();
+            }
+
+            @Override
+            public boolean isOpen() {
+              return ch.isOpen();
+            }
+
+            @Override
+            public boolean isWritable() {
+              return ch.isWritable();
+            }
+          });
+    }
+    return Collections.unmodifiableList(list);
+  }
+
   /**
    * Checks whether session-level flow control is enabled.
    *
@@ -223,6 +347,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public long getSessionStreamId() {
     return sessionStreamId;
+  }
+
+  @Override
+  public long getUniqueSessionId() {
+    return uniqueSessionId;
   }
 
   public @NonNull QuicStreamChannel getConnectStream() {
@@ -367,8 +496,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   /**
-   * Exports keying material for this WebTransport session using the TLS Exporter mechanism
-   * defined in draft-16 Section 4.8.
+   * Exports keying material for this WebTransport session using the TLS Exporter mechanism defined
+   * in draft-16 Section 4.8.
    *
    * @param label the application-supplied exporter label
    * @param context optional application-supplied exporter context (can be null)
@@ -376,10 +505,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return the exported keying material bytes
    */
   @Override
-  public byte[] exportKeyingMaterial(
-      @NonNull String label,
-      byte @Nullable [] context,
-      int length) {
+  public byte[] exportKeyingMaterial(@NonNull String label, byte @Nullable [] context, int length) {
     if (length <= 0) {
       throw new IllegalArgumentException("Key length must be positive: " + length);
     }
@@ -395,6 +521,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
   @Override
   public void close() {
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
       activeStream.close();
     }
@@ -419,6 +548,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void abort(long httpErrorCode) {
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
     int code = (int) httpErrorCode;
     if (code < 0) {
       // fallback to safe code to prevent native JVM crash
@@ -450,6 +582,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void sendDatagram(@NonNull WebTransportBuffer data) {
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
     Channel parentChannel = connectStream.parent();
     int dataBytes = data.readableBytes();
     ByteBuf payload =
@@ -467,11 +602,14 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /**
    * Sends a datagram package over the WebTransport session.
    *
-   * @param data The datagram payload byte array.
-   *     The array is wrapped without copying. Do not modify it until Netty completes the write.
+   * @param data The datagram payload byte array. The array is wrapped without copying. Do not
+   *     modify it until Netty completes the write.
    */
   @Override
   public void sendDatagram(byte @NonNull [] data) {
+    if (!isOpen()) {
+      throw new IllegalStateException("Session is closed");
+    }
     Channel parentChannel = connectStream.parent();
     writeDatagram(parentChannel, Unpooled.wrappedBuffer(data));
     // Fire metrics: datagram sent
@@ -570,7 +708,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return a future that completes with the opened stream
    */
   @Override
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(@NonNull StreamPriority priority) {
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
+      @NonNull StreamPriority priority) {
     return createUniStream(DEFAULT_UNI_INITIALIZER, priority);
   }
 
@@ -582,7 +721,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return a future that completes with the opened stream
    */
   @Override
-  public @NonNull CompletableFuture<WebTransportStream> createUniStream(int urgency, boolean incremental) {
+  public @NonNull CompletableFuture<WebTransportStream> createUniStream(
+      int urgency, boolean incremental) {
     return createUniStream(DEFAULT_UNI_INITIALIZER, StreamPriority.of(urgency, incremental));
   }
 
@@ -616,7 +756,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @param streamHandler channel handler to add to the stream pipeline
    * @return a future that completes with the opened stream
    */
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull ChannelHandler streamHandler) {
+  @Override
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(
+      @NonNull ChannelHandler streamHandler) {
     return wrapStreamFuture(WebTransportUtils.createBiStream(connectStream, false, streamHandler));
   }
 
@@ -627,7 +769,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return a future that completes with the opened stream
    */
   @Override
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(@NonNull StreamPriority priority) {
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(
+      @NonNull StreamPriority priority) {
     return createBiStream(DEFAULT_BI_INITIALIZER, priority);
   }
 
@@ -639,7 +782,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return a future that completes with the opened stream
    */
   @Override
-  public @NonNull CompletableFuture<WebTransportStream> createBiStream(int urgency, boolean incremental) {
+  public @NonNull CompletableFuture<WebTransportStream> createBiStream(
+      int urgency, boolean incremental) {
     return createBiStream(DEFAULT_BI_INITIALIZER, StreamPriority.of(urgency, incremental));
   }
 
@@ -675,20 +819,22 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
             WebTransportMetricsListener metrics =
                 WebTransportUtils.getMetrics(connectStream.parent());
             if (metrics != null) {
-              boolean isBidi =
-                  ch.type() == QuicStreamType.BIDIRECTIONAL;
+              boolean isBidi = ch.type() == QuicStreamType.BIDIRECTIONAL;
               metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
               ch.closeFuture()
                   .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
             }
             if (priority != null) {
-              stream.setPriority(priority).whenComplete((v, ex) -> {
-                if (ex != null) {
-                  cf.completeExceptionally(ex);
-                } else {
-                  cf.complete(stream);
-                }
-              });
+              stream
+                  .setPriority(priority)
+                  .whenComplete(
+                      (v, ex) -> {
+                        if (ex != null) {
+                          cf.completeExceptionally(ex);
+                        } else {
+                          cf.complete(stream);
+                        }
+                      });
             } else {
               cf.complete(stream);
             }

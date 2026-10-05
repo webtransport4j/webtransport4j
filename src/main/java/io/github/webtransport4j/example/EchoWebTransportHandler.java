@@ -11,48 +11,43 @@ import org.slf4j.LoggerFactory;
 /**
  * Simple echo server.
  *
- * <p>- Echoes every bidirectional stream back on the same stream.
- * - Echoes unidirectional streams back using a new server unidirectional stream.
- * - Echoes datagrams back as datagrams.
+ * <p>- Echoes every bidirectional stream back on the same stream. - Echoes unidirectional streams
+ * back using a new server unidirectional stream. - Echoes datagrams back as datagrams.
  */
 public final class EchoWebTransportHandler implements WebTransportHandler {
 
-    private static final Logger logger =
-            LoggerFactory.getLogger(EchoWebTransportHandler.class);
+  private static final Logger logger = LoggerFactory.getLogger(EchoWebTransportHandler.class);
 
-    @Override
-    public void onSessionReady(@NonNull WebTransportSession session) {
-        logger.info("Session opened: {}", session.getSessionStreamId());
-    }
+  @Override
+  public void onSessionReady(@NonNull WebTransportSession session) {
+    logger.info("Session opened: {}", session.getSessionStreamId());
+  }
 
-    @Override
-    public void onSessionClosed(@NonNull WebTransportSession session) {
-        logger.info("Session closed: {}", session.getSessionStreamId());
-    }
+  @Override
+  public void onSessionClosed(@NonNull WebTransportSession session) {
+    logger.info("Session closed: {}", session.getSessionStreamId());
+  }
 
-    @Override
-    public void onIncomingStream(
-            @NonNull WebTransportSession session,
-            @NonNull WebTransportStream stream) {
+  @Override
+  public void onIncomingStream(
+      @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
 
-        logger.info("Incoming {} stream {}",
-                stream.isBidirectional() ? "bidirectional" : "unidirectional",
-                stream.streamId());
+    logger.info(
+        "Incoming {} stream {}",
+        stream.isBidirectional() ? "bidirectional" : "unidirectional",
+        stream.streamId());
 
-        stream.onClose(() ->
-                logger.info("Stream {} closed", stream.streamId()));
+    stream.onClose(() -> logger.info("Stream {} closed", stream.streamId()));
 
-        stream.onError(error ->
-                logger.error("Stream {} error", stream.streamId(), error));
+    stream.onError(error -> logger.error("Stream {} error", stream.streamId(), error));
 
-        stream.onData(stream::write);
-    }
+    stream.onData(stream::write);
+  }
 
-    @Override
-    public void onDatagramReceived(
-            @NonNull WebTransportSession session,
-            @NonNull WebTransportBuffer data) {
+  @Override
+  public void onDatagramReceived(
+      @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
 
-       session.sendDatagram(data);
-    }
+    session.sendDatagram(data);
+  }
 }
