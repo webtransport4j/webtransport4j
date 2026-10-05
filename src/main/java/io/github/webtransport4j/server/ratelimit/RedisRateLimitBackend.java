@@ -1,8 +1,6 @@
 package io.github.webtransport4j.server.ratelimit;
 
 import io.github.webtransport4j.server.WebTransportConfig;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -10,9 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Distributed Redis implementation of {@link RateLimitBackend} supporting multi-node cluster rate limiting.
- * Accommodates custom Redis client functions or reflection-based client adapters while maintaining fallback
- * capabilities.
+ * Distributed Redis implementation of {@link RateLimitBackend} supporting multi-node cluster rate
+ * limiting. Accommodates custom Redis client functions or reflection-based client adapters while
+ * maintaining fallback capabilities.
  */
 public class RedisRateLimitBackend implements RateLimitBackend {
   private static final Logger logger = LoggerFactory.getLogger(RedisRateLimitBackend.class);
@@ -21,12 +19,12 @@ public class RedisRateLimitBackend implements RateLimitBackend {
   private final BiFunction<String, Long, Integer> redisIncrFunction;
   private final String keyPrefix;
 
-  /**
-   * Constructs a new Redis rate limit backend with default key prefix.
-   */
+  /** Constructs a new Redis rate limit backend with default key prefix. */
   public RedisRateLimitBackend() {
-    this(null, WebTransportConfig.getNonNull(
-        "webtransport4j.server.ratelimit.redis.key_prefix", "webtransport4j:ratelimit:"));
+    this(
+        null,
+        WebTransportConfig.getNonNull(
+            "webtransport4j.server.ratelimit.redis.key_prefix", "webtransport4j:ratelimit:"));
   }
 
   /**
@@ -51,8 +49,10 @@ public class RedisRateLimitBackend implements RateLimitBackend {
           return count;
         }
       } catch (Exception e) {
-        logger.warn("⚠️ Redis rate limit backend error for IP {}, falling back to local memory: {}",
-            ip, e.getMessage());
+        logger.warn(
+            "⚠️ Redis rate limit backend error for IP {}, falling back to local memory: {}",
+            ip,
+            e.getMessage());
       }
     }
     return fallbackBackend.incrementAndGet(ip, currentMinute, maxTrackedIps);

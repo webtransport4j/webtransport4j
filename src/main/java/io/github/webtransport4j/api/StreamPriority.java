@@ -26,7 +26,8 @@ public final class StreamPriority implements Comparable<StreamPriority> {
   public static final boolean DEFAULT_INCREMENTAL = false;
 
   /** Default priority (urgency = 3, incremental = false). */
-  public static final StreamPriority DEFAULT = new StreamPriority(DEFAULT_URGENCY, DEFAULT_INCREMENTAL);
+  public static final StreamPriority DEFAULT =
+      new StreamPriority(DEFAULT_URGENCY, DEFAULT_INCREMENTAL);
 
   /** Highest priority (urgency = 0, incremental = false). */
   public static final StreamPriority HIGHEST = new StreamPriority(MIN_URGENCY, false);
@@ -47,7 +48,12 @@ public final class StreamPriority implements Comparable<StreamPriority> {
   public StreamPriority(int urgency, boolean incremental) {
     if (urgency < MIN_URGENCY || urgency > MAX_URGENCY) {
       throw new IllegalArgumentException(
-          "Urgency must be between " + MIN_URGENCY + " and " + MAX_URGENCY + ", but was: " + urgency);
+          "Urgency must be between "
+              + MIN_URGENCY
+              + " and "
+              + MAX_URGENCY
+              + ", but was: "
+              + urgency);
     }
     this.urgency = urgency;
     this.incremental = incremental;

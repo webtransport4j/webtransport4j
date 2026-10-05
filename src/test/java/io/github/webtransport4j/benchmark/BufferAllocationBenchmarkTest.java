@@ -92,9 +92,7 @@ public class BufferAllocationBenchmarkTest {
   private static final int CONCURRENT_THREADS = 8;
   private static final int CONCURRENT_ITERATIONS_PER_THREAD = 500_000;
 
-  /**
-   * Benchmarks single-threaded throughput and nanoseconds per operation after JIT warmup.
-   */
+  /** Benchmarks single-threaded throughput and nanoseconds per operation after JIT warmup. */
   @Test
   public void testSingleThreadedThroughput() {
     byte[] payload = new byte[] {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
@@ -122,9 +120,11 @@ public class BufferAllocationBenchmarkTest {
       final double ftlOpsPerSec = (BENCHMARK_ITERATIONS / (ftlDurationNs / 1_000_000_000.0));
       final double newOpsPerSec = (BENCHMARK_ITERATIONS / (newDurationNs / 1_000_000_000.0));
 
-      logger.info("================================================================================");
+      logger.info(
+          "================================================================================");
       logger.info("⚡ SINGLE-THREADED BUFFER BENCHMARK ({} iterations)", BENCHMARK_ITERATIONS);
-      logger.info("================================================================================");
+      logger.info(
+          "================================================================================");
       logger.info(
           "FastThreadLocal.wrap():     {} ns/op | {} ops/sec",
           String.format("%.2f", ftlNsPerOp),
@@ -133,7 +133,8 @@ public class BufferAllocationBenchmarkTest {
           "new DefaultNettyBuffer():   {} ns/op | {} ops/sec",
           String.format("%.2f", newNsPerOp),
           String.format("%,.0f", newOpsPerSec));
-      logger.info("================================================================================");
+      logger.info(
+          "================================================================================");
 
       // Timings are informational. Absolute latency varies with the host, JIT, and runner load.
     } finally {
@@ -141,9 +142,7 @@ public class BufferAllocationBenchmarkTest {
     }
   }
 
-  /**
-   * Benchmarks multi-threaded throughput and contention under concurrent execution.
-   */
+  /** Benchmarks multi-threaded throughput and contention under concurrent execution. */
   @Test
   public void testMultiThreadedThroughput() throws Exception {
     byte[] payload = new byte[] {0x10, 0x20, 0x30, 0x40};
@@ -156,18 +155,19 @@ public class BufferAllocationBenchmarkTest {
 
       long startTime = System.nanoTime();
       for (int t = 0; t < CONCURRENT_THREADS; t++) {
-        pool.submit(() -> {
-          try {
-            long localBytes = 0;
-            for (int i = 0; i < CONCURRENT_ITERATIONS_PER_THREAD; i++) {
-              WebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(buf);
-              localBytes += buffer.readableBytes();
-            }
-            totalBytesRead.addAndGet(localBytes);
-          } finally {
-            latch.countDown();
-          }
-        });
+        pool.submit(
+            () -> {
+              try {
+                long localBytes = 0;
+                for (int i = 0; i < CONCURRENT_ITERATIONS_PER_THREAD; i++) {
+                  WebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(buf);
+                  localBytes += buffer.readableBytes();
+                }
+                totalBytesRead.addAndGet(localBytes);
+              } finally {
+                latch.countDown();
+              }
+            });
       }
 
       assertTrue(latch.await(30, TimeUnit.SECONDS));
@@ -178,12 +178,17 @@ public class BufferAllocationBenchmarkTest {
       double totalOpsPerSec = totalOps / (durationNs / 1_000_000_000.0);
       double nsPerOp = (double) durationNs / totalOps;
 
-      logger.info("================================================================================");
-      logger.info("🚀 MULTI-THREADED ({} threads x {} ops = {} total ops)",
-          CONCURRENT_THREADS, CONCURRENT_ITERATIONS_PER_THREAD, totalOps);
+      logger.info(
+          "================================================================================");
+      logger.info(
+          "🚀 MULTI-THREADED ({} threads x {} ops = {} total ops)",
+          CONCURRENT_THREADS,
+          CONCURRENT_ITERATIONS_PER_THREAD,
+          totalOps);
       logger.info("Throughput:                 {} ops/sec", String.format("%,.0f", totalOpsPerSec));
       logger.info("Average Latency per Op:     {} ns/op", String.format("%.2f", nsPerOp));
-      logger.info("================================================================================");
+      logger.info(
+          "================================================================================");
 
       assertEquals(totalOps * payload.length, totalBytesRead.get());
     } finally {
@@ -192,8 +197,8 @@ public class BufferAllocationBenchmarkTest {
   }
 
   /**
-   * Demonstrates the safety advantage: verifies that asynchronous consumers do not suffer
-   * data corruption when using standalone immutable wrappers vs mutable FastThreadLocal.
+   * Demonstrates the safety advantage: verifies that asynchronous consumers do not suffer data
+   * corruption when using standalone immutable wrappers vs mutable FastThreadLocal.
    */
   @Test
   public void testAsyncDataSafety() throws Exception {
@@ -208,19 +213,20 @@ public class BufferAllocationBenchmarkTest {
       // Create independent wrapper
       WebTransportBuffer safeBuffer = new DefaultNettyWebTransportBuffer(msgBuf);
 
-      consumerPool.submit(() -> {
-        try {
-          // Simulate non-zero async processing delay
-          Thread.yield();
-          int readVal = safeBuffer.nioBuffer().getInt(0);
-          if (readVal != messageId) {
-            corruptedCount.incrementAndGet();
-          }
-        } finally {
-          msgBuf.release();
-          latch.countDown();
-        }
-      });
+      consumerPool.submit(
+          () -> {
+            try {
+              // Simulate non-zero async processing delay
+              Thread.yield();
+              int readVal = safeBuffer.nioBuffer().getInt(0);
+              if (readVal != messageId) {
+                corruptedCount.incrementAndGet();
+              }
+            } finally {
+              msgBuf.release();
+              latch.countDown();
+            }
+          });
     }
 
     assertTrue(latch.await(10, TimeUnit.SECONDS));
@@ -235,8 +241,8 @@ public class BufferAllocationBenchmarkTest {
   }
 
   /**
-   * Demonstrates the hazard: when asynchronous tasks read a shared, mutable thread-local
-   * buffer whose delegate is overwritten by subsequent loop iterations, massive data corruption occurs.
+   * Demonstrates the hazard: when asynchronous tasks read a shared, mutable thread-local buffer
+   * whose delegate is overwritten by subsequent loop iterations, massive data corruption occurs.
    */
   @Test
   public void testDemonstrateFastThreadLocalCorruptionInAsync() throws Exception {
@@ -251,20 +257,21 @@ public class BufferAllocationBenchmarkTest {
       // Reusing the mutable thread-local buffer in the dispatch loop:
       WebTransportBuffer mutableBuffer = REUSABLE_BUFFER.get().wrap(msgBuf);
 
-      consumerPool.submit(() -> {
-        try {
-          Thread.yield();
-          int readVal = mutableBuffer.nioBuffer().getInt(0);
-          if (readVal != messageId) {
-            corruptedCount.incrementAndGet();
-          }
-        } catch (Exception e) {
-          corruptedCount.incrementAndGet();
-        } finally {
-          msgBuf.release();
-          latch.countDown();
-        }
-      });
+      consumerPool.submit(
+          () -> {
+            try {
+              Thread.yield();
+              int readVal = mutableBuffer.nioBuffer().getInt(0);
+              if (readVal != messageId) {
+                corruptedCount.incrementAndGet();
+              }
+            } catch (Exception e) {
+              corruptedCount.incrementAndGet();
+            } finally {
+              msgBuf.release();
+              latch.countDown();
+            }
+          });
     }
 
     assertTrue(latch.await(10, TimeUnit.SECONDS));
@@ -272,7 +279,10 @@ public class BufferAllocationBenchmarkTest {
 
     logger.info("================================================================================");
     logger.info("⚠️ FASTTHREADLOCAL MUTABLE BUFFER HAZARD ({} tasks)", asyncTasks);
-    logger.info("Corrupted messages when reusing mutable buffer: {} / {}", corruptedCount.get(), asyncTasks);
+    logger.info(
+        "Corrupted messages when reusing mutable buffer: {} / {}",
+        corruptedCount.get(),
+        asyncTasks);
     logger.info("================================================================================");
 
     assertTrue(
@@ -310,9 +320,7 @@ public class BufferAllocationBenchmarkTest {
     return sum;
   }
 
-  /**
-   * Main entry point to run the benchmark directly from the CLI.
-   */
+  /** Main entry point to run the benchmark directly from the CLI. */
   public static void main(String[] args) throws Exception {
     BufferAllocationBenchmarkTest test = new BufferAllocationBenchmarkTest();
     System.out.println("Running JIT Warmup & Single-Threaded Benchmark...");

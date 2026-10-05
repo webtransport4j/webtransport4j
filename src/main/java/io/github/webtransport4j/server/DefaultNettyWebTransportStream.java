@@ -53,9 +53,10 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   volatile @Nullable Map<String, Object> attributes;
 
   @SuppressWarnings("rawtypes")
-  private static final AtomicReferenceFieldUpdater<DefaultNettyWebTransportStream, Map> ATTRIBUTES_UPDATER =
-      AtomicReferenceFieldUpdater.newUpdater(
-          DefaultNettyWebTransportStream.class, Map.class, "attributes");
+  private static final AtomicReferenceFieldUpdater<DefaultNettyWebTransportStream, Map>
+      ATTRIBUTES_UPDATER =
+          AtomicReferenceFieldUpdater.newUpdater(
+              DefaultNettyWebTransportStream.class, Map.class, "attributes");
 
   private static final CompletableFuture<Void> COMPLETED_FUTURE =
       CompletableFuture.completedFuture(null);
@@ -83,7 +84,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return cf;
   }
 
-  private static final Logger logger = LoggerFactory.getLogger(DefaultNettyWebTransportStream.class);
+  private static final Logger logger =
+      LoggerFactory.getLogger(DefaultNettyWebTransportStream.class);
 
   private final Queue<CompletableFuture<Void>> writableWaiters = new ConcurrentLinkedQueue<>();
   private volatile @Nullable Consumer<Boolean> writabilityListener;
@@ -207,8 +209,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   }
 
   /**
-   * Notifies the stream that the channel's writability state has changed. Called by
-   * {@link WebTransportChunkedWriteHandler} when Netty's {@code channelWritabilityChanged} fires.
+   * Notifies the stream that the channel's writability state has changed. Called by {@link
+   * WebTransportChunkedWriteHandler} when Netty's {@code channelWritabilityChanged} fires.
    *
    * @param writable true if the channel has become writable
    */
@@ -219,9 +221,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     notifyWritabilityListener();
   }
 
-  /**
-   * Notifies the stream that the channel has closed, failing pending waiters.
-   */
+  /** Notifies the stream that the channel has closed, failing pending waiters. */
   public void notifyClosed() {
     CompletableFuture<Void> waiter;
     while ((waiter = writableWaiters.poll()) != null) {
@@ -325,11 +325,13 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the entire source has been written
    */
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource) {
-    return toCompletableFuture(streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource)));
+    return toCompletableFuture(
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource)));
   }
 
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource, int chunkSize) {
-    return toCompletableFuture(streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize)));
+    return toCompletableFuture(
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize)));
   }
 
   /**
@@ -394,7 +396,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @return a future that completes when the write operation is done
    */
   @Override
-  public @NonNull CompletableFuture<Void> writeText(@NonNull String text, @NonNull Charset charset) {
+  public @NonNull CompletableFuture<Void> writeText(
+      @NonNull String text, @NonNull Charset charset) {
     ByteBuf buf = ByteBufUtil.encodeString(streamChannel.alloc(), CharBuffer.wrap(text), charset);
     return writeOutbound(buf);
   }
@@ -448,6 +451,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return value == null ? defaultValue : type.cast(value);
   }
 
+  /** Removes and returns the attribute associated with the given key. */
   public @Nullable Object removeAttribute(@NonNull String key) {
     return attributes == null ? null : attributes.remove(key);
   }
@@ -467,8 +471,11 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return attributes != null && !attributes.isEmpty();
   }
 
+  /** Returns an immutable view of the attribute names. */
   public @NonNull Set<String> attributeNames() {
-    return attributes == null ? Collections.emptySet() : Collections.unmodifiableSet(attributes.keySet());
+    return attributes == null
+        ? Collections.emptySet()
+        : Collections.unmodifiableSet(attributes.keySet());
   }
 
   public @NonNull Map<String, Object> getAttributes() {

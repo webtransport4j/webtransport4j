@@ -39,11 +39,14 @@ public class DefaultNettyWebTransportStreamTest {
     when(channel.isActive()).thenReturn(true);
     when(channel.isWritable()).thenReturn(true);
     when(channel.writeAndFlush(any())).thenReturn(future);
-    Mockito.doAnswer(invocation -> {
-      GenericFutureListener listener = invocation.getArgument(0);
-      listener.operationComplete(future);
-      return future;
-    }).when(future).addListener(any());
+    Mockito.doAnswer(
+            invocation -> {
+              GenericFutureListener listener = invocation.getArgument(0);
+              listener.operationComplete(future);
+              return future;
+            })
+        .when(future)
+        .addListener(any());
     when(future.isSuccess()).thenReturn(true);
 
     ByteBuf source = Unpooled.wrappedBuffer("abcdef".getBytes());

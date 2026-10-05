@@ -1,0 +1,11 @@
+*
+!pom.xml
+!src/
+!src/**
+!config/
+!config/**
+!scripts/
+!scripts/**
+!dashboard/
+!dashboard/testing/
+!dashboard/testing/verify_stack.py

@@ -1346,7 +1346,7 @@ async def test_30_inactivity_timeout_negative(client, url: str):
 
 async def main():
   config = ClientConfig(verify_mode=ssl.CERT_NONE, log_level="WARNING")
-  base_url = "https://127.0.0.1:4433"
+  base_url = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "https://127.0.0.1:4433"
 
   print("\n" + "=" * 80)
   print(

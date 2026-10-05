@@ -47,8 +47,7 @@ public class BinarySourceBenchmark {
     byteBuffer = ByteBuffer.wrap(data);
     arena = Arena.ofShared();
     memorySegment = arena.allocate(data.length);
-    MemorySegment.copy(
-        data, 0, memorySegment, ValueLayout.JAVA_BYTE, 0, data.length);
+    MemorySegment.copy(data, 0, memorySegment, ValueLayout.JAVA_BYTE, 0, data.length);
 
     dstBuffer = ByteBuffer.allocateDirect(128);
   }

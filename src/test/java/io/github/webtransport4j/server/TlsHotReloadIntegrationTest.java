@@ -21,70 +21,85 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * End-to-end unmocked integration test verifying live TLS certificate hot-reloading:
- * 1. Starts a real WebTransportServer using cert1.
- * 2. Overwrites cert files on disk with fresh cert2 while server is running.
- * 3. Verifies watcher reloads active QuicSslContext.
- * 4. Runs full WebTransport client test suite against the hot-reloaded server to verify end-to-end handshake
- *    and stream/datagram data exchange.
+ * End-to-end unmocked integration test verifying live TLS certificate hot-reloading: 1. Starts a
+ * real WebTransportServer using cert1. 2. Overwrites cert files on disk with fresh cert2 while
+ * server is running. 3. Verifies watcher reloads active QuicSslContext. 4. Runs full WebTransport
+ * client test suite against the hot-reloaded server to verify end-to-end handshake and
+ * stream/datagram data exchange.
  */
 public class TlsHotReloadIntegrationTest {
 
   private static final Logger logger = LoggerFactory.getLogger(TlsHotReloadIntegrationTest.class);
 
-  @Rule
-  public TemporaryFolder tempFolder = new TemporaryFolder();
+  @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
 
-  /**
-   * Test echo endpoint for TLS hot-reload integration tests.
-   */
+  /** Test echo endpoint for TLS hot-reload integration tests. */
   public static class TestEchoEndpoint implements WebTransportHandler {
     @Override
     public void onSessionReady(WebTransportSession session) {
-      session.createUniStream().thenAccept(stream -> {
-        stream.writeText("Hello from Server-Initiated Unidirectional Stream! [ID: " + stream.streamId() + "]");
-      });
-      session.createBiStream().thenAccept(stream -> {
-        stream.onData(data -> {});
-        stream.writeText("Hello from Server-Initiated Bidirectional Stream! [ID: " + stream.streamId() + "]");
-      });
+      session
+          .createUniStream()
+          .thenAccept(
+              stream -> {
+                stream.writeText(
+                    "Hello from Server-Initiated Unidirectional Stream! [ID: "
+                        + stream.streamId()
+                        + "]");
+              });
+      session
+          .createBiStream()
+          .thenAccept(
+              stream -> {
+                stream.onData(data -> {});
+                stream.writeText(
+                    "Hello from Server-Initiated Bidirectional Stream! [ID: "
+                        + stream.streamId()
+                        + "]");
+              });
     }
 
     @Override
     public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
       boolean isBidi = stream.isBidirectional();
-      stream.onData(buffer -> {
-        byte[] bytes = buffer.readBytes();
-        String content = new String(bytes, StandardCharsets.UTF_8);
-        if (content.startsWith("SleepServer_")) {
-          try {
-            Thread.sleep(3000);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-          }
-        }
-        if (isBidi) {
-          if (!stream.hasAttribute("prefixed")) {
-            stream.setAttribute("prefixed", true);
-            stream.writeText("ACK BI: " + content);
-          } else {
-            stream.write(bytes);
-          }
-        } else {
-          session.createUniStream().thenAccept(ackStream -> {
-            ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
+      stream.onData(
+          buffer -> {
+            byte[] bytes = buffer.readBytes();
+            String content = new String(bytes, StandardCharsets.UTF_8);
+            if (content.startsWith("SleepServer_")) {
+              try {
+                Thread.sleep(3000);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+            }
+            if (isBidi) {
+              if (!stream.hasAttribute("prefixed")) {
+                stream.setAttribute("prefixed", true);
+                stream.writeText("ACK BI: " + content);
+              } else {
+                stream.write(bytes);
+              }
+            } else {
+              session
+                  .createUniStream()
+                  .thenAccept(
+                      ackStream -> {
+                        ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
+                      });
+            }
           });
-        }
-      });
     }
 
     @Override
     public void onDatagramReceived(WebTransportSession session, WebTransportBuffer data) {
       byte[] payload = data.readBytes();
       String content = new String(payload, StandardCharsets.UTF_8);
-      session.createUniStream().thenAccept(ackStream -> {
-        ackStream.writeText("ACK DG: " + content).thenRun(ackStream::close);
-      });
+      session
+          .createUniStream()
+          .thenAccept(
+              ackStream -> {
+                ackStream.writeText("ACK DG: " + content).thenRun(ackStream::close);
+              });
     }
   }
 
@@ -99,14 +114,16 @@ public class TlsHotReloadIntegrationTest {
     File certFile = tempFolder.newFile("cert.pem");
 
     Files.copy(cert1.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-    Files.copy(cert1.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    Files.copy(
+        cert1.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-    WebTransportServer server = WebTransportServer.builder()
-        .port(0) // dynamic ephemeral port
-        .ssl(keyFile.getAbsolutePath(), certFile.getAbsolutePath())
-        .allowedOrigins("*")
-        .handler("/", new TestEchoEndpoint())
-        .build();
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0) // dynamic ephemeral port
+            .ssl(keyFile.getAbsolutePath(), certFile.getAbsolutePath())
+            .allowedOrigins("*")
+            .handler("/", new TestEchoEndpoint())
+            .build();
 
     server.start();
     int boundPort = server.getPort();
@@ -119,15 +136,18 @@ public class TlsHotReloadIntegrationTest {
       Thread.sleep(1100);
 
       SelfSignedCertificate cert2 = new SelfSignedCertificate("localhost");
-      Files.copy(cert2.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-      Files.copy(cert2.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+      Files.copy(
+          cert2.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+      Files.copy(
+          cert2.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
       keyFile.setLastModified(System.currentTimeMillis());
       certFile.setLastModified(System.currentTimeMillis());
 
       // Wait for watcher or trigger check to pick up and reload QuicSslContext
       boolean reloaded = false;
       for (int i = 0; i < 30; i++) {
-        if (server.checkAndReloadTlsCertificates() || server.getActiveSslContext() != initialSslCtx) {
+        if (server.checkAndReloadTlsCertificates()
+            || server.getActiveSslContext() != initialSslCtx) {
           reloaded = true;
           break;
         }
@@ -136,7 +156,8 @@ public class TlsHotReloadIntegrationTest {
       assertTrue(reloaded);
       logger.info("✅ Verified active QuicSslContext was swapped in memory.");
 
-      // Step 3: Run full unmocked WebTransport client test suite against the live hot-reloaded server
+      // Step 3: Run full unmocked WebTransport client test suite against the live hot-reloaded
+      // server
       String serverUrl = "https://127.0.0.1:" + boundPort + "/";
       logger.info("🧪 Launching WebTransport client against hot-reloaded server: {}", serverUrl);
       WebTransportClientTestSuite.main(serverUrl);

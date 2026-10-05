@@ -13,8 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Standalone benchmark server runner to measure pure server-side performance,
- * memory usage, GC pauses, and CPU load without client co-location overhead.
+ * Standalone benchmark server runner to measure pure server-side performance, memory usage, GC
+ * pauses, and CPU load without client co-location overhead.
  */
 public class BenchmarkServerRunner {
 
@@ -23,12 +23,11 @@ public class BenchmarkServerRunner {
   public static final AtomicLong serverReceivedMsgs = new AtomicLong();
   public static final AtomicLong serverSentMsgs = new AtomicLong();
 
-  /**
-   * Echo handler for benchmarks.
-   */
+  /** Echo handler for benchmarks. */
   public static class EchoHandler implements WebTransportHandler {
     @Override
-    public void onIncomingStream(@NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+    public void onIncomingStream(
+        @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
       if (stream.isBidirectional()) {
         stream.onData(
             data -> {
@@ -65,9 +64,11 @@ public class BenchmarkServerRunner {
     System.setProperty("webtransport4j.server.port", String.valueOf(port));
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
     System.setProperty("webtransport4j.webtransport.max_sessions_per_connection", "1000");
-    System.setProperty("webtransport4j.quic.idle.timeout.seconds", String.valueOf(idleTimeoutSeconds));
+    System.setProperty(
+        "webtransport4j.quic.idle.timeout.seconds", String.valueOf(idleTimeoutSeconds));
     System.setProperty("webtransport4j.server.max_concurrent_sessions", "100000");
-    System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "1000000");
+    System.setProperty(
+        "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "1000000");
     System.setProperty("webtransport4j.allowed.origins", "*");
     System.setProperty("webtransport4j.server.allowed_origins", "*");
     System.setProperty("webtransport4j.quic.token.handler", "insecure");
@@ -96,48 +97,51 @@ public class BenchmarkServerRunner {
 
     // Monitoring thread: prints memory, GC, and status every 5 seconds
     AtomicInteger peakSessionCount = new AtomicInteger();
-    Thread monitorThread = new Thread(() -> {
-      MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
-      long prevGcCount = 0;
-      long prevGcTime = 0;
+    Thread monitorThread =
+        new Thread(
+            () -> {
+              MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
+              long prevGcCount = 0;
+              long prevGcTime = 0;
 
-      while (server.isStarted()) {
-        try {
-          Thread.sleep(5000);
-          final long heapMb = mem.getHeapMemoryUsage().getUsed() / (1024 * 1024);
-          long gcCount = 0;
-          long gcTime = 0;
-          for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
-            long c = gc.getCollectionCount();
-            long t = gc.getCollectionTime();
-            if (c > 0) {
-              gcCount += c;
-              gcTime += t;
-            }
-          }
-          long deltaCount = gcCount - prevGcCount;
-          long deltaTime = gcTime - prevGcTime;
-          prevGcCount = gcCount;
-          prevGcTime = gcTime;
-          int activeSessionCount = server.getActiveSessionCount();
-          int peakSessions = peakSessionCount.accumulateAndGet(activeSessionCount, Math::max);
+              while (server.isStarted()) {
+                try {
+                  Thread.sleep(5000);
+                  final long heapMb = mem.getHeapMemoryUsage().getUsed() / (1024 * 1024);
+                  long gcCount = 0;
+                  long gcTime = 0;
+                  for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
+                    long c = gc.getCollectionCount();
+                    long t = gc.getCollectionTime();
+                    if (c > 0) {
+                      gcCount += c;
+                      gcTime += t;
+                    }
+                  }
+                  long deltaCount = gcCount - prevGcCount;
+                  long deltaTime = gcTime - prevGcTime;
+                  prevGcCount = gcCount;
+                  prevGcTime = gcTime;
+                  int activeSessionCount = server.getActiveSessionCount();
+                  int peakSessions =
+                      peakSessionCount.accumulateAndGet(activeSessionCount, Math::max);
 
-          logger.info(
-              "📊 SERVER STATS | Sessions: {} (peak {}) | Server Recv: {} | Server Sent: {} | Heap: {} MB "
-                  + "| GC Count Δ (5s): {} | GC Time Δ (5s): {} ms",
-              activeSessionCount,
-              peakSessions,
-              serverReceivedMsgs.get(),
-              serverSentMsgs.get(),
-              heapMb,
-              deltaCount,
-              deltaTime);
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          break;
-        }
-      }
-    });
+                  logger.info(
+                      "📊 SERVER STATS | Sessions: {} (peak {}) | Server Recv: {} | Server Sent: {}"
+                          + " | Heap: {} MB | GC Count Δ (5s): {} | GC Time Δ (5s): {} ms",
+                      activeSessionCount,
+                      peakSessions,
+                      serverReceivedMsgs.get(),
+                      serverSentMsgs.get(),
+                      heapMb,
+                      deltaCount,
+                      deltaTime);
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  break;
+                }
+              }
+            });
     monitorThread.setDaemon(true);
     monitorThread.start();
 

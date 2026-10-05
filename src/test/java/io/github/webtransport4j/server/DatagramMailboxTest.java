@@ -1,8 +1,6 @@
 package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,13 +10,10 @@ import static org.mockito.Mockito.when;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.EventLoop;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.util.Attribute;
-import io.netty.util.concurrent.GenericFutureListener;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,6 +37,7 @@ public class DatagramMailboxTest {
   public void setUp() {
     mockChannel = mock(QuicChannel.class);
     EventLoop mockLoop = mock(EventLoop.class);
+    when(mockLoop.inEventLoop()).thenReturn(true);
     closePromise = new DefaultChannelPromise(mockChannel, mockLoop);
     when(mockChannel.closeFuture()).thenReturn(closePromise);
 
@@ -94,7 +90,8 @@ public class DatagramMailboxTest {
     for (int i = 0; i < 5; i++) {
       assertEquals(Long.valueOf(100L + i), dispatchedSessions.get(i));
       assertEquals("payload-" + i, payloads.get(i));
-      // Enqueued copy was retained (+1) and then released in worker (-1), leaving Netty caller ref (1)
+      // Enqueued copy was retained (+1) and then released in worker (-1), leaving Netty caller ref
+      // (1)
       assertEquals(1, frames.get(i).refCnt());
       frames.get(i).release();
       assertEquals(0, frames.get(i).refCnt());
@@ -142,8 +139,7 @@ public class DatagramMailboxTest {
     assertEquals(1, frames.get(4).refCnt());
 
     // Verify metrics recorded discards
-    verify(mockMetrics, org.mockito.Mockito.times(3))
-        .onDatagramDiscarded(200L, "mailbox_full");
+    verify(mockMetrics, org.mockito.Mockito.times(3)).onDatagramDiscarded(200L, "mailbox_full");
 
     // CRUCIAL: Verify channel.close() was NEVER called!
     verify(mockChannel, never()).close();

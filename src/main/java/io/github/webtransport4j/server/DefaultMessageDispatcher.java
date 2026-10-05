@@ -13,7 +13,6 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.RejectedExecutionException;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +32,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
     Channel channel = ctx.channel();
     if (logger.isDebugEnabled()) {
-    logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
+      logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
     }
     final long finalSessionId = msg.sessionId();
     ExecutorService executor;
@@ -56,9 +55,12 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
     } else {
       if (channel instanceof QuicStreamChannel) {
         QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
-        StreamMailbox mailbox = streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).get();
+        StreamMailbox mailbox =
+            streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).get();
         if (mailbox == null) {
-          mailbox = new StreamMailbox(streamChannel, executor, this::tryDispatchToHandler, finalSessionId);
+          mailbox =
+              new StreamMailbox(
+                  streamChannel, executor, this::tryDispatchToHandler, finalSessionId);
           StreamMailbox oldMailbox =
               streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).setIfAbsent(mailbox);
           if (oldMailbox != null) {
@@ -67,7 +69,8 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         }
         mailbox.enqueue(msg);
       } else {
-        DatagramMailbox mailbox = channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).get();
+        DatagramMailbox mailbox =
+            channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).get();
         if (mailbox == null) {
           mailbox = new DatagramMailbox(channel, executor, this::tryDispatchToHandler);
           DatagramMailbox oldMailbox =
@@ -193,8 +196,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         if (stream.getDataConsumer() != null) {
           ByteBuf slice = frame.content().retainedSlice();
           try {
-            DefaultNettyWebTransportBuffer buffer =
-                new DefaultNettyWebTransportBuffer(slice);
+            DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(slice);
             slice = null; // ownership transferred to buffer
             try {
               stream.getDataConsumer().accept(buffer);
@@ -217,8 +219,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         }
         ByteBuf slice = frame.content().retainedSlice();
         try {
-          DefaultNettyWebTransportBuffer buffer =
-              new DefaultNettyWebTransportBuffer(slice);
+          DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(slice);
           slice = null; // ownership transferred to buffer
           try {
             handler.onDatagramReceived(session, buffer);
@@ -237,5 +238,4 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
       logger.error("Exception in tryDispatchToHandler", e);
     }
   }
-
 }
