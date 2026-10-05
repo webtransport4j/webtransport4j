@@ -77,6 +77,7 @@ public interface WebTransportSession {
    */
   default void markDraining() {}
 
+  /**
    * Begins graceful draining. New streams and datagrams remain permitted until the session closes;
    * applications should finish their work and terminate promptly (Draft-16 Section 4.7).
    *

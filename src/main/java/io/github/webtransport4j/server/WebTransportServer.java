@@ -721,17 +721,6 @@ public class WebTransportServer implements AutoCloseable {
     return state.get() == ServerState.STARTED;
   }
 
-  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
-  public void drain() {
-    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
-      return;
-    }
-    for (QuicChannel connection : connections) {
-      drainConnection(connection);
-    }
-    drainActiveSessions();
-  }
-
   private void drainActiveSessions() {
     for (WebTransportSession session : activeSessionsSet) {
       try {
@@ -818,6 +807,17 @@ public class WebTransportServer implements AutoCloseable {
     }
 
     stop(5, TimeUnit.SECONDS);
+  }
+
+  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
+  public void drain() {
+    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
+      return;
+    }
+    for (QuicChannel connection : connections) {
+      drainConnection(connection);
+    }
+    drainActiveSessions();
   }
 
   /**
