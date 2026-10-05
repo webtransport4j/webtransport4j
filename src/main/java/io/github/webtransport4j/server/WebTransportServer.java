@@ -1617,6 +1617,17 @@ public class WebTransportServer implements AutoCloseable {
 
   private @NonNull SslContextBuildResult buildSslContext() throws Exception {
     if (this.sslContext != null) {
+      if (clientAuthMode != null
+          || resolveClientAuthMode() != ClientAuthMode.NONE
+          || trustCertFile != null
+          || trustCertificates != null
+          || trustManagerFactory != null
+          || trustManager != null
+          || WebTransportConfig.get("webtransport4j.ssl.trust_cert.path", null) != null) {
+        throw new IllegalArgumentException(
+            "Configure client authentication and trust on the supplied sslContext; "
+                + "server clientAuth/trustManager settings cannot modify it");
+      }
       return new SslContextBuildResult(this.sslContext, null);
     }
     String keyPath =
@@ -1695,16 +1706,21 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  void applyClientAuthAndTrust(QuicSslContextBuilder sslBuilder) {
-    ClientAuthMode mode = this.clientAuthMode;
-    if (mode == null) {
-      String confMode = WebTransportConfig.get("webtransport4j.ssl.client_auth", "NONE");
-      try {
-        mode = ClientAuthMode.valueOf(confMode.trim().toUpperCase(Locale.ROOT));
-      } catch (Exception ignored) {
-        mode = ClientAuthMode.NONE;
-      }
+  private ClientAuthMode resolveClientAuthMode() {
+    if (clientAuthMode != null) {
+      return clientAuthMode;
     }
+    String configured = WebTransportConfig.get("webtransport4j.ssl.client_auth", "NONE");
+    try {
+      return ClientAuthMode.valueOf(configured.trim().toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException invalid) {
+      throw new IllegalArgumentException(
+          "webtransport4j.ssl.client_auth must be NONE, OPTIONAL, or REQUIRE", invalid);
+    }
+  }
+
+  void applyClientAuthAndTrust(QuicSslContextBuilder sslBuilder) {
+    ClientAuthMode mode = resolveClientAuthMode();
 
     if (mode == ClientAuthMode.REQUIRE) {
       sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.REQUIRE);
@@ -1715,6 +1731,7 @@ public class WebTransportServer implements AutoCloseable {
     }
 
     if (this.trustCertFile != null) {
+      requireReadableTrustFile(this.trustCertFile);
       sslBuilder.trustManager(this.trustCertFile);
     } else if (this.trustCertificates != null && this.trustCertificates.length > 0) {
       sslBuilder.trustManager(this.trustCertificates);
@@ -1724,12 +1741,18 @@ public class WebTransportServer implements AutoCloseable {
       sslBuilder.trustManager(this.trustManager);
     } else {
       String trustPath = WebTransportConfig.get("webtransport4j.ssl.trust_cert.path", null);
-      if (trustPath != null && !trustPath.trim().isEmpty()) {
+      if (trustPath != null) {
         File trustFile = new File(trustPath.trim());
-        if (trustFile.isFile() && trustFile.canRead()) {
-          sslBuilder.trustManager(trustFile);
-        }
+        requireReadableTrustFile(trustFile);
+        sslBuilder.trustManager(trustFile);
       }
+    }
+  }
+
+  private static void requireReadableTrustFile(File file) {
+    if (!file.isFile() || !file.canRead()) {
+      throw new IllegalArgumentException(
+          "TLS trust certificate file must be a readable file: " + file);
     }
   }
 

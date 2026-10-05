@@ -92,7 +92,10 @@ public class WebTransportServerBuilder {
     return this;
   }
 
-  /** Sets a pre-built {@link QuicSslContext}. */
+  /**
+   * Sets a pre-built {@link QuicSslContext}. Configure client authentication and trust on that
+   * context; combining it with server clientAuth/trustManager options fails at startup.
+   */
   public @NonNull WebTransportServerBuilder sslContext(@Nullable QuicSslContext sslContext) {
     this.sslContext = sslContext;
     return this;
@@ -148,49 +151,64 @@ public class WebTransportServerBuilder {
   }
 
   /**
-   * Sets the trusted CA certificate chain file for verifying mTLS client certificates.
+   * Sets the trusted CA certificate chain file for verifying mTLS client certificates. Replaces any
+   * previously configured trust source.
    *
    * @param trustCertFile CA certificate chain file
    * @return this builder
    */
   public @NonNull WebTransportServerBuilder trustManager(@Nullable File trustCertFile) {
+    clearTrustSources();
     this.trustCertFile = trustCertFile;
     return this;
   }
 
   /**
-   * Sets the trusted certificates for verifying mTLS client certificates.
+   * Sets the trusted certificates for verifying mTLS client certificates. Replaces any previously
+   * configured trust source and copies the certificate array.
    *
    * @param certificates trusted X.509 certificates
    * @return this builder
    */
   public @NonNull WebTransportServerBuilder trustManager(
       X509Certificate @Nullable ... certificates) {
-    this.trustCertificates = certificates;
+    clearTrustSources();
+    this.trustCertificates = certificates == null ? null : certificates.clone();
     return this;
   }
 
   /**
-   * Sets the TrustManagerFactory for verifying mTLS client certificates.
+   * Sets the TrustManagerFactory for verifying mTLS client certificates. Replaces any previously
+   * configured trust source.
    *
    * @param trustManagerFactory trust manager factory
    * @return this builder
    */
   public @NonNull WebTransportServerBuilder trustManager(
       @Nullable TrustManagerFactory trustManagerFactory) {
+    clearTrustSources();
     this.trustManagerFactory = trustManagerFactory;
     return this;
   }
 
   /**
-   * Sets the TrustManager for verifying mTLS client certificates.
+   * Sets the TrustManager for verifying mTLS client certificates. Replaces any previously
+   * configured trust source.
    *
    * @param trustManager trust manager
    * @return this builder
    */
   public @NonNull WebTransportServerBuilder trustManager(@Nullable TrustManager trustManager) {
+    clearTrustSources();
     this.trustManager = trustManager;
     return this;
+  }
+
+  private void clearTrustSources() {
+    trustCertFile = null;
+    trustCertificates = null;
+    trustManagerFactory = null;
+    trustManager = null;
   }
 
   /**

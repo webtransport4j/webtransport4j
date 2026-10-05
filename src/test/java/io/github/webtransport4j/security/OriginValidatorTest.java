@@ -6,14 +6,34 @@ import static org.junit.Assert.assertTrue;
 import java.util.Collections;
 import org.junit.Test;
 
-/**
- * Tests for {@link OriginValidator} and strict origin validation logic.
- */
+/** Tests for {@link OriginValidator} and strict origin validation logic. */
 public class OriginValidatorTest {
 
-  /**
-   * Tests that allowAll permits any origin and authority.
-   */
+  @Test
+  public void emptyAndBlankAllowlistsDenyAll() {
+    for (boolean requireHeader : new boolean[] {false, true}) {
+      for (java.util.List<String> patterns :
+          java.util.Arrays.asList(
+              Collections.<String>emptyList(), java.util.Arrays.asList(null, "", "  "))) {
+        OriginValidator validator = OriginValidator.fromCollection(patterns, requireHeader);
+        assertFalse(validator.validate("https://unlisted.example", "unlisted.example"));
+        assertFalse(validator.validate(null, "unlisted.example"));
+      }
+    }
+  }
+
+  @Test
+  public void explicitWildcardStillRequiresConfiguredOriginHeader() {
+    OriginValidator validator =
+        OriginValidator.fromCollection(Collections.singletonList("*"), true);
+    assertFalse(validator.validate(null, "example.com"));
+    assertFalse(validator.validate("", "example.com"));
+    assertFalse(validator.validate("  ", "example.com"));
+    assertTrue(validator.validate("https://example.com", null));
+    assertTrue(OriginValidator.wildcard("*").validate(null, null));
+  }
+
+  /** Tests that allowAll permits any origin and authority. */
   @Test
   public void testAllowAll() {
     final OriginValidator validator = OriginValidator.allowAll();
@@ -22,9 +42,7 @@ public class OriginValidatorTest {
     assertTrue(validator.validate("https://good.com", null));
   }
 
-  /**
-   * Tests that exact matching correctly validates scheme, host, and port.
-   */
+  /** Tests that exact matching correctly validates scheme, host, and port. */
   @Test
   public void testExactMatching() {
     final OriginValidator validator =
@@ -36,9 +54,7 @@ public class OriginValidatorTest {
     assertFalse(validator.validate(null, "example.com:4433"));
   }
 
-  /**
-   * Tests that wildcard domains match subdomains but not unrelated domains.
-   */
+  /** Tests that wildcard domains match subdomains but not unrelated domains. */
   @Test
   public void testWildcardMatching() {
     final OriginValidator validator = OriginValidator.wildcard("*.example.com", "localhost");
@@ -69,12 +85,12 @@ public class OriginValidatorTest {
     assertFalse(relaxedValidator.validate(null, "badhost.com"));
   }
 
-  /**
-   * Tests that extractHost extracts the hostname from various URI formats.
-   */
+  /** Tests that extractHost extracts the hostname from various URI formats. */
   @Test
   public void testExtractHost() {
-    assertTrue("example.com".equalsIgnoreCase(OriginValidator.extractHost("https://example.com:8443/chat")));
+    assertTrue(
+        "example.com"
+            .equalsIgnoreCase(OriginValidator.extractHost("https://example.com:8443/chat")));
     assertTrue("localhost".equalsIgnoreCase(OriginValidator.extractHost("http://localhost:3000")));
     assertTrue("foo.bar".equalsIgnoreCase(OriginValidator.extractHost("foo.bar:4433")));
   }

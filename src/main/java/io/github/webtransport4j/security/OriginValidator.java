@@ -10,15 +10,13 @@ import java.util.Set;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-/**
- * Functional interface for validating WebTransport session origins and authorities.
- */
+/** Functional interface for validating WebTransport session origins and authorities. */
 @FunctionalInterface
 public interface OriginValidator {
 
   /**
-   * Evaluates whether an incoming WebTransport session request is permitted from the given
-   * origin and authority.
+   * Evaluates whether an incoming WebTransport session request is permitted from the given origin
+   * and authority.
    *
    * @param origin the client-provided {@code Origin} header value, or {@code null} if omitted
    * @param authority the HTTP/3 {@code :authority} header value, or {@code null} if omitted
@@ -36,8 +34,8 @@ public interface OriginValidator {
   }
 
   /**
-   * Returns an origin validator that strictly requires an {@code Origin} header matching one of
-   * the provided exact origins or host patterns.
+   * Returns an origin validator that strictly requires an {@code Origin} header matching one of the
+   * provided exact origins or host patterns.
    *
    * @param allowed the allowed origins or hostnames
    * @return strict origin validator
@@ -48,7 +46,8 @@ public interface OriginValidator {
   }
 
   /**
-   * Returns an origin validator that supports wildcard domain patterns (e.g. {@code *.example.com}).
+   * Returns an origin validator that supports wildcard domain patterns (e.g. {@code
+   * *.example.com}).
    *
    * @param patterns the allowed origin patterns or hostnames
    * @return wildcard origin validator
@@ -59,10 +58,13 @@ public interface OriginValidator {
   }
 
   /**
-   * Creates an origin validator from a collection of allowed patterns.
+   * Creates an origin validator from a collection of allowed patterns. An empty collection, or one
+   * containing only null/blank entries, denies all requests. An explicit {@code *} allows all
+   * origins but still respects {@code requireOriginHeader}.
    *
    * @param allowedPatterns collection of allowed origins or hostnames
-   * @param requireOriginHeader if {@code true}, connections without an {@code Origin} header are rejected
+   * @param requireOriginHeader if {@code true}, connections without an {@code Origin} header are
+   *     rejected
    * @return configured origin validator
    */
   static @NonNull OriginValidator fromCollection(
@@ -76,7 +78,11 @@ public interface OriginValidator {
     }
 
     return (origin, authority) -> {
-      if (patterns.isEmpty() || patterns.contains("*")) {
+      if (patterns.isEmpty()
+          || (requireOriginHeader && (origin == null || origin.trim().isEmpty()))) {
+        return false;
+      }
+      if (patterns.contains("*")) {
         return true;
       }
       if (origin == null || origin.trim().isEmpty()) {
