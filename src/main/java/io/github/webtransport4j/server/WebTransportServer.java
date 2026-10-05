@@ -1733,7 +1733,7 @@ public class WebTransportServer implements AutoCloseable {
     if (this.trustCertFile != null) {
       requireReadableTrustFile(this.trustCertFile);
       sslBuilder.trustManager(this.trustCertFile);
-    } else if (this.trustCertificates != null && this.trustCertificates.length > 0) {
+    } else if (this.trustCertificates != null) {
       sslBuilder.trustManager(this.trustCertificates);
     } else if (this.trustManagerFactory != null) {
       sslBuilder.trustManager(this.trustManagerFactory);

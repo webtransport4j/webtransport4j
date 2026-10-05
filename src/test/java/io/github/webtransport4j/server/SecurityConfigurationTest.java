@@ -171,6 +171,28 @@ public class SecurityConfigurationTest {
     assertNull(builder.getTrustCertificates());
   }
 
+  @Test(timeout = 10000)
+  public void explicitEmptyCertificatesOverrideConfiguredTrustPath() throws Exception {
+    SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
+    try {
+      withProperty(
+          "webtransport4j.ssl.trust_cert.path",
+          certificate.privateKey() + ".missing",
+          () -> {
+            try (WebTransportServer server =
+                server(certificate)
+                    .clientAuth(ClientAuthMode.REQUIRE)
+                    .trustManager(new X509Certificate[0])
+                    .build()) {
+              server.start();
+              assertTrue(server.isStarted());
+            }
+          });
+    } finally {
+      certificate.delete();
+    }
+  }
+
   private static WebTransportServerBuilder server(SelfSignedCertificate certificate) {
     return WebTransportServer.builder()
         .port(0)
