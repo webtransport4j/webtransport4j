@@ -6,9 +6,9 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
 import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.internal.EventLoopSafety;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.resilience.UdpSocketTuner;
@@ -543,6 +543,9 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void setStatelessTokenSecretProvider(@Nullable StatelessTokenSecretProvider provider) {
     this.statelessTokenSecretProvider = provider;
+  }
+
+  /**
    * Sets the overload protection policy for this server instance.
    *
    * @param policy overload protection policy
