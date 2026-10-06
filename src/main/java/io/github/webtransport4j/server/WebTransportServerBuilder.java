@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
@@ -50,6 +51,8 @@ public class WebTransportServerBuilder {
   private GlobalTrafficShapingHandler trafficShaper;
   private Long globalTrafficWriteLimit;
   private Long globalTrafficReadLimit;
+  private OverloadProtectionPolicy overloadProtectionPolicy;
+  private Boolean autoTuneUdpSocket;
   private ClientAuthMode clientAuthMode;
   private File trustCertFile;
   private X509Certificate[] trustCertificates;
@@ -305,6 +308,29 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /**
+   * Sets the adaptive overload protection policy for protecting server resources.
+   *
+   * @param overloadProtectionPolicy the overload protection policy
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder overloadProtectionPolicy(
+      @Nullable OverloadProtectionPolicy overloadProtectionPolicy) {
+    this.overloadProtectionPolicy = overloadProtectionPolicy;
+    return this;
+  }
+
+  /**
+   * Enables or disables automatic OS UDP socket buffer auto-tuning.
+   *
+   * @param autoTuneUdpSocket whether to auto-tune SO_RCVBUF and SO_SNDBUF
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder autoTuneUdpSocket(boolean autoTuneUdpSocket) {
+    this.autoTuneUdpSocket = autoTuneUdpSocket;
+    return this;
+  }
+
   /** Sets the default handler for unregistered routes. */
   public @NonNull WebTransportServerBuilder defaultHandler(
       @NonNull WebTransportHandler defaultHandler) {
@@ -448,6 +474,14 @@ public class WebTransportServerBuilder {
 
   Long getGlobalTrafficReadLimit() {
     return globalTrafficReadLimit;
+  }
+
+  OverloadProtectionPolicy getOverloadProtectionPolicy() {
+    return overloadProtectionPolicy;
+  }
+
+  Boolean getAutoTuneUdpSocket() {
+    return autoTuneUdpSocket;
   }
 
   ClientAuthMode getClientAuthMode() {

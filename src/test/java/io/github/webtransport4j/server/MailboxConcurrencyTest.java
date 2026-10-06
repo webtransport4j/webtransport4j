@@ -18,6 +18,15 @@ import org.junit.Test;
 public class MailboxConcurrencyTest {
   @Test(timeout = 15000)
   public void datagramPublicationAfterCloseReleasesMailboxReference() throws Exception {
+    publicationAfterClose(false);
+  }
+
+  @Test(timeout = 15000)
+  public void priorityPublicationAfterCloseReleasesMailboxReference() throws Exception {
+    publicationAfterClose(true);
+  }
+
+  private void publicationAfterClose(boolean highPriority) throws Exception {
     CountDownLatch retained = new CountDownLatch(1);
     CountDownLatch publish = new CountDownLatch(1);
     WebTransportDatagramFrame frame =
@@ -34,12 +43,13 @@ public class MailboxConcurrencyTest {
         new DatagramMailbox(mock(QuicChannel.class), executor, (c, id, f) -> {});
     ExecutorService producer = Executors.newSingleThreadExecutor();
     try {
-      final Future<?> enqueue = producer.submit(() -> mailbox.enqueue(frame));
+      final Future<?> enqueue = producer.submit(() -> mailbox.enqueue(frame, highPriority));
       await(retained);
       mailbox.drainAndRelease();
       publish.countDown();
       enqueue.get(5, TimeUnit.SECONDS);
       assertEquals(1, frame.refCnt());
+      assertEquals(0, mailbox.size());
       mailbox.drainAndRelease();
       assertEquals(1, frame.refCnt());
     } finally {
