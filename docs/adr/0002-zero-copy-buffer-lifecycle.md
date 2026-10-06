@@ -11,7 +11,7 @@ We enforce a strict single-ownership transfer model across the framework:
 1. **Inbound Streams & Datagrams**:
    - Inbound payloads preserve the allocation type of their underlying `ByteBuf`; direct buffers keep payload contents off heap.
    - For datagrams, `DatagramMailbox` increments the reference count (`retain()`) upon acceptance into the queue and releases it (`release()`) after dispatch to the worker thread.
-   - A datagram rejected before enqueue remains caller-owned. If a high-priority arrival evicts an already-enqueued normal-priority frame, the mailbox releases its retained reference to that evicted frame.
+   - A datagram rejected before enqueue remains caller-owned. If a high-priority arrival evicts an already-enqueued normal-priority frame, the mailbox releases only the reference it retained for that queued frame; any caller that still holds the original reference remains responsible for releasing it.
 2. **Buffer Interface Abstraction**:
    - Application handlers receive `WebTransportBuffer`, wrapping underlying `ByteBuf` or JDK 22+ `MemorySegment` (via Multi-Release JAR).
    - Calling `buffer.release()` decrements the underlying count and returns memory to the Netty pooled allocator.
