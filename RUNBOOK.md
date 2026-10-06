@@ -64,13 +64,13 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
 ### Playbook 2: Sessions Rejected with HTTP 503 (`overload_shed`)
 
 #### Symptoms
-- Clients receive HTTP 503 `Service Unavailable` with `Retry-After: 5` header during `CONNECT`.
+- Clients receive HTTP 503 `Service Unavailable` during `CONNECT`; the default adaptive policy supplies `Retry-After: 5`, while custom policies may omit it.
 - Server logs: `Rejecting session: Overload policy shed load`.
 
 #### Root Causes
 1. JVM heap memory pressure exceeded `maxHeapUsageRatio` (default 85%).
-2. Active sessions reached node capacity ceiling (`max_concurrent_sessions`).
-3. `AdaptiveCircuitBreaker` tripped to `OPEN` due to downstream or resource failures.
+2. Other active sessions and pending reservations reached the adaptive policy's `maxActiveSessions` ceiling.
+3. `AdaptiveCircuitBreaker` tripped to `OPEN` after repeated capacity or heap-pressure failures.
 
 #### Triage & Resolution Steps
 1. **Inspect Heap and Garbage Collection**:
@@ -94,6 +94,10 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
    If business executor is saturated, inspect thread pools using `jstack <pid> | grep -A 20 "VirtualThread"`.
 
 ---
+
+### Global Session-Limit Rejections (HTTP 429)
+
+When `webtransport4j.server.max_concurrent_sessions` is reached, global slot tracking rejects the request with HTTP 429 before the adaptive overload policy runs. A per-connection session limit also returns HTTP 429. Triage these separately from HTTP 503 adaptive shedding.
 
 ### Playbook 3: Off-Heap / Direct ByteBuf Memory Leaks
 
@@ -142,10 +146,10 @@ groups:
 - name: webtransport4j.alerts
   rules:
   - alert: HighWebTransportLoadShedding
-    expr: rate(webtransport_sessions_rejected_total[1m]) > 5
+    expr: rate(webtransport_sessions_rejected_total[1m]) > (1 / 60)
     for: 2m
     labels:
-      severity: warning
+      severity: critical
     annotations:
       summary: "WebTransport server is shedding sessions due to overload"
       description: "Instance {{ $labels.instance }} is rejecting incoming WebTransport CONNECT streams with HTTP 503."

@@ -9,9 +9,9 @@ High-rate streaming and datagram applications processing 100k+ packets per secon
 ## Decision
 We enforce a strict single-ownership transfer model across the framework:
 1. **Inbound Streams & Datagrams**:
-   - The inbound pipeline allocates direct buffers.
+   - Inbound payloads preserve the allocation type of their underlying `ByteBuf`; direct buffers keep payload contents off heap.
    - For datagrams, `DatagramMailbox` increments the reference count (`retain()`) upon acceptance into the queue and releases it (`release()`) after dispatch to the worker thread.
-   - If a datagram is dropped due to queue saturation, it is discarded without retention, leaving reference ownership with the caller.
+   - A datagram rejected before enqueue remains caller-owned. If a high-priority arrival evicts an already-enqueued normal-priority frame, the mailbox releases its retained reference to that evicted frame.
 2. **Buffer Interface Abstraction**:
    - Application handlers receive `WebTransportBuffer`, wrapping underlying `ByteBuf` or JDK 22+ `MemorySegment` (via Multi-Release JAR).
    - Calling `buffer.release()` decrements the underlying count and returns memory to the Netty pooled allocator.
@@ -20,7 +20,7 @@ We enforce a strict single-ownership transfer model across the framework:
 
 ### Positive
 - **Zero Heap Copying**: Direct off-heap buffers pass straight from network socket to application logic.
-- **Predictable GC**: Zero GC pressure on the young generation under high packet loads.
+- **Reduced Heap-Allocation Pressure**: Direct buffers can avoid heap copies, but wrappers, queue nodes and application processing may still allocate heap objects and trigger GC.
 - **Auditable via Leak Detection**: Fully compatible with `-Dio.netty.leakDetection.level=PARANOID`.
 
 ### Negative / Trade-offs
