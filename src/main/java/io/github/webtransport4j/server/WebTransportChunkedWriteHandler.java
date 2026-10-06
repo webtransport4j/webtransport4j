@@ -37,7 +37,8 @@ public final class WebTransportChunkedWriteHandler extends ChunkedWriteHandler {
     super.channelWritabilityChanged(ctx);
     WebTransportStream stream = ctx.channel().attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
     if (stream instanceof DefaultNettyWebTransportStream) {
-      ((DefaultNettyWebTransportStream) stream).notifyWritabilityChanged(ctx.channel().isWritable());
+      ((DefaultNettyWebTransportStream) stream)
+          .notifyWritabilityChanged(ctx.channel().isWritable());
     }
   }
 

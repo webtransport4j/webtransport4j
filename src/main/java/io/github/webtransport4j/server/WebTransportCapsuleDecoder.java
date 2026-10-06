@@ -73,11 +73,15 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
       ByteBuf capVal = in.readRetainedSlice((int) capLen);
       if (cachedSessionId == -1L) {
         Long sessId = ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
-        cachedSessionId = (sessId != null) ? sessId : ((QuicStreamChannel) ctx.channel()).streamId();
+        cachedSessionId =
+            (sessId != null) ? sessId : ((QuicStreamChannel) ctx.channel()).streamId();
       }
       if (logger.isTraceEnabled()) {
-        logger.trace("💊 Received Capsule | Type: 0x{} | Length: {} | Hex: {}",
-                capType, capLen, ByteBufUtil.hexDump(capVal));
+        logger.trace(
+            "💊 Received Capsule | Type: 0x{} | Length: {} | Hex: {}",
+            capType,
+            capLen,
+            ByteBufUtil.hexDump(capVal));
       }
       out.add(new WebTransportCapsule(cachedSessionId, capType, capVal));
     }

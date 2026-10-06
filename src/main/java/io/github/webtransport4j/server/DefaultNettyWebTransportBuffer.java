@@ -14,10 +14,10 @@ import org.jspecify.annotations.NonNull;
  * it does not retain the delegate. Wrapper references are counted independently. The owned delegate
  * reference is released exactly once, when the last wrapper reference is released.
  *
- * <p>A caller must own a live wrapper reference throughout each operation, including use of returned
- * borrowed views. Retain before handing the wrapper to asynchronous work, and release that reference
- * when the work finishes. Reference counting is thread-safe; content access, reader-index changes
- * and compound operations require confinement or external coordination.
+ * <p>A caller must own a live wrapper reference throughout each operation, including use of
+ * returned borrowed views. Retain before handing the wrapper to asynchronous work, and release that
+ * reference when the work finishes. Reference counting is thread-safe; content access, reader-index
+ * changes and compound operations require confinement or external coordination.
  */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
@@ -110,7 +110,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
     if (increment <= 0) {
       throw new IllegalArgumentException("increment must be positive: " + increment);
     }
-    for (;;) {
+    for (; ; ) {
       int current = refCnt.get();
       if (current == 0) {
         throw new IllegalStateException("buffer has already been released");
@@ -130,7 +130,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
    */
   @Override
   public void release() {
-    for (;;) {
+    for (; ; ) {
       int current = refCnt.get();
       if (current == 0) {
         return;

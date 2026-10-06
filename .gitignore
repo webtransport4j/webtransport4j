@@ -30,6 +30,7 @@ replay_pid*
 # Maven
 # ------------------
 target/
+target-maven/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
@@ -107,3 +108,14 @@ Thumbs.db
 *.crt
 *.p12
 *.jks
+
+# Python
+__pycache__/
+*.py[cod]
+# Deployment secrets
+.env
+.env.*
+!.env.example
+
+# Isolated portal integration-test credentials, certificates, and reports
+dashboard/testing/.runtime/

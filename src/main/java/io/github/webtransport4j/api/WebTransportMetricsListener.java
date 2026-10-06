@@ -23,12 +23,34 @@ public interface WebTransportMetricsListener {
   void onSessionOpened(long sessionId, @NonNull String path);
 
   /**
+   * Called with a process-wide session identity; legacy listeners retain CONNECT stream IDs.
+   *
+   * @param sessionId the CONNECT stream ID
+   * @param uniqueSessionId the process-wide session identity
+   * @param path the request path
+   */
+  default void onSessionOpened(long sessionId, long uniqueSessionId, @NonNull String path) {
+    onSessionOpened(sessionId, path);
+  }
+
+  /**
    * Called when a WebTransport session is closed or reaped.
    *
    * @param sessionId The unique CONNECT stream ID for this session.
    * @param closeCode The HTTP/3 error code used to close the session (0 = graceful close).
    */
   void onSessionClosed(long sessionId, int closeCode);
+
+  /**
+   * Closes the session identified by the corresponding process-wide open callback.
+   *
+   * @param sessionId the CONNECT stream ID
+   * @param uniqueSessionId the process-wide session identity
+   * @param closeCode the termination code
+   */
+  default void onSessionClosed(long sessionId, long uniqueSessionId, int closeCode) {
+    onSessionClosed(sessionId, closeCode);
+  }
 
   /**
    * Called when a new stream (unidirectional or bidirectional) is opened under a session.

@@ -15,19 +15,18 @@ import io.netty.util.DefaultAttributeMap;
 import org.junit.Test;
 
 /**
- * Protocol compatibility tests for IETF WebTransport over HTTP/3 (Draft-16).
- * Section 8: Security Considerations.
- * Directly exercises application classes: {@link WebTransportSessionManager} and
+ * Protocol compatibility tests for IETF WebTransport over HTTP/3 (Draft-16). Section 8: Security
+ * Considerations. Directly exercises application classes: {@link WebTransportSessionManager} and
  * {@link WebTransportSession}.
  */
 public class Draft16Section8SecurityConsiderationsTest {
 
   /**
-   * Section 8: Security Considerations.
-   * "A WebTransport endpoint MUST implement flow control mechanisms if it allows
-   * a WebTransport session to share the transport connection with other WebTransport sessions."
-   * MANDATORY: Test that WebTransportSessionManager and WebTransportSession enforce flow control
-   * when multiple sessions share a single transport connection to prevent resource exhaustion attacks.
+   * Section 8: Security Considerations. "A WebTransport endpoint MUST implement flow control
+   * mechanisms if it allows a WebTransport session to share the transport connection with other
+   * WebTransport sessions." MANDATORY: Test that WebTransportSessionManager and WebTransportSession
+   * enforce flow control when multiple sessions share a single transport connection to prevent
+   * resource exhaustion attacks.
    */
   @Test
   public void testSection8_FlowControlEnforcedForSharedConnectionInApplication() {
@@ -44,7 +43,8 @@ public class Draft16Section8SecurityConsiderationsTest {
     // First session reservation succeeds
     assertTrue("Single session allowed without flow control", mgr.reserveSession(mockQuic, 10));
     // Second session MUST be rejected because connection cannot be shared without flow control
-    assertFalse("Sharing transport connection MUST be rejected without flow control",
+    assertFalse(
+        "Sharing transport connection MUST be rejected without flow control",
         mgr.reserveSession(mockQuic, 10));
 
     // When flow control IS negotiated:
@@ -59,8 +59,9 @@ public class Draft16Section8SecurityConsiderationsTest {
     // Verify session stream budget tracking prevents exhaustion
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     when(mockStream.streamId()).thenReturn(0L);
-    DefaultWebTransportSession session = new DefaultWebTransportSession(
-        0L, mockStream, "/wt", 0L, 0L, 100L, 0L, 0L, 100L, true, true);
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            0L, mockStream, "/wt", 0L, 0L, 100L, 0L, 0L, 100L, true, true);
 
     assertEqualsLimit(0L, session.getSettingsMaxStreamsBidi());
   }
@@ -70,11 +71,10 @@ public class Draft16Section8SecurityConsiderationsTest {
   }
 
   /**
-   * Section 8: Security Considerations.
-   * "WebTransport endpoints SHOULD implement a fairness scheme that ensures that each
-   * session that shares a transport connection gets a reasonable share of controlled resources;
-   * this applies both to sending data and to opening new streams."
-   * OPTIONAL: Fairness scheme across sessions.
+   * Section 8: Security Considerations. "WebTransport endpoints SHOULD implement a fairness scheme
+   * that ensures that each session that shares a transport connection gets a reasonable share of
+   * controlled resources; this applies both to sending data and to opening new streams." OPTIONAL:
+   * Fairness scheme across sessions.
    */
   @Test
   public void testSection8_FairnessScheme_Optional() {
@@ -82,10 +82,9 @@ public class Draft16Section8SecurityConsiderationsTest {
   }
 
   /**
-   * Section 8: Security Considerations.
-   * "In cases when the application is untrusted, a WebTransport client SHOULD limit
-   * the number of outgoing sessions it will open."
-   * OPTIONAL: Client-side outgoing session count limits.
+   * Section 8: Security Considerations. "In cases when the application is untrusted, a WebTransport
+   * client SHOULD limit the number of outgoing sessions it will open." OPTIONAL: Client-side
+   * outgoing session count limits.
    */
   @Test
   public void testSection8_ClientSessionLimit_Optional() {
@@ -93,9 +92,8 @@ public class Draft16Section8SecurityConsiderationsTest {
   }
 
   /**
-   * Section 8: Security Considerations.
-   * "Implementations SHOULD track the use of WebTransport features, such as the number
-   * of incoming streams and datagrams, and set limits on their use."
+   * Section 8: Security Considerations. "Implementations SHOULD track the use of WebTransport
+   * features, such as the number of incoming streams and datagrams, and set limits on their use."
    * OPTIONAL: Tracking feature usage and setting limits.
    */
   @Test
@@ -104,10 +102,9 @@ public class Draft16Section8SecurityConsiderationsTest {
   }
 
   /**
-   * Section 8: Security Considerations.
-   * "An endpoint MAY treat activity that is suspicious as a connection error of type
-   * H3_EXCESSIVE_LOAD."
-   * OPTIONAL: Treating suspicious activity as H3_EXCESSIVE_LOAD.
+   * Section 8: Security Considerations. "An endpoint MAY treat activity that is suspicious as a
+   * connection error of type H3_EXCESSIVE_LOAD." OPTIONAL: Treating suspicious activity as
+   * H3_EXCESSIVE_LOAD.
    */
   @Test
   public void testSection8_ExcessiveLoadHandling_Optional() {

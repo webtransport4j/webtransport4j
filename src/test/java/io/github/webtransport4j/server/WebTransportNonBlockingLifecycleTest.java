@@ -17,9 +17,7 @@ public class WebTransportNonBlockingLifecycleTest {
   private String previousDispatchMode;
   private String previousPort;
 
-  /**
-   * Sets up test environment.
-   */
+  /** Sets up test environment. */
   @Before
   public void setUp() {
     previousDispatchMode = System.getProperty("webtransport4j.dispatch.execution.mode");
@@ -28,9 +26,7 @@ public class WebTransportNonBlockingLifecycleTest {
     System.setProperty("webtransport4j.server.port", "0");
   }
 
-  /**
-   * Tears down test environment.
-   */
+  /** Tears down test environment. */
   @After
   public void tearDown() {
     restoreProperty("webtransport4j.dispatch.execution.mode", previousDispatchMode);
@@ -74,8 +70,12 @@ public class WebTransportNonBlockingLifecycleTest {
     Path directory = Files.createTempDirectory("webtransport-startup-retry");
     Path key = directory.resolve("key.pem");
     Path certificate = directory.resolve("cert.pem");
-    WebTransportServer server = WebTransportServer.builder().port(0).transportType("nio")
-        .ssl(key.toString(), certificate.toString()).build();
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .transportType("nio")
+            .ssl(key.toString(), certificate.toString())
+            .build();
     SelfSignedCertificate tls = null;
     ExecutorService initialExecutor = server.getBusinessExecutor();
     try {
@@ -94,7 +94,8 @@ public class WebTransportNonBlockingLifecycleTest {
       ExecutorService retryExecutor = server.getBusinessExecutor();
       Assert.assertNotSame(initialExecutor, retryExecutor);
       Assert.assertFalse(retryExecutor.isShutdown());
-      Assert.assertEquals("after retry", retryExecutor.submit(() -> "after retry").get(5, TimeUnit.SECONDS));
+      Assert.assertEquals(
+          "after retry", retryExecutor.submit(() -> "after retry").get(5, TimeUnit.SECONDS));
 
       server.stop();
       Assert.assertFalse(server.isStarted());
@@ -112,8 +113,12 @@ public class WebTransportNonBlockingLifecycleTest {
 
   @Test
   public void testStartupFailureShutsDownOwnedExecutorImmediately() {
-    WebTransportServer server = WebTransportServer.builder().port(0).transportType("nio")
-        .ssl("missing-key.pem", "missing-cert.pem").build();
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .transportType("nio")
+            .ssl("missing-key.pem", "missing-cert.pem")
+            .build();
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
       Assert.assertTrue(server.getBusinessExecutor().isShutdown());
@@ -126,8 +131,13 @@ public class WebTransportNonBlockingLifecycleTest {
   @Test
   public void testCallerExecutorSurvivesFailedStartupAndExplicitStop() throws Exception {
     ExecutorService executor = Executors.newSingleThreadExecutor();
-    WebTransportServer failing = WebTransportServer.builder().port(0).transportType("nio")
-        .ssl("missing-key.pem", "missing-cert.pem").businessExecutor(executor).build();
+    WebTransportServer failing =
+        WebTransportServer.builder()
+            .port(0)
+            .transportType("nio")
+            .ssl("missing-key.pem", "missing-cert.pem")
+            .businessExecutor(executor)
+            .build();
     WebTransportServer running = new WebTransportServer(new WebTransportHandler() {}, executor);
     try {
       Assert.assertThrows(IllegalStateException.class, failing::start);
@@ -136,12 +146,12 @@ public class WebTransportNonBlockingLifecycleTest {
       Assert.assertFalse(executor.isShutdown());
       running.start();
       running.stop();
-      Assert.assertEquals("still usable", executor.submit(() -> "still usable").get(5, TimeUnit.SECONDS));
+      Assert.assertEquals(
+          "still usable", executor.submit(() -> "still usable").get(5, TimeUnit.SECONDS));
     } finally {
       failing.stop();
       running.stop();
       executor.shutdownNow();
     }
   }
-
 }

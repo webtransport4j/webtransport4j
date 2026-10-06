@@ -1,7 +1,5 @@
 package io.github.webtransport4j.server.ratelimit;
 
-import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -9,7 +7,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 
 /**
- * Lock-free, high-performance in-memory implementation of {@link RateLimitBackend} using atomic sliding minute buckets.
+ * Lock-free, high-performance in-memory implementation of {@link RateLimitBackend} using atomic
+ * sliding minute buckets.
  */
 public class LocalMemoryRateLimitBackend implements RateLimitBackend {
 

@@ -20,65 +20,78 @@ import org.slf4j.LoggerFactory;
  * @date 03/07/26 4:53 pm
  */
 public class WebTransportClientHandler extends Http3ClientConnectionHandler {
-    private static final Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
+  private static final Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
 
-    public WebTransportClientHandler() {
-        this(null, true, null);
-    }
+  public WebTransportClientHandler() {
+    this(null, true, null);
+  }
 
-    public WebTransportClientHandler(
-            Http3SettingsFrame localSettings, boolean disableQpackDynamicTable) {
-        this(localSettings,
-                disableQpackDynamicTable, null);
-    }
+  /** Creates a client handler with the supplied HTTP/3 settings. */
+  public WebTransportClientHandler(
+      Http3SettingsFrame localSettings, boolean disableQpackDynamicTable) {
+    this(localSettings, disableQpackDynamicTable, null);
+  }
 
-    public WebTransportClientHandler(Http3SettingsFrame localSettings, boolean disableQpackDynamicTable,
-                                     Http3Settings.NonStandardHttp3SettingsValidator
-                                             nonStandardSettingsValidator) {
-        super(null, null, new UnknownStreamHandlerFactory(), localSettings,
-                disableQpackDynamicTable, nonStandardSettingsValidator);
-    }
+  /** Creates a client handler with the supplied HTTP/3 settings and validator. */
+  public WebTransportClientHandler(
+      Http3SettingsFrame localSettings,
+      boolean disableQpackDynamicTable,
+      Http3Settings.NonStandardHttp3SettingsValidator nonStandardSettingsValidator) {
+    super(
+        null,
+        null,
+        new UnknownStreamHandlerFactory(),
+        localSettings,
+        disableQpackDynamicTable,
+        nonStandardSettingsValidator);
+  }
 
-    @Override
-    protected void initBidirectionalStream(ChannelHandlerContext ctx,
-                                           QuicStreamChannel channel) {
-        logger.info("Initializing bidirectional stream {}", channel.streamId());
+  @Override
+  protected void initBidirectionalStream(ChannelHandlerContext ctx, QuicStreamChannel channel) {
+    logger.info("Initializing bidirectional stream {}", channel.streamId());
 
-        channel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-            @Override
-            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    channel
+        .pipeline()
+        .addLast(
+            new ChannelInboundHandlerAdapter() {
+              @Override
+              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                 if (msg instanceof ByteBuf && logger.isDebugEnabled()) {
-                    ByteBuf buf = (ByteBuf) msg;
-                    logger.debug("=== BIDI STREAM {} ===", channel.streamId());
-                    logger.debug(ByteBufUtil.prettyHexDump(buf));
-                    logger.debug("ASCII: {}",
-                            buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
+                  ByteBuf buf = (ByteBuf) msg;
+                  logger.debug("=== BIDI STREAM {} ===", channel.streamId());
+                  logger.debug(ByteBufUtil.prettyHexDump(buf));
+                  logger.debug(
+                      "ASCII: {}",
+                      buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
 
                 ctx.fireChannelRead(msg);
-            }
-        });
-    }
+              }
+            });
+  }
 
-    @Override
-    protected void initUnidirectionalStream(ChannelHandlerContext ctx,
-                                            QuicStreamChannel streamChannel) {
-        logger.info("Initializing unidirectional stream {}", streamChannel.streamId());
+  @Override
+  protected void initUnidirectionalStream(
+      ChannelHandlerContext ctx, QuicStreamChannel streamChannel) {
+    logger.info("Initializing unidirectional stream {}", streamChannel.streamId());
 
-        streamChannel.pipeline().addLast(new ChannelInboundHandlerAdapter() {
-            @Override
-            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+    streamChannel
+        .pipeline()
+        .addLast(
+            new ChannelInboundHandlerAdapter() {
+              @Override
+              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
                 if (msg instanceof ByteBuf && logger.isDebugEnabled()) {
-                    ByteBuf buf = (ByteBuf) msg;
-                    logger.debug("=== UNI STREAM {} ===", streamChannel.streamId());
-                    logger.debug(ByteBufUtil.prettyHexDump(buf));
-                    logger.debug("ASCII: {}",
-                            buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
+                  ByteBuf buf = (ByteBuf) msg;
+                  logger.debug("=== UNI STREAM {} ===", streamChannel.streamId());
+                  logger.debug(ByteBufUtil.prettyHexDump(buf));
+                  logger.debug(
+                      "ASCII: {}",
+                      buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
                 }
 
                 ctx.fireChannelRead(msg);
-            }
-        });
-    }
-
+              }
+            });
+  }
 }

@@ -183,8 +183,13 @@ public class IpRateLimitingHandlerTest {
     WebTransportConfig.reload();
 
     try {
-      assertFalse(WebTransportConfig.getBoolean("webtransport4j.server.ratelimit.dynamic_reload.enabled", true));
-      assertEquals(45, WebTransportConfig.getInt("webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10));
+      assertFalse(
+          WebTransportConfig.getBoolean(
+              "webtransport4j.server.ratelimit.dynamic_reload.enabled", true));
+      assertEquals(
+          45,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.dynamic_reload.interval_secs", 10));
     } finally {
       System.clearProperty("webtransport4j.server.ratelimit.dynamic_reload.enabled");
       System.clearProperty("webtransport4j.server.ratelimit.dynamic_reload.interval_secs");
@@ -194,7 +199,8 @@ public class IpRateLimitingHandlerTest {
 
   @Test
   public void testSharedRateLimitRulesIncrementalReuse() throws Exception {
-    Class<?> rulesClass = Class.forName("io.github.webtransport4j.server.IpRateLimitingHandler$SharedRateLimitRules");
+    Class<?> rulesClass =
+        Class.forName("io.github.webtransport4j.server.IpRateLimitingHandler$SharedRateLimitRules");
     Constructor<?> defaultCtor = rulesClass.getDeclaredConstructor();
     defaultCtor.setAccessible(true);
     Constructor<?> paramCtor = rulesClass.getDeclaredConstructor(rulesClass);

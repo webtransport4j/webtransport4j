@@ -13,8 +13,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * Unit tests for {@link WebTransportSessionManager} session lifecycle, bulk cleanup,
- * and global session counter management under connection teardown.
+ * Unit tests for {@link WebTransportSessionManager} session lifecycle, bulk cleanup, and global
+ * session counter management under connection teardown.
  */
 public class WebTransportSessionManagerTest {
 
@@ -106,7 +106,8 @@ public class WebTransportSessionManagerTest {
     AtomicInteger globalSlots = new AtomicInteger(1);
     io.netty.util.Attribute<AtomicInteger> slotsAttr = Mockito.mock(io.netty.util.Attribute.class);
     when(slotsAttr.get()).thenReturn(globalSlots);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS))
+        .thenReturn(slotsAttr);
 
     assertTrue(sessionManager.reserveSession(1));
     assertFalse(sessionManager.reserveSession(1));
@@ -144,7 +145,8 @@ public class WebTransportSessionManagerTest {
     AtomicInteger globalSlots = new AtomicInteger(0);
     io.netty.util.Attribute<AtomicInteger> slotsAttr = Mockito.mock(io.netty.util.Attribute.class);
     when(slotsAttr.get()).thenReturn(globalSlots);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS))
+        .thenReturn(slotsAttr);
 
     QuicStreamChannel[] streams = new QuicStreamChannel[3];
     for (int i = 0; i < 3; i++) {
@@ -184,7 +186,8 @@ public class WebTransportSessionManagerTest {
     AtomicInteger globalSlots = new AtomicInteger(0);
     io.netty.util.Attribute<AtomicInteger> slotsAttr = Mockito.mock(io.netty.util.Attribute.class);
     when(slotsAttr.get()).thenReturn(globalSlots);
-    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS)).thenReturn(slotsAttr);
+    when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_SLOTS))
+        .thenReturn(slotsAttr);
 
     QuicStreamChannel[] streams = new QuicStreamChannel[4];
     for (int i = 0; i < 4; i++) {

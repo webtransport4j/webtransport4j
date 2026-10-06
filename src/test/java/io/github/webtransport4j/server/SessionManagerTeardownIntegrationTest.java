@@ -39,8 +39,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Unmocked Integration test verifying real QUIC connection teardown,
- * session unregistration, and active session count decrementing across back-to-back runs.
+ * Unmocked Integration test verifying real QUIC connection teardown, session unregistration, and
+ * active session count decrementing across back-to-back runs.
  */
 public class SessionManagerTeardownIntegrationTest {
 
@@ -61,36 +61,37 @@ public class SessionManagerTeardownIntegrationTest {
     sessionsOpenedCount.set(0);
     sessionsClosedCount.set(0);
 
-    WebTransportHandler testHandler = new WebTransportHandler() {
-      @Override
-      public void onSessionReady(@NonNull WebTransportSession session) {
-        sessionsOpenedCount.incrementAndGet();
-      }
+    WebTransportHandler testHandler =
+        new WebTransportHandler() {
+          @Override
+          public void onSessionReady(@NonNull WebTransportSession session) {
+            sessionsOpenedCount.incrementAndGet();
+          }
 
-      @Override
-      public void onSessionClosed(@NonNull WebTransportSession session) {
-        sessionsClosedCount.incrementAndGet();
-      }
-    };
+          @Override
+          public void onSessionClosed(@NonNull WebTransportSession session) {
+            sessionsClosedCount.incrementAndGet();
+          }
+        };
 
-    server = WebTransportServer.builder()
-        .port(0) // Random port
-        .handler("/", testHandler)
-        .build();
+    server =
+        WebTransportServer.builder()
+            .port(0) // Random port
+            .handler("/", testHandler)
+            .build();
 
     server.start();
     port = server.getPort();
 
     clientGroup = new NioEventLoopGroup(2);
-    clientSslContext = QuicSslContextBuilder.forClient()
-        .trustManager(InsecureTrustManagerFactory.INSTANCE)
-        .applicationProtocols(Http3.supportedApplicationProtocols())
-        .build();
+    clientSslContext =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .build();
   }
 
-  /**
-   * Shuts down client event loop group after test execution.
-   */
+  /** Shuts down client event loop group after test execution. */
   @After
   public void tearDown() {
     if (clientGroup != null) {
@@ -107,66 +108,96 @@ public class SessionManagerTeardownIntegrationTest {
     AtomicReference<String> status = new AtomicReference<>();
     StringBuilder body = new StringBuilder();
 
-    Channel udpChannel = new Bootstrap()
-        .group(clientGroup)
-        .channel(NioDatagramChannel.class)
-        .handler(Http3.newQuicClientCodecBuilder()
-            .sslContext(clientSslContext)
-            .maxIdleTimeout(5, TimeUnit.SECONDS)
-            .initialMaxData(10000000)
-            .initialMaxStreamDataBidirectionalLocal(1000000)
-            .initialMaxStreamDataBidirectionalRemote(1000000)
-            .initialMaxStreamsBidirectional(100)
-            .initialMaxStreamsUnidirectional(100)
-            .build())
-        .bind(0).sync().channel();
+    Channel udpChannel =
+        new Bootstrap()
+            .group(clientGroup)
+            .channel(NioDatagramChannel.class)
+            .handler(
+                Http3.newQuicClientCodecBuilder()
+                    .sslContext(clientSslContext)
+                    .maxIdleTimeout(5, TimeUnit.SECONDS)
+                    .initialMaxData(10000000)
+                    .initialMaxStreamDataBidirectionalLocal(1000000)
+                    .initialMaxStreamDataBidirectionalRemote(1000000)
+                    .initialMaxStreamsBidirectional(100)
+                    .initialMaxStreamsUnidirectional(100)
+                    .build())
+            .bind(0)
+            .sync()
+            .channel();
 
     try {
       Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      QuicChannel quicChannel = QuicChannel.newBootstrap(udpChannel)
-          .handler(new ChannelInitializer<QuicChannel>() {
-            @Override
-            protected void initChannel(QuicChannel channel) {
-              channel.pipeline().addLast(new Http3ClientConnectionHandler(
-                  null, null, new UnknownStreamHandlerFactory(),
-                  new DefaultHttp3SettingsFrame(settings), false, (id, value) -> true));
-            }
-          })
-          .remoteAddress(new InetSocketAddress("127.0.0.1", port))
-          .connect().get(5, TimeUnit.SECONDS);
+      QuicChannel quicChannel =
+          QuicChannel.newBootstrap(udpChannel)
+              .handler(
+                  new ChannelInitializer<QuicChannel>() {
+                    @Override
+                    protected void initChannel(QuicChannel channel) {
+                      channel
+                          .pipeline()
+                          .addLast(
+                              new Http3ClientConnectionHandler(
+                                  null,
+                                  null,
+                                  new UnknownStreamHandlerFactory(),
+                                  new DefaultHttp3SettingsFrame(settings),
+                                  false,
+                                  (id, value) -> true));
+                    }
+                  })
+              .remoteAddress(new InetSocketAddress("127.0.0.1", port))
+              .connect()
+              .get(5, TimeUnit.SECONDS);
       try {
-        QuicStreamChannel stream = Http3.newRequestStream(quicChannel,
-            new ChannelInitializer<QuicStreamChannel>() {
-              @Override
-              protected void initChannel(QuicStreamChannel channel) {
-                channel.config().setAllowHalfClosure(true);
-                channel.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
-                  @Override
-                  protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                    if (msg instanceof Http3HeadersFrame) {
-                      status.set(((Http3HeadersFrame) msg).headers().status().toString());
-                    } else if (msg instanceof Http3DataFrame) {
-                      body.append(((Http3DataFrame) msg).content().toString(StandardCharsets.UTF_8));
-                    }
-                  }
+        QuicStreamChannel stream =
+            Http3.newRequestStream(
+                    quicChannel,
+                    new ChannelInitializer<QuicStreamChannel>() {
+                      @Override
+                      protected void initChannel(QuicStreamChannel channel) {
+                        channel.config().setAllowHalfClosure(true);
+                        channel
+                            .pipeline()
+                            .addLast(
+                                new SimpleChannelInboundHandler<Object>() {
+                                  @Override
+                                  protected void channelRead0(
+                                      ChannelHandlerContext ctx, Object msg) {
+                                    if (msg instanceof Http3HeadersFrame) {
+                                      status.set(
+                                          ((Http3HeadersFrame) msg).headers().status().toString());
+                                    } else if (msg instanceof Http3DataFrame) {
+                                      body.append(
+                                          ((Http3DataFrame) msg)
+                                              .content()
+                                              .toString(StandardCharsets.UTF_8));
+                                    }
+                                  }
 
-                  @Override
-                  public void userEventTriggered(ChannelHandlerContext ctx, Object event) {
-                    if (event instanceof ChannelInputShutdownEvent) {
-                      responseFin.countDown();
-                    }
-                  }
-                });
-              }
-            }).get(5, TimeUnit.SECONDS);
+                                  @Override
+                                  public void userEventTriggered(
+                                      ChannelHandlerContext ctx, Object event) {
+                                    if (event instanceof ChannelInputShutdownEvent) {
+                                      responseFin.countDown();
+                                    }
+                                  }
+                                });
+                      }
+                    })
+                .get(5, TimeUnit.SECONDS);
         try {
           Http3Headers headers = new DefaultHttp3Headers();
           headers.method("GET").scheme("https").authority("127.0.0.1:" + port).path("/");
-          stream.writeAndFlush(new DefaultHttp3HeadersFrame(headers))
-              .addListener(QuicStreamChannel.SHUTDOWN_OUTPUT).sync();
-          assertTrue("GET response FIN must arrive after request FIN", responseFin.await(5, TimeUnit.SECONDS));
+          stream
+              .writeAndFlush(new DefaultHttp3HeadersFrame(headers))
+              .addListener(QuicStreamChannel.SHUTDOWN_OUTPUT)
+              .sync();
+          assertTrue(
+              "GET response FIN must arrive after request FIN",
+              responseFin.await(5, TimeUnit.SECONDS));
           assertEquals("200", status.get());
           assertEquals("Hello HTTP/3", body.toString());
         } finally {
@@ -185,60 +216,72 @@ public class SessionManagerTeardownIntegrationTest {
     for (int run = 1; run <= 3; run++) {
       CountDownLatch responseLatch = new CountDownLatch(1);
 
-      Channel udpChannel = new Bootstrap()
-          .group(clientGroup)
-          .channel(NioDatagramChannel.class)
-          .handler(Http3.newQuicClientCodecBuilder()
-              .sslContext(clientSslContext)
-              .maxIdleTimeout(5, TimeUnit.SECONDS)
-              .initialMaxData(10000000)
-              .initialMaxStreamDataBidirectionalLocal(1000000)
-              .initialMaxStreamDataBidirectionalRemote(1000000)
-              .initialMaxStreamsBidirectional(100)
-              .initialMaxStreamsUnidirectional(100)
-              .build())
-          .bind(0)
-          .sync()
-          .channel();
+      Channel udpChannel =
+          new Bootstrap()
+              .group(clientGroup)
+              .channel(NioDatagramChannel.class)
+              .handler(
+                  Http3.newQuicClientCodecBuilder()
+                      .sslContext(clientSslContext)
+                      .maxIdleTimeout(5, TimeUnit.SECONDS)
+                      .initialMaxData(10000000)
+                      .initialMaxStreamDataBidirectionalLocal(1000000)
+                      .initialMaxStreamDataBidirectionalRemote(1000000)
+                      .initialMaxStreamsBidirectional(100)
+                      .initialMaxStreamsUnidirectional(100)
+                      .build())
+              .bind(0)
+              .sync()
+              .channel();
 
       try {
         Http3Settings settings = new Http3Settings((id, value) -> true);
         settings.enableConnectProtocol(true);
         settings.enableH3Datagram(true);
 
-        QuicChannel quicChannel = QuicChannel.newBootstrap(udpChannel)
-            .handler(new ChannelInitializer<QuicChannel>() {
-              @Override
-              protected void initChannel(QuicChannel channel) {
-                channel.pipeline().addLast(
-                    new Http3ClientConnectionHandler(
-                        null,
-                        null,
-                        new UnknownStreamHandlerFactory(),
-                        new DefaultHttp3SettingsFrame(settings),
-                        false,
-                        (id, value) -> true));
-              }
-            })
-            .remoteAddress(new InetSocketAddress("127.0.0.1", port))
-            .connect()
-            .get(5, TimeUnit.SECONDS);
+        QuicChannel quicChannel =
+            QuicChannel.newBootstrap(udpChannel)
+                .handler(
+                    new ChannelInitializer<QuicChannel>() {
+                      @Override
+                      protected void initChannel(QuicChannel channel) {
+                        channel
+                            .pipeline()
+                            .addLast(
+                                new Http3ClientConnectionHandler(
+                                    null,
+                                    null,
+                                    new UnknownStreamHandlerFactory(),
+                                    new DefaultHttp3SettingsFrame(settings),
+                                    false,
+                                    (id, value) -> true));
+                      }
+                    })
+                .remoteAddress(new InetSocketAddress("127.0.0.1", port))
+                .connect()
+                .get(5, TimeUnit.SECONDS);
 
-        final QuicStreamChannel connectStream = Http3.newRequestStream(
-            quicChannel,
-            new ChannelInitializer<QuicStreamChannel>() {
-              @Override
-              protected void initChannel(QuicStreamChannel channel) {
-                channel.pipeline().addLast(new SimpleChannelInboundHandler<Object>() {
-                  @Override
-                  protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-                    if (msg instanceof Http3HeadersFrame) {
-                      responseLatch.countDown();
-                    }
-                  }
-                });
-              }
-            }).get(5, TimeUnit.SECONDS);
+        final QuicStreamChannel connectStream =
+            Http3.newRequestStream(
+                    quicChannel,
+                    new ChannelInitializer<QuicStreamChannel>() {
+                      @Override
+                      protected void initChannel(QuicStreamChannel channel) {
+                        channel
+                            .pipeline()
+                            .addLast(
+                                new SimpleChannelInboundHandler<Object>() {
+                                  @Override
+                                  protected void channelRead0(
+                                      ChannelHandlerContext ctx, Object msg) {
+                                    if (msg instanceof Http3HeadersFrame) {
+                                      responseLatch.countDown();
+                                    }
+                                  }
+                                });
+                      }
+                    })
+                .get(5, TimeUnit.SECONDS);
 
         // Send CONNECT request headers
         Http3Headers headers = new DefaultHttp3Headers();
@@ -250,7 +293,8 @@ public class SessionManagerTeardownIntegrationTest {
         connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
         // Wait for response headers (handshake)
-        assertTrue("Handshake response headers must be received for run " + run,
+        assertTrue(
+            "Handshake response headers must be received for run " + run,
             responseLatch.await(5, TimeUnit.SECONDS));
 
         // Verify active session count on server == 1
@@ -258,8 +302,10 @@ public class SessionManagerTeardownIntegrationTest {
         while (server.getActiveSessionCount() == 0 && System.currentTimeMillis() < deadline) {
           Thread.sleep(50);
         }
-        assertEquals("Server active sessions must be 1 during session for run " + run,
-            1, server.getActiveSessionCount());
+        assertEquals(
+            "Server active sessions must be 1 during session for run " + run,
+            1,
+            server.getActiveSessionCount());
 
         // Forcefully close client connection
         quicChannel.close().sync();
@@ -270,8 +316,10 @@ public class SessionManagerTeardownIntegrationTest {
           Thread.sleep(50);
         }
 
-        assertEquals("Server active session count must return to 0 after connection teardown for run " + run,
-            0, server.getActiveSessionCount());
+        assertEquals(
+            "Server active session count must return to 0 after connection teardown for run " + run,
+            0,
+            server.getActiveSessionCount());
       } finally {
         udpChannel.close();
       }
