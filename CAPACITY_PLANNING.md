@@ -13,26 +13,23 @@ $$\text{Total RAM} = \text{Heap} + \text{DirectMemory} + \text{NativeOS}$$
 
 Where:
 - **Heap Memory**: Approximately **16 KB to 32 KB per active session** for Java object graphs (`WebTransportSession`, `Http3Headers`, capsule state, routing tables).
-- **Pending Datagram Mailbox Payload**: One `DatagramMailbox` is created per active QUIC connection using the business executor, shared by that connection's sessions. For queued payloads no larger than an assumed `DatagramMTU`:
-  $$\text{PendingMailboxPayload} \le N_{\text{connections}} \times \text{MailboxCapacity} \times \text{DatagramMTU}$$
-  With capacity 1024 and a 1252-byte payload sizing assumption, a full mailbox holds up to 1,282,048 bytes (1.223 MiB) of queued payload. Count this against direct memory when the inbound `ByteBuf` is direct, or heap when it is heap-backed. `WebTransportDatagramDecoder` retains a slice of the incoming buffer; the mailbox does not select or change its allocation type.
-- **Other Buffer Storage**: Budget separately for an in-flight datagram per mailbox, stream queues, transport buffers, allocator overhead and pooled memory. Retained slices may keep a larger backing allocation alive, so the payload formula is not a bound on allocated memory. Flow-control windows describe protocol credit, not necessarily allocated buffer bytes.
+- **Pending Datagram Mailbox Payload**: `DatagramMailbox` is created per QUIC connection, not per session. For a mailbox capacity `C` and payload sizing assumption `M`:
+  $$\text{PendingMailboxPayload} \le N_{\text{connections}} \times C \times M$$
+  With the current defaults (`C = 1024`, `M = 1252` bytes), a full mailbox holds 1,282,048 bytes (1.223 MiB) of queued payload. Count it against direct memory only when the inbound `ByteBuf` is direct; the decoder preserves the allocator type. Also budget for in-flight frames, stream queues, transport buffers, pooled allocator overhead and retained backing allocations.
 - **Native Quiche / BoringSSL Contexts**: Approximately **24 KB to 48 KB per QUIC connection** allocated directly by the C native library.
 
 ---
 
 ## 2. Cluster Node Sizing Matrix
 
-These illustrative memory budgets assume **one session per connection**, capacity 1024, full datagram mailboxes and the 1252-byte payload assumption above. They conservatively charge queued payloads to direct memory; verify the actual allocator and retained backing-buffer sizes in your deployment. Multiple sessions on one connection share its mailbox. Heap and native-state estimates above are planning assumptions, not measured guarantees.
+| Concurrent Sessions / Connections* | vCPU Cores | JVM Heap (`-Xmx`) | Direct Memory Budget (`-XX:MaxDirectMemorySize`) | Total Node RAM | Est. Network Throughput |
+|---|---|---|---|---|---|
+| **1,000** (Edge / Dev) | 2 vCPU | 512 MB | 2 GB | 4 GB | Load-test required |
+| **10,000** (Standard Pod) | 4 to 8 vCPU | 2 GB | 16 GB | 24 GB | Load-test required |
+| **40,000** (current default ceiling) | 16 vCPU | 8 GB | 64 GB | 80 GB | Load-test required |
+| **100,000** (custom limit) | 32+ vCPU | 16 GB | 160 GB | 192 GB | Load-test required |
 
-| Concurrent Sessions / Connections | JVM Heap (`-Xmx`) | Full Mailbox Payload (GiB) | Direct Memory Budget (`-XX:MaxDirectMemorySize`) | Total Node RAM Budget |
-|---|---|---|---|---|
-| **1,000** | 512 MiB | 1.19 | 2 GiB | 4 GiB |
-| **10,000** | 2 GiB | 11.94 | 16 GiB | 24 GiB |
-| **50,000** | 8 GiB | 59.70 | 80 GiB | 96 GiB |
-| **100,000** | 16 GiB | 119.40 | 160 GiB | 192 GiB |
-
-The remaining budget must cover other buffers, heap, native QUIC/TLS allocations and OS memory. These budgets do not establish CPU or throughput capacity. Measure peak resident memory, buffer backing type, queue occupancy and processing latency under representative load. Reduce mailbox capacity or connections per node if the measured budget does not fit.
+\* The mailbox term is per connection. These rows conservatively assume one session per connection, a full 1024-entry mailbox and 1252-byte payloads; multiple sessions sharing one connection use one mailbox.
 
 ---
 
@@ -45,10 +42,10 @@ The remaining budget must cover other buffers, heap, native QUIC/TLS allocations
   resources:
     requests:
       cpu: "4000m"
-      memory: "20Gi"
+      memory: "6Gi"
     limits:
       cpu: "8000m"
-      memory: "24Gi"
+      memory: "8Gi"
   ```
 - **JVM Configuration**:
   ```bash
@@ -71,14 +68,14 @@ The remaining budget must cover other buffers, heap, native QUIC/TLS allocations
   resources:
     requests:
       cpu: "12000m"
-      memory: "88Gi"
+      memory: "24Gi"
     limits:
       cpu: "16000m"
-      memory: "96Gi"
+      memory: "32Gi"
   ```
 - **JVM Configuration**:
   ```bash
-  -Xms8g -Xmx8g -XX:MaxDirectMemorySize=80g
+  -Xms8g -Xmx8g -XX:MaxDirectMemorySize=64g
   -XX:+UseZGC -XX:+ZGenerational
   ```
 - **OS Kernel Sizing (`/etc/sysctl.conf`)**:
@@ -94,7 +91,7 @@ The remaining budget must cover other buffers, heap, native QUIC/TLS allocations
 
 ### Tier 3: 100,000 Concurrent Sessions (Mega Carrier-Grade Node)
 - **Use Case**: Telecom gateway, central regional hub, or massive multiplayer online (MMO) backend.
-- **Hardware Profile**: A node with at least 192 GiB RAM for this illustrative buffer budget; size CPU and NIC throughput from load tests.
+- **Hardware Profile**: Bare-metal or c6i.8xlarge / c7g.8xlarge EC2 instance.
 - **JVM Configuration**:
   ```bash
   -Xms16g -Xmx16g -XX:MaxDirectMemorySize=160g
@@ -119,4 +116,4 @@ QUIC and WebTransport datagrams incur UDP kernel packet processing overhead:
   ```bash
   ethtool -L eth0 combined 8
   ```
-- **UDP Socket Tuning**: Enable `webtransport4j.server.socket.autotune=true` to request larger kernel buffers up to detected Linux limits. Explicit `socket.rcvbuf` and `socket.sndbuf` settings take precedence independently; raise OS limits when they are below the target. The kernel determines the actual buffer size, and tuning does not guarantee freedom from packet drops.
+- **UDP Socket Tuning**: Enable `webtransport4j.server.socket.autotune=true` to request buffers up to detected OS limits. Explicit `socket.rcvbuf` and `socket.sndbuf` settings take precedence independently; raise Linux `rmem_max`/`wmem_max` when below the target. Tuning does not guarantee zero packet loss.

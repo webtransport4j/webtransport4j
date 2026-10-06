@@ -23,6 +23,6 @@ We introduced multi-layered overload protection and admission control:
 ## Consequences
 
 ### Positive
-- **Graceful Degradation**: Protects the server process from crashing; rejects new sessions with HTTP 503, includes a retry delay when supplied by the policy, and closes the CONNECT stream.
+- **Graceful Degradation**: Protects the server process from crashing; rejects new sessions with HTTP 503, includes a retry delay when supplied, and closes the CONNECT stream.
 - **Fair QoS Delivery**: Urgent telemetry and control datagrams preempt bulk background datagrams under congestion.
 - **Standard Protocol Compliance**: Employs standard HTTP/3 status codes and headers.

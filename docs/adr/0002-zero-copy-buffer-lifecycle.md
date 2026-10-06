@@ -11,7 +11,7 @@ We enforce a strict single-ownership transfer model across the framework:
 1. **Inbound Streams & Datagrams**:
    - Inbound payloads preserve the allocation type of their underlying `ByteBuf`; direct buffers keep payload contents off heap.
    - For datagrams, `DatagramMailbox` increments the reference count (`retain()`) upon acceptance into the queue and releases it (`release()`) after dispatch to the worker thread.
-   - A new datagram rejected before enqueue is discarded without retention; its original reference remains caller-owned. A high-priority arrival may instead evict an already-enqueued normal-priority datagram; the mailbox releases the reference it retained for that evicted frame. The caller remains responsible for its original reference in both cases.
+   - A datagram rejected before enqueue remains caller-owned. If a high-priority arrival evicts an already-enqueued normal-priority frame, the mailbox releases only the reference it retained for that queued frame; any caller that still holds the original reference remains responsible for releasing it.
 2. **Buffer Interface Abstraction**:
    - Application handlers receive `WebTransportBuffer`, wrapping underlying `ByteBuf` or JDK 22+ `MemorySegment` (via Multi-Release JAR).
    - Calling `buffer.release()` decrements the underlying count and returns memory to the Netty pooled allocator.
@@ -20,7 +20,7 @@ We enforce a strict single-ownership transfer model across the framework:
 
 ### Positive
 - **Zero Heap Copying**: Direct off-heap buffers pass straight from network socket to application logic.
-- **Reduced Heap-Allocation Pressure**: Direct buffers can avoid heap copies of payload contents. Buffer wrappers, queue nodes and application processing can still allocate heap objects and trigger young-generation GC.
+- **Reduced Heap-Allocation Pressure**: Direct buffers can avoid heap copies, but wrappers, queue nodes and application processing may still allocate heap objects and trigger GC.
 - **Auditable via Leak Detection**: Fully compatible with `-Dio.netty.leakDetection.level=PARANOID`.
 
 ### Negative / Trade-offs
