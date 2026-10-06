@@ -1,5 +1,6 @@
 package io.github.webtransport4j.cluster;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,7 +25,7 @@ public class LocalClusterBroadcastBridge implements ClusterBroadcastBridge {
     if (topicListeners != null) {
       for (Consumer<byte[]> listener : topicListeners) {
         try {
-          listener.accept(payload);
+          listener.accept(Arrays.copyOf(payload, payload.length));
         } catch (Exception ignored) {
           // Prevent listener exceptions from breaking publisher
         }
@@ -37,9 +38,21 @@ public class LocalClusterBroadcastBridge implements ClusterBroadcastBridge {
       @NonNull String topic, @NonNull Consumer<byte[]> listener) {
     Objects.requireNonNull(topic, "topic must not be null");
     Objects.requireNonNull(listener, "listener must not be null");
-    final List<Consumer<byte[]>> topicListeners =
-        listeners.computeIfAbsent(topic, k -> new CopyOnWriteArrayList<>());
-    topicListeners.add(listener);
-    return () -> topicListeners.remove(listener);
+    final Consumer<byte[]> registration = payload -> listener.accept(payload);
+    listeners.compute(
+        topic,
+        (key, topicListeners) -> {
+          final List<Consumer<byte[]>> current =
+              topicListeners == null ? new CopyOnWriteArrayList<>() : topicListeners;
+          current.add(registration);
+          return current;
+        });
+    return () ->
+        listeners.computeIfPresent(
+            topic,
+            (key, topicListeners) -> {
+              topicListeners.remove(registration);
+              return topicListeners.isEmpty() ? null : topicListeners;
+            });
   }
 }

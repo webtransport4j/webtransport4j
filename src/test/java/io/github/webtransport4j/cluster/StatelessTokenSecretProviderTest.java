@@ -2,6 +2,7 @@ package io.github.webtransport4j.cluster;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -28,6 +29,16 @@ public class StatelessTokenSecretProviderTest {
     assertEquals(2, valid.size());
     assertArrayEquals(key1, valid.get(0));
     assertArrayEquals(key2, valid.get(1));
+    valid.get(0)[0] = 9;
+    valid.get(1)[0] = 9;
+    assertArrayEquals(key1, provider.getValidationSecrets().get(0));
+    assertArrayEquals(key2, provider.getValidationSecrets().get(1));
+    try {
+      valid.clear();
+      fail("validation secrets must be unmodifiable");
+    } catch (UnsupportedOperationException expected) {
+      // expected
+    }
   }
 
   @Test

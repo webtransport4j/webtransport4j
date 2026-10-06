@@ -1,11 +1,15 @@
 package io.github.webtransport4j.cluster;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 import org.junit.Test;
 
 /**
@@ -51,5 +55,53 @@ public class ClusterBroadcastBridgeTest {
       assertEquals("v1.0", sub1.get(0));
       assertEquals("v1.0", sub2.get(0));
     }
+  }
+
+  @Test
+  public void testSubscribersReceiveIndependentPayloadCopies() throws Exception {
+    final LocalClusterBroadcastBridge bridge = new LocalClusterBroadcastBridge();
+    final List<byte[]> received = new ArrayList<>();
+    byte[] published = new byte[] {1, 2, 3};
+    try (AutoCloseable ignored1 = bridge.subscribe("updates", payload -> {
+      payload[0] = 9;
+      received.add(payload);
+    });
+        AutoCloseable ignored2 = bridge.subscribe("updates", received::add)) {
+      bridge.publish("updates", published);
+    }
+    assertArrayEquals(new byte[] {1, 2, 3}, published);
+    assertArrayEquals(new byte[] {9, 2, 3}, received.get(0));
+    assertArrayEquals(new byte[] {1, 2, 3}, received.get(1));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testClosingLastSubscriberRemovesTopic() throws Exception {
+    final LocalClusterBroadcastBridge bridge = new LocalClusterBroadcastBridge();
+    AutoCloseable subscription = bridge.subscribe("temporary", payload -> {});
+    subscription.close();
+
+    Field field = LocalClusterBroadcastBridge.class.getDeclaredField("listeners");
+    field.setAccessible(true);
+    Map<String, ?> listeners = (Map<String, ?>) field.get(bridge);
+    assertEquals(0, listeners.size());
+  }
+
+  @Test
+  public void testRepeatedListenerSubscriptionsHaveIndependentHandles() throws Exception {
+    final LocalClusterBroadcastBridge bridge = new LocalClusterBroadcastBridge();
+    final List<String> received = new ArrayList<>();
+    Consumer<byte[]> listener = payload -> received.add("received");
+    AutoCloseable first = bridge.subscribe("duplicate", listener);
+    final AutoCloseable second = bridge.subscribe("duplicate", listener);
+
+    first.close();
+    first.close();
+    bridge.publish("duplicate", new byte[] {1});
+    assertEquals(1, received.size());
+
+    second.close();
+    bridge.publish("duplicate", new byte[] {2});
+    assertEquals(1, received.size());
   }
 }

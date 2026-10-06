@@ -55,6 +55,10 @@ public class StaticTokenSecretProvider implements StatelessTokenSecretProvider {
 
   @Override
   public @NonNull List<byte[]> getValidationSecrets() {
-    return validationSecrets;
+    final List<byte[]> copies = new ArrayList<>(validationSecrets.size());
+    for (byte[] secret : validationSecrets) {
+      copies.add(Arrays.copyOf(secret, secret.length));
+    }
+    return Collections.unmodifiableList(copies);
   }
 }
