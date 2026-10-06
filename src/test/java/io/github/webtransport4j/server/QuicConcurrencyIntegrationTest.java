@@ -9,6 +9,8 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientHandler;
+import io.github.webtransport4j.resilience.AdaptiveOverloadProtectionPolicy;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -182,6 +184,61 @@ public class QuicConcurrencyIntegrationTest {
     }
   }
 
+  @Test(timeout = 30000)
+  public void admittedSessionReleasesOverloadPermitOnDisconnect() throws Exception {
+    SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
+    OverloadProtectionPolicy policy = org.mockito.Mockito.mock(OverloadProtectionPolicy.class);
+    org.mockito.Mockito.when(policy.tryAcquire(org.mockito.ArgumentMatchers.anyInt()))
+        .thenReturn(OverloadProtectionPolicy.AdmissionResult.allowed());
+    try (WebTransportServer server = WebTransportServer.builder()
+        .port(0)
+        .sslContext(context(certificate))
+        .overloadProtectionPolicy(policy)
+        .defaultHandler(new WebTransportHandler() {})
+        .build()) {
+      server.start();
+      try (Client client = new Client(server.getPort(), certificate)) {
+        assertTrue(client.quic.isActive());
+        org.mockito.Mockito.verify(policy).tryAcquire(0);
+      }
+      org.mockito.Mockito.verify(policy, org.mockito.Mockito.timeout(5000)).release();
+    } finally {
+      certificate.delete();
+    }
+  }
+
+  @Test(timeout = 30000)
+  public void adaptiveCapacityAdmitsConfiguredMaximumAndRecoversAfterDisconnect() throws Exception {
+    SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
+    CountDownLatch released = new CountDownLatch(1);
+    AdaptiveOverloadProtectionPolicy policy = new AdaptiveOverloadProtectionPolicy(1.0, 1, 5);
+    try (WebTransportServer server = WebTransportServer.builder()
+        .port(0)
+        .transportType("nio")
+        .sslContext(context(certificate))
+        .overloadProtectionPolicy(policy)
+        .defaultHandler(new WebTransportHandler() {
+          public void onSessionClosed(WebTransportSession session) {
+            released.countDown();
+          }
+        })
+        .build()) {
+      server.start();
+      try (Client first = new Client(server.getPort(), certificate)) {
+        assertTrue(first.connect.isActive());
+        try (Client rejected = new Client(server.getPort(), certificate, "503")) {
+          assertEquals("5", rejected.retryAfter);
+        }
+      }
+      await(released);
+      try (Client replacement = new Client(server.getPort(), certificate)) {
+        assertTrue(replacement.connect.isActive());
+      }
+    } finally {
+      certificate.delete();
+    }
+  }
+
   private static QuicSslContext context(SelfSignedCertificate certificate) {
     return QuicSslContextBuilder.forServer(
             certificate.privateKey(), null, certificate.certificate())
@@ -194,13 +251,23 @@ public class QuicConcurrencyIntegrationTest {
     Channel udp;
     QuicChannel quic;
     QuicStreamChannel connect;
+    String retryAfter;
 
     Client(int port, SelfSignedCertificate certificate) throws Exception {
-      this(port, certificate, null);
+      this(port, certificate, null, "200");
+    }
+
+    Client(int port, SelfSignedCertificate certificate, String expectedStatus) throws Exception {
+      this(port, certificate, null, expectedStatus);
     }
 
     Client(int port, SelfSignedCertificate certificate, SelfSignedCertificate identity)
         throws Exception {
+      this(port, certificate, identity, "200");
+    }
+
+    Client(int port, SelfSignedCertificate certificate, SelfSignedCertificate identity,
+        String expectedStatus) throws Exception {
       try {
         QuicSslContextBuilder sslBuilder =
             QuicSslContextBuilder.forClient()
@@ -243,7 +310,7 @@ public class QuicConcurrencyIntegrationTest {
                 .remoteAddress(new InetSocketAddress("127.0.0.1", port))
                 .connect()
                 .get(5, TimeUnit.SECONDS);
-        CompletableFuture<String> response = new CompletableFuture<>();
+        CompletableFuture<Http3HeadersFrame> response = new CompletableFuture<>();
         connect =
             Http3.newRequestStream(
                     quic,
@@ -255,8 +322,7 @@ public class QuicConcurrencyIntegrationTest {
                                   protected void channelRead0(
                                       ChannelHandlerContext ctx, Object msg) {
                                     if (msg instanceof Http3HeadersFrame) {
-                                      response.complete(
-                                          ((Http3HeadersFrame) msg).headers().status().toString());
+                                      response.complete((Http3HeadersFrame) msg);
                                     }
                                   }
                                 });
@@ -273,7 +339,10 @@ public class QuicConcurrencyIntegrationTest {
                         .path("/test")
                         .set(":protocol", "webtransport")))
             .get(5, TimeUnit.SECONDS);
-        assertEquals("200", response.get(5, TimeUnit.SECONDS));
+        Http3HeadersFrame headers = response.get(5, TimeUnit.SECONDS);
+        assertEquals(expectedStatus, headers.headers().status().toString());
+        CharSequence retry = headers.headers().get("retry-after");
+        retryAfter = retry == null ? null : retry.toString();
       } catch (Throwable error) {
         close();
         throw error;

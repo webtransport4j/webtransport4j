@@ -10,6 +10,8 @@ import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
 import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.internal.EventLoopSafety;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
+import io.github.webtransport4j.resilience.UdpSocketTuner;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
@@ -147,6 +149,8 @@ public class WebTransportServer implements AutoCloseable {
   private Long initialMaxData;
   private StatelessTokenSecretProvider statelessTokenSecretProvider;
   private ClusterBroadcastBridge clusterBroadcastBridge;
+  private OverloadProtectionPolicy overloadProtectionPolicy;
+  private Boolean autoTuneUdpSocket;
   private ClientAuthMode clientAuthMode;
   private File trustCertFile;
   private X509Certificate[] trustCertificates;
@@ -322,6 +326,8 @@ public class WebTransportServer implements AutoCloseable {
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
     this.statelessTokenSecretProvider = builder.getStatelessTokenSecretProvider();
     this.clusterBroadcastBridge = builder.getClusterBroadcastBridge();
+    this.overloadProtectionPolicy = builder.getOverloadProtectionPolicy();
+    this.autoTuneUdpSocket = builder.getAutoTuneUdpSocket();
     this.clientAuthMode = builder.getClientAuthMode();
     this.trustCertFile = builder.getTrustCertFile();
     this.trustCertificates = builder.getTrustCertificates();
@@ -537,6 +543,41 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void setStatelessTokenSecretProvider(@Nullable StatelessTokenSecretProvider provider) {
     this.statelessTokenSecretProvider = provider;
+   * Sets the overload protection policy for this server instance.
+   *
+   * @param policy overload protection policy
+   */
+  public void setOverloadProtectionPolicy(@Nullable OverloadProtectionPolicy policy) {
+    this.overloadProtectionPolicy = policy;
+  }
+
+  /**
+   * Returns the configured overload protection policy, or null if not configured.
+   *
+   * @return overload protection policy or null
+   */
+  public @Nullable OverloadProtectionPolicy getOverloadProtectionPolicy() {
+    return overloadProtectionPolicy;
+  }
+
+  /**
+   * Returns whether OS UDP socket auto-tuning is enabled.
+   *
+   * @return true if UDP socket auto-tuning is enabled
+   */
+  public boolean isAutoTuneUdpSocket() {
+    return autoTuneUdpSocket != null
+        ? autoTuneUdpSocket
+        : WebTransportConfig.getBoolean("webtransport4j.server.socket.autotune", true);
+  }
+
+  /**
+   * Configures whether OS UDP socket auto-tuning is enabled.
+   *
+   * @param autoTune true to enable UDP socket auto-tuning
+   */
+  public void setAutoTuneUdpSocket(boolean autoTune) {
+    this.autoTuneUdpSocket = autoTune;
   }
 
   private static GlobalTrafficShapingHandler claimTrafficShaper(
@@ -2042,17 +2083,21 @@ public class WebTransportServer implements AutoCloseable {
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(maxMessagesPerRead);
 
+    int socketBufferDefault = isAutoTuneUdpSocket() ? 0 : DEFAULT_SOCKET_BUFFER_SIZE;
     int sndBuf =
         WebTransportConfig.getInt(
-            "webtransport4j.server.socket.sndbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+            "webtransport4j.server.socket.sndbuf", socketBufferDefault);
     if (sndBuf > 0) {
       bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
     }
     int rcvBuf =
         WebTransportConfig.getInt(
-            "webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+            "webtransport4j.server.socket.rcvbuf", socketBufferDefault);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
+    }
+    if (isAutoTuneUdpSocket()) {
+      UdpSocketTuner.tune(bootstrap);
     }
     bootstrap.option(ChannelOption.SO_REUSEADDR, true);
 

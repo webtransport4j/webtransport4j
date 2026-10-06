@@ -5666,6 +5666,23 @@ public class WebTransportIntegrationTest {
 
   @Test
   public void testIpRateLimitingAndBlocklistIntegration() throws Exception {
+    io.github.webtransport4j.server.ratelimit.RateLimitBackend originalBackend =
+        IpRateLimitingHandler.getBackend();
+    io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend testBackend =
+        new io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend();
+    // Keep the three handshakes in one logical minute using the real local backend.
+    final long testMinute = System.currentTimeMillis() / 60000;
+    IpRateLimitingHandler.setBackend(new io.github.webtransport4j.server.ratelimit.RateLimitBackend() {
+      @Override
+      public int incrementAndGet(String ip, long nowMinute, int maxTrackedIps) {
+        return testBackend.incrementAndGet(ip, testMinute, maxTrackedIps);
+      }
+
+      @Override
+      public void clear() {
+        testBackend.clear();
+      }
+    });
     File tempFile = new File("webtransport-dynamic.properties");
     if (tempFile.exists()) {
       tempFile.delete();
@@ -5700,6 +5717,7 @@ public class WebTransportIntegrationTest {
       System.clearProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
       WebTransportConfig.reload();
       IpRateLimitingHandler.reloadSharedConfig();
+      IpRateLimitingHandler.setBackend(originalBackend);
       IpRateLimitingHandler.clearState();
     }
   }

@@ -9,6 +9,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,9 @@ public final class DatagramMailbox implements Runnable {
   }
 
   private final Channel channel;
-  private final ConcurrentLinkedQueue<WebTransportFrame> queue = new ConcurrentLinkedQueue<>();
+  private final ConcurrentLinkedQueue<WebTransportFrame> highPriorityQueue =
+      new ConcurrentLinkedQueue<>();
+  private final ConcurrentLinkedQueue<WebTransportFrame> normalQueue = new ConcurrentLinkedQueue<>();
   private final AtomicInteger size = new AtomicInteger();
   private final AtomicBoolean processing = new AtomicBoolean();
   private final AtomicBoolean closed = new AtomicBoolean();
@@ -73,13 +76,21 @@ public final class DatagramMailbox implements Runnable {
    * @param frame the datagram frame to enqueue
    */
   public void enqueue(@NonNull WebTransportFrame frame) {
+    enqueue(frame, false);
+  }
+
+  /**
+   * Enqueues a frame with priority QoS, evicting the oldest queued normal frame when full.
+   *
+   * @param frame the datagram frame
+   * @param highPriority whether this frame takes precedence over normal frames
+   */
+  public void enqueue(@NonNull WebTransportFrame frame, boolean highPriority) {
     if (closed.get()) {
       discardFrame(frame, "mailbox_closed");
       return;
     }
-    int current = size.incrementAndGet();
-    if (current > maxCapacity) {
-      size.decrementAndGet();
+    if (!reserveCapacity(highPriority)) {
       discardFrame(frame, "mailbox_full");
       return;
     }
@@ -90,7 +101,7 @@ public final class DatagramMailbox implements Runnable {
     }
     frame.retain();
     try {
-      queue.add(frame);
+      (highPriority ? highPriorityQueue : normalQueue).add(frame);
     } catch (RuntimeException | Error failure) {
       size.decrementAndGet();
       frame.release();
@@ -113,6 +124,51 @@ public final class DatagramMailbox implements Runnable {
     }
   }
 
+  /** Returns the total number of reserved or queued datagrams. */
+  public int size() {
+    return size.get();
+  }
+
+  /** Returns the number of queued high-priority datagrams. */
+  public int getHighPrioritySize() {
+    return highPriorityQueue.size();
+  }
+
+  private boolean reserveCapacity(boolean highPriority) {
+    for (; ; ) {
+      int current = size.get();
+      if (current < maxCapacity) {
+        if (size.compareAndSet(current, current + 1)) {
+          return true;
+        }
+        continue;
+      }
+      WebTransportFrame evicted = highPriority ? normalQueue.poll() : null;
+      if (evicted == null) {
+        return false;
+      }
+      try {
+        discardFrame(evicted, "evicted_for_high_priority");
+      } catch (RuntimeException | Error failure) {
+        size.decrementAndGet();
+        throw failure;
+      } finally {
+        releaseFrame(evicted);
+      }
+      // Transfer the evicted frame's reservation directly to the incoming priority frame.
+      return true;
+    }
+  }
+
+  private @Nullable WebTransportFrame pollNextFrame() {
+    WebTransportFrame frame = highPriorityQueue.poll();
+    return frame != null ? frame : normalQueue.poll();
+  }
+
+  private boolean isEmpty() {
+    return highPriorityQueue.isEmpty() && normalQueue.isEmpty();
+  }
+
   /** Prevents new publication and releases all queued frames. */
   public void drainAndRelease() {
     drainAndRelease("mailbox_drained");
@@ -126,7 +182,7 @@ public final class DatagramMailbox implements Runnable {
   public void drainAndRelease(@NonNull String reason) {
     closed.set(true);
     WebTransportFrame frame;
-    while ((frame = queue.poll()) != null) {
+    while ((frame = pollNextFrame()) != null) {
       size.decrementAndGet();
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
       if (metrics != null) {
@@ -145,10 +201,10 @@ public final class DatagramMailbox implements Runnable {
           processing.set(false);
           return;
         }
-        WebTransportFrame frame = queue.poll();
+        WebTransportFrame frame = pollNextFrame();
         if (frame == null) {
           processing.set(false);
-          if (!queue.isEmpty() && processing.compareAndSet(false, true)) {
+          if (!isEmpty() && processing.compareAndSet(false, true)) {
             continue;
           }
           return;
@@ -170,9 +226,9 @@ public final class DatagramMailbox implements Runnable {
         processing.set(false);
         return;
       }
-      if (queue.isEmpty()) {
+      if (isEmpty()) {
         processing.set(false);
-        if (!queue.isEmpty() && processing.compareAndSet(false, true)) {
+        if (!isEmpty() && processing.compareAndSet(false, true)) {
           continue;
         }
         return;

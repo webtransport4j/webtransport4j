@@ -19,6 +19,15 @@ import org.junit.Test;
 public class MailboxModelBasedTest {
   @Test
   public void compareBoundedDatagramHistoriesAndReferenceOwnership() {
+    compareHistories(false);
+  }
+
+  @Test
+  public void comparePriorityEvictionHistoriesAndReferenceOwnership() {
+    compareHistories(true);
+  }
+
+  private void compareHistories(boolean priorityEnabled) {
     String key = "webtransport4j.datagram.mailbox.capacity";
     String original = System.getProperty(key);
     System.setProperty(key, "2");
@@ -37,6 +46,7 @@ public class MailboxModelBasedTest {
         List<Long> actual = new ArrayList<>();
         List<Long> expected = new ArrayList<>();
         Queue<Long> pending = new ArrayDeque<>();
+        Queue<Long> priority = new ArrayDeque<>();
         List<WebTransportDatagramFrame> frames = new ArrayList<>();
         DatagramMailbox mailbox =
             new DatagramMailbox(
@@ -49,18 +59,27 @@ public class MailboxModelBasedTest {
               WebTransportDatagramFrame frame =
                   new WebTransportDatagramFrame(step, Unpooled.buffer(1));
               frames.add(frame);
-              mailbox.enqueue(frame);
-              if (!closed && pending.size() < 2) {
-                pending.add((long) step);
+              boolean highPriority = priorityEnabled && command == 1;
+              mailbox.enqueue(frame, highPriority);
+              if (!closed) {
+                if (pending.size() + priority.size() == 2 && highPriority && !pending.isEmpty()) {
+                  pending.remove();
+                }
+                if (pending.size() + priority.size() < 2) {
+                  (highPriority ? priority : pending).add((long) step);
+                }
               }
             } else if (command == 2) {
               while (!workers.isEmpty()) {
                 workers.remove().run();
               }
+              expected.addAll(priority);
+              priority.clear();
               expected.addAll(pending);
               pending.clear();
             } else {
               mailbox.drainAndRelease();
+              priority.clear();
               pending.clear();
               closed = true;
             }
@@ -69,7 +88,9 @@ public class MailboxModelBasedTest {
             for (WebTransportDatagramFrame frame : frames) {
               retained += frame.refCnt() - 1;
             }
-            assertEquals(pending.size(), retained);
+            assertEquals(pending.size() + priority.size(), retained);
+            assertEquals(retained, mailbox.size());
+            assertEquals(priority.size(), mailbox.getHighPrioritySize());
           }
         } finally {
           mailbox.drainAndRelease();

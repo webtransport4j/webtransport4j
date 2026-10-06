@@ -1,7 +1,7 @@
 # Checked results
 
-Rechecked on 2026-10-05 with the official TLC v1.8.0 release asset
-(SHA-256 `411ab54221cf0c9fa7ae18f07a3e0ebbdf9e5ba6254b79017e7007f1feb44e89`),
+Rechecked on 2026-10-06 with the official TLC v1.8.0 release asset
+(SHA-256 `7beec0f04818732a62fa193731711a99aa4f11279499b2360a7d156c519ea78d`),
 Java 25, and the committed finite configurations. All 24 runner checks produced
 their expected outcomes: 10 successful safety/liveness explorations, 8 deliberately
 broken negative controls, and 6 retained historical abstraction counterexamples.
@@ -28,7 +28,7 @@ Reproduce and retain full logs, including counterexample state sequences:
 python3 verification/tla/check.py --jar /tmp/tla2tools.jar --output /tmp/webtransport4j-tlc
 ```
 
-The earlier checksum was also tested and rejected before any model ran, with
+An invalid artifact was also tested and rejected before any model ran, with
 an error reporting both expected and observed hashes. Strict artifact verification
 remains enabled. The successful exploration state counts are unchanged.
 
