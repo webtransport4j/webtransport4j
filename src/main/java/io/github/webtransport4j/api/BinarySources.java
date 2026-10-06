@@ -71,10 +71,9 @@ public final class BinarySources {
   /**
    * Creates a {@link BinarySource} backed by a Java Foreign Memory API segment.
    *
-   * <p>The Java 25 multi-release implementation accepts a {@code
-   * java.lang.foreign.MemorySegment}. The parameter is typed as {@link Object} so the public API is
-   * identical in the Java 8 baseline and the Java 25 version of this class, as required by the
-   * multi-release JAR specification.
+   * <p>The Java 25 multi-release implementation accepts a {@code java.lang.foreign.MemorySegment}.
+   * The parameter is typed as {@link Object} so the public API is identical in the Java 8 baseline
+   * and the Java 25 version of this class, as required by the multi-release JAR specification.
    *
    * @param segment a {@code java.lang.foreign.MemorySegment} on Java 25
    * @return a new binary source backed by the segment

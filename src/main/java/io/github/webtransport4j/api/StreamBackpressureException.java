@@ -18,7 +18,8 @@ public class StreamBackpressureException extends RuntimeException {
   }
 
   /**
-   * Constructs a new {@link StreamBackpressureException} with the specified detail message and cause.
+   * Constructs a new {@link StreamBackpressureException} with the specified detail message and
+   * cause.
    *
    * @param message detail message explaining the backpressure condition
    * @param cause underlying cause

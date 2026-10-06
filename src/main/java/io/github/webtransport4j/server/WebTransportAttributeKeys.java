@@ -2,6 +2,8 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
@@ -14,12 +16,14 @@ public final class WebTransportAttributeKeys {
 
   private WebTransportAttributeKeys() {}
 
+  public static final AttributeKey<Boolean> CONNECTION_DRAINING =
+      AttributeKey.valueOf("wt.connection.draining");
+
   // Session-related Attribute Keys
   public static final AttributeKey<WebTransportServer> SERVER_KEY =
       AttributeKey.valueOf("wt.server.instance");
 
-  public static final AttributeKey<Long> SESSION_ID_KEY =
-          AttributeKey.valueOf("wt.session.id");
+  public static final AttributeKey<Long> SESSION_ID_KEY = AttributeKey.valueOf("wt.session.id");
 
   public static final AttributeKey<String> SESSION_PATH_KEY =
       AttributeKey.valueOf("wt.session.path.key");
@@ -36,8 +40,7 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<Boolean> PEER_SETTINGS_VALID =
       AttributeKey.valueOf("wt.peer.settings.valid");
 
-  public static final AttributeKey<Boolean> WT_ENABLED =
-      AttributeKey.valueOf("wt.enabled");
+  public static final AttributeKey<Boolean> WT_ENABLED = AttributeKey.valueOf("wt.enabled");
 
   public static final AttributeKey<ExecutorService> BUSINESS_EXECUTOR =
       AttributeKey.valueOf("wt.business.executor");
@@ -52,8 +55,7 @@ public final class WebTransportAttributeKeys {
       AttributeKey.valueOf("wt.global.session.slots");
 
   // Stream-related Attribute Keys
-  public static final AttributeKey<Long> STREAM_TYPE_KEY =
-          AttributeKey.valueOf("wt.stream.type");
+  public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
 
   public static final AttributeKey<Boolean> SERVER_INITIATED_KEY =
       AttributeKey.valueOf("wt.stream.server_initiated");
@@ -96,7 +98,7 @@ public final class WebTransportAttributeKeys {
 
   // Message dispatcher factory
   public static final AttributeKey<Supplier<MessageDispatcher>> MESSAGE_DISPATCHER_SUPPLIER =
-          AttributeKey.valueOf("wt.message.dispatcher.supplier");
+      AttributeKey.valueOf("wt.message.dispatcher.supplier");
 
   // Stream Mailbox Attribute Key
   public static final AttributeKey<StreamMailbox> STREAM_MAILBOX_KEY =
@@ -105,5 +107,15 @@ public final class WebTransportAttributeKeys {
   // Datagram Mailbox Attribute Key
   public static final AttributeKey<DatagramMailbox> DATAGRAM_MAILBOX_KEY =
       AttributeKey.valueOf("wt.datagram.mailbox");
-}
 
+  // Resilience & Overload Protection Attribute Key
+  public static final AttributeKey<OverloadProtectionPolicy> OVERLOAD_POLICY =
+      AttributeKey.valueOf("wt.overload.policy");
+
+  // Enterprise Security Attribute Keys
+  public static final AttributeKey<OriginValidator> ORIGIN_VALIDATOR =
+      AttributeKey.valueOf("wt.origin.validator");
+
+  public static final AttributeKey<Boolean> STRICT_ORIGIN_VALIDATION =
+      AttributeKey.valueOf("wt.strict.origin.validation");
+}

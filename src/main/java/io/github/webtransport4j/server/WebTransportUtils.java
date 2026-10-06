@@ -1,7 +1,6 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -45,16 +44,20 @@ public class WebTransportUtils {
   // WebTransport Bidirectional
   public static final long BI_STREAM_TYPE = 0x41;
 
-  // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-15 spec)
+  // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-16 / RFC 9297 spec)
   public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
 
   public static final int WT_SESSION_GONE = 0x170d7b68;
 
   public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
 
+  public static final int WT_ALPN_ERROR = 0x0817b3dd;
+
+  public static final int WT_REQUIREMENTS_NOT_MET = 0x212c0d48;
+
   /**
-   * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream
-   * as defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
+   * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream as
+   * defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
    *
    * @param streamId stream identifier
    * @return true if non-negative and streamId % 4 == 0
@@ -129,13 +132,56 @@ public class WebTransportUtils {
       @NonNull ChannelHandler streamHandler,
       @NonNull QuicStreamChannel connectStreamChannel,
       boolean byPassLimit) {
+    io.netty.channel.EventLoop owner = connectStreamChannel.parent().eventLoop();
+    if (owner.inEventLoop()) {
+      return createStreamOnEventLoop(
+          quicStreamType, streamHandler, connectStreamChannel, byPassLimit);
+    }
+    Promise<QuicStreamChannel> result = owner.newPromise();
+    try {
+      owner.execute(
+          () -> {
+            try {
+              createStreamOnEventLoop(
+                      quicStreamType, streamHandler, connectStreamChannel, byPassLimit)
+                  .addListener(
+                      future -> {
+                        if (future.isSuccess()) {
+                          result.trySuccess((QuicStreamChannel) future.getNow());
+                        } else {
+                          result.tryFailure(future.cause());
+                        }
+                      });
+            } catch (RuntimeException failure) {
+              result.tryFailure(failure);
+            }
+          });
+    } catch (java.util.concurrent.RejectedExecutionException failure) {
+      result.tryFailure(failure);
+    }
+    return result;
+  }
+
+  // The QUIC owner serializes admission and reservation for any implementation of the session SPI.
+  private static @NonNull Future<QuicStreamChannel> createStreamOnEventLoop(
+      QuicStreamType quicStreamType,
+      ChannelHandler streamHandler,
+      QuicStreamChannel connectStreamChannel,
+      boolean byPassLimit) {
     Promise<QuicStreamChannel> promise = connectStreamChannel.parent().eventLoop().newPromise();
     WebTransportSessionManager mgr =
         connectStreamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    NettyWebTransportSession session = mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
+    NettyWebTransportSession session =
+        mgr != null ? mgr.get(connectStreamChannel.streamId()) : null;
     if (session == null) {
       promise.setFailure(
           new IllegalStateException("Session not found: " + connectStreamChannel.streamId()));
+      return promise;
+    }
+    if (!session.isOpen()) {
+      promise.setFailure(
+          new IllegalStateException(
+              "Cannot create stream: session " + connectStreamChannel.streamId() + " is CLOSED"));
       return promise;
     }
     if (!byPassLimit && session.isFlowControlEnabled()) {
@@ -158,7 +204,9 @@ public class WebTransportUtils {
             session.getConnectStream(), QuicStreamType.BIDIRECTIONAL == quicStreamType, max);
         promise.setFailure(
             new IllegalStateException(
-                (QuicStreamType.BIDIRECTIONAL == quicStreamType ? "Bidirectional" : "Unidirectional")
+                (QuicStreamType.BIDIRECTIONAL == quicStreamType
+                        ? "Bidirectional"
+                        : "Unidirectional")
                     + " stream limit exceeded"));
         return promise;
       }
@@ -569,8 +617,12 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
-            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name)
+            || name.startsWith("docker")
+            || name.startsWith("veth")
+            || name.startsWith("br-")
+            || name.startsWith("flannel")
+            || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
@@ -589,11 +641,13 @@ public class WebTransportUtils {
             if (parts.length == 2) {
               String featureName = parts[0].trim().toLowerCase();
               String featureStatus = parts[1].trim().toLowerCase();
-              if ("tx-udp-segmentation".equals(featureName) || "tx_udp_segmentation".equals(featureName)) {
+              if ("tx-udp-segmentation".equals(featureName)
+                  || "tx_udp_segmentation".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
                   logger.warn(
-                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active network interface '{}'"
-                          + " has 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.",
+                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active"
+                          + " network interface '{}' has 'tx-udp-segmentation: off'. Disabling GSO"
+                          + " to prevent kernel packet drops.",
                       name);
                   return false;
                 }
@@ -625,8 +679,12 @@ public class WebTransportUtils {
       }
       for (File iface : interfaces) {
         String name = iface.getName();
-        if ("lo".equals(name) || name.startsWith("docker") || name.startsWith("veth")
-            || name.startsWith("br-") || name.startsWith("flannel") || name.startsWith("cni")) {
+        if ("lo".equals(name)
+            || name.startsWith("docker")
+            || name.startsWith("veth")
+            || name.startsWith("br-")
+            || name.startsWith("flannel")
+            || name.startsWith("cni")) {
           continue; // Ignore loopback and container virtual bridges
         }
         File operStateFile = new File(iface, "operstate");
@@ -645,11 +703,13 @@ public class WebTransportUtils {
             if (parts.length == 2) {
               String featureName = parts[0].trim().toLowerCase();
               String featureStatus = parts[1].trim().toLowerCase();
-              if ("rx-udp-gro-forwarding".equals(featureName) || "rx-gro-receive".equals(featureName)) {
+              if ("rx-udp-gro-forwarding".equals(featureName)
+                  || "rx-gro-receive".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
                   logger.warn(
-                      "⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active network interface '{}'"
-                          + " has GRO offload disabled ('{}'). Disabling UDP GRO.",
+                      "⚠️ Epoll UDP GRO requested (webtransport4j.epoll.udpgro=true), but active"
+                          + " network interface '{}' has GRO offload disabled ('{}'). Disabling UDP"
+                          + " GRO.",
                       name,
                       line.trim());
                   return false;
@@ -666,7 +726,8 @@ public class WebTransportUtils {
   }
 
   /**
-   * Parses the WT-Available-Protocols header field as an RFC 8941 Structured Fields List of Strings.
+   * Parses the WT-Available-Protocols header field as an RFC 8941 Structured Fields List of
+   * Strings.
    *
    * @param headerValue the raw header value
    * @return a list of advertised subprotocol names
@@ -703,7 +764,8 @@ public class WebTransportUtils {
   }
 
   /**
-   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section 4.8.
+   * Serializes the WebTransport Exporter Context struct per draft-ietf-webtrans-http3-16 Section
+   * 4.8.
    *
    * @param sessionId the WebTransport session ID
    * @param applicationContext the application context bytes, or null

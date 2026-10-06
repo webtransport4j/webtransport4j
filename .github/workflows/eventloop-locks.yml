@@ -1,0 +1,52 @@
+name: Event-loop lock safety
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  locking:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        java: ['17', '25']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: temurin
+      - name: Build lock detector and application
+        run: |
+          mvn -B -ntp -f verification/locking/pom.xml package
+          mvn -B -ntp -Pbench -Dexec.skip=true -DskipTests test-compile
+          mvn -B -ntp -Pbench -Dexec.skip=true dependency:build-classpath -Dmdep.outputFile="$RUNNER_TEMP/lock-classpath"
+      - name: Audit bytecode and prove negative controls fail
+        run: |
+          java -jar verification/locking/target/lock-audit.jar target-maven/classes
+          if java -jar verification/locking/target/lock-audit.jar verification/locking/target/classes/io/github/webtransport4j/verification/fixtures > "$RUNNER_TEMP/static-negative.log" 2>&1; then
+            echo 'Unsafe fixture incorrectly passed'; exit 1
+          fi
+          grep -q 'unguarded' "$RUNNER_TEMP/static-negative.log"
+          java -javaagent:"$PWD/verification/locking/target/lock-audit.jar"="$RUNNER_TEMP/negative-count" -cp "verification/locking/target/lock-audit.jar:target-maven/classes:$(cat "$RUNNER_TEMP/lock-classpath")" io.github.webtransport4j.verification.fixtures.BlockingCallback
+          test "$(cat "$RUNNER_TEMP/negative-count")" = 1
+      - name: Run complete suite with event-loop probes
+        run: |
+          mvn -B -ntp -Pbench,verify-eventloop-locks -Dexec.skip=true -Dwt4j.lockagent="$PWD/verification/locking/target/lock-audit.jar" -Dwt4j.lockreport="$RUNNER_TEMP/lock-count" -Dtest=EventLoopThreadSafetyTest,ConcurrencyRaceRegressionTest,PublisherConcurrencyTest,MetricsConcurrencyTest,PublisherModelBasedTest,MailboxConcurrencyTest,MailboxModelBasedTest,FlowControlModelBasedTest,ConfigReloadConcurrencyTest,QuicConcurrencyIntegrationTest test
+          test "$(cat "$RUNNER_TEMP/lock-count")" = 0
+          test "$(cat "$RUNNER_TEMP/lock-count.classes")" -gt 0
+      - name: Retain evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: eventloop-locks-java-${{ matrix.java }}
+          path: |
+            target-maven/surefire-reports/**
+            ${{ runner.temp }}/lock-count
+            ${{ runner.temp }}/negative-count
+            ${{ runner.temp }}/static-negative.log

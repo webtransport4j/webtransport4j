@@ -7,7 +7,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -17,15 +16,36 @@ import io.netty.handler.codec.http3.DefaultHttp3SettingsFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import org.junit.Test;
 
 /**
- * Tests verifying late HTTP/3 SETTINGS flow-control initialization and server-initiated stream accounting.
+ * Tests verifying late HTTP/3 SETTINGS flow-control initialization and server-initiated stream
+ * accounting.
  */
 public class Http3ControlStreamAndAccountingTest {
+
+  @Test
+  public void testGoAwayMarksConnectionAndSessionsDrainingWithoutClosing() {
+    ChannelHandlerContext context = mock(ChannelHandlerContext.class);
+    QuicStreamChannel control = mock(QuicStreamChannel.class);
+    QuicChannel connection = mock(QuicChannel.class);
+    DefaultAttributeMap attributes = new DefaultAttributeMap();
+    when(context.channel()).thenReturn(control);
+    when(control.parent()).thenReturn(connection);
+    when(connection.attr(any())).thenAnswer(inv -> attributes.attr(inv.getArgument(0)));
+    WebTransportSessionManager manager = mock(WebTransportSessionManager.class);
+    NettyWebTransportSession session = mock(NettyWebTransportSession.class);
+    when(manager.getSessions()).thenReturn(java.util.Collections.singletonList(session));
+    attributes.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
+    new Http3InboundControlStreamHandler()
+        .channelRead0(context, new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(0));
+    assertTrue(attributes.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).get());
+    org.mockito.Mockito.verify(session).markDraining();
+    org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).close();
+    org.mockito.Mockito.verify(session, org.mockito.Mockito.never()).drain();
+  }
 
   @Test
   public void testLateSettingsEnablesFlowControlAndUpdatesPeerLimits() {
@@ -61,10 +81,12 @@ public class Http3ControlStreamAndAccountingTest {
 
     DefaultChannelPromise writePromise =
         new DefaultChannelPromise(mockConnectStream, ImmediateEventExecutor.INSTANCE);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(inv -> {
-      io.netty.util.ReferenceCountUtil.release(inv.getArgument(0));
-      return writePromise;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            inv -> {
+              io.netty.util.ReferenceCountUtil.release(inv.getArgument(0));
+              return writePromise;
+            });
 
     // Register session before peer settings arrive (flowControlEnabled will be false)
     mgr.register(mockConnectStream);
@@ -99,8 +121,11 @@ public class Http3ControlStreamAndAccountingTest {
     QuicChannel mockParent = mock(QuicChannel.class);
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.newPromise()).thenReturn(
-        new io.netty.util.concurrent.DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
+    // This test invokes stream creation from the mocked channel's owner loop;
+    // execute the owner-confined admission path synchronously.
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
+    when(mockEventLoop.newPromise())
+        .thenReturn(new io.netty.util.concurrent.DefaultPromise<>(ImmediateEventExecutor.INSTANCE));
 
     DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
     when(mockParent.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
@@ -111,17 +136,20 @@ public class Http3ControlStreamAndAccountingTest {
 
     DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
     when(mockConnectStream.attr(any())).thenAnswer(inv -> streamAttrMap.attr(inv.getArgument(0)));
-    when(mockConnectStream.hasAttr(any())).thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
+    when(mockConnectStream.hasAttr(any()))
+        .thenAnswer(inv -> streamAttrMap.hasAttr(inv.getArgument(0)));
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(0L);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
     DefaultChannelPromise writePromise =
         new DefaultChannelPromise(mockConnectStream, ImmediateEventExecutor.INSTANCE);
-    when(mockConnectStream.writeAndFlush(any())).thenAnswer(inv -> {
-      io.netty.util.ReferenceCountUtil.release(inv.getArgument(0));
-      return writePromise;
-    });
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            inv -> {
+              io.netty.util.ReferenceCountUtil.release(inv.getArgument(0));
+              return writePromise;
+            });
 
     io.netty.util.concurrent.Promise<QuicStreamChannel> futureChannel =
         new io.netty.util.concurrent.DefaultPromise<>(ImmediateEventExecutor.INSTANCE);

@@ -33,8 +33,7 @@ public class MemorySegmentBinarySourceTest {
       // for testing.
       // Let's allocate bytes instead.
       MemorySegment byteSegment = arena.allocate(testData.length);
-      MemorySegment.copy(
-          testData, 0, byteSegment, ValueLayout.JAVA_BYTE, 0, testData.length);
+      MemorySegment.copy(testData, 0, byteSegment, ValueLayout.JAVA_BYTE, 0, testData.length);
 
       BinarySource source = BinarySources.fromMemorySegment(byteSegment);
 

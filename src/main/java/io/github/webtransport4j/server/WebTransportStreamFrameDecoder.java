@@ -14,7 +14,8 @@ import org.slf4j.LoggerFactory;
 @ChannelHandler.Sharable
 public final class WebTransportStreamFrameDecoder extends MessageToMessageDecoder<ByteBuf> {
 
-  public static final WebTransportStreamFrameDecoder INSTANCE = new WebTransportStreamFrameDecoder();
+  public static final WebTransportStreamFrameDecoder INSTANCE =
+      new WebTransportStreamFrameDecoder();
 
   private static final Logger logger =
       LoggerFactory.getLogger(WebTransportStreamFrameDecoder.class);

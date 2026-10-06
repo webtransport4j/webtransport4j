@@ -2,7 +2,6 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
@@ -36,14 +35,15 @@ public class WebTransportSessionManager {
   }
 
   public WebTransportSessionManager(@NonNull WebTransportSessionFactory sessionFactory) {
-    this.sessionFactory = java.util.Objects.requireNonNull(sessionFactory, "sessionFactory cannot be null");
+    this.sessionFactory =
+        java.util.Objects.requireNonNull(sessionFactory, "sessionFactory cannot be null");
   }
 
   boolean reserveSession(int limit) {
     if (limit <= 0) {
       return false;
     }
-    for (;;) {
+    for (; ; ) {
       int current = occupiedSlots.get();
       if (current >= limit || current == Integer.MAX_VALUE) {
         return false;
@@ -55,10 +55,10 @@ public class WebTransportSessionManager {
   }
 
   /**
-   * Attempts to reserve a session slot on the connection, taking into account whether
-   * flow control has been negotiated. Per draft-ietf-webtrans-http3-16 Section 3 and 5,
-   * if flow control is not established (or peer settings have not yet arrived),
-   * at most 1 session is permitted per connection regardless of configured limits.
+   * Attempts to reserve a session slot on the connection, taking into account whether flow control
+   * has been negotiated. Per draft-ietf-webtrans-http3-16 Section 3 and 5, if flow control is not
+   * established (or peer settings have not yet arrived), at most 1 session is permitted per
+   * connection regardless of configured limits.
    *
    * @param quic the underlying QuicChannel, or null
    * @param configuredLimit the configured max sessions per connection
@@ -97,15 +97,13 @@ public class WebTransportSessionManager {
         quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI);
     Attribute<Long> localBidiAttr =
         quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI);
-    Attribute<Long> localDataAttr =
-        quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA);
+    Attribute<Long> localDataAttr = quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA);
 
     Attribute<Long> peerUniAttr =
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI);
     Attribute<Long> peerBidiAttr =
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI);
-    Attribute<Long> peerDataAttr =
-        quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA);
+    Attribute<Long> peerDataAttr = quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA);
 
     Long localUni = localUniAttr != null ? localUniAttr.get() : null;
     Long localBidi = localBidiAttr != null ? localBidiAttr.get() : null;
@@ -115,12 +113,14 @@ public class WebTransportSessionManager {
     Long peerBidi = peerBidiAttr != null ? peerBidiAttr.get() : null;
     Long peerData = peerDataAttr != null ? peerDataAttr.get() : null;
 
-    boolean localFlowControlDeclared = (localUni != null && localUni > 0L)
-        || (localBidi != null && localBidi > 0L)
-        || (localData != null && localData > 0L);
-    boolean peerFlowControlDeclared = (peerUni != null && peerUni > 0L)
-        || (peerBidi != null && peerBidi > 0L)
-        || (peerData != null && peerData > 0L);
+    boolean localFlowControlDeclared =
+        (localUni != null && localUni > 0L)
+            || (localBidi != null && localBidi > 0L)
+            || (localData != null && localData > 0L);
+    boolean peerFlowControlDeclared =
+        (peerUni != null && peerUni > 0L)
+            || (peerBidi != null && peerBidi > 0L)
+            || (peerData != null && peerData > 0L);
 
     return localFlowControlDeclared && peerFlowControlDeclared;
   }
@@ -149,67 +149,74 @@ public class WebTransportSessionManager {
       connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
     }
     QuicChannel quic = connectStream.parent();
-    Long uniMax = quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
-        ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
-        : null;
-    Long biMax = quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
-        ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
-        : null;
-    Long dataMax = quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
-        ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
-        : null;
+    Long uniMax =
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).get()
+            : null;
+    Long biMax =
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).get()
+            : null;
+    Long dataMax =
+        quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA) != null
+            ? quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA).get()
+            : null;
 
-    Long peerUni = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get()
-        : null;
-    Long peerBidi = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
-        : null;
-    Long peerData = quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get()
-        : null;
+    Long peerUni =
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get()
+            : null;
+    Long peerBidi =
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get()
+            : null;
+    Long peerData =
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get()
+            : null;
 
-    Boolean peerSettingsReceived = quic != null
-        && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED) != null
-        ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()
-        : null;
+    Boolean peerSettingsReceived =
+        quic != null && quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED) != null
+            ? quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()
+            : null;
 
     // Per draft-ietf-webtrans-http3-16 Section 5.1:
     // Flow control is enabled when BOTH endpoints declare their intent to use flow control
     // by sending any of the initial stream or data limits with a value other than "0".
-    boolean localFlowControlDeclared = (uniMax != null && uniMax > 0L)
-        || (biMax != null && biMax > 0L)
-        || (dataMax != null && dataMax > 0L);
-    boolean peerFlowControlDeclared = (peerUni != null && peerUni > 0L)
-        || (peerBidi != null && peerBidi > 0L)
-        || (peerData != null && peerData > 0L);
-    boolean flowControlEnabled = Boolean.TRUE.equals(peerSettingsReceived)
-        ? (localFlowControlDeclared && peerFlowControlDeclared)
-        : (peerSettingsReceived == null ? localFlowControlDeclared : false);
+    boolean localFlowControlDeclared =
+        (uniMax != null && uniMax > 0L)
+            || (biMax != null && biMax > 0L)
+            || (dataMax != null && dataMax > 0L);
+    boolean peerFlowControlDeclared =
+        (peerUni != null && peerUni > 0L)
+            || (peerBidi != null && peerBidi > 0L)
+            || (peerData != null && peerData > 0L);
+    boolean flowControlEnabled =
+        Boolean.TRUE.equals(peerSettingsReceived)
+            ? (localFlowControlDeclared && peerFlowControlDeclared)
+            : (peerSettingsReceived == null ? localFlowControlDeclared : false);
 
+    WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
     // Apply fallback defaults for any zero-valued settings when flow control is
     // enabled.
     // This ensures clients always have explicit limits, preventing
     // denial-of-service scenarios.
     if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-      uniMax = WebTransportConfig.getLong(
-          "webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
+      uniMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback uni streams limit: {}", uniMax);
       }
       WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
     }
     if ((biMax == null || biMax == 0L) && flowControlEnabled) {
-      biMax = WebTransportConfig.getLong(
-          "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
+      biMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback bidi streams limit: {}", biMax);
       }
       WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
     }
     if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
-      dataMax = WebTransportConfig.getLong(
-          "webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+      dataMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback data limit: {}", dataMax);
       }
@@ -236,18 +243,19 @@ public class WebTransportSessionManager {
       }
     }
 
-    NettyWebTransportSession session = sessionFactory.createSession(
-        sessionStreamId,
-        connectStream,
-        pathStr,
-        uniMaxVal,
-        biMaxVal,
-        dataMaxVal,
-        peerUniVal,
-        peerBidiVal,
-        peerDataVal,
-        peerMaxDataNegotiated,
-        flowControlEnabled);
+    NettyWebTransportSession session =
+        sessionFactory.createSession(
+            sessionStreamId,
+            connectStream,
+            pathStr,
+            uniMaxVal,
+            biMaxVal,
+            dataMaxVal,
+            peerUniVal,
+            peerBidiVal,
+            peerDataVal,
+            peerMaxDataNegotiated,
+            flowControlEnabled);
     session.setOnClosedCallback(() -> unregister(connectStream));
     Attribute<String> subprotocolAttr =
         connectStream.attr(WebTransportAttributeKeys.SELECTED_SUBPROTOCOL);
@@ -261,7 +269,8 @@ public class WebTransportSessionManager {
     }
 
     if (quic != null) {
-      Attribute<AtomicInteger> globalAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+      Attribute<AtomicInteger> globalAttr =
+          quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
       if (globalAttr != null && globalAttr.get() != null) {
         globalAttr.get().incrementAndGet();
       }
@@ -281,14 +290,18 @@ public class WebTransportSessionManager {
     try {
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
       if (metrics != null) {
-        metrics.onSessionOpened(sessionStreamId, pathStr);
+        metrics.onSessionOpened(sessionStreamId, session.getUniqueSessionId(), pathStr);
       }
     } catch (Exception e) {
       logger.error("Error firing onSessionOpened metric for session {}", sessionStreamId, e);
     }
 
-    Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+    Attribute<WebTransportServer> serverAttr =
+        quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    if (server != null) {
+      server.registerSession(session);
+    }
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : null;
     if (handler != null) {
       try {
@@ -329,12 +342,10 @@ public class WebTransportSessionManager {
   }
 
   /**
-   * Atomically removes the session and cleans up active streams, slots, and
-   * counters.
+   * Atomically removes the session and cleans up active streams, slots, and counters.
    *
    * @param sessionStreamId the stream ID of the CONNECT stream
-   * @param fallbackQuic    optional fallback QUIC channel if the stream is
-   *                        already detached
+   * @param fallbackQuic optional fallback QUIC channel if the stream is already detached
    */
   public void unregister(long sessionStreamId, @Nullable QuicChannel fallbackQuic) {
     NettyWebTransportSession removed = sessions.remove(sessionStreamId);
@@ -345,12 +356,14 @@ public class WebTransportSessionManager {
     occupiedSlots.updateAndGet(c -> Math.max(0, c - 1));
 
     QuicStreamChannel connectStream = removed.getConnectStream();
-    QuicChannel quic = (connectStream != null && connectStream.parent() != null)
-        ? connectStream.parent()
-        : fallbackQuic;
+    QuicChannel quic =
+        (connectStream != null && connectStream.parent() != null)
+            ? connectStream.parent()
+            : fallbackQuic;
 
     if (quic != null) {
-      Attribute<AtomicInteger> globalAttr = quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
+      Attribute<AtomicInteger> globalAttr =
+          quic.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT);
       if (globalAttr != null && globalAttr.get() != null) {
         globalAttr.get().decrementAndGet();
       }
@@ -372,12 +385,19 @@ public class WebTransportSessionManager {
         }
       } catch (Exception e) {
         logger.warn(
-            "Error closing active stream {} for session {}", activeStream.streamId(), sessionStreamId, e);
+            "Error closing active stream {} for session {}",
+            activeStream.streamId(),
+            sessionStreamId,
+            e);
       }
     }
 
-    Attribute<WebTransportServer> serverAttr = quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
+    Attribute<WebTransportServer> serverAttr =
+        quic != null ? quic.attr(WebTransportAttributeKeys.SERVER_KEY) : null;
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
+    if (server != null) {
+      server.unregisterSession(removed);
+    }
     WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
     if (handler != null) {
       try {
@@ -393,7 +413,8 @@ public class WebTransportSessionManager {
       try {
         WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
         if (metrics != null) {
-          metrics.onSessionClosed(sessionStreamId, removed.getCloseCode());
+          metrics.onSessionClosed(
+              sessionStreamId, removed.getUniqueSessionId(), removed.getCloseCode());
         }
       } catch (Exception e) {
         logger.error("Error in metrics onSessionClosed for session {}", sessionStreamId, e);
@@ -404,7 +425,6 @@ public class WebTransportSessionManager {
       logger.debug("🗑️ SessionManager: Removed Session ID {}", sessionStreamId);
     }
   }
-
 
   /**
    * Closes a specific session with WT_FLOW_CONTROL_ERROR (0x045d4487).
@@ -442,10 +462,7 @@ public class WebTransportSessionManager {
     session.close();
   }
 
-  /**
-   * Cleanup: Called when the main QUIC Connection is lost/closed with a flow
-   * control error.
-   */
+  /** Cleanup: Called when the main QUIC Connection is lost/closed with a flow control error. */
   public void closeAllWithFlowControlError() {
     QuicChannel quic = null;
     for (NettyWebTransportSession session : sessions.values()) {

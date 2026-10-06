@@ -1,10 +1,19 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.AsyncWebTransportMetricsListener;
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.WebTransportSession;
+import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
+import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
+import io.github.webtransport4j.internal.EventLoopSafety;
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
+import io.github.webtransport4j.resilience.UdpSocketTuner;
+import io.github.webtransport4j.security.ClientAuthMode;
+import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.Channel;
@@ -24,10 +33,12 @@ import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicChannelOption;
 import io.netty.handler.codec.quic.QuicCongestionControlAlgorithm;
+import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicSslEngine;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
@@ -37,13 +48,16 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -52,6 +66,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -76,10 +92,10 @@ import org.slf4j.LoggerFactory;
  * </pre>
  *
  * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, generated
- * certificate, and dynamically created traffic shaper) stay local until
- * {@code publishIfStillStarting}. If {@link #stop()} wins first, it
- * returns {@code STOPPED} before those objects exist; {@code doStart} then discards them itself.
- * The epoch is not enough on its own — it only prevents publishing.
+ * certificate, and dynamically created traffic shaper) stay local until {@code
+ * publishIfStillStarting}. If {@link #stop()} wins first, it returns {@code STOPPED} before those
+ * objects exist; {@code doStart} then discards them itself. The epoch is not enough on its own — it
+ * only prevents publishing.
  *
  * <p>The QUIC codec does not snapshot {@link QuicSslContext}. New handshakes call {@link
  * #newQuicSslEngine(QuicChannel)}, which reads the live {@link #activeSslContext} so certificate
@@ -125,17 +141,33 @@ public class WebTransportServer implements AutoCloseable {
   private QuicSslContext sslContext;
   private List<String> allowedOrigins;
   private QuicTokenHandler quicTokenHandler;
+  private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
   private Long idleTimeoutSeconds;
   private Long initialMaxStreamsBidi;
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
+  private StatelessTokenSecretProvider statelessTokenSecretProvider;
+  private ClusterBroadcastBridge clusterBroadcastBridge;
+  private OverloadProtectionPolicy overloadProtectionPolicy;
+  private Boolean autoTuneUdpSocket;
+  private ClientAuthMode clientAuthMode;
+  private File trustCertFile;
+  private X509Certificate[] trustCertificates;
+  private TrustManagerFactory trustManagerFactory;
+  private TrustManager trustManager;
+  private OriginValidator originValidator;
+  private Boolean strictOriginValidation;
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
+  private final Set<WebTransportSession> activeSessionsSet = ConcurrentHashMap.newKeySet();
+  private final Map<Long, WebTransportSession> activeSessionsById = new ConcurrentHashMap<>();
+  private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
+  private final Set<QuicChannel> activeQuicChannels = ConcurrentHashMap.newKeySet();
 
   private volatile WebTransportMetricsListener metricsListener =
       NoOpWebTransportMetricsListener.INSTANCE;
@@ -157,6 +189,7 @@ public class WebTransportServer implements AutoCloseable {
       new WeakHashMap<>();
   private static final Object SERVER_INSTANCES_LOCK = new Object();
   private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
+
   /** Guarded by {@link #SERVER_INSTANCES_LOCK}. */
   private boolean instanceCounted;
 
@@ -165,15 +198,52 @@ public class WebTransportServer implements AutoCloseable {
     STOPPED,
     STARTING,
     STARTED,
+    DRAINING,
     STOPPING,
     /** Terminal after {@link #close()}. {@link #start()} will fail. */
     CLOSED
   }
 
   private final Object lifecycleLock = new Object();
+  private final java.util.concurrent.Semaphore sessionClosures =
+      new java.util.concurrent.Semaphore(0);
+  private final Set<QuicChannel> connections = ConcurrentHashMap.newKeySet();
+
+  void registerConnection(QuicChannel connection) {
+    connections.add(connection);
+    connection.closeFuture().addListener(f -> connections.remove(connection));
+    if (!isAcceptingSessions()) {
+      drainConnection(connection);
+    }
+  }
+
+  private void drainConnection(QuicChannel connection) {
+    if (!connection.isOpen()) {
+      return;
+    }
+    connection.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(true);
+    try {
+      connection
+          .eventLoop()
+          .execute(
+              () -> {
+                QuicStreamChannel control = Http3.getLocalControlStream(connection);
+                if (control != null && control.isActive()) {
+                  control.writeAndFlush(
+                      new io.netty.handler.codec.http3.DefaultHttp3GoAwayFrame(
+                          0x3ffffffffffffffcL));
+                }
+              });
+    } catch (java.util.concurrent.RejectedExecutionException closedLoop) {
+      logger.debug("Connection event loop already stopped during drain", closedLoop);
+    }
+  }
+
   private final AtomicReference<ServerState> state = new AtomicReference<>(ServerState.STOPPED);
+
   /** Incremented by {@link #stop} to invalidate an in-flight {@link #start}. */
   private final AtomicLong startEpoch = new AtomicLong();
+
   /** Sticky: once {@link #close()} runs, restart is forbidden even if stop is still in flight. */
   private volatile boolean permanentlyClosed;
 
@@ -243,6 +313,7 @@ public class WebTransportServer implements AutoCloseable {
     this.sslContext = builder.getSslContext();
     this.allowedOrigins = copyOrigins(builder.getAllowedOrigins());
     this.quicTokenHandler = builder.getQuicTokenHandler();
+    this.connectionIdGenerator = builder.getConnectionIdGenerator();
     this.transportType = builder.getTransportType();
     this.idleTimeoutSeconds = builder.getIdleTimeoutSeconds();
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
@@ -253,9 +324,20 @@ public class WebTransportServer implements AutoCloseable {
     this.trafficShaperExternallySupplied = builderTrafficShaper != null;
     this.configuredGlobalWriteLimit = builder.getGlobalTrafficWriteLimit();
     this.configuredGlobalReadLimit = builder.getGlobalTrafficReadLimit();
+    this.statelessTokenSecretProvider = builder.getStatelessTokenSecretProvider();
+    this.clusterBroadcastBridge = builder.getClusterBroadcastBridge();
+    this.overloadProtectionPolicy = builder.getOverloadProtectionPolicy();
+    this.autoTuneUdpSocket = builder.getAutoTuneUdpSocket();
+    this.clientAuthMode = builder.getClientAuthMode();
+    this.trustCertFile = builder.getTrustCertFile();
+    this.trustCertificates = builder.getTrustCertificates();
+    this.trustManagerFactory = builder.getTrustManagerFactory();
+    this.trustManager = builder.getTrustManager();
+    this.originValidator = builder.getOriginValidator();
+    this.strictOriginValidation = builder.getStrictOriginValidation();
 
     if (builder.getMetricsListener() != null) {
-      this.metricsListener = builder.getMetricsListener();
+      this.metricsListener = isolateMetricsListener(builder.getMetricsListener());
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
@@ -285,7 +367,8 @@ public class WebTransportServer implements AutoCloseable {
     return Collections.unmodifiableMap(handlers);
   }
 
-  private static @NonNull WebTransportHandler requireHandler(@Nullable WebTransportHandler handler) {
+  private static @NonNull WebTransportHandler requireHandler(
+      @Nullable WebTransportHandler handler) {
     if (handler == null) {
       throw new IllegalArgumentException("defaultHandler cannot be null");
     }
@@ -324,22 +407,24 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /** Register Handler. Passing {@code null} removes the path. */
-  public synchronized void registerHandler(
-      @NonNull String path, @Nullable WebTransportHandler handler) {
-    String normalized = normalizePath(path);
-    if (normalized == null || !normalized.startsWith("/")) {
-      throw new IllegalArgumentException(
-          "path must not be null or empty and must start with '/'");
-    }
-    if (handler == null) {
-      handlers.remove(normalized);
-      if ("/".equals(normalized)) {
-        this.defaultHandler = NO_OP_HANDLER;
+  public void registerHandler(@NonNull String path, @Nullable WebTransportHandler handler) {
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (this) {
+      String normalized = normalizePath(path);
+      if (normalized == null || !normalized.startsWith("/")) {
+        throw new IllegalArgumentException(
+            "path must not be null or empty and must start with '/'");
       }
-    } else {
-      handlers.put(normalized, handler);
-      if ("/".equals(normalized)) {
-        this.defaultHandler = handler;
+      if (handler == null) {
+        handlers.remove(normalized);
+        if ("/".equals(normalized)) {
+          this.defaultHandler = NO_OP_HANDLER;
+        }
+      } else {
+        handlers.put(normalized, handler);
+        if ("/".equals(normalized)) {
+          this.defaultHandler = handler;
+        }
       }
     }
   }
@@ -356,11 +441,29 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Sets a custom metrics listener for observability export. */
   public void setMetricsListener(@NonNull WebTransportMetricsListener listener) {
-    this.metricsListener = Objects.requireNonNull(listener, "listener");
+    EventLoopSafety.requireBlockingAllowed();
+    WebTransportMetricsListener previous = this.metricsListener;
+    this.metricsListener = isolateMetricsListener(Objects.requireNonNull(listener, "listener"));
+    closeMetricsListener(previous);
   }
 
   public @NonNull WebTransportMetricsListener getMetricsListener() {
     return metricsListener;
+  }
+
+  private static @NonNull WebTransportMetricsListener isolateMetricsListener(
+      @NonNull WebTransportMetricsListener listener) {
+    if (listener == NoOpWebTransportMetricsListener.INSTANCE
+        || listener instanceof AsyncWebTransportMetricsListener) {
+      return listener;
+    }
+    return new AsyncWebTransportMetricsListener(listener);
+  }
+
+  private static void closeMetricsListener(@Nullable WebTransportMetricsListener listener) {
+    if (listener instanceof AsyncWebTransportMetricsListener) {
+      ((AsyncWebTransportMetricsListener) listener).close();
+    }
   }
 
   public void setMessageDispatcher(@NonNull MessageDispatcher dispatcher) {
@@ -385,13 +488,15 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /**
-   * Sets the traffic shaping handler while this server is stopped, transferring exclusive ownership.
-   * A handler previously transferred to a server cannot be reused. The caller remains responsible
-   * for releasing a handler replaced before startup.
+   * Sets the traffic shaping handler while this server is stopped, transferring exclusive
+   * ownership. A handler previously transferred to a server cannot be reused. The caller remains
+   * responsible for releasing a handler replaced before startup.
    *
-   * @throws IllegalStateException if the server is not stopped or the handler was already transferred
+   * @throws IllegalStateException if the server is not stopped or the handler was already
+   *     transferred
    */
   public void setTrafficShaper(@Nullable GlobalTrafficShapingHandler trafficShaper) {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       if (state.get() != ServerState.STOPPED) {
         throw new IllegalStateException(
@@ -404,9 +509,84 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Returns the cluster broadcast bridge, or null if clustering is not configured.
+   *
+   * @return cluster broadcast bridge or null
+   */
+  public @Nullable ClusterBroadcastBridge getClusterBroadcastBridge() {
+    return clusterBroadcastBridge;
+  }
+
+  /**
+   * Sets the cluster broadcast bridge.
+   *
+   * @param bridge cluster broadcast bridge
+   */
+  public void setClusterBroadcastBridge(@Nullable ClusterBroadcastBridge bridge) {
+    this.clusterBroadcastBridge = bridge;
+  }
+
+  /**
+   * Returns the stateless token secret provider, or null if not configured.
+   *
+   * @return token secret provider or null
+   */
+  public @Nullable StatelessTokenSecretProvider getStatelessTokenSecretProvider() {
+    return statelessTokenSecretProvider;
+  }
+
+  /**
+   * Sets the stateless token secret provider.
+   *
+   * @param provider token secret provider
+   */
+  public void setStatelessTokenSecretProvider(@Nullable StatelessTokenSecretProvider provider) {
+    this.statelessTokenSecretProvider = provider;
+  }
+
+  /**
+   * Sets the overload protection policy for this server instance.
+   *
+   * @param policy overload protection policy
+   */
+  public void setOverloadProtectionPolicy(@Nullable OverloadProtectionPolicy policy) {
+    this.overloadProtectionPolicy = policy;
+  }
+
+  /**
+   * Returns the configured overload protection policy, or null if not configured.
+   *
+   * @return overload protection policy or null
+   */
+  public @Nullable OverloadProtectionPolicy getOverloadProtectionPolicy() {
+    return overloadProtectionPolicy;
+  }
+
+  /**
+   * Returns whether OS UDP socket auto-tuning is enabled.
+   *
+   * @return true if UDP socket auto-tuning is enabled
+   */
+  public boolean isAutoTuneUdpSocket() {
+    return autoTuneUdpSocket != null
+        ? autoTuneUdpSocket
+        : WebTransportConfig.getBoolean("webtransport4j.server.socket.autotune", true);
+  }
+
+  /**
+   * Configures whether OS UDP socket auto-tuning is enabled.
+   *
+   * @param autoTune true to enable UDP socket auto-tuning
+   */
+  public void setAutoTuneUdpSocket(boolean autoTune) {
+    this.autoTuneUdpSocket = autoTune;
+  }
+
   private static GlobalTrafficShapingHandler claimTrafficShaper(
       GlobalTrafficShapingHandler handler) {
     if (handler != null) {
+      EventLoopSafety.requireBlockingAllowed();
       synchronized (OWNED_TRAFFIC_SHAPERS) {
         if (OWNED_TRAFFIC_SHAPERS.putIfAbsent(handler, Boolean.TRUE) != null) {
           throw new IllegalStateException(
@@ -435,6 +615,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void registerServerInstance() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (SERVER_INSTANCES_LOCK) {
       if (!instanceCounted) {
         ACTIVE_SERVER_INSTANCES.incrementAndGet();
@@ -444,6 +625,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void unregisterServerInstance() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (SERVER_INSTANCES_LOCK) {
       if (!instanceCounted) {
         return;
@@ -496,9 +678,8 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /**
-   * Returns the executor used for application callbacks. After {@link #stop()} of an owned
-   * executor this may be a terminated pool; {@link #start()} replaces it before accepting
-   * connections again.
+   * Returns the executor used for application callbacks. After {@link #stop()} of an owned executor
+   * this may be a terminated pool; {@link #start()} replaces it before accepting connections again.
    */
   public ExecutorService getBusinessExecutor() {
     return businessExecutor;
@@ -506,7 +687,102 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
-    return globalActiveSessions.get();
+    return activeSessionsSet.size();
+  }
+
+  /**
+   * Registers an active WebTransport session.
+   *
+   * @param session the session to register
+   */
+  public void registerSession(@NonNull WebTransportSession session) {
+    Objects.requireNonNull(session, "session cannot be null");
+    activeSessionsSet.add(session);
+    activeSessionsById.put(session.getUniqueSessionId(), session);
+    activeSessionsMap.put(session.getSessionStreamId(), session);
+    if (state.get() == ServerState.DRAINING || state.get() == ServerState.STOPPING) {
+      session.drain();
+    }
+  }
+
+  /**
+   * Unregisters an active WebTransport session.
+   *
+   * @param session the session to unregister
+   */
+  public void unregisterSession(@NonNull WebTransportSession session) {
+    Objects.requireNonNull(session, "session cannot be null");
+    activeSessionsSet.remove(session);
+    activeSessionsById.remove(session.getUniqueSessionId());
+    activeSessionsMap.remove(session.getSessionStreamId(), session);
+    sessionClosures.release();
+  }
+
+  /**
+   * Unregisters an active WebTransport session by its session stream ID or unique session ID.
+   *
+   * @param sessionId the stream ID or unique ID of the session
+   */
+  public void unregisterSession(long sessionId) {
+    WebTransportSession removed = activeSessionsById.remove(sessionId);
+    if (removed != null) {
+      activeSessionsSet.remove(removed);
+      activeSessionsMap.remove(removed.getSessionStreamId(), removed);
+      sessionClosures.release();
+      return;
+    }
+    removed = activeSessionsMap.remove(sessionId);
+    if (removed != null) {
+      activeSessionsSet.remove(removed);
+      activeSessionsById.remove(removed.getUniqueSessionId());
+      sessionClosures.release();
+      return;
+    }
+    for (WebTransportSession s : activeSessionsSet) {
+      if (s.getUniqueSessionId() == sessionId
+          || s.getSessionStreamId() == sessionId
+          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
+        activeSessionsSet.remove(s);
+        activeSessionsById.remove(s.getUniqueSessionId());
+        activeSessionsMap.remove(s.getSessionStreamId(), s);
+        sessionClosures.release();
+        break;
+      }
+    }
+  }
+
+  /**
+   * Returns an unmodifiable collection of all currently active WebTransport sessions.
+   *
+   * @return collection of active sessions
+   */
+  public @NonNull Collection<WebTransportSession> getActiveSessions() {
+    return Collections.unmodifiableCollection(activeSessionsSet);
+  }
+
+  /**
+   * Retrieves an active WebTransport session by its unique session ID or session stream ID.
+   *
+   * @param sessionId the stream ID or unique session ID of the session
+   * @return the session, or null if not found
+   */
+  public @Nullable WebTransportSession getSession(long sessionId) {
+    WebTransportSession session = activeSessionsById.get(sessionId);
+    if (session != null) {
+      return session;
+    }
+    session = activeSessionsMap.get(sessionId);
+    if (session != null) {
+      return session;
+    }
+    for (WebTransportSession s : activeSessionsSet) {
+      if (s.getUniqueSessionId() == sessionId
+          || s.getSessionStreamId() == sessionId
+          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
+        return s;
+      }
+    }
+    return null;
   }
 
   /** Returns the current lifecycle state of the server. */
@@ -517,12 +793,142 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns true if the server is active and listening. */
   public boolean isStarted() {
     Channel ch = this.channel;
-    return state.get() == ServerState.STARTED && ch != null && ch.isActive();
+    return (state.get() == ServerState.STARTED || state.get() == ServerState.DRAINING)
+        && ch != null
+        && ch.isActive();
+  }
+
+  /** Returns whether the server admits new WebTransport sessions. */
+  public boolean isAcceptingSessions() {
+    return state.get() == ServerState.STARTED;
+  }
+
+  private void drainActiveSessions() {
+    for (WebTransportSession session : activeSessionsSet) {
+      try {
+        if (session.isOpen()) {
+          session.drain();
+        }
+      } catch (RuntimeException failure) {
+        logger.warn("Could not notify session of shutdown", failure);
+      }
+    }
   }
 
   /** Returns true if the server is active and listening. */
   public boolean isRunning() {
     return isStarted();
+  }
+
+  /** Returns true if the server is in a coordinated draining phase. */
+  public boolean isDraining() {
+    return state.get() == ServerState.DRAINING;
+  }
+
+  /** Returns the number of active WebTransport sessions across all QUIC connections. */
+  public int getActiveSessionsCount() {
+    return getActiveSessionCount();
+  }
+
+  void registerQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.add(ch);
+    }
+  }
+
+  void unregisterQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.remove(ch);
+    }
+  }
+
+  /**
+   * Enters the coordinated draining phase per WebTransport Draft-16.
+   *
+   * <p>Broadcasts {@code WT_DRAIN_SESSION} capsules to all connected clients and marks sessions
+   * as draining. Waits up to the specified timeout for sessions to close cleanly before stopping.
+   *
+   * @param timeout maximum time to wait for sessions to drain
+   * @param unit the time unit of the timeout argument
+   */
+  public void drain(long timeout, @NonNull TimeUnit unit) {
+    EventLoopSafety.requireBlockingAllowed();
+    Objects.requireNonNull(unit, "unit");
+    if (timeout < 0L) {
+      throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
+    }
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    drain();
+    stop(Math.max(0L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+  }
+
+  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
+  public void drain() {
+    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
+      return;
+    }
+    for (QuicChannel connection : connections) {
+      drainConnection(connection);
+    }
+    drainActiveSessions();
+  }
+
+  /**
+   * Programmatically reloads the TLS certificate context using updated PEM files.
+   *
+   * @param certFile the new certificate chain file
+   * @param keyFile the new private key file
+   * @throws Exception if reading the files or building the QuicSslContext fails
+   */
+  public void reloadTlsCertificate(@NonNull File certFile, @NonNull File keyFile) throws Exception {
+    Objects.requireNonNull(certFile, "certFile");
+    Objects.requireNonNull(keyFile, "keyFile");
+    EventLoopSafety.requireBlockingAllowed();
+    QuicSslContextBuilder sslBuilder =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .earlyData(true);
+    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContext newContext = sslBuilder.build();
+    installReloadedSslContext(newContext);
+  }
+
+  /**
+   * Programmatically installs an already configured {@link QuicSslContext}.
+   *
+   * @param newContext the new QUIC SSL context
+   */
+  public void reloadTlsCertificate(@NonNull QuicSslContext newContext) {
+    installReloadedSslContext(newContext);
+  }
+
+  /**
+   * Returns the configured mTLS client authentication mode.
+   *
+   * @return client authentication mode, or {@code null} if default
+   */
+  public @Nullable ClientAuthMode getClientAuthMode() {
+    return clientAuthMode;
+  }
+
+  /**
+   * Returns the custom origin validator, if configured.
+   *
+   * @return origin validator, or {@code null} if none
+   */
+  public @Nullable OriginValidator getOriginValidator() {
+    return originValidator;
+  }
+
+  /**
+   * Returns {@code true} if strict origin validation is enforced.
+   *
+   * @return true if strict origin validation is active
+   */
+  public boolean isStrictOriginValidation() {
+    return strictOriginValidation != null
+        ? strictOriginValidation
+        : WebTransportConfig.getBoolean("webtransport4j.security.strict_origin", false);
   }
 
   /**
@@ -532,9 +938,10 @@ public class WebTransportServer implements AutoCloseable {
    * already returned. {@link #close()} is terminal and a later {@code start()} throws.
    */
   public void start() throws Exception {
+    EventLoopSafety.requireBlockingAllowed();
+    IpRateLimitingHandler.ensureReloaderStarted();
     if (permanentlyClosed || state.get() == ServerState.CLOSED) {
-      throw new IllegalStateException(
-          "WebTransportServer has been closed and cannot be restarted");
+      throw new IllegalStateException("WebTransportServer has been closed and cannot be restarted");
     }
     if (!state.compareAndSet(ServerState.STOPPED, ServerState.STARTING)) {
       ServerState current = state.get();
@@ -549,8 +956,7 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (permanentlyClosed) {
       state.compareAndSet(ServerState.STARTING, ServerState.STOPPED);
-      throw new IllegalStateException(
-          "WebTransportServer has been closed and cannot be restarted");
+      throw new IllegalStateException("WebTransportServer has been closed and cannot be restarted");
     }
 
     final long epoch = startEpoch.incrementAndGet();
@@ -674,6 +1080,11 @@ public class WebTransportServer implements AutoCloseable {
                       globalActiveSessions,
                       globalSessionSlots));
 
+      QuicConnectionIdGenerator cidGen = resolveConnectionIdGenerator();
+      if (cidGen != null) {
+        codecBuilder.connectionIdAddressGenerator(cidGen);
+      }
+
       configureOptionalQuicParams(codecBuilder);
 
       abortIfStartInvalidated(epoch);
@@ -706,9 +1117,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void abortIfStartInvalidated(long epoch) {
-    if (permanentlyClosed
-        || epoch != startEpoch.get()
-        || state.get() != ServerState.STARTING) {
+    if (permanentlyClosed || epoch != startEpoch.get() || state.get() != ServerState.STARTING) {
       throw new IllegalStateException("Server start aborted because shutdown was requested");
     }
   }
@@ -734,10 +1143,10 @@ public class WebTransportServer implements AutoCloseable {
             "webtransport-server-shutdown-hook");
     hook.setDaemon(false);
 
+    EventLoopSafety.requireBlockingAllowed();
+
     synchronized (lifecycleLock) {
-      if (permanentlyClosed
-          || epoch != startEpoch.get()
-          || state.get() != ServerState.STARTING) {
+      if (permanentlyClosed || epoch != startEpoch.get() || state.get() != ServerState.STARTING) {
         return false;
       }
       try {
@@ -827,18 +1236,15 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  /**
-   * Starts the server non-blockingly and then blocks until server shutdown.
-   */
+  /** Starts the server non-blockingly and then blocks until server shutdown. */
   public void startAndAwait() throws Exception {
     start();
     awaitShutdown();
   }
 
-  /**
-   * Blocks the current thread until the server channel is closed.
-   */
+  /** Blocks the current thread until the server channel is closed. */
   public void awaitShutdown() throws InterruptedException {
+    EventLoopSafety.requireBlockingAllowed();
     Channel ch = this.channel;
     if (ch != null) {
       ch.closeFuture().sync();
@@ -945,8 +1351,9 @@ public class WebTransportServer implements AutoCloseable {
     boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
     if (!devMode && resolvedOrigins.contains("*")) {
       logger.warn(
-          "!!! WARNING !!! Allowed origins is '*'. This accepts any browser origin. Set "
-              + "webtransport4j.allowed.origins to an explicit allow-list in production. !!! WARNING !!!");
+          "!!! WARNING !!! Allowed origins is '*'. This accepts any browser origin. Set"
+              + " webtransport4j.allowed.origins to an explicit allow-list in production. !!!"
+              + " WARNING !!!");
     }
     return resolvedOrigins;
   }
@@ -969,9 +1376,21 @@ public class WebTransportServer implements AutoCloseable {
     }
 
     if (hotReloadEnabled && resolvedKeyPath != null && resolvedCertPath != null) {
+      long epoch = startEpoch.get();
       TlsCertificateWatcher watcher =
           new TlsCertificateWatcher(
-              resolvedKeyPath, resolvedCertPath, this::installReloadedSslContext);
+              resolvedKeyPath,
+              resolvedCertPath,
+              context -> {
+                EventLoopSafety.requireBlockingAllowed();
+                synchronized (lifecycleLock) {
+                  if (startEpoch.get() == epoch) {
+                    installReloadedSslContext(context);
+                  }
+                }
+              },
+              this::applyClientAuthAndTrust,
+              WebTransportConfig.getInt("webtransport4j.ssl.hot_reload.interval_secs", 5));
       watcher.start();
       return watcher;
     }
@@ -998,8 +1417,14 @@ public class WebTransportServer implements AutoCloseable {
    */
   private void installReloadedSslContext(QuicSslContext newCtx) {
     Objects.requireNonNull(newCtx, "newCtx");
-    applySessionTicketKeys(newCtx);
-    this.activeSslContext = newCtx;
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (lifecycleLock) {
+      if (permanentlyClosed || state.get() == ServerState.STOPPING) {
+        return;
+      }
+      applySessionTicketKeys(newCtx);
+      this.activeSslContext = newCtx;
+    }
     logger.info(
         "TLS certificate context reloaded; new handshakes will use the updated certificate");
   }
@@ -1018,6 +1443,7 @@ public class WebTransportServer implements AutoCloseable {
           "Caller-supplied business executor is shutdown; supply a live executor or omit it so the"
               + " server can manage one");
     }
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       current = this.businessExecutor;
       if (isLive(current)) {
@@ -1230,7 +1656,8 @@ public class WebTransportServer implements AutoCloseable {
           if (udpGso) {
             int gsoSize =
                 WebTransportConfig.getInt("webtransport4j.epoll.gso.size", DEFAULT_GSO_SIZE);
-            // Configuration errors are intentionally outside any broad runtime catch and fail startup.
+            // Configuration errors are intentionally outside any broad runtime catch and fail
+            // startup.
             validateGsoSize(gsoSize);
             bootstrap.option(
                 QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
@@ -1326,7 +1753,8 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  private @Nullable GlobalTrafficShapingHandler resolveTrafficShaper(EventLoopGroup eventLoopGroup) {
+  private @Nullable GlobalTrafficShapingHandler resolveTrafficShaper(
+      EventLoopGroup eventLoopGroup) {
     if (this.trafficShaper != null) {
       return this.trafficShaper;
     }
@@ -1347,6 +1775,17 @@ public class WebTransportServer implements AutoCloseable {
 
   private @NonNull SslContextBuildResult buildSslContext() throws Exception {
     if (this.sslContext != null) {
+      if (clientAuthMode != null
+          || resolveClientAuthMode() != ClientAuthMode.NONE
+          || trustCertFile != null
+          || trustCertificates != null
+          || trustManagerFactory != null
+          || trustManager != null
+          || WebTransportConfig.get("webtransport4j.ssl.trust_cert.path", null) != null) {
+        throw new IllegalArgumentException(
+            "Configure client authentication and trust on the supplied sslContext; "
+                + "server clientAuth/trustManager settings cannot modify it");
+      }
       return new SslContextBuildResult(this.sslContext, null);
     }
     String keyPath =
@@ -1386,9 +1825,10 @@ public class WebTransportServer implements AutoCloseable {
       }
     } else if (devMode) {
       logger.warn(
-          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS certificate will be "
-              + "generated. Do not use this configuration in production. Configure "
-              + "webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!! WARNING !!!");
+          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS"
+              + " certificate will be generated. Do not use this configuration in production."
+              + " Configure webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!!"
+              + " WARNING !!!");
 
       generated = new SelfSignedCertificate("localhost");
       keyFile = generated.privateKey();
@@ -1414,12 +1854,63 @@ public class WebTransportServer implements AutoCloseable {
       if (sessionCacheSize > 0) {
         sslBuilder.sessionCacheSize(sessionCacheSize);
       }
+      applyClientAuthAndTrust(sslBuilder);
       QuicSslContext resolvedSslCtx = sslBuilder.build();
       applySessionTicketKeys(resolvedSslCtx);
       return new SslContextBuildResult(resolvedSslCtx, generated);
     } catch (Exception | Error e) {
       deleteGeneratedCertificateQuietly(generated, "failed TLS startup");
       throw e;
+    }
+  }
+
+  private ClientAuthMode resolveClientAuthMode() {
+    if (clientAuthMode != null) {
+      return clientAuthMode;
+    }
+    String configured = WebTransportConfig.get("webtransport4j.ssl.client_auth", "NONE");
+    try {
+      return ClientAuthMode.valueOf(configured.trim().toUpperCase(Locale.ROOT));
+    } catch (IllegalArgumentException invalid) {
+      throw new IllegalArgumentException(
+          "webtransport4j.ssl.client_auth must be NONE, OPTIONAL, or REQUIRE", invalid);
+    }
+  }
+
+  void applyClientAuthAndTrust(QuicSslContextBuilder sslBuilder) {
+    ClientAuthMode mode = resolveClientAuthMode();
+
+    if (mode == ClientAuthMode.REQUIRE) {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.REQUIRE);
+    } else if (mode == ClientAuthMode.OPTIONAL) {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.OPTIONAL);
+    } else {
+      sslBuilder.clientAuth(io.netty.handler.ssl.ClientAuth.NONE);
+    }
+
+    if (this.trustCertFile != null) {
+      requireReadableTrustFile(this.trustCertFile);
+      sslBuilder.trustManager(this.trustCertFile);
+    } else if (this.trustCertificates != null) {
+      sslBuilder.trustManager(this.trustCertificates);
+    } else if (this.trustManagerFactory != null) {
+      sslBuilder.trustManager(this.trustManagerFactory);
+    } else if (this.trustManager != null) {
+      sslBuilder.trustManager(this.trustManager);
+    } else {
+      String trustPath = WebTransportConfig.get("webtransport4j.ssl.trust_cert.path", null);
+      if (trustPath != null) {
+        File trustFile = new File(trustPath.trim());
+        requireReadableTrustFile(trustFile);
+        sslBuilder.trustManager(trustFile);
+      }
+    }
+  }
+
+  private static void requireReadableTrustFile(File file) {
+    if (!file.isFile() || !file.canRead()) {
+      throw new IllegalArgumentException(
+          "TLS trust certificate file must be a readable file: " + file);
     }
   }
 
@@ -1459,7 +1950,8 @@ public class WebTransportServer implements AutoCloseable {
     }
     resolvedSslCtx.sessionContext().setTicketKeys(ticketKeys);
     logger.info(
-        "Explicit TLS session ticket keys loaded ({}). 1-RTT session resumption across servers is enabled.",
+        "Explicit TLS session ticket keys loaded ({}). 1-RTT session resumption across servers is"
+            + " enabled.",
         ticketKeys.length);
   }
 
@@ -1505,10 +1997,8 @@ public class WebTransportServer implements AutoCloseable {
       builder.grease(Boolean.parseBoolean(greaseVal));
     }
 
-    applyLongIfPresent(
-        "webtransport4j.quic.payload.size.send.max", builder::maxSendUdpPayloadSize);
-    applyLongIfPresent(
-        "webtransport4j.quic.payload.size.recv.max", builder::maxRecvUdpPayloadSize);
+    applyLongIfPresent("webtransport4j.quic.payload.size.send.max", builder::maxSendUdpPayloadSize);
+    applyLongIfPresent("webtransport4j.quic.payload.size.recv.max", builder::maxRecvUdpPayloadSize);
     applyLongIfPresent("webtransport4j.quic.ack.delay.exponent", builder::ackDelayExponent);
 
     String maxAckDelayVal = WebTransportConfig.get("webtransport4j.quic.ack.delay.max.ms", null);
@@ -1516,8 +2006,7 @@ public class WebTransportServer implements AutoCloseable {
       builder.maxAckDelay(Long.parseLong(maxAckDelayVal), TimeUnit.MILLISECONDS);
     }
 
-    applyBooleanIfPresent(
-        "webtransport4j.quic.active.migration.enabled", builder::activeMigration);
+    applyBooleanIfPresent("webtransport4j.quic.active.migration.enabled", builder::activeMigration);
     applyBooleanIfPresent("webtransport4j.quic.hystart.enabled", builder::hystart);
     applyBooleanIfPresent("webtransport4j.quic.discover.pmtu.enabled", builder::discoverPmtu);
 
@@ -1592,21 +2081,26 @@ public class WebTransportServer implements AutoCloseable {
             "webtransport4j.server.recv.max_messages_per_read", DEFAULT_MAX_MESSAGES_PER_READ);
     if (maxMessagesPerRead <= 0) {
       throw new IllegalArgumentException(
-          "webtransport4j.server.recv.max_messages_per_read must be > 0: "
-              + maxMessagesPerRead);
+          "webtransport4j.server.recv.max_messages_per_read must be > 0: " + maxMessagesPerRead);
     }
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(maxMessagesPerRead);
 
+    int socketBufferDefault = isAutoTuneUdpSocket() ? 0 : DEFAULT_SOCKET_BUFFER_SIZE;
     int sndBuf =
-        WebTransportConfig.getInt("webtransport4j.server.socket.sndbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+        WebTransportConfig.getInt(
+            "webtransport4j.server.socket.sndbuf", socketBufferDefault);
     if (sndBuf > 0) {
       bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
     }
     int rcvBuf =
-        WebTransportConfig.getInt("webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+        WebTransportConfig.getInt(
+            "webtransport4j.server.socket.rcvbuf", socketBufferDefault);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
+    }
+    if (isAutoTuneUdpSocket()) {
+      UdpSocketTuner.tune(bootstrap);
     }
     bootstrap.option(ChannelOption.SO_REUSEADDR, true);
 
@@ -1682,12 +2176,20 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void stop(long timeout, TimeUnit unit, boolean shutdownExecutor, boolean terminal) {
+    EventLoopSafety.requireBlockingAllowed();
     if (timeout < 0L) {
       throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
+    }
+    final long deadline = System.nanoTime() + unit.toNanos(timeout);
+    for (QuicChannel connection : connections) {
+      if (connection.eventLoop().inEventLoop()) {
+        throw new IllegalStateException("Blocking stop must not run on a QUIC event loop");
+      }
     }
     if (terminal) {
       permanentlyClosed = true;
     }
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       startEpoch.incrementAndGet();
       ServerState previous = state.get();
@@ -1730,6 +2232,36 @@ public class WebTransportServer implements AutoCloseable {
       state.set(ServerState.STOPPING);
     }
     try {
+      for (QuicChannel connection : connections) {
+        drainConnection(connection);
+      }
+      drainActiveSessions();
+      sessionClosures.drainPermits();
+      while (!activeSessionsSet.isEmpty()) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+          break;
+        }
+        try {
+          if (!sessionClosures.tryAcquire(remaining, TimeUnit.NANOSECONDS)) {
+            break;
+          }
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+      }
+      for (WebTransportSession session : activeSessionsSet) {
+        try {
+          session.close();
+        } catch (RuntimeException failure) {
+          logger.warn("Could not close session at shutdown deadline", failure);
+        } finally {
+          unregisterSession(session);
+        }
+      }
+      timeout = Math.max(0, deadline - System.nanoTime());
+      unit = TimeUnit.NANOSECONDS;
       TlsCertificateWatcher watcher = tlsWatcher;
       tlsWatcher = null;
       stopTlsWatcherSafely(watcher);
@@ -1760,6 +2292,7 @@ public class WebTransportServer implements AutoCloseable {
       }
       EventLoopGroup g = this.group;
       this.group = null;
+      timeout = Math.max(0, deadline - System.nanoTime());
       if (g != null) {
         try {
           if (!g.shutdownGracefully(0, timeout, unit).await(timeout, unit)) {
@@ -1779,10 +2312,12 @@ public class WebTransportServer implements AutoCloseable {
       unregisterServerInstanceSafely();
       deleteGeneratedCertificate();
       if (shutdownExecutor || permanentlyClosed) {
+        timeout = Math.max(0, deadline - System.nanoTime());
         shutdownBusinessExecutorSafely(timeout, unit);
       }
       logger.info("WebTransport server stopped successfully.");
     } finally {
+      EventLoopSafety.requireBlockingAllowed();
       synchronized (lifecycleLock) {
         if (permanentlyClosed) {
           state.set(ServerState.CLOSED);
@@ -1803,7 +2338,8 @@ public class WebTransportServer implements AutoCloseable {
     while (state.get() == ServerState.STOPPING) {
       long remaining = deadline - System.nanoTime();
       if (remaining <= 0L) {
-        logger.warn("!!! WARNING !!! Timed out waiting for in-flight stop to finish !!! WARNING !!!");
+        logger.warn(
+            "!!! WARNING !!! Timed out waiting for in-flight stop to finish !!! WARNING !!!");
         return;
       }
       try {
@@ -1888,7 +2424,59 @@ public class WebTransportServer implements AutoCloseable {
     if (this.quicTokenHandler != null) {
       return this.quicTokenHandler;
     }
+    if (this.statelessTokenSecretProvider != null) {
+      long expirationMs =
+          WebTransportConfig.getLong(
+              "webtransport4j.quic.token.handler.hmac.expiration.ms", DEFAULT_HMAC_EXPIRATION_MS);
+      if (expirationMs <= 0) {
+        throw new IllegalArgumentException(
+            "webtransport4j.quic.token.handler.hmac.expiration.ms must be > 0");
+      }
+      logger.info(
+          "QUIC token handler configured: HMAC with StatelessTokenSecretProvider across cluster, expiration: {}ms",
+          expirationMs);
+      return new HmacQuicTokenHandler(this.statelessTokenSecretProvider, expirationMs);
+    }
     return getTokenHandler();
+  }
+
+  private QuicConnectionIdGenerator resolveConnectionIdGenerator() {
+    if (this.connectionIdGenerator != null) {
+      return this.connectionIdGenerator;
+    }
+    String serverIdVal = WebTransportConfig.get("webtransport4j.quic.server.id", null);
+    if (serverIdVal == null) {
+      serverIdVal = System.getenv("SERVER_ID");
+    }
+    if (serverIdVal != null && !serverIdVal.trim().isEmpty()) {
+      int serverId = Integer.parseInt(serverIdVal.trim());
+      logger.info(
+          "QUIC-LB Connection ID routing configured: ServerIdConnectionIdGenerator (Server ID: {})",
+          serverId);
+      return new ServerIdConnectionIdGenerator(serverId);
+    }
+    String generatorType =
+        WebTransportConfig.get("webtransport4j.quic.connection.id.generator", null);
+    if (generatorType != null && !generatorType.trim().isEmpty()) {
+      if ("random".equalsIgnoreCase(generatorType)) {
+        return QuicConnectionIdGenerator.randomGenerator();
+      } else if ("sign".equalsIgnoreCase(generatorType) || "hmac".equalsIgnoreCase(generatorType)) {
+        return QuicConnectionIdGenerator.signGenerator();
+      } else {
+        try {
+          Class<?> genClass = Class.forName(generatorType);
+          if (!QuicConnectionIdGenerator.class.isAssignableFrom(genClass)) {
+            throw new IllegalArgumentException(
+                generatorType + " does not implement " + QuicConnectionIdGenerator.class.getName());
+          }
+          return (QuicConnectionIdGenerator) genClass.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+          throw new IllegalStateException(
+              "Failed to load custom QuicConnectionIdGenerator: " + generatorType, e);
+        }
+      }
+    }
+    return null;
   }
 
   /** Returns the token handler. */
@@ -1896,8 +2484,9 @@ public class WebTransportServer implements AutoCloseable {
     String tokenHandlerType = WebTransportConfig.get("webtransport4j.quic.token.handler", "hmac");
     if ("insecure".equalsIgnoreCase(tokenHandlerType)) {
       logger.warn(
-          "!!! WARNING !!! QUIC token handler is INSECURE (InsecureQuicTokenHandler). Address validation tokens "
-              + "are not cryptographically bound. Do not use this in production. !!! WARNING !!!");
+          "!!! WARNING !!! QUIC token handler is INSECURE (InsecureQuicTokenHandler). Address"
+              + " validation tokens are not cryptographically bound. Do not use this in production."
+              + " !!! WARNING !!!");
       return InsecureQuicTokenHandler.INSTANCE;
     } else if ("hmac".equalsIgnoreCase(tokenHandlerType)
         || tokenHandlerType == null
@@ -1956,8 +2545,7 @@ public class WebTransportServer implements AutoCloseable {
       int high = Character.digit(normalized.charAt(i), 16);
       int low = Character.digit(normalized.charAt(i + 1), 16);
       if (high == -1 || low == -1) {
-        throw new IllegalArgumentException(
-            "HMAC key contains a non-hex character at index " + i);
+        throw new IllegalArgumentException("HMAC key contains a non-hex character at index " + i);
       }
       data[i / 2] = (byte) ((high << 4) + low);
     }
@@ -1972,8 +2560,12 @@ public class WebTransportServer implements AutoCloseable {
       long wtMaxUni,
       long quicMaxData,
       long wtMaxData) {
-    if (quicMaxBidi < 0 || wtMaxBidi < 0 || quicMaxUni < 0 || wtMaxUni < 0
-        || quicMaxData < 0 || wtMaxData < 0) {
+    if (quicMaxBidi < 0
+        || wtMaxBidi < 0
+        || quicMaxUni < 0
+        || wtMaxUni < 0
+        || quicMaxData < 0
+        || wtMaxData < 0) {
       throw new IllegalArgumentException("Flow-control limits must be >= 0");
     }
     if (quicMaxBidi < wtMaxBidi) {
@@ -2016,6 +2608,7 @@ public class WebTransportServer implements AutoCloseable {
   @Override
   public void close() {
     stop(5, TimeUnit.SECONDS, true, true);
+    closeMetricsListener(metricsListener);
   }
 
   @Override
