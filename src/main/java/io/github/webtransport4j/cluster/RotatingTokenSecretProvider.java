@@ -1,5 +1,6 @@
 package io.github.webtransport4j.cluster;
 
+import io.github.webtransport4j.internal.EventLoopSafety;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -56,6 +57,7 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
     if (newSecret.length < 16) {
       throw new IllegalArgumentException("Secret must be at least 16 bytes: " + newSecret.length);
     }
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lock) {
       if (maxHistoricalSecrets > 0) {
         historicalSecrets.addFirst(this.activeSecret);
@@ -69,6 +71,7 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
 
   @Override
   public byte @NonNull [] getActiveSecret() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lock) {
       return Arrays.copyOf(activeSecret, activeSecret.length);
     }
@@ -76,6 +79,7 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
 
   @Override
   public @NonNull List<byte[]> getValidationSecrets() {
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lock) {
       final List<byte[]> list = new ArrayList<>(1 + historicalSecrets.size());
       list.add(Arrays.copyOf(activeSecret, activeSecret.length));
