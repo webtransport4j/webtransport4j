@@ -77,7 +77,8 @@ public interface OverloadProtectionPolicy {
   /**
    * Evaluates whether a new session request may proceed or should be shed.
    *
-   * @param currentActiveSessions the current count of active sessions across the server
+   * @param currentActiveSessions other active sessions and pending reservations across the server,
+   *     excluding the request being evaluated; zero when global slot tracking is unavailable
    * @return the admission result
    */
   @NonNull AdmissionResult tryAcquire(int currentActiveSessions);

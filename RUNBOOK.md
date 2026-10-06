@@ -64,13 +64,13 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
 ### Playbook 2: Sessions Rejected with HTTP 503 (`overload_shed`)
 
 #### Symptoms
-- Clients receive HTTP 503 `Service Unavailable` with `Retry-After: 5` header during `CONNECT`.
+- Clients receive HTTP 503 `Service Unavailable` during `CONNECT`. The default adaptive policy supplies `Retry-After: 5`; custom policies may omit the delay.
 - Server logs: `Rejecting session: Overload policy shed load`.
 
 #### Root Causes
 1. JVM heap memory pressure exceeded `maxHeapUsageRatio` (default 85%).
-2. Active sessions reached node capacity ceiling (`max_concurrent_sessions`).
-3. `AdaptiveCircuitBreaker` tripped to `OPEN` due to downstream or resource failures.
+2. Other active sessions and pending reservations reached the adaptive policy's `maxActiveSessions` ceiling (default 50,000).
+3. `AdaptiveCircuitBreaker` tripped to `OPEN` after consecutive capacity or heap-pressure failures, or was explicitly tripped by the application.
 
 #### Triage & Resolution Steps
 1. **Inspect Heap and Garbage Collection**:
@@ -92,6 +92,12 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
    ```
 3. **Verify Downstream Latency**:
    If business executor is saturated, inspect thread pools using `jstack <pid> | grep -A 20 "VirtualThread"`.
+
+---
+
+### Global Session-Limit Rejections (HTTP 429)
+
+When global slot tracking is active and `webtransport4j.server.max_concurrent_sessions` is reached, the handler returns HTTP 429 before evaluating the adaptive overload policy. The count includes active sessions and pending reservations. A per-connection session limit also returns HTTP 429. Check the rejection log to distinguish these limits, then inspect session lifetimes, pending handshakes and capacity before increasing limits or scaling out. Triage these separately from HTTP 503 adaptive shedding.
 
 ---
 
@@ -142,13 +148,13 @@ groups:
 - name: webtransport4j.alerts
   rules:
   - alert: HighWebTransportLoadShedding
-    expr: rate(webtransport_sessions_rejected_total[1m]) > 5
+    expr: rate(webtransport_sessions_rejected_total[1m]) > (1 / 60)
     for: 2m
     labels:
-      severity: warning
+      severity: critical
     annotations:
-      summary: "WebTransport server is shedding sessions due to overload"
-      description: "Instance {{ $labels.instance }} is rejecting incoming WebTransport CONNECT streams with HTTP 503."
+      summary: "WebTransport session rejections exceed 1 per minute"
+      description: "Instance {{ $labels.instance }} has rejected more than 1 WebTransport session per minute for 2 minutes. Check rejection reasons to distinguish overload and session limits."
 
   - alert: HighDatagramDropRate
     expr: rate(webtransport_datagrams_discarded_total[1m]) > 50

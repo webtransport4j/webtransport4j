@@ -13,20 +13,26 @@ $$\text{Total RAM} = \text{Heap} + \text{DirectMemory} + \text{NativeOS}$$
 
 Where:
 - **Heap Memory**: Approximately **16 KB to 32 KB per active session** for Java object graphs (`WebTransportSession`, `Http3Headers`, capsule state, routing tables).
-- **Direct Off-Heap Memory**: Approximately **64 KB to 128 KB per active session** for Netty channel buffers, ring buffers, and pending datagram mailboxes:
-  $$\text{DirectMemory} \approx N_{\text{sessions}} \times (\text{FlowControlWindow}_{\text{stream}} + \text{MailboxCapacity} \times \text{DatagramMTU})$$
+- **Pending Datagram Mailbox Payload**: One `DatagramMailbox` is created per active QUIC connection using the business executor, shared by that connection's sessions. For queued payloads no larger than an assumed `DatagramMTU`:
+  $$\text{PendingMailboxPayload} \le N_{\text{connections}} \times \text{MailboxCapacity} \times \text{DatagramMTU}$$
+  With capacity 1024 and a 1252-byte payload sizing assumption, a full mailbox holds up to 1,282,048 bytes (1.223 MiB) of queued payload. Count this against direct memory when the inbound `ByteBuf` is direct, or heap when it is heap-backed. `WebTransportDatagramDecoder` retains a slice of the incoming buffer; the mailbox does not select or change its allocation type.
+- **Other Buffer Storage**: Budget separately for an in-flight datagram per mailbox, stream queues, transport buffers, allocator overhead and pooled memory. Retained slices may keep a larger backing allocation alive, so the payload formula is not a bound on allocated memory. Flow-control windows describe protocol credit, not necessarily allocated buffer bytes.
 - **Native Quiche / BoringSSL Contexts**: Approximately **24 KB to 48 KB per QUIC connection** allocated directly by the C native library.
 
 ---
 
 ## 2. Cluster Node Sizing Matrix
 
-| Concurrent Sessions | vCPU Cores | JVM Heap (`-Xmx`) | Direct Memory (`-XX:MaxDirectMemorySize`) | Total Node RAM | Est. Network Throughput |
-|---|---|---|---|---|---|
-| **1,000** (Edge / Dev) | 2 vCPU | 512 MB | 1 GB | 2 GB | Up to 100 Mbps |
-| **10,000** (Standard Pod) | 4 to 8 vCPU | 2 GB | 4 GB | 8 GB | Up to 1 Gbps |
-| **50,000** (High-Density) | 16 vCPU | 8 GB | 16 GB | 32 GB | Up to 10 Gbps |
-| **100,000** (Mega Node) | 32 vCPU | 16 GB | 32 GB | 64 GB | Up to 25 Gbps |
+These illustrative memory budgets assume **one session per connection**, capacity 1024, full datagram mailboxes and the 1252-byte payload assumption above. They conservatively charge queued payloads to direct memory; verify the actual allocator and retained backing-buffer sizes in your deployment. Multiple sessions on one connection share its mailbox. Heap and native-state estimates above are planning assumptions, not measured guarantees.
+
+| Concurrent Sessions / Connections | JVM Heap (`-Xmx`) | Full Mailbox Payload (GiB) | Direct Memory Budget (`-XX:MaxDirectMemorySize`) | Total Node RAM Budget |
+|---|---|---|---|---|
+| **1,000** | 512 MiB | 1.19 | 2 GiB | 4 GiB |
+| **10,000** | 2 GiB | 11.94 | 16 GiB | 24 GiB |
+| **50,000** | 8 GiB | 59.70 | 80 GiB | 96 GiB |
+| **100,000** | 16 GiB | 119.40 | 160 GiB | 192 GiB |
+
+The remaining budget must cover other buffers, heap, native QUIC/TLS allocations and OS memory. These budgets do not establish CPU or throughput capacity. Measure peak resident memory, buffer backing type, queue occupancy and processing latency under representative load. Reduce mailbox capacity or connections per node if the measured budget does not fit.
 
 ---
 
@@ -39,14 +45,14 @@ Where:
   resources:
     requests:
       cpu: "4000m"
-      memory: "6Gi"
+      memory: "20Gi"
     limits:
       cpu: "8000m"
-      memory: "8Gi"
+      memory: "24Gi"
   ```
 - **JVM Configuration**:
   ```bash
-  -Xms2g -Xmx2g -XX:MaxDirectMemorySize=4g
+  -Xms2g -Xmx2g -XX:MaxDirectMemorySize=16g
   -XX:+UseZGC -XX:+ZGenerational
   ```
 - **Configuration Tunings (`webtransport.properties`)**:
@@ -65,14 +71,14 @@ Where:
   resources:
     requests:
       cpu: "12000m"
-      memory: "24Gi"
+      memory: "88Gi"
     limits:
       cpu: "16000m"
-      memory: "32Gi"
+      memory: "96Gi"
   ```
 - **JVM Configuration**:
   ```bash
-  -Xms8g -Xmx8g -XX:MaxDirectMemorySize=16g
+  -Xms8g -Xmx8g -XX:MaxDirectMemorySize=80g
   -XX:+UseZGC -XX:+ZGenerational
   ```
 - **OS Kernel Sizing (`/etc/sysctl.conf`)**:
@@ -88,10 +94,10 @@ Where:
 
 ### Tier 3: 100,000 Concurrent Sessions (Mega Carrier-Grade Node)
 - **Use Case**: Telecom gateway, central regional hub, or massive multiplayer online (MMO) backend.
-- **Hardware Profile**: Bare-metal or c6i.8xlarge / c7g.8xlarge EC2 instance.
+- **Hardware Profile**: A node with at least 192 GiB RAM for this illustrative buffer budget; size CPU and NIC throughput from load tests.
 - **JVM Configuration**:
   ```bash
-  -Xms16g -Xmx16g -XX:MaxDirectMemorySize=32g
+  -Xms16g -Xmx16g -XX:MaxDirectMemorySize=160g
   -XX:+UseZGC -XX:+ZGenerational
   ```
 - **Process Limits (`/etc/security/limits.conf`)**:
@@ -113,4 +119,4 @@ QUIC and WebTransport datagrams incur UDP kernel packet processing overhead:
   ```bash
   ethtool -L eth0 combined 8
   ```
-- **UDP Socket Tuning**: Enable `webtransport4j.server.socket.autotune=true` to automatically allocate multi-megabyte kernel buffers and avoid packet drops during throughput spikes.
+- **UDP Socket Tuning**: Enable `webtransport4j.server.socket.autotune=true` to request larger kernel buffers up to detected Linux limits. Explicit `socket.rcvbuf` and `socket.sndbuf` settings take precedence independently; raise OS limits when they are below the target. The kernel determines the actual buffer size, and tuning does not guarantee freedom from packet drops.

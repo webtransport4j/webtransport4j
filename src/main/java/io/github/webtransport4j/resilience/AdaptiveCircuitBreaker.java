@@ -18,7 +18,7 @@ public class AdaptiveCircuitBreaker {
     CLOSED,
     /** Tripped open; requests are shed immediately. */
     OPEN,
-    /** Testing recovery; limited requests are probed. */
+    /** Testing recovery; only the caller that transitions from OPEN runs a probe. */
     HALF_OPEN
   }
 
@@ -48,6 +48,9 @@ public class AdaptiveCircuitBreaker {
   /**
    * Evaluates if a request is permitted to proceed according to the breaker state.
    *
+   * <p>After the cool-off period, only the caller that transitions OPEN to HALF_OPEN is
+   * permitted. That caller must record success or failure before another probe can run.
+   *
    * @return true if execution is permitted
    */
   public boolean allowExecution() {
@@ -65,7 +68,7 @@ public class AdaptiveCircuitBreaker {
       }
       return false;
     }
-    return true; // In HALF_OPEN, allows probe request
+    return false; // The OPEN-to-HALF_OPEN CAS winner owns the outstanding probe.
   }
 
   /**

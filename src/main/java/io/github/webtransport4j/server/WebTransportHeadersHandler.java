@@ -219,7 +219,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             quic.attr(WebTransportAttributeKeys.OVERLOAD_POLICY);
         OverloadProtectionPolicy overloadPolicy = policyAttr != null ? policyAttr.get() : null;
         if (overloadPolicy != null) {
-          int activeSessions = globalSlots != null ? globalSlots.get() : 0;
+          // The policy receives other active/pending sessions, excluding this reservation.
+          int activeSessions = globalSlots != null ? Math.max(0, globalSlots.get() - 1) : 0;
           OverloadProtectionPolicy.AdmissionResult decision = overloadPolicy.tryAcquire(activeSessions);
           if (!decision.isAdmitted()) {
             mgr.releaseReservation();

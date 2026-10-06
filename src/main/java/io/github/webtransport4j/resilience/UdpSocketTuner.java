@@ -16,7 +16,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Under high-throughput datagram loads (e.g. 100k+ datagrams/sec), default OS socket buffers
  * (often 208 KB on Linux or 64 KB on Windows) overflow, causing kernel-level UDP packet drops.
- * This utility inspects OS limits and scales {@code SO_RCVBUF} and {@code SO_SNDBUF} up to 4 MB - 16 MB.
+ * This utility recommends {@code SO_RCVBUF} and {@code SO_SNDBUF} requests up to 4 MiB, capped
+ * by detected Linux limits. The kernel determines the actual allocated socket buffer sizes.
  */
 public final class UdpSocketTuner {
 
@@ -25,7 +26,7 @@ public final class UdpSocketTuner {
   /** Default recommended buffer size: 4 MB. */
   public static final int RECOMMENDED_BUFFER_SIZE = 4 * 1024 * 1024;
 
-  /** Minimum acceptable buffer size: 1 MB. */
+  /** Desired minimum buffer size: 1 MiB; lower detected OS limits take precedence. */
   public static final int MIN_BUFFER_SIZE = 1024 * 1024;
 
   private static final int DETECTED_RCVBUF;
@@ -37,8 +38,8 @@ public final class UdpSocketTuner {
 
     final String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
     if (os.contains("linux")) {
-      DETECTED_RCVBUF = maxRcv > 0 ? Math.min(RECOMMENDED_BUFFER_SIZE, maxRcv) : RECOMMENDED_BUFFER_SIZE;
-      DETECTED_SNDBUF = maxSnd > 0 ? Math.min(RECOMMENDED_BUFFER_SIZE, maxSnd) : RECOMMENDED_BUFFER_SIZE;
+      DETECTED_RCVBUF = recommendLinuxBufferSize(maxRcv, "net.core.rmem_max");
+      DETECTED_SNDBUF = recommendLinuxBufferSize(maxSnd, "net.core.wmem_max");
     } else if (os.contains("mac") || os.contains("darwin")) {
       // macOS default kern.ipc.maxsockbuf is typically 4MB to 8MB
       DETECTED_RCVBUF = Math.min(RECOMMENDED_BUFFER_SIZE, 4 * 1024 * 1024);
@@ -53,7 +54,8 @@ public final class UdpSocketTuner {
   private UdpSocketTuner() {}
 
   /**
-   * Applies optimal socket buffer sizes to the Netty server {@link Bootstrap}.
+   * Applies recommended socket buffer requests to unset options on the server {@link Bootstrap}.
+   * Explicit send and receive options are preserved independently.
    *
    * @param bootstrap the server bootstrap to tune
    */
@@ -61,11 +63,17 @@ public final class UdpSocketTuner {
     final int rcv = getRecommendedReceiveBufferSize();
     final int snd = getRecommendedSendBufferSize();
 
-    bootstrap.option(ChannelOption.SO_RCVBUF, rcv);
-    bootstrap.option(ChannelOption.SO_SNDBUF, snd);
+    if (!bootstrap.config().options().containsKey(ChannelOption.SO_RCVBUF)) {
+      bootstrap.option(ChannelOption.SO_RCVBUF, rcv);
+    }
+    if (!bootstrap.config().options().containsKey(ChannelOption.SO_SNDBUF)) {
+      bootstrap.option(ChannelOption.SO_SNDBUF, snd);
+    }
 
     if (logger.isDebugEnabled()) {
-      logger.debug("⚡ Auto-tuned UDP socket options: SO_RCVBUF={} bytes, SO_SNDBUF={} bytes", rcv, snd);
+      logger.debug("Requested UDP socket options: SO_RCVBUF={} bytes, SO_SNDBUF={} bytes",
+          bootstrap.config().options().get(ChannelOption.SO_RCVBUF),
+          bootstrap.config().options().get(ChannelOption.SO_SNDBUF));
     }
   }
 
@@ -75,7 +83,7 @@ public final class UdpSocketTuner {
    * @return recommended receive buffer size
    */
   public static int getRecommendedReceiveBufferSize() {
-    return Math.max(MIN_BUFFER_SIZE, DETECTED_RCVBUF);
+    return DETECTED_RCVBUF;
   }
 
   /**
@@ -84,7 +92,19 @@ public final class UdpSocketTuner {
    * @return recommended send buffer size
    */
   public static int getRecommendedSendBufferSize() {
-    return Math.max(MIN_BUFFER_SIZE, DETECTED_SNDBUF);
+    return DETECTED_SNDBUF;
+  }
+
+  /** Caps the target at a known Linux limit and reports limits below the desired minimum. */
+  static int recommendLinuxBufferSize(int limit, String setting) {
+    if (limit <= 0) {
+      return RECOMMENDED_BUFFER_SIZE;
+    }
+    if (limit < MIN_BUFFER_SIZE) {
+      logger.warn("UDP socket buffer limit {}={} bytes is below the {} byte target; "
+          + "raise the OS limit to meet the target", setting, limit, MIN_BUFFER_SIZE);
+    }
+    return Math.min(RECOMMENDED_BUFFER_SIZE, limit);
   }
 
   private static int detectLinuxProcLimit(String path) {

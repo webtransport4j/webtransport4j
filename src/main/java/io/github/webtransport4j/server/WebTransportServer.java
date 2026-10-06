@@ -1972,15 +1972,16 @@ public class WebTransportServer implements AutoCloseable {
     FixedRecvByteBufAllocator recvByteBufAllocator = new FixedRecvByteBufAllocator(recvBufSize);
     recvByteBufAllocator.maxMessagesPerRead(maxMessagesPerRead);
 
+    int socketBufferDefault = isAutoTuneUdpSocket() ? 0 : DEFAULT_SOCKET_BUFFER_SIZE;
     int sndBuf =
         WebTransportConfig.getInt(
-            "webtransport4j.server.socket.sndbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+            "webtransport4j.server.socket.sndbuf", socketBufferDefault);
     if (sndBuf > 0) {
       bootstrap.option(ChannelOption.SO_SNDBUF, sndBuf);
     }
     int rcvBuf =
         WebTransportConfig.getInt(
-            "webtransport4j.server.socket.rcvbuf", DEFAULT_SOCKET_BUFFER_SIZE);
+            "webtransport4j.server.socket.rcvbuf", socketBufferDefault);
     if (rcvBuf > 0) {
       bootstrap.option(ChannelOption.SO_RCVBUF, rcvBuf);
     }
