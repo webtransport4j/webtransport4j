@@ -163,6 +163,7 @@ public class WebTransportServer implements AutoCloseable {
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
+  private final Set<QuicChannel> activeQuicChannels = ConcurrentHashMap.newKeySet();
 
   private volatile WebTransportMetricsListener metricsListener =
       NoOpWebTransportMetricsListener.INSTANCE;
@@ -760,17 +761,6 @@ public class WebTransportServer implements AutoCloseable {
     return state.get() == ServerState.STARTED;
   }
 
-  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
-  public void drain() {
-    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
-      return;
-    }
-    for (QuicChannel connection : connections) {
-      drainConnection(connection);
-    }
-    drainActiveSessions();
-  }
-
   private void drainActiveSessions() {
     for (WebTransportSession session : activeSessionsSet) {
       try {
@@ -786,6 +776,88 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns true if the server is active and listening. */
   public boolean isRunning() {
     return isStarted();
+  }
+
+  /** Returns true if the server is in a coordinated draining phase. */
+  public boolean isDraining() {
+    return state.get() == ServerState.DRAINING;
+  }
+
+  /** Returns the number of active WebTransport sessions across all QUIC connections. */
+  public int getActiveSessionsCount() {
+    return getActiveSessionCount();
+  }
+
+  void registerQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.add(ch);
+    }
+  }
+
+  void unregisterQuicChannel(@Nullable QuicChannel ch) {
+    if (ch != null) {
+      activeQuicChannels.remove(ch);
+    }
+  }
+
+  /**
+   * Enters the coordinated draining phase per WebTransport Draft-16.
+   *
+   * <p>Broadcasts {@code WT_DRAIN_SESSION} capsules to all connected clients and marks sessions
+   * as draining. Waits up to the specified timeout for sessions to close cleanly before stopping.
+   *
+   * @param timeout maximum time to wait for sessions to drain
+   * @param unit the time unit of the timeout argument
+   */
+  public void drain(long timeout, @NonNull TimeUnit unit) {
+    EventLoopSafety.requireBlockingAllowed();
+    Objects.requireNonNull(unit, "unit");
+    if (timeout < 0L) {
+      throw new IllegalArgumentException("timeout must be >= 0: " + timeout);
+    }
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    drain();
+    stop(Math.max(0L, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+  }
+
+  /** Stops admitting sessions and notifies existing sessions without closing their streams. */
+  public void drain() {
+    if (!state.compareAndSet(ServerState.STARTED, ServerState.DRAINING)) {
+      return;
+    }
+    for (QuicChannel connection : connections) {
+      drainConnection(connection);
+    }
+    drainActiveSessions();
+  }
+
+  /**
+   * Programmatically reloads the TLS certificate context using updated PEM files.
+   *
+   * @param certFile the new certificate chain file
+   * @param keyFile the new private key file
+   * @throws Exception if reading the files or building the QuicSslContext fails
+   */
+  public void reloadTlsCertificate(@NonNull File certFile, @NonNull File keyFile) throws Exception {
+    Objects.requireNonNull(certFile, "certFile");
+    Objects.requireNonNull(keyFile, "keyFile");
+    EventLoopSafety.requireBlockingAllowed();
+    QuicSslContextBuilder sslBuilder =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .earlyData(true);
+    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContext newContext = sslBuilder.build();
+    installReloadedSslContext(newContext);
+  }
+
+  /**
+   * Programmatically installs an already configured {@link QuicSslContext}.
+   *
+   * @param newContext the new QUIC SSL context
+   */
+  public void reloadTlsCertificate(@NonNull QuicSslContext newContext) {
+    installReloadedSslContext(newContext);
   }
 
   /**
