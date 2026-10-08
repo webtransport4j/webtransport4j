@@ -3,6 +3,7 @@ package io.github.webtransport4j.api;
 import java.security.cert.Certificate;
 import java.util.concurrent.CompletableFuture;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -23,12 +24,56 @@ public class ReactiveWebTransportSession {
     this.session = session;
   }
 
+  /**
+   * Returns the underlying {@link WebTransportSession}.
+   *
+   * @return the raw session
+   */
+  public @NonNull WebTransportSession rawSession() {
+    return session;
+  }
+
   public long getSessionStreamId() {
     return session.getSessionStreamId();
   }
 
   public String path() {
     return session.path();
+  }
+
+  /**
+   * Closes the session gracefully.
+   */
+  public void close() {
+    session.close();
+  }
+
+  /**
+   * Closes the session with an error code and diagnostic reason phrase.
+   *
+   * @param error the error code
+   * @param reason the closure reason, or null
+   */
+  public void close(long error, @Nullable String reason) {
+    session.close(error, reason);
+  }
+
+  /**
+   * Returns the session close code.
+   *
+   * @return the close code
+   */
+  public int getCloseCode() {
+    return session.getCloseCode();
+  }
+
+  /**
+   * Returns the session closure reason.
+   *
+   * @return the closure reason, or null
+   */
+  public @Nullable String getCloseReason() {
+    return session.getCloseReason();
   }
 
   /**

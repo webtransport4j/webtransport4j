@@ -333,7 +333,14 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         if (handler != null) {
           SessionRequestContext requestContext =
               new DefaultSessionRequestContext(frame.headers(), pathStr, quic.remoteSocketAddress());
-          if (!handler.onSessionRequest(requestContext)) {
+          boolean admitted;
+          try {
+            admitted = handler.onSessionRequest(requestContext);
+          } catch (Throwable t) {
+            logger.error("Exception thrown in onSessionRequest for path: {}", pathStr, t);
+            admitted = false;
+          }
+          if (!admitted) {
             mgr.releaseReservation();
             if (globalSlots != null) {
               globalSlots.decrementAndGet();

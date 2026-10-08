@@ -32,6 +32,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,6 +40,7 @@ import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.reactivestreams.Publisher;
 
 /** Test suite for WebTransportHandler default methods and enhanced lifecycle callbacks. */
 public class WebTransportHandlerLifecycleTest {
@@ -80,25 +82,32 @@ public class WebTransportHandlerLifecycleTest {
   @Test
   public void testDefaultSessionRequestContext() {
     Http3Headers headers = new DefaultHttp3Headers();
-    headers.path("/chat?room=dev");
+    headers.path("/chat?room=dev&tag=quic&tag=webtrans");
     headers.authority("localhost:443");
     headers.add("origin", "https://example.com");
     headers.add("authorization", "Bearer token-xyz");
-    headers.add("cookie", "sid=123");
-    headers.add("cookie", "theme=dark");
+    headers.add("cookie", "sid=123; theme=dark; quoted=\"my-val\"");
 
     SocketAddress remote = new InetSocketAddress("192.168.1.100", 50000);
     SessionRequestContext ctx =
-        new DefaultSessionRequestContext(headers, "/chat?room=dev", remote);
+        new DefaultSessionRequestContext(headers, "/chat?room=dev&tag=quic&tag=webtrans", remote);
 
-    assertEquals("/chat?room=dev", ctx.path());
+    assertEquals("/chat?room=dev&tag=quic&tag=webtrans", ctx.path());
+    assertEquals("/chat", ctx.basePath());
+    assertEquals("room=dev&tag=quic&tag=webtrans", ctx.query());
+    assertEquals("dev", ctx.queryParam("room"));
+    assertEquals(Arrays.asList("quic", "webtrans"), ctx.queryParams().get("tag"));
+    assertNull(ctx.queryParam("nonexistent"));
+
     assertEquals("https://example.com", ctx.origin());
     assertEquals("localhost:443", ctx.authority());
     assertEquals(remote, ctx.remoteAddress());
     assertEquals("Bearer token-xyz", ctx.header("Authorization"));
     assertEquals("Bearer token-xyz", ctx.header("authorization"));
-    assertEquals(2, ctx.headers().get("cookie").size());
-    assertNull(ctx.header("non-existent"));
+    assertEquals("123", ctx.cookie("sid"));
+    assertEquals("dark", ctx.cookie("theme"));
+    assertEquals("my-val", ctx.cookie("quoted"));
+    assertNull(ctx.cookie("missing"));
   }
 
   @Test
@@ -307,5 +316,145 @@ public class WebTransportHandlerLifecycleTest {
 
     assertEquals(initialClientAddr, observedOld.get());
     assertEquals(newClientAddr, observedNew.get());
+  }
+
+  @Test
+  public void testHandlerExceptionInOnSessionRequestRejectsWithoutLeak() throws Exception {
+    WebTransportHandler throwingHandler =
+        new WebTransportHandler() {
+          @Override
+          public boolean onSessionRequest(@NonNull SessionRequestContext request) {
+            throw new RuntimeException("Simulated crash during admission");
+          }
+        };
+
+    WebTransportServer server = mock(WebTransportServer.class);
+    when(server.isAcceptingSessions()).thenReturn(true);
+    when(server.getHandler("/crashing")).thenReturn(throwingHandler);
+
+    WebTransportSessionManager sessionManager = mock(WebTransportSessionManager.class);
+    when(sessionManager.reserveSession(any(), any(Integer.class))).thenReturn(true);
+
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockQuic = mock(QuicChannel.class);
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+
+    DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockQuic);
+    when(mockQuic.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
+    when(mockStream.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
+
+    parentAttrMap.attr(WebTransportAttributeKeys.SERVER_KEY).set(server);
+    parentAttrMap.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(sessionManager);
+    parentAttrMap.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(false);
+    parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
+    parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(true);
+
+    when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+
+    ChannelFuture mockFuture = mock(ChannelFuture.class);
+    when(mockCtx.writeAndFlush(any())).thenReturn(mockFuture);
+
+    Http3Headers headers = new DefaultHttp3Headers();
+    headers.method("CONNECT");
+    headers.scheme("https");
+    headers.authority("localhost");
+    headers.path("/crashing");
+    headers.set(":protocol", "webtransport");
+    Http3HeadersFrame frame = new DefaultHttp3HeadersFrame(headers);
+
+    WebTransportHeadersHandler.INSTANCE.channelRead(mockCtx, frame);
+
+    // Verify rejection: 403 Forbidden sent, reservation released, and close listener attached
+    verify(sessionManager).releaseReservation();
+    ArgumentCaptor<DefaultHttp3HeadersFrame> captor =
+        ArgumentCaptor.forClass(DefaultHttp3HeadersFrame.class);
+    verify(mockCtx).writeAndFlush(captor.capture());
+    assertEquals("403", captor.getValue().headers().status().toString());
+    verify(mockFuture).addListener(ChannelFutureListener.CLOSE);
+  }
+
+  @Test
+  public void testServerPathResolutionWithQueryString() {
+    WebTransportServer server = new WebTransportServer();
+    WebTransportHandler chatHandler = mock(WebTransportHandler.class);
+    server.registerHandler("/chat", chatHandler);
+
+    assertEquals(chatHandler, server.getHandler("/chat"));
+    assertEquals(chatHandler, server.getHandler("/chat?token=123"));
+    assertEquals(chatHandler, server.getHandler("/chat/?token=123"));
+    assertEquals(chatHandler, server.getHandler("/chat?room=general&user=alice"));
+    assertFalse(chatHandler.equals(server.getHandler("/unknown?token=123")));
+  }
+
+  @Test
+  public void testReactiveWebTransportHandlerAdapterLifecycle() {
+    AtomicBoolean reqCalled = new AtomicBoolean(false);
+    AtomicInteger closedCode = new AtomicInteger(-1);
+    AtomicReference<String> closedReason = new AtomicReference<>();
+    AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    AtomicReference<SocketAddress> migRef = new AtomicReference<>();
+
+    ReactiveWebTransportHandler reactiveHandler =
+        new ReactiveWebTransportHandler() {
+          @Override
+          public boolean onSessionRequest(@NonNull SessionRequestContext requestContext) {
+            reqCalled.set(true);
+            return true;
+          }
+
+          @Override
+          public @NonNull Publisher<Void> onSessionClosed(
+              @NonNull ReactiveWebTransportSession session, int closeCode, @Nullable String reason) {
+            closedCode.set(closeCode);
+            closedReason.set(reason);
+            return EmptyPublisher.instance();
+          }
+
+          @Override
+          public @NonNull Publisher<Void> onError(
+              @NonNull ReactiveWebTransportSession session, @NonNull Throwable cause) {
+            errorRef.set(cause);
+            return EmptyPublisher.instance();
+          }
+
+          @Override
+          public @NonNull Publisher<Void> onConnectionMigration(
+              @NonNull ReactiveWebTransportSession session,
+              @NonNull SocketAddress oldAddress,
+              @NonNull SocketAddress newAddress) {
+            migRef.set(newAddress);
+            return EmptyPublisher.instance();
+          }
+        };
+
+    ReactiveWebTransportHandlerAdapter adapter =
+        new ReactiveWebTransportHandlerAdapter(reactiveHandler);
+
+    SessionRequestContext reqCtx = mock(SessionRequestContext.class);
+    assertTrue(adapter.onSessionRequest(reqCtx));
+    assertTrue(reqCalled.get());
+
+    WebTransportSession session = mock(WebTransportSession.class);
+    when(session.getSessionStreamId()).thenReturn(8L);
+    when(session.getCloseCode()).thenReturn(404);
+    when(session.getCloseReason()).thenReturn("Gone");
+
+    adapter.onSessionReady(session);
+
+    Throwable err = new RuntimeException("reactive error");
+    adapter.onError(session, err);
+    assertEquals(err, errorRef.get());
+
+    SocketAddress addr1 = new InetSocketAddress("1.1.1.1", 1111);
+    SocketAddress addr2 = new InetSocketAddress("2.2.2.2", 2222);
+    adapter.onConnectionMigration(session, addr1, addr2);
+    assertEquals(addr2, migRef.get());
+
+    adapter.onSessionClosed(session, 404, "Gone");
+    assertEquals(404, closedCode.get());
+    assertEquals("Gone", closedReason.get());
   }
 }

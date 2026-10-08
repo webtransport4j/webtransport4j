@@ -649,6 +649,15 @@ public class WebTransportServer implements AutoCloseable {
   public @NonNull WebTransportHandler getHandler(@NonNull String path) {
     String normalized = normalizePath(path);
     WebTransportHandler handler = normalized == null ? null : handlers.get(normalized);
+    if (handler == null && normalized != null) {
+      int queryIndex = normalized.indexOf('?');
+      if (queryIndex != -1) {
+        String basePath = normalizePath(normalized.substring(0, queryIndex));
+        if (basePath != null) {
+          handler = handlers.get(basePath);
+        }
+      }
+    }
     WebTransportHandler fallback = this.defaultHandler;
     return handler != null ? handler : (fallback != null ? fallback : NO_OP_HANDLER);
   }
