@@ -543,6 +543,17 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     connectStream.close();
   }
 
+  @Override
+  public void close(long error, @Nullable String reason) {
+    this.closeCode = (int) error;
+    this.closeReason = reason;
+    if (error == 0) {
+      close();
+    } else {
+      abort(error);
+    }
+  }
+
   /**
    * Abruptly closes the WebTransport session by resetting the CONNECT stream with the specified
    * HTTP/3 error code and resetting all active data streams.

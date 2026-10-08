@@ -194,6 +194,20 @@ public interface WebTransportSession {
   void close();
 
   /**
+   * Closes the WebTransport session with the specified status code and optional diagnostic reason.
+   *
+   * @param error the close error code (0 = graceful close)
+   * @param reason the closure reason phrase, or null
+   */
+  default void close(long error, @Nullable String reason) {
+    if (error == 0) {
+      close();
+    } else {
+      abort(error);
+    }
+  }
+
+  /**
    * Abruptly closes the WebTransport session by resetting the CONNECT stream with the specified
    * HTTP/3 error code and resetting all active data streams.
    *

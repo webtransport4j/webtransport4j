@@ -59,6 +59,15 @@ public class ReactiveWebTransportSession {
   }
 
   /**
+   * Abruptly closes the WebTransport session with the specified HTTP/3 error code.
+   *
+   * @param httpErrorCode the HTTP/3 error code
+   */
+  public void abort(long httpErrorCode) {
+    session.abort(httpErrorCode);
+  }
+
+  /**
    * Returns the session close code.
    *
    * @return the close code
