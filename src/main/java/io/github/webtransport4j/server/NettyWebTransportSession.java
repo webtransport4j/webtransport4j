@@ -338,6 +338,13 @@ public interface NettyWebTransportSession extends WebTransportSession {
    * @param closeCode close error code
    */
   void setCloseCode(int closeCode);
+ 
+  /**
+   * Sets the session close reason string.
+   *
+   * @param closeReason close reason string, or null
+   */
+  void setCloseReason(@Nullable String closeReason);
 
   /** Rotates the session resumption token. */
   void rotateResumptionToken();

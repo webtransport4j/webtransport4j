@@ -218,6 +218,15 @@ public interface WebTransportSession {
   }
 
   /**
+   * Returns the closure reason string if provided by the peer, or {@code null}.
+   *
+   * @return the session closure reason, or null
+   */
+  default @Nullable String getCloseReason() {
+    return null;
+  }
+
+  /**
    * Returns the peer certificates presented during the TLS handshake, or an empty array if no
    * client certificates were presented or verified.
    *

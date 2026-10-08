@@ -75,6 +75,14 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   }
 
   @Override
+  public void onError(@NonNull WebTransportSession session, @NonNull Throwable cause) {
+    ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
+    if (reactiveSession != null) {
+      reactiveSession.emitError(cause);
+    }
+  }
+
+  @Override
   public void onIncomingStream(
       @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
     ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());

@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.SessionRequestContext;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
@@ -327,14 +328,38 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               tlsVersion,
               cipherSuite);
         }
+        WebTransportServer server = quic.attr(WebTransportAttributeKeys.SERVER_KEY).get();
+        WebTransportHandler handler = (server != null) ? server.getHandler(pathStr) : null;
+        if (handler != null) {
+          SessionRequestContext requestContext =
+              new DefaultSessionRequestContext(frame.headers(), pathStr, quic.remoteSocketAddress());
+          if (!handler.onSessionRequest(requestContext)) {
+            mgr.releaseReservation();
+            if (globalSlots != null) {
+              globalSlots.decrementAndGet();
+            }
+            if (overloadPolicy != null) {
+              overloadPolicy.release();
+            }
+            if (metricsListener != null) {
+              metricsListener.onSessionRejected("handler_rejected");
+            }
+            logger.warn("❌ Handler rejected session request for path: {}", pathStr);
+            Http3Headers responseHeaders = new DefaultHttp3Headers();
+            responseHeaders.status(HttpResponseStatus.FORBIDDEN.codeAsText());
+            ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+            if (f != null) {
+              f.addListener(ChannelFutureListener.CLOSE);
+            }
+            return;
+          }
+        }
         CharSequence availableProtocolsHeader = frame.headers().get(HEADER_WT_AVAILABLE_PROTOCOLS);
         String selectedProtocol = null;
-        if (availableProtocolsHeader != null) {
+        if (availableProtocolsHeader != null && handler != null) {
           List<String> availableProtocols =
               WebTransportUtils.parseAvailableProtocols(availableProtocolsHeader);
-          WebTransportServer server = quic.attr(WebTransportAttributeKeys.SERVER_KEY).get();
-          WebTransportHandler handler = (server != null) ? server.getHandler(pathStr) : null;
-          if (handler != null && !availableProtocols.isEmpty()) {
+          if (!availableProtocols.isEmpty()) {
             selectedProtocol = handler.selectSubprotocol(availableProtocols);
           }
         }

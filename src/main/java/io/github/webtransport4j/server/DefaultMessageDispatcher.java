@@ -51,6 +51,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
         tryDispatchToHandler(channel, finalSessionId, msg);
       } catch (Throwable t) {
         logger.error("Uncaught exception/error during business logic execution", t);
+        notifyHandlerError(channel, finalSessionId, t);
       }
     } else {
       if (channel instanceof QuicStreamChannel) {
@@ -87,7 +88,8 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   @Override
   public void exceptionCaught(@NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
     if (ctx.channel() instanceof QuicStreamChannel) {
-      WebTransportStream stream = ctx.channel().attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
+      QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+      WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (stream != null && stream.getErrorHandler() != null) {
         try {
           stream.getErrorHandler().accept(cause);
@@ -95,6 +97,7 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
           logger.error("Error in stream onError handler", e);
         }
       }
+      notifyHandlerError(streamChannel, cause);
     }
     if (cause instanceof QuicStreamResetException) {
       QuicStreamResetException reset = (QuicStreamResetException) cause;
@@ -116,6 +119,56 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
       logger.error("❌ Pipeline error: ", cause);
     }
     ctx.close();
+  }
+
+  private void notifyHandlerError(
+      @NonNull Channel channel, long sessionId, @NonNull Throwable cause) {
+    try {
+      WebTransportSessionManager mgr;
+      if (channel instanceof QuicStreamChannel) {
+        mgr =
+            ((QuicStreamChannel) channel)
+                .parent()
+                .attr(WebTransportAttributeKeys.WT_SESSION_MGR)
+                .get();
+      } else {
+        mgr = channel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+      }
+      if (mgr == null) {
+        return;
+      }
+      WebTransportSession session = mgr.get(sessionId);
+      if (session == null) {
+        return;
+      }
+      WebTransportServer server;
+      if (channel instanceof QuicStreamChannel) {
+        Attribute<WebTransportServer> attr =
+            ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+        server = attr != null ? attr.get() : null;
+      } else {
+        Attribute<WebTransportServer> attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+        server = attr != null ? attr.get() : null;
+      }
+      WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : null;
+      if (handler != null) {
+        try {
+          handler.onError(session, cause);
+        } catch (Exception e) {
+          logger.error("Error in handler onError callback", e);
+        }
+      }
+    } catch (Exception ex) {
+      logger.error("Error dispatching onError to handler", ex);
+    }
+  }
+
+  private void notifyHandlerError(
+      @NonNull QuicStreamChannel streamChannel, @NonNull Throwable cause) {
+    Long sessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+    if (sessionId != null) {
+      notifyHandlerError(streamChannel, sessionId, cause);
+    }
   }
 
   private void tryDispatchToHandler(
@@ -236,6 +289,13 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
       }
     } catch (Exception e) {
       logger.error("Exception in tryDispatchToHandler", e);
+      if (handler != null && session != null) {
+        try {
+          handler.onError(session, e);
+        } catch (Exception ex) {
+          logger.error("Error in handler onError callback", ex);
+        }
+      }
     }
   }
 }

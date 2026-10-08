@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
@@ -14,6 +15,7 @@ import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.concurrent.EventExecutorGroup;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
@@ -102,47 +104,8 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       ch.pipeline().addFirst(QuicGlobalSniffer.GLOBAL);
     }
 
-    // Intercept connection migration events to fire metrics
-    ch.pipeline()
-        .addLast(
-            new ChannelInboundHandlerAdapter() {
-              private String currentRemoteAddress =
-                  ch.remoteSocketAddress() != null
-                      ? Objects.requireNonNull(ch.remoteSocketAddress()).toString()
-                      : "unknown";
-
-              @Override
-              public void userEventTriggered(ChannelHandlerContext ctx, Object evt)
-                  throws Exception {
-                if (evt instanceof QuicPathEvent.PeerMigrated) {
-                  QuicPathEvent.PeerMigrated event = (QuicPathEvent.PeerMigrated) evt;
-                  String newRemoteAddress = event.remote().toString();
-
-                  WebTransportMetricsListener metrics =
-                      ctx.channel().attr(WebTransportAttributeKeys.METRICS_LISTENER).get();
-                  if (metrics != null) {
-                    WebTransportSessionManager mgr =
-                        ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-                    if (mgr != null) {
-                      for (WebTransportSession session : mgr.getSessions()) {
-                        metrics.onConnectionMigration(
-                            session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
-                      }
-                    }
-                  }
-                  currentRemoteAddress = newRemoteAddress;
-                }
-                if (evt instanceof SslHandshakeCompletionEvent) {
-                  SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
-                  if (event.isSuccess()) {
-                    logger.info("Handshake successful");
-                  } else {
-                    logger.warn("Handshake failed", event.cause());
-                  }
-                }
-                super.userEventTriggered(ctx, evt);
-              }
-            });
+    // Intercept connection migration events to fire metrics and notify handler
+    ch.pipeline().addLast(createMigrationHandler(ch));
 
     InetSocketAddress remote = (InetSocketAddress) ch.remoteSocketAddress();
     if (remote == null || remote.getAddress() == null) {
@@ -214,5 +177,70 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
                 WebTransportConfig.getBoolean(
                     "webtransport4j.http3.qpack.dynamic.table.disabled", true),
                 (id, value) -> true));
+  }
+
+  /**
+   * Creates an inbound channel handler that intercepts QUIC path events to fire metrics and notify
+   * registered handlers of connection migration.
+   *
+   * @param ch the QUIC channel
+   * @return migration channel handler
+   */
+  public static ChannelInboundHandlerAdapter createMigrationHandler(@NonNull QuicChannel ch) {
+    return new ChannelInboundHandlerAdapter() {
+      private SocketAddress currentRemoteSocketAddress = ch.remoteSocketAddress();
+      private String currentRemoteAddress =
+          ch.remoteSocketAddress() != null
+              ? Objects.requireNonNull(ch.remoteSocketAddress()).toString()
+              : "unknown";
+
+      @Override
+      public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof QuicPathEvent.PeerMigrated) {
+          QuicPathEvent.PeerMigrated event = (QuicPathEvent.PeerMigrated) evt;
+          SocketAddress newSocketAddress = event.remote();
+          String newRemoteAddress =
+              newSocketAddress != null ? newSocketAddress.toString() : "unknown";
+          SocketAddress oldSocketAddress = currentRemoteSocketAddress;
+
+          WebTransportMetricsListener metrics =
+              ctx.channel().attr(WebTransportAttributeKeys.METRICS_LISTENER).get();
+          WebTransportSessionManager mgr =
+              ctx.channel().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+          WebTransportServer server =
+              ctx.channel().attr(WebTransportAttributeKeys.SERVER_KEY).get();
+
+          if (mgr != null) {
+            for (WebTransportSession session : mgr.getSessions()) {
+              if (metrics != null) {
+                metrics.onConnectionMigration(
+                    session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
+              }
+              if (server != null && oldSocketAddress != null && newSocketAddress != null) {
+                WebTransportHandler handler = server.getHandler(session.path());
+                if (handler != null) {
+                  try {
+                    handler.onConnectionMigration(session, oldSocketAddress, newSocketAddress);
+                  } catch (Exception e) {
+                    logger.error("Error in handler onConnectionMigration callback", e);
+                  }
+                }
+              }
+            }
+          }
+          currentRemoteSocketAddress = newSocketAddress;
+          currentRemoteAddress = newRemoteAddress;
+        }
+        if (evt instanceof SslHandshakeCompletionEvent) {
+          SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+          if (event.isSuccess()) {
+            logger.info("Handshake successful");
+          } else {
+            logger.warn("Handshake failed", event.cause());
+          }
+        }
+        super.userEventTriggered(ctx, evt);
+      }
+    };
   }
 }

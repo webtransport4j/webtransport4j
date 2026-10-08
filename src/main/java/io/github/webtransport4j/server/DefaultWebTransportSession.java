@@ -94,6 +94,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   // Cumulative stream counters for streams initiated by the Server
   private volatile int closeCode = 0; // 0 = graceful by default
+  private volatile String closeReason;
   private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
 
   private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
@@ -852,6 +853,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public int getCloseCode() {
     return closeCode;
+  }
+
+  @Override
+  public void setCloseReason(@Nullable String closeReason) {
+    this.closeReason = closeReason;
+  }
+
+  @Override
+  public @Nullable String getCloseReason() {
+    return closeReason;
   }
 
   @Override
