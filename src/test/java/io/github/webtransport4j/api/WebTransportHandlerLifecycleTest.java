@@ -7,9 +7,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.server.DefaultMessageDispatcher;
 import io.github.webtransport4j.server.DefaultSessionRequestContext;
 import io.github.webtransport4j.server.NettyWebTransportSession;
@@ -143,8 +145,14 @@ public class WebTransportHandlerLifecycleTest {
     parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
     parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(true);
 
+    OverloadProtectionPolicy overloadPolicy = mock(OverloadProtectionPolicy.class);
+    when(overloadPolicy.tryAcquire(any(Integer.class)))
+        .thenReturn(OverloadProtectionPolicy.AdmissionResult.allowed());
+    parentAttrMap.attr(WebTransportAttributeKeys.OVERLOAD_POLICY).set(overloadPolicy);
+
     when(mockStream.streamId()).thenReturn(0L); // client-initiated bidi stream id
-    when(mockStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+    when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
 
     ChannelFuture mockFuture = mock(ChannelFuture.class);
     when(mockCtx.writeAndFlush(any())).thenReturn(mockFuture);
@@ -161,11 +169,21 @@ public class WebTransportHandlerLifecycleTest {
 
     // Verify rejection: 403 Forbidden sent, reservation released, and close listener attached
     verify(sessionManager).releaseReservation();
+    verify(overloadPolicy, times(0)).release();
     ArgumentCaptor<DefaultHttp3HeadersFrame> captor =
         ArgumentCaptor.forClass(DefaultHttp3HeadersFrame.class);
     verify(mockCtx).writeAndFlush(captor.capture());
     assertEquals("403", captor.getValue().headers().status().toString());
     verify(mockFuture).addListener(ChannelFutureListener.CLOSE);
+
+    // Simulate subsequent channel close to verify closeFuture listener releases overloadPolicy
+    // and does not double-release sessionManager reservation
+    ArgumentCaptor<io.netty.util.concurrent.GenericFutureListener> closeListenerCaptor =
+        ArgumentCaptor.forClass(io.netty.util.concurrent.GenericFutureListener.class);
+    verify(mockCloseFuture).addListener(closeListenerCaptor.capture());
+    closeListenerCaptor.getValue().operationComplete(mockCloseFuture);
+    verify(sessionManager, times(1)).releaseReservation();
+    verify(overloadPolicy, times(1)).release();
   }
 
   @Test
@@ -352,7 +370,8 @@ public class WebTransportHandlerLifecycleTest {
     parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(true);
 
     when(mockStream.streamId()).thenReturn(0L);
-    when(mockStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+    when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
 
     ChannelFuture mockFuture = mock(ChannelFuture.class);
     when(mockCtx.writeAndFlush(any())).thenReturn(mockFuture);
@@ -374,6 +393,13 @@ public class WebTransportHandlerLifecycleTest {
     verify(mockCtx).writeAndFlush(captor.capture());
     assertEquals("403", captor.getValue().headers().status().toString());
     verify(mockFuture).addListener(ChannelFutureListener.CLOSE);
+
+    // Simulate subsequent channel close to verify closeFuture listener does not double-release
+    ArgumentCaptor<io.netty.util.concurrent.GenericFutureListener> closeListenerCaptor =
+        ArgumentCaptor.forClass(io.netty.util.concurrent.GenericFutureListener.class);
+    verify(mockCloseFuture).addListener(closeListenerCaptor.capture());
+    closeListenerCaptor.getValue().operationComplete(mockCloseFuture);
+    verify(sessionManager, times(1)).releaseReservation();
   }
 
   @Test
@@ -410,14 +436,14 @@ public class WebTransportHandlerLifecycleTest {
               @NonNull ReactiveWebTransportSession session, int closeCode, @Nullable String reason) {
             closedCode.set(closeCode);
             closedReason.set(reason);
-            return EmptyPublisher.instance();
+            return EmptyPublisher.<Void>instance();
           }
 
           @Override
           public @NonNull Publisher<Void> onError(
               @NonNull ReactiveWebTransportSession session, @NonNull Throwable cause) {
             errorRef.set(cause);
-            return EmptyPublisher.instance();
+            return EmptyPublisher.<Void>instance();
           }
 
           @Override
@@ -426,7 +452,7 @@ public class WebTransportHandlerLifecycleTest {
               @NonNull SocketAddress oldAddress,
               @NonNull SocketAddress newAddress) {
             migRef.set(newAddress);
-            return EmptyPublisher.instance();
+            return EmptyPublisher.<Void>instance();
           }
         };
 

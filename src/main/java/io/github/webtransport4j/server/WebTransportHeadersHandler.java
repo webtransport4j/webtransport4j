@@ -341,12 +341,11 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             admitted = false;
           }
           if (!admitted) {
-            mgr.releaseReservation();
-            if (globalSlots != null) {
-              globalSlots.decrementAndGet();
-            }
-            if (overloadPolicy != null) {
-              overloadPolicy.release();
+            if (pending.compareAndSet(true, false)) {
+              mgr.releaseReservation();
+              if (globalSlots != null) {
+                globalSlots.decrementAndGet();
+              }
             }
             if (metricsListener != null) {
               metricsListener.onSessionRejected("handler_rejected");
