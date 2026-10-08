@@ -75,9 +75,8 @@ public class StandaloneWebTransportApp {
             
             // Listen for data on incoming stream and echo back
             stream.onData(buffer -> {
-              byte[] bytes = new byte[buffer.readableBytes()];
-              buffer.readBytes(bytes);
-              String text = new String(bytes);
+              byte[] bytes = buffer.readBytes();
+              String text = new String(bytes, StandardCharsets.UTF_8);
               System.out.println("Received: " + text);
 
               // Send response back using CompletableFuture API
@@ -94,8 +93,7 @@ public class StandaloneWebTransportApp {
 
           @Override
           public void onDatagramReceived(WebTransportSession session, WebTransportBuffer data) {
-            byte[] payload = new byte[data.readableBytes()];
-            data.readBytes(payload);
+            byte[] payload = data.readBytes();
             System.out.println("☄️ Received Datagram of length: " + payload.length);
             
             // Echo datagram back
@@ -141,8 +139,35 @@ public class ReactiveChatApp {
           @Override
           public Publisher<Void> onIncomingStream(
               ReactiveWebTransportSession session, ReactiveWebTransportStream stream) {
-            stream.incomingData().subscribe(buffer -> {
-              System.out.println("Received reactive buffer size: " + buffer.readableBytes());
+            // ReactiveWebTransportStream directly implements Publisher<WebTransportBuffer>
+            stream.subscribe(new Subscriber<WebTransportBuffer>() {
+              private Subscription subscription;
+
+              @Override
+              public void onSubscribe(Subscription s) {
+                this.subscription = s;
+                s.request(1);
+              }
+
+              @Override
+              public void onNext(WebTransportBuffer buffer) {
+                try {
+                  System.out.println("Received reactive buffer size: " + buffer.readableBytes());
+                } finally {
+                  buffer.release();
+                  subscription.request(1);
+                }
+              }
+
+              @Override
+              public void onError(Throwable t) {
+                System.err.println("Reactive stream error: " + t.getMessage());
+              }
+
+              @Override
+              public void onComplete() {
+                System.out.println("Reactive stream completed");
+              }
             });
             return EmptyPublisher.instance();
           }
@@ -209,9 +234,8 @@ public class LiveMetricsEndpoint implements WebTransportHandler {
   @Override
   public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
     stream.onData(buffer -> {
-      byte[] data = new byte[buffer.readableBytes()];
-      buffer.readBytes(data);
-      System.out.println("Metrics query received: " + new String(data));
+      byte[] data = buffer.readBytes();
+      System.out.println("Metrics query received: " + new String(data, StandardCharsets.UTF_8));
       stream.writeText("Metrics Response: OK");
     });
   }
@@ -271,9 +295,8 @@ public class EventStreamEndpoint implements WebTransportHandler {
   @Override
   public void onIncomingStream(WebTransportSession session, WebTransportStream stream) {
     stream.onData(buf -> {
-      byte[] bytes = new byte[buf.readableBytes()];
-      buf.readBytes(bytes);
-      stream.writeText("Quarkus Received: " + new String(bytes));
+      byte[] bytes = buf.readBytes();
+      stream.writeText("Quarkus Received: " + new String(bytes, StandardCharsets.UTF_8));
     });
   }
 }
@@ -386,9 +409,13 @@ ByteBuffer nioBuf = ByteBuffer.wrap(data);
 CompletableFuture<Void> f3 = stream.write(nioBuf);
 
 // BinarySource streaming (files, channels, byte arrays)
-Path filePath = Paths.get("/var/data/largefile.bin");
-BinarySource fileSource = BinarySources.fromPath(filePath);
-CompletableFuture<Void> f4 = stream.write(fileSource, 65536); // 64KB chunk size
+try {
+  Path filePath = Paths.get("/var/data/largefile.bin");
+  BinarySource fileSource = BinarySources.fromPath(filePath); // throws IOException
+  CompletableFuture<Void> f4 = stream.write(fileSource, 65536); // 64KB chunk size
+} catch (IOException e) {
+  System.err.println("Failed to read file: " + e.getMessage());
+}
 
 // Stream Priority (RFC 9218) - dynamic updates
 stream.setPriority(StreamPriority.HIGHEST);
@@ -429,13 +456,17 @@ stream.write(jsonBytes);
 For large files or streams, WebTransport4J provides `BinarySource`, which automatically chunks the file and streams it over the network asynchronously without loading the whole file into RAM.
 
 ```java
-Path filePath = Paths.get("/var/data/large_video.mp4");
-BinarySource source = BinarySources.fromPath(filePath);
+try {
+  Path filePath = Paths.get("/var/data/large_video.mp4");
+  BinarySource source = BinarySources.fromPath(filePath);
 
-// Streams the file in 64KB chunks automatically. 
-// No manual backpressure handling required here, as BinarySource handles it internally!
-stream.write(source, 65536)
-      .thenRun(() -> System.out.println("File transfer complete!"));
+  // Streams the file in 64KB chunks automatically. 
+  // No manual backpressure handling required here, as BinarySource handles it internally!
+  stream.write(source, 65536)
+        .thenRun(() -> System.out.println("File transfer complete!"));
+} catch (IOException e) {
+  System.err.println("File stream error: " + e.getMessage());
+}
 ```
 
 
@@ -529,9 +560,9 @@ For Reactive applications, `ReactiveWebTransportStream` is a full `Subscriber` t
 ```java
 ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(stream);
 
-// The Subscriber automatically pulls data only when the stream is writable!
+// Wrap payloads using DefaultNettyWebTransportBuffer
 Flux.fromIterable(largeDataSet)
-    .map(WebTransportBuffer::wrap)
+    .map(DefaultNettyWebTransportBuffer::wrap)
     .subscribe(reactiveStream);
 ```
 </details>
@@ -609,8 +640,7 @@ session.sendDatagram(payload);
 // Receive datagram in handler
 @Override
 public void onDatagramReceived(WebTransportSession session, WebTransportBuffer data) {
-  byte[] received = new byte[data.readableBytes()];
-  data.readBytes(received);
+  byte[] received = data.readBytes();
 }
 ```
 
@@ -634,9 +664,37 @@ public void onDatagramReceived(WebTransportSession session, WebTransportBuffer d
    For Java 21+, virtual threads are automatically utilized for non-blocking handler callbacks when enabled via system property or configured business executor.
 
 4. **Metrics & Observability**:
-   Attach custom Micrometer / OpenTelemetry / Datadog listeners:
+   Export telemetry to Prometheus, Grafana, Datadog, or OpenTelemetry:
    ```java
-   builder.metricsListener(new CustomMetricsListener());
+   // Micrometer / Prometheus / Datadog
+   MeterRegistry meterRegistry = new SimpleMeterRegistry();
+   WebTransportMicrometerMetricsListener micrometerListener = 
+       new WebTransportMicrometerMetricsListener(meterRegistry);
+   builder.metricsListener(micrometerListener);
+
+   // OpenTelemetry Distributed Tracing
+   Tracer otelTracer = GlobalOpenTelemetry.getTracer("webtransport-service");
+   WebTransportOpenTelemetryTracer tracer = new WebTransportOpenTelemetryTracer(otelTracer);
+   ```
+
+5. **Kubernetes Liveness & Readiness Probes**:
+   Integrate with Spring Boot Actuator, MicroProfile Health, or lightweight HTTP probe endpoints:
+   ```java
+   // Liveness probe (/healthz) - confirms server is running
+   boolean alive = WebTransportHealthCheck.isAlive(server);
+
+   // Readiness probe (/readyz) - confirms server is running and NOT draining
+   boolean ready = WebTransportHealthCheck.isReady(server);
+
+   // Detailed health telemetry map
+   Map<String, Object> details = WebTransportHealthCheck.getHealthDetails(server);
+   ```
+
+6. **Zero-Downtime TLS Certificate Hot-Reload**:
+   Automatically track certificate updates on disk (e.g., cert-manager, Let's Encrypt) without dropping active sessions:
+   ```properties
+   webtransport4j.ssl.hot_reload.enabled=true
+   webtransport4j.ssl.hot_reload.interval_secs=5
    ```
 
 ---

@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +24,36 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
   private final @NonNull ByteBuf delegate;
   private final AtomicInteger refCnt = new AtomicInteger(1);
+
+  /**
+   * Wraps a byte array into a {@link WebTransportBuffer}.
+   *
+   * @param data payload byte array
+   * @return a new WebTransportBuffer wrapping the byte array
+   */
+  public static @NonNull DefaultNettyWebTransportBuffer wrap(byte @NonNull [] data) {
+    return new DefaultNettyWebTransportBuffer(Unpooled.wrappedBuffer(data));
+  }
+
+  /**
+   * Wraps an existing Netty {@link ByteBuf} into a {@link WebTransportBuffer}.
+   *
+   * @param buf delegate ByteBuf
+   * @return a new WebTransportBuffer wrapping the ByteBuf
+   */
+  public static @NonNull DefaultNettyWebTransportBuffer wrap(@NonNull ByteBuf buf) {
+    return new DefaultNettyWebTransportBuffer(buf);
+  }
+
+  /**
+   * Wraps an existing NIO {@link ByteBuffer} into a {@link WebTransportBuffer}.
+   *
+   * @param buffer delegate ByteBuffer
+   * @return a new WebTransportBuffer wrapping the ByteBuffer
+   */
+  public static @NonNull DefaultNettyWebTransportBuffer wrap(@NonNull ByteBuffer buffer) {
+    return new DefaultNettyWebTransportBuffer(Unpooled.wrappedBuffer(buffer));
+  }
 
   /**
    * Takes ownership of one existing delegate reference on successful construction.

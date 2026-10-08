@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.buffer.ByteBuf;
@@ -103,8 +104,18 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
     if ("CONNECT".contentEquals(method)
         && (UPGRADE_TOKEN_H3.contentEquals(protocol)
             || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
+      QuicChannel quic = (QuicChannel) ctx.channel().parent();
+      QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+      WebTransportMetricsListener metricsListener =
+          quic != null && quic.attr(WebTransportAttributeKeys.METRICS_LISTENER) != null
+              ? quic.attr(WebTransportAttributeKeys.METRICS_LISTENER).get()
+              : null;
+
       // Validate scheme: MUST be "https" as per draft-15 section 4.4
       if (!"https".contentEquals(scheme)) {
+        if (metricsListener != null) {
+          metricsListener.onSessionRejected("invalid_scheme");
+        }
         logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
@@ -116,6 +127,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       }
       // Validate authority: MUST be present as per draft-15 section 4.4
       if (authority.length() == 0) {
+        if (metricsListener != null) {
+          metricsListener.onSessionRejected("missing_authority");
+        }
         logger.warn("❌ Rejecting connection due to missing :authority");
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
@@ -125,14 +139,15 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         return;
       }
-      QuicChannel quic = (QuicChannel) ctx.channel().parent();
-      QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
       if (quic != null) {
         Attribute<WebTransportServer> serverAttribute = quic.attr(WebTransportAttributeKeys.SERVER_KEY);
         WebTransportServer admissionServer = serverAttribute == null ? null : serverAttribute.get();
         Attribute<Boolean> connectionDrain = quic.attr(WebTransportAttributeKeys.CONNECTION_DRAINING);
         if ((admissionServer != null && !admissionServer.isAcceptingSessions())
             || (connectionDrain != null && Boolean.TRUE.equals(connectionDrain.get()))) {
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("server_draining");
+          }
           ctx.writeAndFlush(new DefaultHttp3HeadersFrame(
               new DefaultHttp3Headers().status(HttpResponseStatus.SERVICE_UNAVAILABLE.codeAsText())))
               .addListener(ChannelFutureListener.CLOSE);
@@ -144,6 +159,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         Boolean settingsReceived = receivedAttr != null ? receivedAttr.get() : null;
         Boolean settingsValid = validAttr != null ? validAttr.get() : null;
         if (Boolean.TRUE.equals(settingsReceived) && !Boolean.TRUE.equals(settingsValid)) {
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("invalid_peer_settings");
+          }
           logger.warn(
               "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
                   + " Treating incoming session CONNECT stream as malformed and resetting with"
@@ -155,6 +173,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         // verify it is client-initiated bi directional stream as per RFC 9000 section 2.1
         // and https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3-15#section-4.4
         if (!WebTransportUtils.isClientInitiatedBidirectionalStream(sessionId)) {
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("invalid_stream_id");
+          }
           logger.warn("❌ Rejecting connection from invalid session id: {}", sessionId);
           quic.close(true, Http3ErrorCode.H3_ID_ERROR.code(), Unpooled.EMPTY_BUFFER);
           return;
@@ -164,6 +185,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         OriginValidator originValidator = quic.attr(WebTransportAttributeKeys.ORIGIN_VALIDATOR).get();
         Boolean strictOrigin = quic.attr(WebTransportAttributeKeys.STRICT_ORIGIN_VALIDATION).get();
         if (!isAllowed(allowed, originValidator, strictOrigin, origin, authority)) {
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("unauthorized_origin");
+          }
           logger.warn(
               "❌ Rejecting connection from unauthorized origin: {} (authority: {})",
               origin,
@@ -180,6 +204,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         int maxSessions =
             WebTransportConfig.getInt("webtransport4j.webtransport.max_sessions_per_connection", 1);
         if (mgr == null || !mgr.reserveSession(quic, maxSessions)) {
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("max_sessions_per_connection");
+          }
           logger.warn(
               "❌ Rejecting connection: Max simultaneous sessions per connection reached ({})",
               maxSessions);
@@ -203,6 +230,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         if (globalSlots != null && !reserveGlobalSlot(globalSlots, globalMaxSessions)) {
           mgr.releaseReservation();
+          if (metricsListener != null) {
+            metricsListener.onSessionRejected("global_limit_reached");
+          }
           logger.warn(
               "❌ Rejecting connection: GLOBAL Max simultaneous sessions reached ({})",
               globalMaxSessions);
@@ -226,6 +256,10 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             mgr.releaseReservation();
             if (globalSlots != null) {
               globalSlots.decrementAndGet();
+            }
+            if (metricsListener != null) {
+              metricsListener.onSessionRejected(
+                  decision.getReason() != null ? decision.getReason() : "overload_shed");
             }
             logger.warn("⚠️ Rejecting session: Overload policy shed load ({})", decision.getReason());
             Http3Headers responseHeaders = new DefaultHttp3Headers();

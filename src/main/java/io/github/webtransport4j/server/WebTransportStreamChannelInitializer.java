@@ -17,6 +17,16 @@ public final class WebTransportStreamChannelInitializer
   private static final Logger logger =
       LoggerFactory.getLogger(WebTransportStreamChannelInitializer.class);
 
+  private final int maxCapsuleLength;
+
+  public WebTransportStreamChannelInitializer() {
+    this(WebTransportConfig.getInt("webtransport4j.capsule.max_length", 65536));
+  }
+
+  public WebTransportStreamChannelInitializer(int maxCapsuleLength) {
+    this.maxCapsuleLength = maxCapsuleLength > 0 ? maxCapsuleLength : 65536;
+  }
+
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
     stream.config().setAllowHalfClosure(true);
@@ -63,7 +73,7 @@ public final class WebTransportStreamChannelInitializer
       logger.debug(
           "🔧 Added Http3DataToByteBufHandler. Pipeline now: {}", stream.pipeline().names());
     }
-    stream.pipeline().addLast(new WebTransportCapsuleDecoder());
+    stream.pipeline().addLast(new WebTransportCapsuleDecoder(maxCapsuleLength));
     if (logger.isDebugEnabled()) {
       logger.debug(
           "🔧 Added WebTransportCapsuleDecoder. Pipeline now: {}", stream.pipeline().names());

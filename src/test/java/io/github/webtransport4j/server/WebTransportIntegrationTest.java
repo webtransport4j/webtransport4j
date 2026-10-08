@@ -83,8 +83,8 @@ public class WebTransportIntegrationTest {
   private NioEventLoopGroup clientGroup;
   private Channel serverChannel;
   private int port;
-  private QuicChannel serverConnectionChannel;
-  private WebTransportServer webTransportServer;
+  QuicChannel serverConnectionChannel;
+  WebTransportServer webTransportServer;
   private static final CountDownLatch[] sessionCloseLatch = new CountDownLatch[1];
   private QuicSslContext clientSslContext;
   private GlobalTrafficShapingHandler globalTrafficShaper;

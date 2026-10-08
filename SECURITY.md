@@ -40,4 +40,4 @@ When deploying WebTransport4J in production environments, adhere to the followin
 
 4. **IP Rate Limiting & DoS Protection**:
    - Configure the built-in CIDR prefix rate limiter and Bloom filter (`IpRateLimitingHandler`, `IpBloomFilter`) to mitigate abusive clients and flood attacks.
-   - Keep capsule size limits enforced (default: 1024 bytes) to prevent memory allocation exhaustion.
+   - Keep capsule size limits enforced (`webtransport4j.capsule.max_length=65536`, with close reason strings capped at 1024 bytes per RFC draft-16) to prevent memory allocation exhaustion.

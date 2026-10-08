@@ -57,6 +57,28 @@ public class WebTransportMicrometerMetricsListener
   }
 
   /**
+   * Constructs a listener with the default prefix and binds it to the provided registry.
+   *
+   * @param registry the target meter registry
+   */
+  public WebTransportMicrometerMetricsListener(@NonNull MeterRegistry registry) {
+    this("webtransport", registry);
+  }
+
+  /**
+   * Constructs a listener with a custom prefix and binds it to the provided registry.
+   *
+   * @param prefix the metric name prefix
+   * @param registry the target meter registry
+   */
+  public WebTransportMicrometerMetricsListener(
+      @NonNull String prefix, @NonNull MeterRegistry registry) {
+    this.prefix = Objects.requireNonNull(prefix, "prefix");
+    this.registry.add(Objects.requireNonNull(registry, "registry"));
+    initializeMeters();
+  }
+
+  /**
    * Binds WebTransport meters to the provided Micrometer {@link MeterRegistry}.
    *
    * @param registry the target meter registry
@@ -235,6 +257,16 @@ public class WebTransportMicrometerMetricsListener
   public void onDatagramDiscarded(long sessionId, @NonNull String reason) {
     if (datagramsDroppedCounter != null) {
       datagramsDroppedCounter.increment();
+    }
+    if (registry != null) {
+      registry.counter(prefix + ".datagrams.discarded", "reason", reason).increment();
+    }
+  }
+
+  @Override
+  public void onSessionRejected(@NonNull String reason) {
+    if (registry != null) {
+      registry.counter(prefix + ".sessions.rejected", "reason", reason).increment();
     }
   }
 

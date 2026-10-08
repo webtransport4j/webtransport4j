@@ -48,11 +48,15 @@ Deploying WebTransport (HTTP/3 over QUIC/UDP) across a multi-pod Kubernetes clus
 
 ### 3. Cluster-Wide Observability Aggregation
 * **Challenge**: When 10 pods run in Kubernetes, each pod tracks its own local sessions and streams.
-* **Solution**: Each pod's `WebTransportOtlpMetricsListener` tags metrics with `k8s.pod.name` and streams them to the cluster OpenTelemetry Collector. The collector and Prometheus aggregate:
+* **Solution**: Each pod's `WebTransportOtlpMetricsListener` (or `WebTransportMicrometerMetricsListener`) tags metrics with `k8s.pod.name` and streams them to the cluster OpenTelemetry Collector. The collector and Prometheus aggregate:
   - `sum(webtransport_sessions_active)`: Total active sessions across the entire fleet.
   - `sum(rate(webtransport_datagrams_sent_total[1m]))`: Global datagram throughput.
-  - `webtransport_quic_rtt_seconds`: P50, P90, and P99 latency percentiles across all nodes.
+  - `webtransport_quic_rtt_seconds` / `webtransport_session_duration_seconds`: P50, P90, and P99 latency percentiles across all nodes (when QUIC transport telemetry / session timers are enabled).
   - The WebTransport Dashboard displays both cluster totals and per-node breakdowns.
+
+### 4. Kubernetes Liveness & Readiness Probes
+* **Liveness Probe (`/healthz`)**: Verifies that the Netty event loop and QUIC server are running (`WebTransportHealthCheck.isAlive(server)`). If the process crashes or deadlocks, Kubernetes restarts the container.
+* **Readiness Probe (`/readyz`)**: Verifies that the server is running and NOT currently draining connections during graceful shutdown (`WebTransportHealthCheck.isReady(server)`). Pods in draining state are immediately removed from the Service endpoints to stop receiving new QUIC handshakes while existing sessions terminate cleanly.
 
 ---
 

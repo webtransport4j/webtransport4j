@@ -9,14 +9,15 @@ Production enterprise deployments require rich telemetry: OpenTelemetry traces, 
 ## Decision
 We established a lightweight, zero-dependency SPI: `WebTransportMetricsListener`:
 1. Core events defined:
-   - `onSessionEstablished(long sessionId, String path)`
+   - `onSessionOpened(long sessionId, String path)`
    - `onSessionClosed(long sessionId, String path, int closeCode)`
+   - `onSessionRejected(String reason)`
    - `onDatagramReceived(long sessionId, int byteLength)`
    - `onDatagramSent(long sessionId, int byteLength)`
    - `onDatagramDiscarded(long sessionId, String reason)`
    - `onConnectionMigration(long sessionId, String oldAddress, String newAddress)`
 2. The default implementation is `NoOpWebTransportMetricsListener`, which incurs zero overhead.
-3. Bridge modules (e.g. `MicrometerWebTransportMetricsListener`) adapt these calls to Prometheus, Grafana, OpenTelemetry, and Datadog registries.
+3. Bridge modules (e.g. `WebTransportMicrometerMetricsListener`, `WebTransportOtlpMetricsListener`) adapt these calls to Prometheus, Grafana, OpenTelemetry, and Datadog registries.
 
 ## Consequences
 

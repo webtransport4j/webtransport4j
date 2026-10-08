@@ -1,5 +1,6 @@
 package io.github.webtransport4j.spring;
 
+import io.github.webtransport4j.server.WebTransportConfig;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
 
@@ -12,15 +13,41 @@ public class WebTransportProperties {
   private int port =
       Integer.parseInt(
           System.getProperty(
-              "webtransport4j.port", System.getProperty("webtransport4j.server.port", "4433")));
-  private String sslKeyPath;
-  private String sslCertPath;
+              "webtransport4j.port",
+              WebTransportConfig.get("webtransport4j.server.port", "4433")));
+  private String sslKeyPath =
+      System.getProperty(
+          "webtransport4j.ssl_key_path",
+          WebTransportConfig.get("webtransport4j.server.ssl_key_path", null));
+  private String sslCertPath =
+      System.getProperty(
+          "webtransport4j.ssl_cert_path",
+          WebTransportConfig.get("webtransport4j.server.ssl_cert_path", null));
   private List<String> allowedOrigins = new ObjectArrayList<>();
-  private String transport = "auto";
-  private long idleTimeoutSeconds = 60;
-  private long maxStreamsBidi = 100;
-  private long maxStreamsUni = 100;
-  private long maxData = 10485760; // 10MB default
+  private String transport =
+      System.getProperty(
+          "webtransport4j.transport",
+          WebTransportConfig.get("webtransport4j.server.transport", "auto"));
+  private long idleTimeoutSeconds =
+      Long.parseLong(
+          System.getProperty(
+              "webtransport4j.idle_timeout_seconds",
+              WebTransportConfig.get("webtransport4j.quic.max_idle_timeout_seconds", "60")));
+  private long maxStreamsBidi =
+      Long.parseLong(
+          System.getProperty(
+              "webtransport4j.max_streams_bidi",
+              WebTransportConfig.get("webtransport4j.quic.initial_max_streams_bidi", "100")));
+  private long maxStreamsUni =
+      Long.parseLong(
+          System.getProperty(
+              "webtransport4j.max_streams_uni",
+              WebTransportConfig.get("webtransport4j.quic.initial_max_streams_uni", "100")));
+  private long maxData =
+      Long.parseLong(
+          System.getProperty(
+              "webtransport4j.max_data",
+              WebTransportConfig.get("webtransport4j.quic.initial_max_data", "10485760"))); // 10MB default
 
   public int getPort() {
     return port;
@@ -86,11 +113,25 @@ public class WebTransportProperties {
     this.maxStreamsUni = maxStreamsUni;
   }
 
+  private int capsuleMaxLength =
+      Integer.parseInt(
+          System.getProperty(
+              "webtransport4j.capsule.max_length",
+              WebTransportConfig.get("webtransport4j.capsule.max_length", "65536")));
+
   public long getMaxData() {
     return maxData;
   }
 
   public void setMaxData(long maxData) {
     this.maxData = maxData;
+  }
+
+  public int getCapsuleMaxLength() {
+    return capsuleMaxLength;
+  }
+
+  public void setCapsuleMaxLength(int capsuleMaxLength) {
+    this.capsuleMaxLength = capsuleMaxLength;
   }
 }

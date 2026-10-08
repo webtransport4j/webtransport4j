@@ -273,10 +273,7 @@ public final class EchoServer {
                     WebTransportStream stream) {
 
                     stream.onData(buffer -> {
-                        byte[] data =
-                            new byte[buffer.readableBytes()];
-
-                        buffer.readBytes(data);
+                        byte[] data = buffer.readBytes();
 
                         if (stream.isBidirectional()) {
                             stream.write(data);
@@ -289,11 +286,7 @@ public final class EchoServer {
                     WebTransportSession session,
                     WebTransportBuffer buffer) {
 
-                    byte[] data =
-                        new byte[buffer.readableBytes()];
-
-                    buffer.readBytes(data);
-
+                    byte[] data = buffer.readBytes();
                     session.sendDatagram(data);
                 }
             })
@@ -953,6 +946,29 @@ For production deployments:
 * apply application authentication and authorization at the WebTransport endpoint.
 
 Developer certificates generated for localhost must not be used in production.
+
+### Zero-Downtime TLS Certificate Hot-Reload
+
+WebTransport4J automatically monitors SSL certificates on disk using [`TlsCertificateWatcher`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/server/TlsCertificateWatcher.java). When certificate files (e.g., Let's Encrypt, cert-manager) are renewed on disk, the server reloads the active `QuicSslContext` dynamically without dropping established client sessions or requiring a server restart:
+
+```properties
+webtransport4j.ssl.hot_reload.enabled=true
+webtransport4j.ssl.hot_reload.interval_secs=5
+```
+
+### Kubernetes Health Probes & Readiness
+
+WebTransport4J provides native probe evaluation via [`WebTransportHealthCheck`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/health/WebTransportHealthCheck.java):
+
+* **Liveness Probe (`/healthz`)**: `WebTransportHealthCheck.isAlive(server)` confirms the Netty event loop and QUIC server are running.
+* **Readiness Probe (`/readyz`)**: `WebTransportHealthCheck.isReady(server)` verifies the server is running and not in a draining phase.
+* **Detailed Telemetry**: `WebTransportHealthCheck.getHealthDetails(server)` returns a structured status map (port, active sessions, draining status, acceptance flag) suitable for Spring Boot Actuator or MicroProfile Health.
+
+### Observability & Metrics SPI
+
+Metrics are exported through the zero-dependency SPI [`WebTransportMetricsListener`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/api/WebTransportMetricsListener.java):
+* **Micrometer**: [`WebTransportMicrometerMetricsListener`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/metrics/WebTransportMicrometerMetricsListener.java) bridges sessions, streams, datagrams, and migrations to Prometheus, Grafana, and Datadog.
+* **OpenTelemetry**: [`WebTransportOpenTelemetryTracer`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/observability/otlp/WebTransportOpenTelemetryTracer.java) and [`WebTransportOtlpMetricsListener`](file:///Users/sam/Documents/GitHub/webtransport4j/src/main/java/io/github/webtransport4j/observability/otlp/WebTransportOtlpMetricsListener.java) provide distributed tracing and OTLP metric streaming.
 
 ---
 

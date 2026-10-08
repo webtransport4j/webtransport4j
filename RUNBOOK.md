@@ -13,7 +13,7 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
 | `webtransport.sessions.active` | < 80% configured max | Warning | Active concurrent WebTransport sessions on node |
 | `webtransport.sessions.rejected` | Rate > 1/min | Critical | Sessions shed or rejected by overload policy / rate limit |
 | `webtransport.datagrams.discarded` | Rate > 0.01% of received | Warning / Critical | Dropped datagrams due to queue full or closed mailbox |
-| `webtransport.migration.count` | Diagnostic counter | Info | QUIC path connection migration events |
+| `webtransport.connections.migrated` | Diagnostic counter | Info | QUIC path connection migration events |
 | `jvm.memory.direct.bytes` | < 85% `-XX:MaxDirectMemorySize` | Critical | Netty off-heap direct buffer memory consumption |
 | `quic.handshake.failure` | Rate > 5% of handshakes | Warning | Handshake errors (TLS mismatch, invalid token, timeout) |
 

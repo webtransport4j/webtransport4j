@@ -6,6 +6,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.List;
 import org.jspecify.annotations.NonNull;
@@ -22,12 +23,22 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportCapsuleDecoder.class);
 
-  private static final int MAX_CAPSULE_LENGTH =
-      WebTransportConfig.getInt("webtransport4j.capsule.max_length", 65536);
+  public static final int DEFAULT_MAX_CAPSULE_LENGTH = 65536;
 
-  public WebTransportCapsuleDecoder() {}
-
+  private final int maxCapsuleLength;
   private long cachedSessionId = -1L;
+
+  public WebTransportCapsuleDecoder() {
+    this(WebTransportConfig.getInt("webtransport4j.capsule.max_length", DEFAULT_MAX_CAPSULE_LENGTH));
+  }
+
+  public WebTransportCapsuleDecoder(int maxCapsuleLength) {
+    this.maxCapsuleLength = maxCapsuleLength > 0 ? maxCapsuleLength : DEFAULT_MAX_CAPSULE_LENGTH;
+  }
+
+  public int maxCapsuleLength() {
+    return maxCapsuleLength;
+  }
 
   @Override
   public void handlerAdded(@NonNull ChannelHandlerContext ctx) {
@@ -54,16 +65,26 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
         in.resetReaderIndex();
         return;
       }
-      if (capLen > MAX_CAPSULE_LENGTH || capLen < 0) {
+      if (capLen > maxCapsuleLength || capLen < 0) {
         logger.warn(
             "❌ WebTransport capsule length {} exceeds maximum allowed ({}). Closing stream.",
             capLen,
-            MAX_CAPSULE_LENGTH);
+            maxCapsuleLength);
         in.skipBytes(in.readableBytes());
         if (ctx.channel() instanceof QuicStreamChannel) {
-          ((QuicStreamChannel) ctx.channel()).shutdown(0x010e, ctx.newPromise());
+          QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+          QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+          if (quic != null && quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null) {
+            WebTransportSessionManager mgr =
+                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+            if (mgr != null) {
+              mgr.unregister(streamChannel);
+            }
+          }
+          streamChannel.shutdown(0x010e, streamChannel.newPromise());
+        } else {
+          ctx.close();
         }
-        ctx.close();
         return;
       }
       if (in.readableBytes() < capLen) {

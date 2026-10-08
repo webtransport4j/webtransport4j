@@ -102,4 +102,12 @@ public interface WebTransportMetricsListener {
    */
   void onConnectionMigration(
       long sessionId, @NonNull String oldAddress, @NonNull String newAddress);
+
+  /**
+   * Called when an incoming WebTransport session is rejected or shed (e.g. due to overload,
+   * rate limiting, or capacity ceilings).
+   *
+   * @param reason short diagnostic rejection reason
+   */
+  default void onSessionRejected(@NonNull String reason) {}
 }

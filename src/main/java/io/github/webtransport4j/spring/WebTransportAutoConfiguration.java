@@ -18,6 +18,7 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.core.env.Environment;
 
 /**
  * Spring Auto-Configuration for WebTransport4J. Discovers handlers, endpoints annotated with {@link
@@ -36,9 +37,161 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     this.applicationContext = applicationContext;
   }
 
+  /**
+   * Creates and configures the {@link WebTransportProperties} bean from the environment.
+   *
+   * @return initialized {@link WebTransportProperties} instance
+   */
   @Bean
   public WebTransportProperties webTransportProperties() {
-    return new WebTransportProperties();
+    WebTransportProperties properties = new WebTransportProperties();
+    if (applicationContext != null && applicationContext.getEnvironment() != null) {
+      bindEnvironment(properties, applicationContext.getEnvironment());
+    }
+    return properties;
+  }
+
+  private static void bindEnvironment(WebTransportProperties props, Environment env) {
+    String portVal = getFirstProperty(env, "webtransport4j.port", "webtransport4j.server.port");
+    if (portVal != null) {
+      try {
+        props.setPort(Integer.parseInt(portVal.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String sslKey =
+        getFirstProperty(
+            env,
+            "webtransport4j.ssl-key-path",
+            "webtransport4j.ssl_key_path",
+            "webtransport4j.sslKeyPath",
+            "webtransport4j.server.ssl_key_path");
+    if (sslKey != null) {
+      props.setSslKeyPath(sslKey.trim());
+    }
+
+    String sslCert =
+        getFirstProperty(
+            env,
+            "webtransport4j.ssl-cert-path",
+            "webtransport4j.ssl_cert_path",
+            "webtransport4j.sslCertPath",
+            "webtransport4j.server.ssl_cert_path");
+    if (sslCert != null) {
+      props.setSslCertPath(sslCert.trim());
+    }
+
+    String transport =
+        getFirstProperty(
+            env,
+            "webtransport4j.transport",
+            "webtransport4j.transport-type",
+            "webtransport4j.server.transport");
+    if (transport != null) {
+      props.setTransport(transport.trim());
+    }
+
+    String idleTimeout =
+        getFirstProperty(
+            env,
+            "webtransport4j.idle-timeout-seconds",
+            "webtransport4j.idle_timeout_seconds",
+            "webtransport4j.idleTimeoutSeconds");
+    if (idleTimeout != null) {
+      try {
+        props.setIdleTimeoutSeconds(Long.parseLong(idleTimeout.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String bidi =
+        getFirstProperty(
+            env,
+            "webtransport4j.max-streams-bidi",
+            "webtransport4j.max_streams_bidi",
+            "webtransport4j.maxStreamsBidi");
+    if (bidi != null) {
+      try {
+        props.setMaxStreamsBidi(Long.parseLong(bidi.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String uni =
+        getFirstProperty(
+            env,
+            "webtransport4j.max-streams-uni",
+            "webtransport4j.max_streams_uni",
+            "webtransport4j.maxStreamsUni");
+    if (uni != null) {
+      try {
+        props.setMaxStreamsUni(Long.parseLong(uni.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String maxData =
+        getFirstProperty(
+            env,
+            "webtransport4j.max-data",
+            "webtransport4j.max_data",
+            "webtransport4j.maxData");
+    if (maxData != null) {
+      try {
+        props.setMaxData(Long.parseLong(maxData.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String capsuleMax =
+        getFirstProperty(
+            env,
+            "webtransport4j.capsule-max-length",
+            "webtransport4j.capsule.max_length",
+            "webtransport4j.capsule.max-length",
+            "webtransport4j.capsuleMaxLength");
+    if (capsuleMax != null) {
+      try {
+        props.setCapsuleMaxLength(Integer.parseInt(capsuleMax.trim()));
+      } catch (NumberFormatException ignored) {
+        // Fall back to default
+      }
+    }
+
+    String origins =
+        getFirstProperty(
+            env,
+            "webtransport4j.allowed-origins",
+            "webtransport4j.allowed_origins",
+            "webtransport4j.allowedOrigins");
+    if (origins != null && !origins.trim().isEmpty()) {
+      String[] parts = origins.split(",");
+      it.unimi.dsi.fastutil.objects.ObjectArrayList<String> list =
+          new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(parts.length);
+      for (String p : parts) {
+        String trimmed = p.trim();
+        if (!trimmed.isEmpty()) {
+          list.add(trimmed);
+        }
+      }
+      props.setAllowedOrigins(list);
+    }
+  }
+
+  private static String getFirstProperty(Environment env, String... keys) {
+    for (String key : keys) {
+      String val = env.getProperty(key);
+      if (val != null && !val.trim().isEmpty()) {
+        return val;
+      }
+    }
+    return null;
   }
 
   /**
