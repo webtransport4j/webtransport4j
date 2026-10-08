@@ -8,19 +8,25 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.api.WebTransportStreamSummary;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
+import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -93,7 +99,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private final AtomicLong clientInitiatedStreamsBidi = new AtomicLong(0L);
 
   // Cumulative stream counters for streams initiated by the Server
-  private volatile int closeCode = 0; // 0 = graceful by default
+  private volatile long closeCode = 0L; // 0 = graceful by default
   private volatile String closeReason;
   private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
 
@@ -519,12 +525,26 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         length);
   }
 
-  /** Gracefully closes the WebTransport session by closing the CONNECT stream. */
+  /**
+   * Gracefully closes the WebTransport session by sending a WT_CLOSE_SESSION capsule
+   * and closing the CONNECT stream.
+   */
   @Override
   public void close() {
+    close(0L, null);
+  }
+
+  @Override
+  public void close(long error, @Nullable String reason) {
+    if (error < 0 || error > 0xFFFFFFFFL) {
+      throw new IllegalArgumentException(
+          "Close error code must be an unsigned 32-bit integer (0 to 4294967295): " + error);
+    }
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+    this.closeCode = error;
+    this.closeReason = reason;
     for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
       activeStream.close();
     }
@@ -540,17 +560,30 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     if (onClosedCallback != null) {
       onClosedCallback.onClose();
     }
-    connectStream.close();
-  }
-
-  @Override
-  public void close(long error, @Nullable String reason) {
-    this.closeCode = (int) error;
-    this.closeReason = reason;
-    if (error == 0) {
-      close();
+    if (connectStream.isActive()) {
+      byte[] reasonBytes =
+          (reason != null && !reason.isEmpty())
+              ? reason.getBytes(StandardCharsets.UTF_8)
+              : new byte[0];
+      if (reasonBytes.length > 1024) {
+        reasonBytes = Arrays.copyOf(reasonBytes, 1024);
+      }
+      ByteBufAllocator alloc = connectStream.alloc();
+      ByteBuf capsule = (alloc != null) ? alloc.buffer() : Unpooled.buffer();
+      WebTransportUtils.writeVarInt(capsule, 0x2843L);
+      WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
+      capsule.writeInt((int) error);
+      if (reasonBytes.length > 0) {
+        capsule.writeBytes(reasonBytes);
+      }
+      ChannelFuture f = connectStream.writeAndFlush(new DefaultHttp3DataFrame(capsule));
+      if (f != null) {
+        f.addListener(ChannelFutureListener.CLOSE);
+      } else {
+        connectStream.close();
+      }
     } else {
-      abort(error);
+      connectStream.close();
     }
   }
 
@@ -560,14 +593,15 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    */
   @Override
   public void abort(long httpErrorCode) {
+    if (httpErrorCode < 0 || httpErrorCode > 0xFFFFFFFFL) {
+      throw new IllegalArgumentException(
+          "HTTP/3 error code must be an unsigned 32-bit integer (0 to 4294967295): " + httpErrorCode);
+    }
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+    this.closeCode = httpErrorCode;
     int code = (int) httpErrorCode;
-    if (code < 0) {
-      // fallback to safe code to prevent native JVM crash
-      code = 0;
-    }
 
     // Reset all associated data streams
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
@@ -857,12 +891,32 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return cf;
   }
 
-  public void setCloseCode(int closeCode) {
+  /**
+   * Sets the session close code as an unsigned 32-bit integer.
+   *
+   * @param closeCode close error code
+   */
+  @Override
+  public void setCloseCode(long closeCode) {
+    if (closeCode < 0 || closeCode > 0xFFFFFFFFL) {
+      throw new IllegalArgumentException(
+          "Close error code must be an unsigned 32-bit integer (0 to 4294967295): " + closeCode);
+    }
     this.closeCode = closeCode;
   }
 
   @Override
+  public void setCloseCode(int closeCode) {
+    setCloseCode(Integer.toUnsignedLong(closeCode));
+  }
+
+  @Override
   public int getCloseCode() {
+    return (int) closeCode;
+  }
+
+  @Override
+  public long getCloseCodeAsLong() {
     return closeCode;
   }
 

@@ -77,6 +77,15 @@ public class ReactiveWebTransportSession {
   }
 
   /**
+   * Returns the unsigned 32-bit session close code as a {@code long}.
+   *
+   * @return the unsigned 32-bit close code
+   */
+  public long getCloseCodeAsLong() {
+    return session.getCloseCodeAsLong();
+  }
+
+  /**
    * Returns the session closure reason.
    *
    * @return the closure reason, or null

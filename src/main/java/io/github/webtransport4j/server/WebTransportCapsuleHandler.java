@@ -89,7 +89,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           if (mgr != null) {
             WebTransportSession session = mgr.get(streamChannel.streamId());
             if (session instanceof NettyWebTransportSession) {
-              ((NettyWebTransportSession) session).setCloseCode((int) errorCode);
+              ((NettyWebTransportSession) session).setCloseCode(errorCode);
               ((NettyWebTransportSession) session).setCloseReason(errorMessage);
             }
           }

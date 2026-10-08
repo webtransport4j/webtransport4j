@@ -232,6 +232,15 @@ public interface WebTransportSession {
   }
 
   /**
+   * Returns the unsigned 32-bit close code for this session as a {@code long}.
+   *
+   * @return the unsigned 32-bit session close code
+   */
+  default long getCloseCodeAsLong() {
+    return Integer.toUnsignedLong(getCloseCode());
+  }
+
+  /**
    * Returns the closure reason string if provided by the peer, or {@code null}.
    *
    * @return the session closure reason, or null
