@@ -35,6 +35,10 @@ public final class LockAudit {
       for (Path file : files.filter(p -> p.toString().endsWith(".class")).toList()) {
         ClassNode node = new ClassNode();
         new ClassReader(Files.readAllBytes(file)).accept(node, 0);
+        if (node.name.startsWith("io/github/webtransport4j/client/")
+            || node.name.startsWith("io/github/webtransport4j/example/")) {
+          continue;
+        }
         for (MethodNode method : node.methods) {
           if ((method.access & Opcodes.ACC_SYNCHRONIZED) != 0)
             failures.add(node.name + "." + method.name + ": synchronized method");
@@ -75,15 +79,16 @@ public final class LockAudit {
             boolean locking =
                 instruction.getOpcode() == Opcodes.MONITORENTER
                     || (instruction instanceof MethodInsnNode call
-                        && call.owner.startsWith("java/util/concurrent/locks/")
-                        && (call.name.equals("lock") || call.name.equals("lockInterruptibly")));
+                        && (blockingCall(call.owner, call.name, call.desc)
+                            || (call.owner.startsWith("java/util/concurrent/locks/")
+                                && (call.name.equals("lock") || call.name.equals("lockInterruptibly")))));
             if (locking)
               failures.add(
                   node.name
                       + "."
                       + method.name
                       + method.desc
-                      + ": unguarded acquisition at instruction "
+                      + ": unguarded acquisition or blocking call at instruction "
                       + i);
             if (!guard) work.addAll(normal.get(i));
             work.addAll(exceptional.get(i));

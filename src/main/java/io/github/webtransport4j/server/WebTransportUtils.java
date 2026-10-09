@@ -226,6 +226,15 @@ public class WebTransportUtils {
                 return;
               }
               QuicStreamChannel stream = future.getNow();
+              if (!session.isOpen()) {
+                stream.close();
+                promise.setFailure(
+                    new IllegalStateException(
+                        "Cannot create stream: session "
+                            + connectStreamChannel.streamId()
+                            + " is CLOSED"));
+                return;
+              }
               // Set channel attributes so other handlers/logs can retrieve them
               stream
                   .attr(WebTransportAttributeKeys.SESSION_ID_KEY)
@@ -784,5 +793,239 @@ public class WebTransportUtils {
     } finally {
       buf.release();
     }
+  }
+
+  /**
+   * Initializes and admits an incoming client-initiated WebTransport stream.
+   *
+   * <p>Enforces session existence, session open state, stream limits (accounting and quota
+   * enforcement), registers the stream in the session's active stream set with automatic cleanup
+   * on stream close, and records metrics.
+   *
+   * @param ctx the channel handler context of the stream
+   * @param streamType the WebTransport stream type prefix (0x41 for bidi, 0x54 for uni)
+   * @param sessionId the target WebTransport session ID
+   * @return true if the stream was successfully admitted and registered; false if rejected
+   */
+  public static boolean initializeClientStream(
+      @NonNull ChannelHandlerContext ctx, long streamType, long sessionId) {
+    Channel channel = ctx.channel();
+    Channel parent = channel != null ? channel.parent() : null;
+    if (!(channel instanceof QuicStreamChannel) || !(parent instanceof QuicChannel)) {
+      logger.warn(
+          "❌ Rejecting incoming stream: invalid stream context (parent={}, channel={})"
+              + " for session {}",
+          parent,
+          channel,
+          sessionId);
+      if (channel instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) channel)
+            .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+      } else if (channel != null) {
+        ctx.close();
+      }
+      return false;
+    }
+    QuicStreamChannel stream = (QuicStreamChannel) channel;
+    QuicChannel quic = (QuicChannel) parent;
+    WebTransportSessionManager mgr =
+        quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null
+            ? quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get()
+            : null;
+    if (mgr == null || !mgr.hasSession(sessionId)) {
+      logger.warn("❌ Unknown Session ID: {}", sessionId);
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+      if (metrics != null) {
+        metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
+      }
+      stream.shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+      return false;
+    }
+
+    QuicStreamType streamTypeEnum = stream.type();
+    if (streamTypeEnum != null) {
+      boolean isBidiStream = streamTypeEnum == QuicStreamType.BIDIRECTIONAL;
+      if ((isBidiStream && streamType != WebTransportUtils.BI_STREAM_TYPE)
+          || (!isBidiStream && streamType != WebTransportUtils.UNI_STREAM_TYPE)) {
+        logger.warn(
+            "❌ Protocol Error: Mismatched stream type prefix {} on stream (bidi={})",
+            streamType,
+            isBidiStream);
+        mgr.closeSessionWithFlowControlError(sessionId);
+        stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+        return false;
+      }
+    }
+
+    if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}",
+            sessionId,
+            stream.id());
+      }
+    } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {} | StreamID: {}",
+            sessionId,
+            stream.id());
+      }
+    } else {
+      logger.warn("❓ Unknown Stream Type: {}", streamType);
+    }
+    Attribute<Long> streamTypeAttr =
+        stream.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY);
+    if (streamTypeAttr != null) {
+      streamTypeAttr.set(streamType);
+    }
+    Attribute<Long> sessionIdAttr =
+        stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY);
+    if (sessionIdAttr != null) {
+      sessionIdAttr.set(sessionId);
+    }
+    NettyWebTransportSession session = mgr.get(sessionId);
+    if (session == null) {
+      return false;
+    }
+    // Draft-16 Section 4.7 permits new streams after WT_DRAIN_SESSION.
+    if (!session.isOpen()) {
+      logger.warn(
+          "❌ Rejecting incoming stream for session {}: session is closed."
+              + " Resetting stream with WT_SESSION_GONE.",
+          sessionId);
+      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      return false;
+    }
+    boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
+    long value =
+        isBidi
+            ? session.incrementAndGetClientInitiatedStreamsBidi()
+            : session.incrementAndGetClientInitiatedStreamsUni();
+    long maxAllowed =
+        isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+    if (value > maxAllowed) {
+      logger.warn(
+          "❌ WebTransport stream limit exceeded for session {}: {} > {}",
+          sessionId,
+          value,
+          maxAllowed);
+      mgr.closeSessionWithFlowControlError(session);
+      stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+      return false;
+    }
+    if (logger.isDebugEnabled()) {
+      logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
+    }
+    Attribute<String> pathAttr =
+        stream.attr(WebTransportAttributeKeys.SESSION_PATH_KEY);
+    if (pathAttr != null && session.path() != null) {
+      pathAttr.set(session.path());
+    }
+
+    // Coordinate admission with session closure:
+    // Atomically register the stream while verifying session is open
+    if (!session.registerActiveClientStream(stream, isBidi)) {
+      logger.warn(
+          "❌ Rejecting incoming stream for session {}: session was closed concurrently."
+              + " Resetting stream with WT_SESSION_GONE.",
+          sessionId);
+      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      return false;
+    }
+
+    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
+    if (metrics != null) {
+      final long metricSessionId = sessionId;
+      final long metricStreamId = stream.streamId();
+      metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
+      stream
+          .closeFuture()
+          .addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
+    }
+    return true;
+  }
+
+  /**
+   * Records received data bytes on an active WebTransport stream, updating session read time and
+   * enforcing session-level flow control limits.
+   *
+   * @param ctx the channel handler context of the stream
+   * @param payloadBytes the number of payload bytes received
+   * @return true if the data is within limits and accepted; false if rejected due to error
+   */
+  public static boolean recordStreamDataReceived(
+      @NonNull ChannelHandlerContext ctx, int payloadBytes) {
+    if (payloadBytes <= 0) {
+      return true;
+    }
+    Channel channel = ctx.channel();
+    Channel parent = channel != null ? channel.parent() : null;
+    if (!(channel instanceof QuicStreamChannel) || !(parent instanceof QuicChannel)) {
+      logger.warn(
+          "❌ Rejecting received data: invalid stream context (parent={}, channel={})",
+          parent,
+          channel);
+      if (channel instanceof QuicStreamChannel) {
+        ((QuicStreamChannel) channel)
+            .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      } else if (channel != null) {
+        ctx.close();
+      }
+      return false;
+    }
+    QuicStreamChannel stream = (QuicStreamChannel) channel;
+    QuicChannel quic = (QuicChannel) parent;
+    Attribute<Long> sessionIdAttr =
+        stream.attr(WebTransportAttributeKeys.SESSION_ID_KEY);
+    Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
+    if (sessionId == null) {
+      return true;
+    }
+    Attribute<WebTransportSessionManager> mgrAttr =
+        quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR);
+    WebTransportSessionManager mgr = mgrAttr != null ? mgrAttr.get() : null;
+    if (mgr == null) {
+      logger.warn(
+          "❌ Received stream data with missing SessionManager for session {}",
+          sessionId);
+      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      return false;
+    }
+    NettyWebTransportSession session = mgr.get(sessionId);
+    if (session == null || !session.isOpen()) {
+      logger.warn(
+          "❌ Received data for unknown or closed WebTransport Session {}. Rejecting QUIC stream.",
+          sessionId);
+      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      return false;
+    }
+
+    session.updateLastReadTime();
+
+    if (session.isFlowControlEnabled()) {
+      long localLimit = session.getSettingsMaxData();
+      long newCumulativeReceived =
+          session.incrementCumulativeBytesReceived(payloadBytes);
+      // Validate that the increment didn't exceed the limit
+      if (newCumulativeReceived > localLimit) {
+        logger.warn(
+            "❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit"
+                + " ({}). Closing session.",
+            newCumulativeReceived,
+            localLimit);
+        mgr.closeSessionWithFlowControlError(session);
+        stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+        return false;
+      }
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "Flow control: Received {} bytes, cumulative = {}/{}",
+            payloadBytes,
+            newCumulativeReceived,
+            localLimit);
+      }
+    }
+    return true;
   }
 }
