@@ -1235,6 +1235,7 @@ public class WebTransportServer implements AutoCloseable {
 
   private static void shutdownGroupQuietly(@Nullable EventLoopGroup g) {
     if (g != null && !g.isShuttingDown() && !g.isShutdown()) {
+      EventLoopSafety.requireBlockingAllowed();
       try {
         g.shutdownGracefully(0, 2, TimeUnit.SECONDS).await(2, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
@@ -2078,6 +2079,7 @@ public class WebTransportServer implements AutoCloseable {
       EventLoopGroup eventLoopGroup,
       @Nullable GlobalTrafficShapingHandler shaper)
       throws Exception {
+    EventLoopSafety.requireBlockingAllowed();
     int recvBufSize =
         WebTransportConfig.getInt(
             "webtransport4j.server.recv.buffer.size", DEFAULT_RECV_BUFFER_SIZE);
@@ -2393,6 +2395,7 @@ public class WebTransportServer implements AutoCloseable {
 
   private static void closeQuietly(@Nullable Channel ch) {
     if (ch != null) {
+      EventLoopSafety.requireBlockingAllowed();
       try {
         ch.close().await(2, TimeUnit.SECONDS);
       } catch (InterruptedException e) {
@@ -2406,6 +2409,7 @@ public class WebTransportServer implements AutoCloseable {
   private void shutdownBusinessExecutor(long timeout, TimeUnit unit) {
     ExecutorService executor = this.businessExecutor;
     if (ownsBusinessExecutor && executor != null && !executor.isShutdown()) {
+      EventLoopSafety.requireBlockingAllowed();
       executor.shutdown();
       try {
         if (!executor.awaitTermination(timeout, unit)) {

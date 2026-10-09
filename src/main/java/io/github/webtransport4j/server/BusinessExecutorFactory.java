@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.internal.EventLoopSafety;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import java.lang.reflect.Method;
 import java.util.Locale;
@@ -136,6 +137,7 @@ public final class BusinessExecutorFactory {
       Thread monitorThread =
           new Thread(
               () -> {
+                EventLoopSafety.requireBlockingAllowed();
                 while (!executor.isShutdown()) {
                   try {
                     Thread.sleep(5000);

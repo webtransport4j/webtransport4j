@@ -87,11 +87,12 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
           }
           releaseCumulation();
         }
-        if (!initializeClientStream(ctx, header.streamType, header.sessionId)) {
+        if (!WebTransportUtils.initializeClientStream(ctx, header.streamType, header.sessionId)) {
           releaseCumulation();
           data.release();
           return;
         }
+        protocolHeaderConsumed = true;
         if (!data.isReadable()) {
           data.release();
           return;
@@ -100,54 +101,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       if (protocolHeaderConsumed) {
         int payloadBytes = data.readableBytes();
         if (payloadBytes > 0) {
-          Attribute<Long> sessionIdAttr =
-              ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY);
-          Long sessionId = sessionIdAttr != null ? sessionIdAttr.get() : null;
-          if (sessionId != null) {
-            QuicChannel quic = (QuicChannel) ctx.channel().parent();
-            WebTransportSessionManager mgr =
-                quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-            if (mgr != null) {
-              NettyWebTransportSession session = mgr.get(sessionId);
-              if (session != null) {
-                session.updateLastReadTime();
-
-                if (session.isFlowControlEnabled()) {
-                  long localLimit = session.getSettingsMaxData();
-                  long newCumulativeReceived =
-                      session.incrementCumulativeBytesReceived(payloadBytes);
-                  // Validate that the increment didn't exceed the limit
-                  if (newCumulativeReceived > localLimit) {
-                    logger.warn(
-                        "❌ Flow control: Read blocked. Cumulative received ({}) exceeds local limit"
-                            + " ({}). Closing session.",
-                        newCumulativeReceived,
-                        localLimit);
-                    mgr.closeSessionWithFlowControlError(session);
-                    data.release();
-                    ((QuicStreamChannel) ctx.channel())
-                        .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-                    return;
-                  }
-                  if (logger.isDebugEnabled()) {
-                    logger.debug(
-                        "Flow control: Received {} bytes, cumulative = {}/{}",
-                        payloadBytes,
-                        newCumulativeReceived,
-                        localLimit);
-                  }
-                }
-              } else {
-                logger.warn(
-                    "❌ Received data for unknown or closed WebTransport Session {}. Rejecting QUIC"
-                        + " stream.",
-                    sessionId);
-                data.release();
-                ((QuicStreamChannel) ctx.channel())
-                    .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
-                return;
-              }
-            }
+          if (!WebTransportUtils.recordStreamDataReceived(ctx, payloadBytes)) {
+            data.release();
+            return;
           }
         }
       }
@@ -227,131 +183,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
   }
 
-  private boolean initializeClientStream(
-      @NonNull ChannelHandlerContext ctx, long streamType, long sessionId) {
-    QuicChannel quic = (QuicChannel) ctx.channel().parent();
-    WebTransportSessionManager mgr = quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
-    if (mgr == null || !mgr.hasSession(sessionId)) {
-      logger.warn("❌ Unknown Session ID: {}", sessionId);
-      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
-      if (metrics != null) {
-        metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
-      }
-      if (ctx.channel() instanceof QuicStreamChannel) {
-        ((QuicStreamChannel) ctx.channel())
-            .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
-      } else {
-        ctx.close();
-      }
-      return false;
-    }
 
-    if (ctx.channel() instanceof QuicStreamChannel) {
-      QuicStreamChannel stream = (QuicStreamChannel) ctx.channel();
-      QuicStreamType streamTypeEnum = stream.type();
-      if (streamTypeEnum != null) {
-        boolean isBidiStream = streamTypeEnum == QuicStreamType.BIDIRECTIONAL;
-        if ((isBidiStream && streamType != WebTransportUtils.BI_STREAM_TYPE)
-            || (!isBidiStream && streamType != WebTransportUtils.UNI_STREAM_TYPE)) {
-          logger.warn(
-              "❌ Protocol Error: Mismatched stream type prefix {} on stream (bidi={})",
-              streamType,
-              isBidiStream);
-          if (mgr != null) {
-            mgr.closeSessionWithFlowControlError(sessionId);
-          }
-          stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-          return false;
-        }
-      }
-    }
-
-    if (streamType == WebTransportUtils.BI_STREAM_TYPE) {
-      if (logger.isDebugEnabled()) {
-        logger.debug(
-            "🆕 Client Initiated BIDIRECTIONAL Stream | Session: {} | StreamID: {}",
-            sessionId,
-            ctx.channel().id());
-      }
-    } else if (streamType == WebTransportUtils.UNI_STREAM_TYPE) {
-      if (logger.isDebugEnabled()) {
-        logger.debug(
-            "➡️ Client Initiated UNIDIRECTIONAL Stream | Session: {} | StreamID: {}",
-            sessionId,
-            ctx.channel().id());
-      }
-    } else {
-      logger.warn("❓ Unknown Stream Type: {}", streamType);
-    }
-    ctx.channel().attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).set(streamType);
-    ctx.channel().attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionId);
-    NettyWebTransportSession session = mgr.get(sessionId);
-    if (session == null) {
-      return false;
-    }
-    // Draft-16 Section 4.7 permits new streams after WT_DRAIN_SESSION.
-    if (!session.isOpen()) {
-      logger.warn(
-          "❌ Rejecting incoming stream for session {}: session is closed."
-              + " Resetting stream with WT_SESSION_GONE.",
-          sessionId);
-      if (ctx.channel() instanceof QuicStreamChannel) {
-        ((QuicStreamChannel) ctx.channel())
-            .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
-      } else {
-        ctx.close();
-      }
-      return false;
-    }
-    boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
-    long value =
-        isBidi
-            ? session.incrementAndGetClientInitiatedStreamsBidi()
-            : session.incrementAndGetClientInitiatedStreamsUni();
-    long maxAllowed =
-        isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
-    if (value > maxAllowed) {
-      logger.warn(
-          "❌ WebTransport stream limit exceeded for session {}: {} > {}",
-          sessionId,
-          value,
-          maxAllowed);
-      mgr.closeSessionWithFlowControlError(session);
-      if (ctx.channel() instanceof QuicStreamChannel) {
-        ((QuicStreamChannel) ctx.channel())
-            .shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
-      } else {
-        ctx.close();
-      }
-      return false;
-    }
-    if (logger.isDebugEnabled()) {
-      logger.debug("✅ Protocol Header Consumed | Type: {} Session: {}", streamType, sessionId);
-    }
-    protocolHeaderConsumed = true;
-    QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
-    if (isBidi) {
-      session.getActiveClientInitiatedBi().add(streamChannel);
-      streamChannel
-          .closeFuture()
-          .addListener(future -> session.getActiveClientInitiatedBi().remove(streamChannel));
-    } else {
-      session.getActiveClientInitiatedUni().add(streamChannel);
-      streamChannel
-          .closeFuture()
-          .addListener(future -> session.getActiveClientInitiatedUni().remove(streamChannel));
-    }
-    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(quic);
-    if (metrics != null) {
-      final long metricSessionId = sessionId;
-      final long metricStreamId = streamChannel.streamId();
-      metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
-      streamChannel
-          .closeFuture()
-          .addListener(f -> metrics.onStreamClosed(metricSessionId, metricStreamId));
-    }
-    return true;
-  }
 
   private static final class StreamHeader {
     private final long streamType;

@@ -36,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLEngine;
@@ -141,6 +142,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   private final AtomicBoolean closed = new AtomicBoolean(false);
+  private final AtomicInteger streamEpoch = new AtomicInteger(0);
   private final AtomicBoolean drainSent = new AtomicBoolean(false);
 
   /** Returns true if draining was signaled and there are currently no active streams. */
@@ -272,6 +274,24 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     webTransportStreams.addAll(getActiveClientInitiatedBi());
     webTransportStreams.addAll(getActiveServerInitiatedBi());
     return webTransportStreams;
+  }
+
+  @Override
+  public boolean registerActiveClientStream(
+      @NonNull QuicStreamChannel streamChannel, boolean isBidi) {
+    if (!isOpen()) {
+      return false;
+    }
+    Set<QuicStreamChannel> set =
+        isBidi ? activeClientInitiatedBi : activeClientInitiatedUni;
+    set.add(streamChannel);
+    streamEpoch.incrementAndGet();
+    if (!isOpen()) {
+      set.remove(streamChannel);
+      return false;
+    }
+    streamChannel.closeFuture().addListener(future -> set.remove(streamChannel));
+    return true;
   }
 
   @Override
@@ -545,16 +565,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
     this.closeCode = error;
     this.closeReason = reason;
-    for (QuicStreamChannel activeStream : activeClientInitiatedBi) {
+    streamEpoch.incrementAndGet();
+    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.close();
     }
-    for (QuicStreamChannel activeStream : activeServerInitiatedBi) {
-      activeStream.close();
-    }
-    for (QuicStreamChannel activeStream : activeClientInitiatedUni) {
-      activeStream.close();
-    }
-    for (QuicStreamChannel activeStream : activeServerInitiatedUni) {
+    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.close();
     }
     if (onClosedCallback != null) {
@@ -601,13 +616,21 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       throw new IllegalArgumentException(
           "HTTP/3 error code must be an unsigned 32-bit integer (0 to 4294967295): " + httpErrorCode);
     }
+    int code = (int) httpErrorCode;
+    if (code < 0) {
+      // fallback to safe code to prevent native JVM crash
+      code = 0;
+    }
     if (!closed.compareAndSet(false, true)) {
       return;
     }
     this.closeCode = httpErrorCode;
-    int code = (int) httpErrorCode;
+    streamEpoch.incrementAndGet();
 
     // Reset all associated data streams
+    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
+      activeStream.shutdown(code, activeStream.newPromise());
+    }
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.shutdown(code, activeStream.newPromise());
     }
@@ -863,13 +886,29 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         (Future<QuicStreamChannel> f) -> {
           if (f.isSuccess()) {
             QuicStreamChannel ch = f.getNow();
+            if (!isOpen()) {
+              ch.close();
+              cf.completeExceptionally(new IllegalStateException("Session is closed"));
+              return;
+            }
+            boolean isBidi = ch.type() == QuicStreamType.BIDIRECTIONAL;
+            Set<QuicStreamChannel> set =
+                isBidi ? activeServerInitiatedBi : activeServerInitiatedUni;
+            set.add(ch);
+            streamEpoch.incrementAndGet();
+            if (!isOpen()) {
+              set.remove(ch);
+              ch.close();
+              cf.completeExceptionally(new IllegalStateException("Session is closed"));
+              return;
+            }
+            ch.closeFuture().addListener(cf2 -> set.remove(ch));
             WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId);
             ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             // Fire metrics: server-initiated stream opened
             WebTransportMetricsListener metrics =
                 WebTransportUtils.getMetrics(connectStream.parent());
             if (metrics != null) {
-              boolean isBidi = ch.type() == QuicStreamType.BIDIRECTIONAL;
               metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
               ch.closeFuture()
                   .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
