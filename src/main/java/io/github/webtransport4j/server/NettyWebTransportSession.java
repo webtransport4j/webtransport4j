@@ -359,11 +359,27 @@ public interface NettyWebTransportSession extends WebTransportSession {
   void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode);
 
   /**
+   * Sets the session close code as an unsigned 32-bit integer.
+   *
+   * @param closeCode close error code
+   */
+  void setCloseCode(long closeCode);
+
+  /**
    * Sets the session close code.
    *
    * @param closeCode close error code
    */
-  void setCloseCode(int closeCode);
+  default void setCloseCode(int closeCode) {
+    setCloseCode(Integer.toUnsignedLong(closeCode));
+  }
+ 
+  /**
+   * Sets the session close reason string.
+   *
+   * @param closeReason close reason string, or null
+   */
+  void setCloseReason(@Nullable String closeReason);
 
   /** Rotates the session resumption token. */
   void rotateResumptionToken();

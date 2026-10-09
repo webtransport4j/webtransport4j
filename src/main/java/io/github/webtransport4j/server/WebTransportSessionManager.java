@@ -125,7 +125,7 @@ public class WebTransportSessionManager {
     return localFlowControlDeclared && peerFlowControlDeclared;
   }
 
-  void releaseReservation() {
+  public void releaseReservation() {
     occupiedSlots.updateAndGet(c -> Math.max(0, c - 1));
   }
 
@@ -401,7 +401,7 @@ public class WebTransportSessionManager {
     WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
     if (handler != null) {
       try {
-        handler.onSessionClosed(removed);
+        handler.onSessionClosed(removed, removed.getCloseCode(), removed.getCloseReason());
       } catch (Exception e) {
         logger.error("Error in onSessionClosed callback for path {}", removed.path(), e);
       }

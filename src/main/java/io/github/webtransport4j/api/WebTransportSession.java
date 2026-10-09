@@ -194,6 +194,20 @@ public interface WebTransportSession {
   void close();
 
   /**
+   * Closes the WebTransport session with the specified status code and optional diagnostic reason.
+   *
+   * @param error the close error code (0 = graceful close)
+   * @param reason the closure reason phrase, or null
+   */
+  default void close(long error, @Nullable String reason) {
+    if (error == 0) {
+      close();
+    } else {
+      abort(error);
+    }
+  }
+
+  /**
    * Abruptly closes the WebTransport session by resetting the CONNECT stream with the specified
    * HTTP/3 error code and resetting all active data streams.
    *
@@ -215,6 +229,24 @@ public interface WebTransportSession {
    */
   default int getCloseCode() {
     return 0;
+  }
+
+  /**
+   * Returns the unsigned 32-bit close code for this session as a {@code long}.
+   *
+   * @return the unsigned 32-bit session close code
+   */
+  default long getCloseCodeAsLong() {
+    return Integer.toUnsignedLong(getCloseCode());
+  }
+
+  /**
+   * Returns the closure reason string if provided by the peer, or {@code null}.
+   *
+   * @return the session closure reason, or null
+   */
+  default @Nullable String getCloseReason() {
+    return null;
   }
 
   /**

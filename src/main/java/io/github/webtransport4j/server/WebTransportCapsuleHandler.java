@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -77,6 +78,23 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               + " session.",
           errorCode,
           errorMessage);
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+        QuicChannel quic = streamChannel.parent();
+        if (quic != null) {
+          WebTransportSessionManager mgr =
+              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR) != null
+                  ? quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get()
+                  : null;
+          if (mgr != null) {
+            WebTransportSession session = mgr.get(streamChannel.streamId());
+            if (session instanceof NettyWebTransportSession) {
+              ((NettyWebTransportSession) session).setCloseCode(errorCode);
+              ((NettyWebTransportSession) session).setCloseReason(errorMessage);
+            }
+          }
+        }
+      }
       // Cleanly close only this WebTransport session stream
       ctx.close();
     } else /*
