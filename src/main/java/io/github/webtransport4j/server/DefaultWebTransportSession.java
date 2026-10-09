@@ -569,9 +569,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.close();
     }
-    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
-      activeStream.close();
-    }
     if (onClosedCallback != null) {
       onClosedCallback.onClose();
     }
@@ -628,9 +625,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     streamEpoch.incrementAndGet();
 
     // Reset all associated data streams
-    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
-      activeStream.shutdown(code, activeStream.newPromise());
-    }
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.shutdown(code, activeStream.newPromise());
     }
