@@ -22,6 +22,8 @@ public final class LockAudit {
     if (owner.startsWith("io/netty/")
         && (name.equals("sync") || name.equals("syncUninterruptibly") || name.startsWith("await")))
       return true;
+    if (name.equals("awaitTermination") && owner.startsWith("java/util/concurrent/"))
+      return true;
     return (owner.equals("java/util/concurrent/CountDownLatch") && name.equals("await"))
         || ((owner.equals("java/util/concurrent/Future")
                 || owner.equals("java/util/concurrent/CompletableFuture"))

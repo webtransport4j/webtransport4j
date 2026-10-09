@@ -2400,6 +2400,7 @@ public class WebTransportServer implements AutoCloseable {
   private void shutdownBusinessExecutor(long timeout, TimeUnit unit) {
     ExecutorService executor = this.businessExecutor;
     if (ownsBusinessExecutor && executor != null && !executor.isShutdown()) {
+      EventLoopSafety.requireBlockingAllowed();
       executor.shutdown();
       try {
         if (!executor.awaitTermination(timeout, unit)) {

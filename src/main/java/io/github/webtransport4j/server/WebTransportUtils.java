@@ -886,6 +886,8 @@ public class WebTransportUtils {
     }
     NettyWebTransportSession session = mgr.get(sessionId);
     if (session == null) {
+      logger.warn("❌ Session {} disappeared during stream admission", sessionId);
+      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
       return false;
     }
     // Draft-16 Section 4.7 permits new streams after WT_DRAIN_SESSION.
@@ -904,7 +906,7 @@ public class WebTransportUtils {
             : session.incrementAndGetClientInitiatedStreamsUni();
     long maxAllowed =
         isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
-    if (value > maxAllowed) {
+    if (session.isFlowControlEnabled() && value > maxAllowed) {
       logger.warn(
           "❌ WebTransport stream limit exceeded for session {}: {} > {}",
           sessionId,

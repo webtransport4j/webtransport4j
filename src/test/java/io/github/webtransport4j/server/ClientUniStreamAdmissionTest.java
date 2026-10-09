@@ -117,6 +117,7 @@ public class ClientUniStreamAdmissionTest {
 
     mgr.register(mockConnectStream);
     NettyWebTransportSession session = mgr.get(0L);
+    session.setFlowControlEnabled(true);
     session.setSettingsMaxStreamsUni(1L);
 
     // Stream 1 (admitted)
@@ -409,6 +410,37 @@ public class ClientUniStreamAdmissionTest {
     when(ctx.newPromise()).thenReturn(streamPromise);
 
     boolean admitted =
+        WebTransportUtils.initializeClientStream(ctx, WebTransportUtils.UNI_STREAM_TYPE, 0L);
+    assertFalse(admitted);
+    verify(mockUniStream).shutdown(eq(WebTransportUtils.WT_SESSION_GONE), any());
+  }
+
+  @Test
+  public void testSessionDisappearedDuringAdmissionShutsDownStreamWithSessionGone() {
+    final QuicChannel mockQuic = mock(QuicChannel.class);
+    final QuicStreamChannel mockUniStream = mock(QuicStreamChannel.class);
+    final DefaultAttributeMap quicAttrs = new DefaultAttributeMap();
+    final DefaultAttributeMap streamAttrs = new DefaultAttributeMap();
+
+    when(mockQuic.attr(any())).thenAnswer(inv -> quicAttrs.attr(inv.getArgument(0)));
+    when(mockUniStream.attr(any())).thenAnswer(inv -> streamAttrs.attr(inv.getArgument(0)));
+    when(mockUniStream.parent()).thenReturn(mockQuic);
+    when(mockUniStream.streamId()).thenReturn(7L);
+    when(mockUniStream.type()).thenReturn(QuicStreamType.UNIDIRECTIONAL);
+    final ChannelPromise streamPromise = new DefaultChannelPromise(mockUniStream);
+    when(mockUniStream.newPromise()).thenReturn(streamPromise);
+    when(mockUniStream.closeFuture()).thenReturn(new DefaultChannelPromise(mockUniStream));
+
+    final WebTransportSessionManager mockMgr = mock(WebTransportSessionManager.class);
+    when(mockMgr.hasSession(0L)).thenReturn(true);
+    when(mockMgr.get(0L)).thenReturn(null);
+    quicAttrs.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(mockMgr);
+
+    final ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.channel()).thenReturn(mockUniStream);
+    when(ctx.newPromise()).thenReturn(streamPromise);
+
+    final boolean admitted =
         WebTransportUtils.initializeClientStream(ctx, WebTransportUtils.UNI_STREAM_TYPE, 0L);
     assertFalse(admitted);
     verify(mockUniStream).shutdown(eq(WebTransportUtils.WT_SESSION_GONE), any());
