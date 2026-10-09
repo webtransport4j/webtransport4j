@@ -27,13 +27,18 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.DefaultAttributeMap;
+import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.nio.charset.StandardCharsets;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 4: WebTransport Features.
@@ -82,54 +87,66 @@ public class Draft16Section4WebTransportFeaturesTest {
    * payload.
    */
   @Test
-  public void testSection4_2_UnidirectionalStreamDecoderInApplication() {
+  public void testSection4_2_UnidirectionalStreamDecoderInApplication() throws Exception {
     final WebTransportUniStreamHeaderDecoder decoder =
         new WebTransportUniStreamHeaderDecoder(WebTransportUtils.UNI_STREAM_TYPE);
 
-    EmbeddedChannel channel = new EmbeddedChannel();
-    EmbeddedChannel parentChannel = new EmbeddedChannel();
-    parentChannel.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set("/wt-test");
+    final ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    final QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    final QuicChannel mockParent = mock(QuicChannel.class);
+    final QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
 
-    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
-    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mock(QuicChannel.class);
+    final DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
+    final DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
+    final DefaultAttributeMap connectAttrMap = new DefaultAttributeMap();
 
-    DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
-    DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    parentAttrMap.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(mgr);
+    parentAttrMap.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(100L);
     parentAttrMap.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set("/wt-path");
+
+    when(mockParent.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
+
+    long sessionId = 12L;
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.streamId()).thenReturn(sessionId);
+    when(mockConnectStream.isOpen()).thenReturn(true);
+    when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.attr(any())).thenAnswer(inv -> connectAttrMap.attr(inv.getArgument(0)));
+    mgr.register(mockConnectStream);
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.type()).thenReturn(QuicStreamType.UNIDIRECTIONAL);
+    when(mockStream.streamId()).thenReturn(7L);
+    when(mockStream.closeFuture())
+        .thenReturn(new DefaultChannelPromise(mockStream, ImmediateEventExecutor.INSTANCE));
     when(mockStream.attr(any())).thenAnswer(inv -> streamAttrMap.attr(inv.getArgument(0)));
-    when(mockParent.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
 
     ByteBuf in = Unpooled.buffer();
-    long sessionId = 12L;
     WebTransportUtils.writeVarInt(in, sessionId);
     byte[] payloadBytes = "UniPayloadData".getBytes(StandardCharsets.UTF_8);
     in.writeBytes(payloadBytes);
 
-    EmbeddedChannel testChannel = new EmbeddedChannel(decoder);
-    testChannel.attr(WebTransportAttributeKeys.SESSION_PATH_KEY).set("/test");
-    // Feed through pipeline
-    testChannel.writeInbound(in);
+    decoder.channelRead(mockCtx, in);
 
     assertEquals(
         "Session ID attribute MUST be set to decoded session ID",
         Long.valueOf(sessionId),
-        testChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get());
+        streamAttrMap.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get());
     assertEquals(
         "Stream type attribute MUST be set to 0x54",
         Long.valueOf(0x54L),
-        testChannel.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get());
+        streamAttrMap.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get());
 
-    ByteBuf forwarded = testChannel.readInbound();
+    ArgumentCaptor<ByteBuf> captor = ArgumentCaptor.forClass(ByteBuf.class);
+    verify(mockCtx).fireChannelRead(captor.capture());
+    ByteBuf forwarded = captor.getValue();
     assertNotNull("Stream payload MUST be forwarded to subsequent handlers", forwarded);
     byte[] actualPayload = new byte[forwarded.readableBytes()];
     forwarded.readBytes(actualPayload);
     forwarded.release();
     assertArrayEquals("Payload bytes must match user stream data", payloadBytes, actualPayload);
-    testChannel.finishAndReleaseAll();
   }
 
   /**

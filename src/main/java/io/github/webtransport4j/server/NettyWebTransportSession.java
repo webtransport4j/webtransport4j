@@ -84,6 +84,32 @@ public interface NettyWebTransportSession extends WebTransportSession {
   @NonNull Set<QuicStreamChannel> getAllActiveWebTransportStreams();
 
   /**
+   * Atomically registers an active client-initiated stream if the session is open.
+   *
+   * @param streamChannel the stream channel to register
+   * @param isBidi true if bidirectional, false if unidirectional
+   * @return true if the stream was registered while the session is open; false if rejected
+   *     because the session is closed
+   */
+  default boolean registerActiveClientStream(
+      @NonNull QuicStreamChannel streamChannel, boolean isBidi) {
+    if (!isOpen()) {
+      return false;
+    }
+    Set<QuicStreamChannel> set =
+        isBidi ? getActiveClientInitiatedBi() : getActiveClientInitiatedUni();
+    if (set != null) {
+      set.add(streamChannel);
+      if (!isOpen()) {
+        set.remove(streamChannel);
+        return false;
+      }
+      streamChannel.closeFuture().addListener(future -> set.remove(streamChannel));
+    }
+    return true;
+  }
+
+  /**
    * Returns true if session-level flow control is enabled.
    *
    * @return true if flow control was negotiated
