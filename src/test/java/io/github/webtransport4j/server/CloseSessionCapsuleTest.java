@@ -336,4 +336,50 @@ public class CloseSessionCapsuleTest {
       // expected
     }
   }
+
+  @Test
+  public void testSessionCloseTruncatesReasonPreservingUtf8Boundaries() throws Exception {
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockQuic = mock(QuicChannel.class);
+    when(mockStream.parent()).thenReturn(mockQuic);
+    when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isActive()).thenReturn(true);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    ChannelFuture mockFuture = mock(ChannelFuture.class);
+    // 1021 'a' characters + 4-byte emoji "\uD83D\uDE80" (🚀) = 1025 bytes in UTF-8
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < 1021; i++) {
+      sb.append('a');
+    }
+    sb.append("\uD83D\uDE80"); // 4 bytes: 1021 + 4 = 1025 bytes
+    sb.append("extra");
+
+    final DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            0L, mockStream, "/test", 100L, 100L, 10000L, 100L, 100L, 10000L, true, false);
+
+    session.close(0L, sb.toString());
+
+    ArgumentCaptor<DefaultHttp3DataFrame> frameCaptor =
+        ArgumentCaptor.forClass(DefaultHttp3DataFrame.class);
+    verify(mockStream).writeAndFlush(frameCaptor.capture());
+
+    ByteBuf content = frameCaptor.getValue().content();
+    long capsuleType = WebTransportUtils.readVariableLengthInt(content);
+    assertEquals(0x2843L, capsuleType);
+    long capsuleLen = WebTransportUtils.readVariableLengthInt(content);
+    // 4 bytes error code + 1021 bytes reason (incomplete 4-byte emoji excluded)
+    assertEquals(4L + 1021L, capsuleLen);
+    content.readUnsignedInt(); // error code
+    byte[] reasonBytes = new byte[content.readableBytes()];
+    content.readBytes(reasonBytes);
+    assertEquals(1021, reasonBytes.length);
+
+    // Strictly verify UTF-8 validity without malformed input errors
+    StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(reasonBytes));
+    String decodedReason = new String(reasonBytes, StandardCharsets.UTF_8);
+    assertEquals(1021, decodedReason.length());
+    frameCaptor.getValue().release();
+  }
 }

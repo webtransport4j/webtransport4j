@@ -566,7 +566,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
               ? reason.getBytes(StandardCharsets.UTF_8)
               : new byte[0];
       if (reasonBytes.length > 1024) {
-        reasonBytes = Arrays.copyOf(reasonBytes, 1024);
+        int cut = 1024;
+        while (cut > 0 && (reasonBytes[cut] & 0xC0) == 0x80) {
+          cut--;
+        }
+        reasonBytes = Arrays.copyOf(reasonBytes, cut);
       }
       ByteBufAllocator alloc = connectStream.alloc();
       ByteBuf capsule = (alloc != null) ? alloc.buffer() : Unpooled.buffer();
