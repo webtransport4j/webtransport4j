@@ -1,13 +1,16 @@
 package io.github.webtransport4j.api;
 
 import io.github.webtransport4j.internal.EventLoopSafety;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
+import io.github.webtransport4j.internal.handles.LongHandle;
+import java.lang.invoke.MethodHandles;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.locks.LockSupport;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -26,13 +29,36 @@ public final class AsyncWebTransportMetricsListener
       LoggerFactory.getLogger(AsyncWebTransportMetricsListener.class);
   private static final int DEFAULT_QUEUE_CAPACITY = 10_000;
 
+  private static final IntHandle<AsyncWebTransportMetricsListener> PENDING_HANDLE =
+      Handles.newIntHandle(
+          AsyncWebTransportMetricsListener.class,
+          "pending",
+          MethodHandles.lookup(),
+          () -> AtomicIntegerFieldUpdater.newUpdater(AsyncWebTransportMetricsListener.class, "pending"));
+
+  private static final IntHandle<AsyncWebTransportMetricsListener> CLOSED_HANDLE =
+      Handles.newIntHandle(
+          AsyncWebTransportMetricsListener.class,
+          "closed",
+          MethodHandles.lookup(),
+          () -> AtomicIntegerFieldUpdater.newUpdater(AsyncWebTransportMetricsListener.class, "closed"));
+
+  private static final LongHandle<AsyncWebTransportMetricsListener> DROPPED_EVENTS_HANDLE =
+      Handles.newLongHandle(
+          AsyncWebTransportMetricsListener.class,
+          "droppedEvents",
+          MethodHandles.lookup(),
+          () ->
+              AtomicLongFieldUpdater.newUpdater(
+                  AsyncWebTransportMetricsListener.class, "droppedEvents"));
+
   private final WebTransportMetricsListener delegate;
   private final Queue<Runnable> queue = new ConcurrentLinkedQueue<>();
-  private final AtomicInteger pending = new AtomicInteger();
-  private final AtomicBoolean closed = new AtomicBoolean();
+  private volatile int pending;
+  private volatile int closed;
   private final int capacity;
   private final Thread worker;
-  private final AtomicLong droppedEvents = new AtomicLong();
+  private volatile long droppedEvents;
 
   /** Creates an adapter with the default bounded queue capacity. */
   public AsyncWebTransportMetricsListener(@NonNull WebTransportMetricsListener delegate) {
@@ -55,22 +81,22 @@ public final class AsyncWebTransportMetricsListener
 
   /** Returns the number of events discarded because the exporter queue was full. */
   public long droppedEvents() {
-    return droppedEvents.get();
+    return droppedEvents;
   }
 
   private void dispatch(@NonNull Runnable callback) {
-    if (closed.get()) {
+    if (closed != 0) {
       return;
     }
-    if (pending.incrementAndGet() > capacity) {
-      pending.decrementAndGet();
-      droppedEvents.incrementAndGet();
+    if (PENDING_HANDLE.incrementAndGet(this) > capacity) {
+      PENDING_HANDLE.decrementAndGet(this);
+      DROPPED_EVENTS_HANDLE.incrementAndGet(this);
       return;
     }
     queue.offer(callback);
-    if (closed.get() && queue.remove(callback)) {
-      pending.decrementAndGet();
-      droppedEvents.incrementAndGet();
+    if (closed != 0 && queue.remove(callback)) {
+      PENDING_HANDLE.decrementAndGet(this);
+      DROPPED_EVENTS_HANDLE.incrementAndGet(this);
     }
     LockSupport.unpark(worker);
   }
@@ -81,23 +107,23 @@ public final class AsyncWebTransportMetricsListener
       for (; ; ) {
         Runnable callback = queue.poll();
         if (callback != null) {
-          pending.decrementAndGet();
+          PENDING_HANDLE.decrementAndGet(this);
           try {
             callback.run();
           } catch (RuntimeException failure) {
             logger.warn("Metrics exporter callback failed", failure);
           }
-        } else if (closed.get()) {
+        } else if (closed != 0) {
           return;
         } else {
           LockSupport.park(this);
         }
       }
     } finally {
-      closed.set(true);
+      closed = 1;
       while (queue.poll() != null) {
-        pending.decrementAndGet();
-        droppedEvents.incrementAndGet();
+        PENDING_HANDLE.decrementAndGet(this);
+        DROPPED_EVENTS_HANDLE.incrementAndGet(this);
       }
     }
   }
@@ -156,7 +182,7 @@ public final class AsyncWebTransportMetricsListener
   @Override
   public void close() {
     EventLoopSafety.requireBlockingAllowed();
-    closed.set(true);
+    closed = 1;
     LockSupport.unpark(worker);
     if (Thread.currentThread() == worker) {
       return;
@@ -169,7 +195,7 @@ public final class AsyncWebTransportMetricsListener
     if (worker.isAlive()) {
       worker.interrupt();
       while (queue.poll() != null) {
-        pending.decrementAndGet();
+        PENDING_HANDLE.decrementAndGet(this);
       }
     }
   }

@@ -8,7 +8,6 @@ import io.netty.channel.ChannelHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -345,12 +344,12 @@ public interface NettyWebTransportSession extends WebTransportSession {
   long incrementCumulativeBytesReceived(long value);
 
   /**
-   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
-   * sent.
+   * Atomically records the data blocked peer limit if it is greater than the last recorded limit.
    *
-   * @return AtomicLong tracking data blocked limit
+   * @param peerLimit the peer limit that triggered data blocking
+   * @return {@code true} if this limit was recorded and should trigger a capsule, {@code false} otherwise
    */
-  @NonNull AtomicLong getLastSentDataBlockedLimit();
+  boolean tryRecordDataBlockedLimit(long peerLimit);
 
   /**
    * Resets a WebTransport data stream with an application error code mapped per Section 4.4.

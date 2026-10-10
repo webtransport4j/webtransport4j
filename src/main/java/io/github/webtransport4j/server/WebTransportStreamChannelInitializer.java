@@ -17,6 +17,13 @@ public final class WebTransportStreamChannelInitializer
   private static final Logger logger =
       LoggerFactory.getLogger(WebTransportStreamChannelInitializer.class);
 
+  private static final WriteBufferWaterMark DEFAULT_WRITE_BUFFER_WATER_MARK =
+      new WriteBufferWaterMark(
+          WebTransportConfig.getInt(
+              "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024),
+          WebTransportConfig.getInt(
+              "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024));
+
   private final int maxCapsuleLength;
 
   public WebTransportStreamChannelInitializer() {
@@ -30,13 +37,7 @@ public final class WebTransportStreamChannelInitializer
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
     stream.config().setAllowHalfClosure(true);
-    int lowWaterMark =
-        WebTransportConfig.getInt(
-            "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024);
-    int highWaterMark =
-        WebTransportConfig.getInt(
-            "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024);
-    stream.config().setWriteBufferWaterMark(new WriteBufferWaterMark(lowWaterMark, highWaterMark));
+    stream.config().setWriteBufferWaterMark(DEFAULT_WRITE_BUFFER_WATER_MARK);
 
     WebTransportUtils.addTrafficShapers(stream);
     stream.pipeline().addFirst(new WebTransportDetectorHandler());

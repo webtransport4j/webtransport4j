@@ -2,13 +2,18 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import java.lang.invoke.MethodHandles;
 import java.util.Collection;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -24,10 +29,21 @@ public class WebTransportSessionManager {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportSessionManager.class);
 
-  // Key: The Session ID (which is the Stream ID of the CONNECT stream)
-  // Value: The Session object containing state
-  private final Map<Long, NettyWebTransportSession> sessions = new ConcurrentHashMap<>();
-  private final AtomicInteger occupiedSlots = new AtomicInteger();
+  private static final IntHandle<WebTransportSessionManager> OCCUPIED_SLOTS_HANDLE =
+      Handles.newIntHandle(
+          WebTransportSessionManager.class,
+          "occupiedSlots",
+          MethodHandles.lookup(),
+          () ->
+              AtomicIntegerFieldUpdater.newUpdater(
+                  WebTransportSessionManager.class, "occupiedSlots"));
+
+  // Fast path for the single-session case (99% of connections have at most 1 session).
+  private volatile @Nullable NettyWebTransportSession singleSession;
+
+  // Lazily allocated Copy-On-Write primitive map only if multiple sessions are multiplexed.
+  private volatile @Nullable Long2ObjectMap<NettyWebTransportSession> sessions;
+  private volatile int occupiedSlots;
   private final WebTransportSessionFactory sessionFactory;
 
   public WebTransportSessionManager() {
@@ -44,11 +60,11 @@ public class WebTransportSessionManager {
       return false;
     }
     for (; ; ) {
-      int current = occupiedSlots.get();
+      int current = this.occupiedSlots;
       if (current >= limit || current == Integer.MAX_VALUE) {
         return false;
       }
-      if (occupiedSlots.compareAndSet(current, current + 1)) {
+      if (OCCUPIED_SLOTS_HANDLE.compareAndSet(this, current, current + 1)) {
         return true;
       }
     }
@@ -126,11 +142,21 @@ public class WebTransportSessionManager {
   }
 
   public void releaseReservation() {
-    occupiedSlots.updateAndGet(c -> Math.max(0, c - 1));
+    decrementOccupiedSlots();
+  }
+
+  private void decrementOccupiedSlots() {
+    for (; ; ) {
+      int current = this.occupiedSlots;
+      int next = Math.max(0, current - 1);
+      if (OCCUPIED_SLOTS_HANDLE.compareAndSet(this, current, next)) {
+        return;
+      }
+    }
   }
 
   int getOccupiedSlots() {
-    return occupiedSlots.get();
+    return this.occupiedSlots;
   }
 
   void registerReserved(@NonNull QuicStreamChannel connectStream) {
@@ -262,10 +288,10 @@ public class WebTransportSessionManager {
     if (subprotocolAttr != null && subprotocolAttr.get() != null) {
       session.setSubprotocol(subprotocolAttr.get());
     }
-    sessions.put(sessionStreamId, session);
+    putSession(sessionStreamId, session);
 
     if (!reserved) {
-      occupiedSlots.incrementAndGet();
+      OCCUPIED_SLOTS_HANDLE.incrementAndGet(this);
     }
 
     if (quic != null) {
@@ -314,21 +340,105 @@ public class WebTransportSessionManager {
     }
   }
 
+  private synchronized void putSession(
+      long sessionStreamId, @NonNull NettyWebTransportSession session) {
+    if (this.singleSession == null && this.sessions == null) {
+      // Fast path: First session on this connection - zero hash map allocated!
+      this.singleSession = session;
+      return;
+    }
+    // Multiplexed case: 2 or more sessions
+    Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
+        this.sessions != null
+            ? new Long2ObjectOpenHashMap<>(this.sessions)
+            : new Long2ObjectOpenHashMap<>();
+    if (this.singleSession != null) {
+      copy.put(this.singleSession.getSessionStreamId(), this.singleSession);
+      this.singleSession = null;
+    }
+    copy.put(sessionStreamId, session);
+    this.sessions = copy;
+  }
+
+  private synchronized @Nullable NettyWebTransportSession removeSession(long sessionStreamId) {
+    NettyWebTransportSession single = this.singleSession;
+    if (single != null) {
+      if (single.getSessionStreamId() == sessionStreamId) {
+        this.singleSession = null;
+        return single;
+      }
+      return null;
+    }
+    Long2ObjectMap<NettyWebTransportSession> current = this.sessions;
+    if (current == null || !current.containsKey(sessionStreamId)) {
+      return null;
+    }
+    Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
+        new Long2ObjectOpenHashMap<>(current);
+    NettyWebTransportSession removed = copy.remove(sessionStreamId);
+    if (copy.isEmpty()) {
+      this.sessions = null;
+      this.singleSession = null;
+    } else if (copy.size() == 1) {
+      this.singleSession = copy.values().iterator().next();
+      this.sessions = null;
+    } else {
+      this.sessions = copy;
+      this.singleSession = null;
+    }
+    return removed;
+  }
+
   /** Required by the Demux handler to validate incoming Bidi streams. */
   public boolean hasSession(long sessionStreamId) {
-    return sessions.containsKey(sessionStreamId);
+    NettyWebTransportSession single = this.singleSession;
+    if (single != null && single.getSessionStreamId() == sessionStreamId) {
+      return true;
+    }
+    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    return map != null && map.containsKey(sessionStreamId);
   }
 
+  /**
+   * Retrieves a session by its CONNECT stream ID using a lock-free lookup.
+   *
+   * @param sessionStreamId the stream ID of the CONNECT stream
+   * @return the associated session or null if not found
+   */
   public @Nullable NettyWebTransportSession get(long sessionStreamId) {
-    return sessions.get(sessionStreamId);
+    NettyWebTransportSession single = this.singleSession;
+    if (single != null && single.getSessionStreamId() == sessionStreamId) {
+      return single;
+    }
+    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    return map != null ? map.get(sessionStreamId) : null;
   }
 
+  /**
+   * Returns the number of currently active sessions.
+   *
+   * @return active session count
+   */
   public int sessionsSize() {
-    return sessions.size();
+    if (this.singleSession != null) {
+      return 1;
+    }
+    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    return map != null ? map.size() : 0;
   }
 
+  /**
+   * Returns an unmodifiable collection of currently registered sessions.
+   *
+   * @return registered sessions
+   */
   public @NonNull Collection<NettyWebTransportSession> getSessions() {
-    return sessions.values();
+    NettyWebTransportSession single = this.singleSession;
+    if (single != null) {
+      return Collections.singletonList(single);
+    }
+    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    return map != null ? map.values() : Collections.emptyList();
   }
 
   /** Removes a specific session (e.g., when the CONNECT stream is closed). */
@@ -348,12 +458,12 @@ public class WebTransportSessionManager {
    * @param fallbackQuic optional fallback QUIC channel if the stream is already detached
    */
   public void unregister(long sessionStreamId, @Nullable QuicChannel fallbackQuic) {
-    NettyWebTransportSession removed = sessions.remove(sessionStreamId);
+    NettyWebTransportSession removed = removeSession(sessionStreamId);
     if (removed == null) {
       return;
     }
 
-    occupiedSlots.updateAndGet(c -> Math.max(0, c - 1));
+    decrementOccupiedSlots();
 
     QuicStreamChannel connectStream = removed.getConnectStream();
     QuicChannel quic =
@@ -433,7 +543,7 @@ public class WebTransportSessionManager {
    * @return true if the session was found and closed, false otherwise
    */
   public boolean closeSessionWithFlowControlError(long sessionId) {
-    NettyWebTransportSession session = sessions.get(sessionId);
+    NettyWebTransportSession session = get(sessionId);
     if (session != null) {
       closeSessionWithFlowControlError(session);
       return true;
@@ -465,7 +575,7 @@ public class WebTransportSessionManager {
   /** Cleanup: Called when the main QUIC Connection is lost/closed with a flow control error. */
   public void closeAllWithFlowControlError() {
     QuicChannel quic = null;
-    for (NettyWebTransportSession session : sessions.values()) {
+    for (NettyWebTransportSession session : getSessions()) {
       session.setCloseCode(WebTransportUtils.WT_FLOW_CONTROL_ERROR);
       if (logger.isInfoEnabled()) {
         logger.info(
@@ -497,12 +607,13 @@ public class WebTransportSessionManager {
 
   /** Closes all managed sessions associated with a QUIC channel. */
   public void closeAll(@Nullable QuicChannel quicChannel) {
-    if (sessions.isEmpty()) {
+    Collection<NettyWebTransportSession> current = getSessions();
+    if (current.isEmpty()) {
       return;
     }
     QuicChannel quic = quicChannel;
     if (quic == null) {
-      for (NettyWebTransportSession s : sessions.values()) {
+      for (NettyWebTransportSession s : current) {
         if (s != null && s.getConnectStream() != null && s.getConnectStream().parent() != null) {
           quic = s.getConnectStream().parent();
           break;
@@ -512,8 +623,16 @@ public class WebTransportSessionManager {
     if (logger.isDebugEnabled()) {
       logger.debug("💥 SessionManager: Closing all active sessions due to connection close.");
     }
-    for (Long sessionStreamId : sessions.keySet().toArray(new Long[0])) {
-      unregister(sessionStreamId, quic);
+    NettyWebTransportSession single = this.singleSession;
+    if (single != null) {
+      unregister(single.getSessionStreamId(), quic);
+      return;
+    }
+    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    if (map != null) {
+      for (long sessionStreamId : map.keySet().toLongArray()) {
+        unregister(sessionStreamId, quic);
+      }
     }
   }
 }

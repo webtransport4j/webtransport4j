@@ -5,6 +5,8 @@ import io.github.webtransport4j.api.OnCloseListener;
 import io.github.webtransport4j.api.StreamCodec;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -14,6 +16,7 @@ import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
+import java.lang.invoke.MethodHandles;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -52,13 +55,18 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private volatile @Nullable Consumer<Throwable> errorHandler;
 
-  volatile @Nullable Map<String, Object> attributes;
+  private volatile @Nullable Map<String, Object> attributes;
 
   @SuppressWarnings("rawtypes")
-  private static final AtomicReferenceFieldUpdater<DefaultNettyWebTransportStream, Map>
-      ATTRIBUTES_UPDATER =
-          AtomicReferenceFieldUpdater.newUpdater(
-              DefaultNettyWebTransportStream.class, Map.class, "attributes");
+  private static final RefHandle<DefaultNettyWebTransportStream, Map> ATTRIBUTES_HANDLE =
+      Handles.newRefHandle(
+          DefaultNettyWebTransportStream.class,
+          Map.class,
+          "attributes",
+          MethodHandles.lookup(),
+          () ->
+              AtomicReferenceFieldUpdater.newUpdater(
+                  DefaultNettyWebTransportStream.class, Map.class, "attributes"));
 
   private static final CompletableFuture<Void> COMPLETED_FUTURE =
       CompletableFuture.completedFuture(null);
@@ -477,7 +485,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     Map<String, Object> attrs = attributes;
     if (attrs == null) {
       Map<String, Object> newMap = new ConcurrentHashMap<>();
-      if (ATTRIBUTES_UPDATER.compareAndSet(this, null, newMap)) {
+      if (ATTRIBUTES_HANDLE.compareAndSet(this, null, newMap)) {
         attrs = newMap;
       } else {
         attrs = attributes;

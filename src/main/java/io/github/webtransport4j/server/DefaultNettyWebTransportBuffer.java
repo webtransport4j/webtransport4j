@@ -1,8 +1,11 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import java.lang.invoke.MethodHandles;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
@@ -22,8 +25,14 @@ import org.jspecify.annotations.NonNull;
  */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
-  private static final AtomicIntegerFieldUpdater<DefaultNettyWebTransportBuffer> REF_CNT_UPDATER =
-      AtomicIntegerFieldUpdater.newUpdater(DefaultNettyWebTransportBuffer.class, "refCnt");
+  private static final IntHandle<DefaultNettyWebTransportBuffer> REF_CNT_HANDLE =
+      Handles.newIntHandle(
+          DefaultNettyWebTransportBuffer.class,
+          "refCnt",
+          MethodHandles.lookup(),
+          () ->
+              AtomicIntegerFieldUpdater.newUpdater(
+                  DefaultNettyWebTransportBuffer.class, "refCnt"));
 
   private final @NonNull ByteBuf delegate;
   private volatile int refCnt = 1;
@@ -206,7 +215,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
       if (increment > Integer.MAX_VALUE - current) {
         throw new IllegalStateException("reference count overflow");
       }
-      if (REF_CNT_UPDATER.compareAndSet(this, current, current + increment)) {
+      if (REF_CNT_HANDLE.compareAndSet(this, current, current + increment)) {
         return this;
       }
     }
@@ -223,7 +232,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
       if (current == 0) {
         return;
       }
-      if (REF_CNT_UPDATER.compareAndSet(this, current, current - 1)) {
+      if (REF_CNT_HANDLE.compareAndSet(this, current, current - 1)) {
         if (current == 1) {
           // Never silently swallow invalid delegate ownership or retry this final release.
           delegate.release();

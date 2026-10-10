@@ -7,6 +7,9 @@ import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.api.WebTransportStreamSummary;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
+import io.github.webtransport4j.internal.handles.LongHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.CompositeByteBuf;
@@ -23,6 +26,7 @@ import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
@@ -36,9 +40,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLEngine;
@@ -61,6 +65,136 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private static final AtomicLong GLOBAL_SESSION_SEQ = new AtomicLong(1);
 
+  private static final LongHandle<DefaultWebTransportSession>
+      CLIENT_INITIATED_STREAMS_UNI_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "clientInitiatedStreamsUni",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "clientInitiatedStreamsUni"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      CLIENT_INITIATED_STREAMS_BIDI_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "clientInitiatedStreamsBidi",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "clientInitiatedStreamsBidi"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      SERVER_INITIATED_STREAMS_UNI_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "serverInitiatedStreamsUni",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "serverInitiatedStreamsUni"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      SERVER_INITIATED_STREAMS_BIDI_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "serverInitiatedStreamsBidi",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "serverInitiatedStreamsBidi"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      CUMULATIVE_BYTES_SENT_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "cumulativeBytesSent",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "cumulativeBytesSent"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      CUMULATIVE_BYTES_RECEIVED_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "cumulativeBytesReceived",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "cumulativeBytesReceived"));
+
+  private static final LongHandle<DefaultWebTransportSession>
+      LAST_SENT_DATA_BLOCKED_LIMIT_HANDLE =
+          Handles.newLongHandle(
+              DefaultWebTransportSession.class,
+              "lastSentDataBlockedLimit",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "lastSentDataBlockedLimit"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      FLOW_CONTROL_ENABLED_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "flowControlEnabled",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "flowControlEnabled"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      HAS_RECEIVED_PEER_MAX_DATA_CAPSULE_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "hasReceivedPeerMaxDataCapsule",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "hasReceivedPeerMaxDataCapsule"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      DRAINING_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "draining",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "draining"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      CLOSED_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "closed",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "closed"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      STREAM_EPOCH_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "streamEpoch",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "streamEpoch"));
+
+  private static final IntHandle<DefaultWebTransportSession>
+      DRAIN_SENT_HANDLE =
+          Handles.newIntHandle(
+              DefaultWebTransportSession.class,
+              "drainSent",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicIntegerFieldUpdater.newUpdater(
+                      DefaultWebTransportSession.class, "drainSent"));
+
   private final long uniqueSessionId;
 
   private final long sessionStreamId;
@@ -82,40 +216,40 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private final Set<QuicStreamChannel> activeServerInitiatedBi;
 
   // Local stream limits (how many streams we allow the client to initiate)
-  private final AtomicLong settingsMaxStreamsUni;
+  private volatile long settingsMaxStreamsUni;
 
-  private final AtomicLong settingsMaxStreamsBidi;
+  private volatile long settingsMaxStreamsBidi;
 
-  private final AtomicLong settingsMaxData;
+  private volatile long settingsMaxData;
 
   // Peer stream limits (how many streams the client allows the server to
   // initiate)
-  private final AtomicLong peerSettingsMaxStreamsUni;
+  private volatile long peerSettingsMaxStreamsUni;
 
-  private final AtomicLong peerSettingsMaxStreamsBidi;
+  private volatile long peerSettingsMaxStreamsBidi;
 
-  private final AtomicLong peerSettingsMaxData;
+  private volatile long peerSettingsMaxData;
 
   // Cumulative stream counters for streams initiated by the Client
-  private final AtomicLong clientInitiatedStreamsUni = new AtomicLong(0L);
+  private volatile long clientInitiatedStreamsUni;
 
-  private final AtomicLong clientInitiatedStreamsBidi = new AtomicLong(0L);
+  private volatile long clientInitiatedStreamsBidi;
 
   // Cumulative stream counters for streams initiated by the Server
   private volatile long closeCode = 0L; // 0 = graceful by default
   private volatile String closeReason;
-  private final AtomicLong serverInitiatedStreamsUni = new AtomicLong(0L);
+  private volatile long serverInitiatedStreamsUni;
 
-  private final AtomicLong serverInitiatedStreamsBidi = new AtomicLong(0L);
+  private volatile long serverInitiatedStreamsBidi;
 
   // Flow control fields
-  private final AtomicLong cumulativeBytesSent = new AtomicLong(0L);
+  private volatile long cumulativeBytesSent;
 
-  private final AtomicLong cumulativeBytesReceived = new AtomicLong(0L);
+  private volatile long cumulativeBytesReceived;
 
-  private final AtomicLong lastSentDataBlockedLimit = new AtomicLong(-1L);
+  private volatile long lastSentDataBlockedLimit = -1L;
 
-  private final AtomicBoolean flowControlEnabled;
+  private volatile int flowControlEnabled;
 
   // Initial allowed concurrent limits set at the start of the session
   private final long initialMaxStreamsUni;
@@ -124,7 +258,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private final long initialMaxData;
 
-  private final AtomicLong lastReadTime = new AtomicLong(System.currentTimeMillis());
+  private volatile long lastReadTime = System.currentTimeMillis();
 
   private OnCloseListener onClosedCallback;
 
@@ -133,21 +267,21 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     this.onClosedCallback = onClosedCallback;
   }
 
-  private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
+  private volatile int hasReceivedPeerMaxDataCapsule;
 
-  private final AtomicBoolean draining = new AtomicBoolean(false);
+  private volatile int draining;
 
   private volatile @Nullable Consumer<ByteBuf> rawDatagramConsumer;
 
   /** Returns true if graceful shutdown was signaled locally or by the peer. */
   @Override
   public boolean isDraining() {
-    return draining.get();
+    return draining != 0;
   }
 
-  private final AtomicBoolean closed = new AtomicBoolean(false);
-  private final AtomicInteger streamEpoch = new AtomicInteger(0);
-  private final AtomicBoolean drainSent = new AtomicBoolean(false);
+  private volatile int closed;
+  private volatile int streamEpoch;
+  private volatile int drainSent;
 
   /** Returns true if draining was signaled and there are currently no active streams. */
   @Override
@@ -158,7 +292,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   /** Returns true if the underlying CONNECT stream is present and open. */
   @Override
   public boolean isOpen() {
-    if (closed.get()) {
+    if (closed != 0) {
       return false;
     }
     if (connectStream == null) {
@@ -176,7 +310,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     if (!isOpen()) {
       throw new IllegalStateException("Session is closed");
     }
-    if (drainSent.compareAndSet(false, true)) {
+    if (DRAIN_SENT_HANDLE.compareAndSet(this, 0, 1)) {
       ByteBuf capsule = connectStream.alloc().buffer(5);
       WebTransportUtils.writeVarInt(capsule, 0x78ae);
       WebTransportUtils.writeVarInt(capsule, 0);
@@ -187,7 +321,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   /** Marks this session as draining upon receiving a WT_DRAIN_SESSION capsule. */
   public void markDraining() {
-    if (!draining.compareAndSet(false, true)) {
+    if (!DRAINING_HANDLE.compareAndSet(this, 0, 1)) {
       return;
     }
     io.netty.util.Attribute<WebTransportServer> serverAttribute =
@@ -223,18 +357,18 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     this.path = path;
     this.connectStream = connectStream;
     this.resumptionToken = UUID.randomUUID().toString();
-    this.flowControlEnabled = new AtomicBoolean(flowControlEnabled);
-    this.hasReceivedPeerMaxDataCapsule = new AtomicBoolean(peerMaxDataNegotiated);
+    this.flowControlEnabled = flowControlEnabled ? 1 : 0;
+    this.hasReceivedPeerMaxDataCapsule = peerMaxDataNegotiated ? 1 : 0;
     // Stream limits — always needed
-    this.settingsMaxStreamsUni = new AtomicLong(maxStreamsUni);
-    this.settingsMaxStreamsBidi = new AtomicLong(maxStreamsBidi);
-    this.settingsMaxData = new AtomicLong(maxData);
+    this.settingsMaxStreamsUni = maxStreamsUni;
+    this.settingsMaxStreamsBidi = maxStreamsBidi;
+    this.settingsMaxData = maxData;
     this.initialMaxStreamsUni = maxStreamsUni;
     this.initialMaxStreamsBidi = maxStreamsBidi;
     this.initialMaxData = maxData;
-    this.peerSettingsMaxStreamsUni = new AtomicLong(peerMaxStreamsUni);
-    this.peerSettingsMaxStreamsBidi = new AtomicLong(peerMaxStreamsBidi);
-    this.peerSettingsMaxData = new AtomicLong(peerMaxData);
+    this.peerSettingsMaxStreamsUni = peerMaxStreamsUni;
+    this.peerSettingsMaxStreamsBidi = peerMaxStreamsBidi;
+    this.peerSettingsMaxData = peerMaxData;
     // Active stream sets — use small initial capacity to reduce memory footprint
     this.activeClientInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
     this.activeServerInitiatedBi = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
@@ -243,11 +377,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   public long getLastReadTime() {
-    return lastReadTime.get();
+    return lastReadTime;
   }
 
   public void updateLastReadTime() {
-    lastReadTime.set(System.currentTimeMillis());
+    lastReadTime = System.currentTimeMillis();
   }
 
   public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
@@ -289,7 +423,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     Set<QuicStreamChannel> set =
         isBidi ? activeClientInitiatedBi : activeClientInitiatedUni;
     set.add(streamChannel);
-    streamEpoch.incrementAndGet();
+    STREAM_EPOCH_HANDLE.incrementAndGet(this);
     if (!isOpen()) {
       set.remove(streamChannel);
       return false;
@@ -363,7 +497,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return true if flow control was negotiated by both endpoints
    */
   public boolean isFlowControlEnabled() {
-    return flowControlEnabled.get();
+    return flowControlEnabled != 0;
   }
 
   /**
@@ -372,7 +506,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @param enabled true to enable flow control, false otherwise
    */
   public void setFlowControlEnabled(boolean enabled) {
-    this.flowControlEnabled.set(enabled);
+    this.flowControlEnabled = enabled ? 1 : 0;
   }
 
   @Override
@@ -390,67 +524,67 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   public long getSettingsMaxStreamsUni() {
-    return settingsMaxStreamsUni.get();
+    return settingsMaxStreamsUni;
   }
 
   public long getSettingsMaxStreamsBidi() {
-    return settingsMaxStreamsBidi.get();
+    return settingsMaxStreamsBidi;
   }
 
   public long getSettingsMaxData() {
-    return settingsMaxData.get();
+    return settingsMaxData;
   }
 
   public long getPeerSettingsMaxStreamsUni() {
-    return peerSettingsMaxStreamsUni.get();
+    return peerSettingsMaxStreamsUni;
   }
 
   public void setPeerSettingsMaxStreamsUni(long value) {
-    this.peerSettingsMaxStreamsUni.set(value);
+    this.peerSettingsMaxStreamsUni = value;
   }
 
   public long getPeerSettingsMaxStreamsBidi() {
-    return peerSettingsMaxStreamsBidi.get();
+    return peerSettingsMaxStreamsBidi;
   }
 
   public void setPeerSettingsMaxStreamsBidi(long value) {
-    this.peerSettingsMaxStreamsBidi.set(value);
+    this.peerSettingsMaxStreamsBidi = value;
   }
 
   public long getPeerSettingsMaxData() {
-    return peerSettingsMaxData.get();
+    return peerSettingsMaxData;
   }
 
   public void setPeerSettingsMaxData(long value) {
-    this.peerSettingsMaxData.set(value);
+    this.peerSettingsMaxData = value;
   }
 
   public boolean markPeerMaxDataCapsuleReceived() {
-    return hasReceivedPeerMaxDataCapsule.compareAndSet(false, true);
+    return HAS_RECEIVED_PEER_MAX_DATA_CAPSULE_HANDLE.compareAndSet(this, 0, 1);
   }
 
   public long getClientInitiatedStreamsUni() {
-    return clientInitiatedStreamsUni.get();
+    return clientInitiatedStreamsUni;
   }
 
   public long getClientInitiatedStreamsBidi() {
-    return clientInitiatedStreamsBidi.get();
+    return clientInitiatedStreamsBidi;
   }
 
   public long incrementAndGetClientInitiatedStreamsBidi() {
-    return clientInitiatedStreamsBidi.incrementAndGet();
+    return CLIENT_INITIATED_STREAMS_BIDI_HANDLE.incrementAndGet(this);
   }
 
   public long incrementAndGetClientInitiatedStreamsUni() {
-    return clientInitiatedStreamsUni.incrementAndGet();
+    return CLIENT_INITIATED_STREAMS_UNI_HANDLE.incrementAndGet(this);
   }
 
   public void setClientInitiatedStreamsUni(long clientInitiatedStreamsUni) {
-    this.clientInitiatedStreamsUni.set(clientInitiatedStreamsUni);
+    this.clientInitiatedStreamsUni = clientInitiatedStreamsUni;
   }
 
   public void setClientInitiatedStreamsBidi(long clientInitiatedStreamsBidi) {
-    this.clientInitiatedStreamsBidi.set(clientInitiatedStreamsBidi);
+    this.clientInitiatedStreamsBidi = clientInitiatedStreamsBidi;
   }
 
   public long getInitialMaxStreamsUni() {
@@ -462,7 +596,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   public void setSettingsMaxStreamsUni(long value) {
-    this.settingsMaxStreamsUni.set(value);
+    this.settingsMaxStreamsUni = value;
   }
 
   @Override
@@ -475,23 +609,23 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   public void setSettingsMaxStreamsBidi(long value) {
-    this.settingsMaxStreamsBidi.set(value);
+    this.settingsMaxStreamsBidi = value;
   }
 
   public long getServerInitiatedStreamsUni() {
-    return serverInitiatedStreamsUni.get();
+    return serverInitiatedStreamsUni;
   }
 
   public long getServerInitiatedStreamsBidi() {
-    return serverInitiatedStreamsBidi.get();
+    return serverInitiatedStreamsBidi;
   }
 
   public long incrementAndGetServerInitiatedStreamsUni() {
-    return serverInitiatedStreamsUni.incrementAndGet();
+    return SERVER_INITIATED_STREAMS_UNI_HANDLE.incrementAndGet(this);
   }
 
   public long incrementAndGetServerInitiatedStreamsBidi() {
-    return serverInitiatedStreamsBidi.incrementAndGet();
+    return SERVER_INITIATED_STREAMS_BIDI_HANDLE.incrementAndGet(this);
   }
 
   public long getInitialMaxData() {
@@ -499,31 +633,34 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   public void setSettingsMaxData(long value) {
-    this.settingsMaxData.set(value);
+    this.settingsMaxData = value;
   }
 
   public long getCumulativeBytesSent() {
-    return cumulativeBytesSent.get();
+    return cumulativeBytesSent;
   }
 
   public long getCumulativeBytesReceived() {
-    return cumulativeBytesReceived.get();
+    return cumulativeBytesReceived;
   }
 
   public long incrementCumulativeBytesSent(long value) {
-    return this.cumulativeBytesSent.addAndGet(value);
+    return CUMULATIVE_BYTES_SENT_HANDLE.addAndGet(this, value);
   }
 
   public long incrementCumulativeBytesReceived(long value) {
-    return this.cumulativeBytesReceived.addAndGet(value);
+    return CUMULATIVE_BYTES_RECEIVED_HANDLE.addAndGet(this, value);
   }
 
-  /**
-   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
-   * sent. Callers use CAS operations on this.
-   */
-  public @NonNull AtomicLong getLastSentDataBlockedLimit() {
-    return lastSentDataBlockedLimit;
+  @Override
+  public boolean tryRecordDataBlockedLimit(long peerLimit) {
+    long lastLimit;
+    while ((lastLimit = this.lastSentDataBlockedLimit) < peerLimit) {
+      if (LAST_SENT_DATA_BLOCKED_LIMIT_HANDLE.compareAndSet(this, lastLimit, peerLimit)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -564,12 +701,12 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       throw new IllegalArgumentException(
           "Close error code must be an unsigned 32-bit integer (0 to 4294967295): " + error);
     }
-    if (!closed.compareAndSet(false, true)) {
+    if (!CLOSED_HANDLE.compareAndSet(this, 0, 1)) {
       return;
     }
     this.closeCode = error;
     this.closeReason = reason;
-    streamEpoch.incrementAndGet();
+    STREAM_EPOCH_HANDLE.incrementAndGet(this);
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
       activeStream.close();
     }
@@ -622,11 +759,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       // fallback to safe code to prevent native JVM crash
       code = 0;
     }
-    if (!closed.compareAndSet(false, true)) {
+    if (!CLOSED_HANDLE.compareAndSet(this, 0, 1)) {
       return;
     }
     this.closeCode = httpErrorCode;
-    streamEpoch.incrementAndGet();
+    STREAM_EPOCH_HANDLE.incrementAndGet(this);
 
     // Reset all associated data streams
     for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
@@ -938,7 +1075,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
             Set<QuicStreamChannel> set =
                 isBidi ? activeServerInitiatedBi : activeServerInitiatedUni;
             set.add(ch);
-            streamEpoch.incrementAndGet();
+            STREAM_EPOCH_HANDLE.incrementAndGet(this);
             if (!isOpen()) {
               set.remove(ch);
               ch.close();
