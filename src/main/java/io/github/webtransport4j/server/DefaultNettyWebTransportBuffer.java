@@ -118,6 +118,60 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   }
 
   @Override
+  public byte getByte(int index) {
+    ensureAccessible();
+    return delegate.getByte(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public byte readByte() {
+    ensureAccessible();
+    return delegate.readByte();
+  }
+
+  @Override
+  public int getInt(int index) {
+    ensureAccessible();
+    return delegate.getInt(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public long getLong(int index) {
+    ensureAccessible();
+    return delegate.getLong(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public boolean equalsBytes(byte @NonNull [] expected) {
+    ensureAccessible();
+    if (delegate.readableBytes() != expected.length) {
+      return false;
+    }
+    int readerIdx = delegate.readerIndex();
+    for (int i = 0; i < expected.length; i++) {
+      if (delegate.getByte(readerIdx + i) != expected[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
+  public boolean startsWith(byte @NonNull [] prefix) {
+    ensureAccessible();
+    if (delegate.readableBytes() < prefix.length) {
+      return false;
+    }
+    int readerIdx = delegate.readerIndex();
+    for (int i = 0; i < prefix.length; i++) {
+      if (delegate.getByte(readerIdx + i) != prefix[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
   public byte[] readBytes() {
     ensureAccessible();
     byte[] bytes = new byte[delegate.readableBytes()];

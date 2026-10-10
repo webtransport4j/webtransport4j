@@ -85,10 +85,6 @@ public class WebTransportDatagramStressTest {
   /** Sets up test server before stress run. */
   @Before
   public void setUp() throws Exception {
-    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
-    System.setProperty("webtransport4j.business.pool.size", "8");
-    System.setProperty("webtransport4j.datagram.mailbox.capacity", "4096");
-    System.setProperty("webtransport4j.datagram.mailbox.batch_size", "64");
     WebTransportConfig.reload();
 
     WebTransportMetricsListener metricsListener =
@@ -157,10 +153,6 @@ public class WebTransportDatagramStressTest {
     if (server != null) {
       server.stop();
     }
-    System.clearProperty("webtransport4j.dispatch.execution.mode");
-    System.clearProperty("webtransport4j.business.pool.size");
-    System.clearProperty("webtransport4j.datagram.mailbox.capacity");
-    System.clearProperty("webtransport4j.datagram.mailbox.batch_size");
     WebTransportConfig.reload();
   }
 

@@ -48,10 +48,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.AbstractExecutorService;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
@@ -306,52 +302,6 @@ public class FramingLayerTest {
     when(mockStream.config()).thenReturn(mockConfig);
     when(mockConfig.isAutoRead()).thenReturn(true);
 
-    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
-    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
-    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
-
-    Attribute<ExecutorService> execAttr = mock(Attribute.class);
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
-
-    final boolean[] executed = new boolean[1];
-    ExecutorService directExecutor =
-        new AbstractExecutorService() {
-          private boolean shutdown = false;
-
-          @Override
-          public void shutdown() {
-            shutdown = true;
-          }
-
-          @Override
-          public List<Runnable> shutdownNow() {
-            shutdown = true;
-            return Collections.emptyList();
-          }
-
-          @Override
-          public boolean isShutdown() {
-            return shutdown;
-          }
-
-          @Override
-          public boolean isTerminated() {
-            return shutdown;
-          }
-
-          @Override
-          public boolean awaitTermination(long timeout, TimeUnit unit) {
-            return true;
-          }
-
-          @Override
-          public void execute(Runnable command) {
-            executed[0] = true;
-            command.run(); // execute synchronously
-          }
-        };
-    when(execAttr.get()).thenReturn(directExecutor);
-
     Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
@@ -367,7 +317,6 @@ public class FramingLayerTest {
     MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     dispatcher.channelRead(mockCtx, frame);
 
-    assertTrue(executed[0]);
     assertEquals(0, frame.refCnt()); // Verified: Memory safely recycled
   }
 
@@ -1100,11 +1049,6 @@ public class FramingLayerTest {
 
     when(mockCtx.channel()).thenReturn(mockStream);
     when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
-
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR))
-        .thenReturn(mock(Attribute.class));
-
     Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
     WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
     when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
@@ -1118,196 +1062,5 @@ public class FramingLayerTest {
     dispatcher.channelRead(mockCtx, frame);
 
     assertEquals(0, frame.refCnt());
-  }
-
-  @Test
-  public void testMessageDispatcherVirtualThreadsMode() throws Exception {
-    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
-    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mockQuicChannel();
-
-    when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
-
-    EventLoop mockEventLoop = mock(EventLoop.class);
-    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.inEventLoop()).thenReturn(true);
-    doAnswer(
-            invocation -> {
-              Runnable r = invocation.getArgument(0);
-              r.run();
-              return null;
-            })
-        .when(mockEventLoop)
-        .execute(any(Runnable.class));
-
-    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
-    when(mockStream.config()).thenReturn(mockConfig);
-    when(mockConfig.isAutoRead()).thenReturn(true);
-
-    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
-    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
-    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
-
-    final boolean[] executed = new boolean[1];
-    ExecutorService mockExecutor = mock(ExecutorService.class);
-    doAnswer(
-            invocation -> {
-              executed[0] = true;
-              Runnable r = invocation.getArgument(0);
-              r.run();
-              return null;
-            })
-        .when(mockExecutor)
-        .execute(any(Runnable.class));
-
-    Attribute<ExecutorService> execAttr = mock(Attribute.class);
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
-    when(execAttr.get()).thenReturn(mockExecutor);
-
-    Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
-    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
-    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
-    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
-
-    ByteBuf data = Unpooled.copiedBuffer("VT Msg".getBytes(StandardCharsets.UTF_8));
-    WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
-
-    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
-    dispatcher.channelRead(mockCtx, frame);
-
-    assertTrue(executed[0]);
-    assertEquals(0, frame.refCnt());
-  }
-
-  @Test
-  public void testMessageDispatcherFixedThreadPoolMode() throws Exception {
-    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
-    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
-    QuicChannel mockParent = mockQuicChannel();
-
-    when(mockCtx.channel()).thenReturn(mockStream);
-    when(mockStream.parent()).thenReturn(mockParent);
-    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
-
-    EventLoop mockEventLoop = mock(EventLoop.class);
-    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
-    when(mockEventLoop.inEventLoop()).thenReturn(true);
-    doAnswer(
-            invocation -> {
-              Runnable r = invocation.getArgument(0);
-              r.run();
-              return null;
-            })
-        .when(mockEventLoop)
-        .execute(any(Runnable.class));
-
-    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
-    when(mockStream.config()).thenReturn(mockConfig);
-    when(mockConfig.isAutoRead()).thenReturn(true);
-
-    Attribute<StreamMailbox> mailboxAttr = mock(Attribute.class);
-    when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY)).thenReturn(mailboxAttr);
-    when(mailboxAttr.setIfAbsent(any(StreamMailbox.class))).thenReturn(null);
-
-    final boolean[] executed = new boolean[1];
-    ThreadPoolExecutor mockFixedPool = mock(ThreadPoolExecutor.class);
-    doAnswer(
-            invocation -> {
-              executed[0] = true;
-              Runnable r = invocation.getArgument(0);
-              r.run();
-              return null;
-            })
-        .when(mockFixedPool)
-        .execute(any(Runnable.class));
-
-    Attribute<ExecutorService> execAttr = mock(Attribute.class);
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
-    when(execAttr.get()).thenReturn(mockFixedPool);
-
-    Attribute<WebTransportSessionManager> sessionMgrAttr = mock(Attribute.class);
-    WebTransportSessionManager mockSessionMgr = mock(WebTransportSessionManager.class);
-    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(sessionMgrAttr);
-    when(sessionMgrAttr.get()).thenReturn(mockSessionMgr);
-
-    ByteBuf data = Unpooled.copiedBuffer("Fixed Msg".getBytes(StandardCharsets.UTF_8));
-    WebTransportStreamFrame frame = new WebTransportStreamFrame(101L, 202L, true, data);
-
-    MessageDispatcher dispatcher = new DefaultMessageDispatcher();
-    dispatcher.channelRead(mockCtx, frame);
-
-    assertTrue(executed[0]);
-    assertEquals(0, frame.refCnt());
-  }
-
-  @Test
-  public void testStreamMailboxBackpressureThrottling() throws Exception {
-    System.setProperty("webtransport4j.mailbox.high_water_mark", "16");
-    System.setProperty("webtransport4j.mailbox.low_water_mark", "4");
-    WebTransportConfig.reload();
-    QuicStreamChannelConfig mockConfig = mock(QuicStreamChannelConfig.class);
-    EventLoop mockEventLoop = mock(EventLoop.class);
-    when(mockEventLoop.inEventLoop()).thenReturn(true);
-    when(mockConfig.isAutoRead()).thenReturn(true);
-
-    QuicStreamChannel mockStream =
-        mock(
-            QuicStreamChannel.class,
-            invocation -> {
-              String name = invocation.getMethod().getName();
-              if ("config".equals(name)) {
-                return mockConfig;
-              }
-              if ("eventLoop".equals(name)) {
-                return mockEventLoop;
-              }
-              return org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation);
-            });
-
-    final List<Runnable> tasks = new ArrayList<>();
-    ExecutorService mockExecutor = mock(ExecutorService.class);
-    doAnswer(
-            invocation -> {
-              tasks.add(invocation.getArgument(0));
-              return null;
-            })
-        .when(mockExecutor)
-        .execute(any(Runnable.class));
-
-    StreamMailbox.FrameDispatcher mockDispatcher = mock(StreamMailbox.FrameDispatcher.class);
-
-    StreamMailbox mailbox = new StreamMailbox(mockStream, mockExecutor, mockDispatcher, 1L);
-
-    List<WebTransportStreamFrame> frames = new ArrayList<>();
-    for (int i = 0; i < 16; i++) {
-      ByteBuf data = Unpooled.buffer(0);
-      WebTransportStreamFrame f = new WebTransportStreamFrame(1L, 1L, true, data);
-      frames.add(f);
-      mailbox.enqueue(f);
-    }
-    verify((io.netty.channel.ChannelConfig) mockConfig, times(0)).setAutoRead(false);
-
-    ByteBuf data = Unpooled.buffer(0);
-    WebTransportStreamFrame seventeenthFrame = new WebTransportStreamFrame(1L, 1L, true, data);
-    frames.add(seventeenthFrame);
-    mailbox.enqueue(seventeenthFrame);
-    verify((io.netty.channel.ChannelConfig) mockConfig, times(1)).setAutoRead(false);
-
-    assertEquals(1, tasks.size());
-    Runnable mailboxTask = tasks.get(0);
-    mailboxTask.run();
-
-    verify((io.netty.channel.ChannelConfig) mockConfig, times(1)).setAutoRead(true);
-
-    // Simulate Netty auto-release that occurs when channelRead0 finishes
-    for (WebTransportStreamFrame f : frames) {
-      f.release();
-    }
-
-    for (WebTransportStreamFrame f : frames) {
-      assertEquals(0, f.refCnt());
-    }
   }
 }

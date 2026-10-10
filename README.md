@@ -1149,7 +1149,7 @@ See [LICENSE](LICENSE) for the full license text.
 ## Concurrency verification
 
 Bounded TLA+ models cover server startup/stop ownership, session admission
-during drain, mailboxes, reactive publishers, TLS reload, flow control, async
+during drain, message dispatching, reactive publishers, TLS reload, flow control, async
 metrics, and configuration reload. Run safety, liveness, and known-broken negative controls with:
 
 ```sh

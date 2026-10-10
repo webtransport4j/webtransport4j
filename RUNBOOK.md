@@ -12,7 +12,7 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
 |---|---|---|---|
 | `webtransport.sessions.active` | < 80% configured max | Warning | Active concurrent WebTransport sessions on node |
 | `webtransport.sessions.rejected` | Rate > 1/min | Critical | Sessions shed or rejected by overload policy / rate limit |
-| `webtransport.datagrams.discarded` | Rate > 0.01% of received | Warning / Critical | Dropped datagrams due to queue full or closed mailbox |
+| `webtransport.datagrams.discarded` | Rate > 0.01% of received | Warning / Critical | Dropped datagrams due to session closure or socket buffer errors |
 | `webtransport.connections.migrated` | Diagnostic counter | Info | QUIC path connection migration events |
 | `jvm.memory.direct.bytes` | < 85% `-XX:MaxDirectMemorySize` | Critical | Netty off-heap direct buffer memory consumption |
 | `quic.handshake.failure` | Rate > 5% of handshakes | Warning | Handshake errors (TLS mismatch, invalid token, timeout) |
@@ -21,17 +21,16 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
 
 ## 2. Production Incident Playbooks
 
-### Playbook 1: High Datagram Drops (`mailbox_full` or Kernel Drops)
+### Playbook 1: High Datagram Drops or Kernel Drops
 
 #### Symptoms
 - Clients observe high datagram packet loss.
-- `webtransport.datagrams.discarded` metric increases with reason `mailbox_full`.
+- `webtransport.datagrams.discarded` metric increases.
 - Linux `netstat -su` or `ip -s link` shows `packet receive errors` or `buffer errors`.
 
 #### Root Causes
-1. Datagram ingestion rate exceeds the business executor processing throughput.
+1. Datagram ingestion bursts exceed kernel/socket buffer capacity.
 2. Kernel UDP receive buffer is too small for high packet arrival bursts.
-3. Mailbox queue capacity limit reached.
 
 #### Triage & Resolution Steps
 1. **Check Kernel Drops**:
@@ -46,13 +45,7 @@ Monitor the following core metrics exported via `WebTransportMetricsListener` (o
    net.core.rmem_default = 4194304
    net.core.wmem_default = 4194304
    ```
-3. **Scale WebTransport Mailbox Capacity**:
-   Update `webtransport-dynamic.properties` or environment variables:
-   ```properties
-   webtransport4j.datagram.mailbox.capacity=2048
-   webtransport4j.datagram.mailbox.batch_size=64
-   ```
-4. **Tune UDP Socket Buffer in Configuration**:
+3. **Tune UDP Socket Buffer in Configuration**:
    ```properties
    webtransport4j.server.socket.rcvbuf=8388608
    webtransport4j.server.socket.sndbuf=8388608
@@ -161,7 +154,7 @@ groups:
       severity: critical
     annotations:
       summary: "High WebTransport datagram drop rate detected"
-      description: "Datagram mailbox drops on {{ $labels.instance }} exceed 50/sec. Check mailbox capacity and socket buffers."
+      description: "Datagram drops on {{ $labels.instance }} exceed 50/sec. Check UDP socket buffers."
 
   - alert: DirectMemoryNearExhaustion
     expr: jvm_memory_direct_bytes / jvm_memory_direct_max_bytes > 0.90

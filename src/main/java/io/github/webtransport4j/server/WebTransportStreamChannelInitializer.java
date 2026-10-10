@@ -58,11 +58,6 @@ public final class WebTransportStreamChannelInitializer
       logger.debug(
           "🔧 Added WebTransportChunkedWriteHandler. Pipeline now: {}", stream.pipeline().names());
     }
-    stream.pipeline().addLast(WebTransportStreamFrameDecoder.INSTANCE);
-    if (logger.isDebugEnabled()) {
-      logger.debug(
-          "🔧 Added WebTransportStreamFrameDecoder. Pipeline now: {}", stream.pipeline().names());
-    }
     stream.pipeline().addLast(WebTransportHeadersHandler.INSTANCE);
     if (logger.isDebugEnabled()) {
       logger.debug(

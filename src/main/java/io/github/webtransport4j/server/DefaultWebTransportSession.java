@@ -654,10 +654,22 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
     Channel parentChannel = connectStream.parent();
     int dataBytes = data.readableBytes();
-    ByteBuf payload =
-        data instanceof DefaultNettyWebTransportBuffer
-            ? ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer()
-            : Unpooled.wrappedBuffer(data.nioBuffer());
+    if (data instanceof FlyweightWebTransportBuffer
+        && ((FlyweightWebTransportBuffer) data).delegate() != null) {
+      writeDatagramDirect(
+          parentChannel, Objects.requireNonNull(((FlyweightWebTransportBuffer) data).delegate()));
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
+      if (metrics != null) {
+        metrics.onDatagramSent(sessionStreamId, dataBytes);
+      }
+      return;
+    }
+    ByteBuf payload;
+    if (data instanceof DefaultNettyWebTransportBuffer) {
+      payload = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
+    } else {
+      payload = Unpooled.wrappedBuffer(data.nioBuffer());
+    }
     writeDatagram(parentChannel, payload);
     // Fire metrics: datagram sent
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
@@ -686,30 +698,32 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
   }
 
+  private void writeDatagramDirect(@NonNull Channel parentChannel, @NonNull ByteBuf payload) {
+    final long quarterSessionId = sessionStreamId >> 2;
+    int headerLen = WebTransportUtils.varIntLength(quarterSessionId);
+    if (payload.readerIndex() >= headerLen) {
+      payload.readerIndex(0);
+      parentChannel.writeAndFlush(payload.retain(), parentChannel.voidPromise());
+      return;
+    }
+    int payloadLen = payload.readableBytes();
+    ByteBuf packet = parentChannel.alloc().directBuffer(headerLen + payloadLen);
+    WebTransportUtils.writeVarInt(packet, quarterSessionId);
+    packet.writeBytes(payload, payload.readerIndex(), payloadLen);
+    parentChannel.writeAndFlush(packet, parentChannel.voidPromise());
+  }
+
   private void writeDatagram(@NonNull Channel parentChannel, @NonNull ByteBuf payload) {
-    ByteBuf header = null;
-    CompositeByteBuf composite = null;
     try {
       final long quarterSessionId = sessionStreamId >> 2;
-      header = parentChannel.alloc().directBuffer(WebTransportUtils.varIntLength(quarterSessionId));
-      WebTransportUtils.writeVarInt(header, quarterSessionId);
-      composite = parentChannel.alloc().compositeBuffer(2);
-      composite.addComponent(true, header);
-      header = null;
-      composite.addComponent(true, payload);
-      payload = null;
-      parentChannel.writeAndFlush(composite);
-      composite = null;
+      int headerLen = WebTransportUtils.varIntLength(quarterSessionId);
+      int payloadLen = payload.readableBytes();
+      ByteBuf packet = parentChannel.alloc().directBuffer(headerLen + payloadLen);
+      WebTransportUtils.writeVarInt(packet, quarterSessionId);
+      packet.writeBytes(payload);
+      parentChannel.writeAndFlush(packet, parentChannel.voidPromise());
     } finally {
-      if (header != null) {
-        header.release();
-      }
-      if (payload != null) {
-        payload.release();
-      }
-      if (composite != null) {
-        composite.release();
-      }
+      payload.release();
     }
   }
 
@@ -735,7 +749,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
           ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
-          ch.pipeline().addLast(WebTransportStreamFrameDecoder.INSTANCE);
           ch.pipeline().addLast(WebTransportCapsuleHandler.INSTANCE);
           Supplier<MessageDispatcher> supplier =
               ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();

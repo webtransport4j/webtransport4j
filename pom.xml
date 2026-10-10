@@ -550,6 +550,7 @@
                     <includeResources>false</includeResources>
                     <includeTestResources>false</includeTestResources>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <excludes>**/ProductionValidationMain.java</excludes>
                     <violationSeverity>warning</violationSeverity>
                     <sourceDirectories>
                         <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>

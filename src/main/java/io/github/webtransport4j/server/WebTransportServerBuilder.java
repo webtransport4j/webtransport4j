@@ -21,7 +21,6 @@ import java.security.cert.X509Certificate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import javax.net.ssl.TrustManager;
@@ -38,7 +37,6 @@ public class WebTransportServerBuilder {
   private String sslCertPath;
   private QuicSslContext sslContext;
   private List<String> allowedOrigins;
-  private ExecutorService businessExecutor;
   private WebTransportMetricsListener metricsListener;
   private QuicTokenHandler quicTokenHandler;
   private QuicConnectionIdGenerator connectionIdGenerator;
@@ -64,6 +62,7 @@ public class WebTransportServerBuilder {
   private TrustManager trustManager;
   private OriginValidator originValidator;
   private Boolean strictOriginValidation;
+  private boolean zeroGc;
 
   public WebTransportServerBuilder() {}
 
@@ -241,13 +240,6 @@ public class WebTransportServerBuilder {
     return this;
   }
 
-  /** Sets the business executor for offloading handler callbacks. */
-  public @NonNull WebTransportServerBuilder businessExecutor(
-      @Nullable ExecutorService businessExecutor) {
-    this.businessExecutor = businessExecutor;
-    return this;
-  }
-
   /** Sets the observability metrics listener. */
   public @NonNull WebTransportServerBuilder metricsListener(
       @Nullable WebTransportMetricsListener metricsListener) {
@@ -378,6 +370,32 @@ public class WebTransportServerBuilder {
   }
 
   /**
+   * Enables experimental reduced-allocation dispatch with normal ownership and executor semantics.
+   * This mode does not guarantee zero allocation or zero garbage collection.
+   *
+   * @param enable true to use zero-GC dispatching
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
+    this.zeroGc = enable;
+    if (enable) {
+      this.messageDispatcherSupplier = () -> ZeroGcMessageDispatcher.INSTANCE;
+    } else {
+      this.messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
+    }
+    return this;
+  }
+
+  /**
+   * Returns whether zero-GC mode is enabled.
+   *
+   * @return true if enabled
+   */
+  public boolean isZeroGc() {
+    return zeroGc;
+  }
+
+  /**
    * Sets a pre-configured handler whose exclusive ownership transfers to the server on build.
    * Building another server with the same handler (including through another builder) is rejected.
    * Use {@link #globalTrafficLimits(long, long)} to create a separate handler for every server.
@@ -442,10 +460,6 @@ public class WebTransportServerBuilder {
 
   List<String> getAllowedOrigins() {
     return allowedOrigins;
-  }
-
-  ExecutorService getBusinessExecutor() {
-    return businessExecutor;
   }
 
   WebTransportMetricsListener getMetricsListener() {

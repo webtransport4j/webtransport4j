@@ -137,12 +137,6 @@ public class WebTransportMultiServerInstanceTest {
           executor.getQueue().size());
     } finally {
       shaper.release();
-      if (owner.getBusinessExecutor() != null) {
-        owner.getBusinessExecutor().shutdownNow();
-      }
-      if (other.getBusinessExecutor() != null) {
-        other.getBusinessExecutor().shutdownNow();
-      }
       executor.shutdownNow();
     }
   }

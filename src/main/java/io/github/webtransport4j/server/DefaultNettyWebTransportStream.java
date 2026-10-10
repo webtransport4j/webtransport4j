@@ -308,6 +308,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         throw e;
       }
     }
+    if (data instanceof FlyweightWebTransportBuffer) {
+      ByteBuf del = ((FlyweightWebTransportBuffer) data).delegate();
+      if (del != null) {
+        int len = del.readableBytes();
+        ByteBuf packet = streamChannel.alloc().directBuffer(len);
+        packet.writeBytes(del, del.readerIndex(), len);
+        return writeOutbound(packet);
+      }
+    }
     return writeOutbound(Unpooled.wrappedBuffer(data.nioBuffer()));
   }
 
@@ -400,6 +409,27 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
       @NonNull String text, @NonNull Charset charset) {
     ByteBuf buf = ByteBufUtil.encodeString(streamChannel.alloc(), CharBuffer.wrap(text), charset);
     return writeOutbound(buf);
+  }
+
+  @Override
+  public void writeDirect(@NonNull WebTransportBuffer data) {
+    if (!streamChannel.isActive()) {
+      return;
+    }
+    if (data instanceof FlyweightWebTransportBuffer) {
+      ByteBuf del = ((FlyweightWebTransportBuffer) data).delegate();
+      if (del != null) {
+        streamChannel.writeAndFlush(del.retain(), streamChannel.voidPromise());
+        return;
+      }
+    }
+    if (data instanceof DefaultNettyWebTransportBuffer) {
+      ByteBuf retained = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
+      streamChannel.writeAndFlush(retained, streamChannel.voidPromise());
+      return;
+    }
+    ByteBuf packet = Unpooled.wrappedBuffer(data.nioBuffer());
+    streamChannel.writeAndFlush(packet, streamChannel.voidPromise());
   }
 
   public void close() {

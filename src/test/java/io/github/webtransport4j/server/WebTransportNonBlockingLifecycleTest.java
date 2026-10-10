@@ -4,9 +4,6 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -14,22 +11,18 @@ import org.junit.Test;
 
 /** Test for non-blocking server lifecycle and ephemeral port resolution. */
 public class WebTransportNonBlockingLifecycleTest {
-  private String previousDispatchMode;
   private String previousPort;
 
   /** Sets up test environment. */
   @Before
   public void setUp() {
-    previousDispatchMode = System.getProperty("webtransport4j.dispatch.execution.mode");
     previousPort = System.getProperty("webtransport4j.server.port");
-    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
     System.setProperty("webtransport4j.server.port", "0");
   }
 
   /** Tears down test environment. */
   @After
   public void tearDown() {
-    restoreProperty("webtransport4j.dispatch.execution.mode", previousDispatchMode);
     restoreProperty("webtransport4j.server.port", previousPort);
   }
 
@@ -66,7 +59,7 @@ public class WebTransportNonBlockingLifecycleTest {
   }
 
   @Test
-  public void testStartupFailureReallocatesOwnedExecutorOnRetry() throws Exception {
+  public void testStartupFailureRecoversOnRetry() throws Exception {
     Path directory = Files.createTempDirectory("webtransport-startup-retry");
     Path key = directory.resolve("key.pem");
     Path certificate = directory.resolve("cert.pem");
@@ -77,12 +70,9 @@ public class WebTransportNonBlockingLifecycleTest {
             .ssl(key.toString(), certificate.toString())
             .build();
     SelfSignedCertificate tls = null;
-    ExecutorService initialExecutor = server.getBusinessExecutor();
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
       Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
-      // The owned executor allocated for the failed start attempt was shut down during cleanup
-      Assert.assertTrue(initialExecutor.isShutdown());
 
       tls = new SelfSignedCertificate("localhost");
       Files.copy(tls.privateKey().toPath(), key);
@@ -90,16 +80,8 @@ public class WebTransportNonBlockingLifecycleTest {
       server.start();
       Assert.assertTrue(server.isStarted());
 
-      // ensureBusinessExecutor() transparently allocates a fresh live owned business executor
-      ExecutorService retryExecutor = server.getBusinessExecutor();
-      Assert.assertNotSame(initialExecutor, retryExecutor);
-      Assert.assertFalse(retryExecutor.isShutdown());
-      Assert.assertEquals(
-          "after retry", retryExecutor.submit(() -> "after retry").get(5, TimeUnit.SECONDS));
-
       server.stop();
       Assert.assertFalse(server.isStarted());
-      Assert.assertTrue(retryExecutor.isShutdown());
     } finally {
       server.stop();
       if (tls != null) {
@@ -112,7 +94,7 @@ public class WebTransportNonBlockingLifecycleTest {
   }
 
   @Test
-  public void testStartupFailureShutsDownOwnedExecutorImmediately() {
+  public void testStartupFailureCleansUpResourcesImmediately() {
     WebTransportServer server =
         WebTransportServer.builder()
             .port(0)
@@ -121,37 +103,9 @@ public class WebTransportNonBlockingLifecycleTest {
             .build();
     try {
       Assert.assertThrows(IllegalStateException.class, server::start);
-      Assert.assertTrue(server.getBusinessExecutor().isShutdown());
+      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
     } finally {
       server.stop();
-    }
-    Assert.assertTrue(server.getBusinessExecutor().isShutdown());
-  }
-
-  @Test
-  public void testCallerExecutorSurvivesFailedStartupAndExplicitStop() throws Exception {
-    ExecutorService executor = Executors.newSingleThreadExecutor();
-    WebTransportServer failing =
-        WebTransportServer.builder()
-            .port(0)
-            .transportType("nio")
-            .ssl("missing-key.pem", "missing-cert.pem")
-            .businessExecutor(executor)
-            .build();
-    WebTransportServer running = new WebTransportServer(new WebTransportHandler() {}, executor);
-    try {
-      Assert.assertThrows(IllegalStateException.class, failing::start);
-      Assert.assertFalse(executor.isShutdown());
-      failing.stop();
-      Assert.assertFalse(executor.isShutdown());
-      running.start();
-      running.stop();
-      Assert.assertEquals(
-          "still usable", executor.submit(() -> "still usable").get(5, TimeUnit.SECONDS));
-    } finally {
-      failing.stop();
-      running.stop();
-      executor.shutdownNow();
     }
   }
 }

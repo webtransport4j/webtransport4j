@@ -106,7 +106,7 @@ suite as well. Passing these bounded models does not certify production readines
 
 | Area / module | Implementation mapping | Properties and configurations |
 |---|---|---|
-| `Mailbox` | `StreamMailbox.enqueue/run/drainAndRelease`; `DatagramMailbox.enqueue/run/drainAndRelease` | Retained, queued, in-flight and released ownership; at-most-once release; worker empty-observe/clear/recheck wakeup race; eventual disposal under fair workers |
+| `Dispatcher` | `DefaultMessageDispatcher.dispatch*` | Direct zero-copy Netty EventLoop dispatching; single-thread per channel execution guarantees in-order delivery without queue contention |
 | `ReactivePublisher` | `WebTransportFlowPublisher.emitNext`, `request`, `cancel`, `drain`, `terminated` | Delivery within requested demand, at-most-one terminal signal, cancellation cleanup, completion progress when the queue is empty |
 | `TlsReload` | `TlsCertificateWatcher.checkAndReload`; `WebTransportServer.installReloadedSslContext/newQuicSslEngine/stop` | Stable engine snapshots, guarded publication after shutdown, monotonically newer context publication, completion of reload attempts |
 | `FlowControl` | `WebTransportUtils.wrapFutureStreamChannel`; session stream counters; peer limit capsule updates | Cumulative stream-credit accounting, no overspend with atomic reservation, monotonic grants, eventual request completion/cancellation |

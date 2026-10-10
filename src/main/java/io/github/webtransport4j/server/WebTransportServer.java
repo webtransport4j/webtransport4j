@@ -60,7 +60,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,19 +76,8 @@ import org.slf4j.LoggerFactory;
  * Main WebTransport server managing QUIC connections.
  *
  * <p>{@link #stop()} is restartable. {@link #close()} is terminal ({@link ServerState#CLOSED}).
- * Owned business-executor lifecycle:
+ * Dispatching occurs directly on Netty's EventLoop for zero-GC high throughput.
  *
- * <pre>
- *   Sequence                    Final state   Owned executor
- *   new → stop()                STOPPED       shut down (recreated on next start)
- *   new → close()               CLOSED        shut down
- *   start → stop                STOPPED       shut down (recreated on next start)
- *   start → stop → start        STARTED       fresh owned executor
- *   start → close               CLOSED        shut down
- *   stop in progress → close    CLOSED        shut down (close waits for in-flight stop)
- *   close → start               exception     remains shut down
- *   close → close               CLOSED        idempotent
- * </pre>
  *
  * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, generated
  * certificate, and dynamically created traffic shaper) stay local until {@code
@@ -174,8 +162,6 @@ public class WebTransportServer implements AutoCloseable {
 
   private volatile Supplier<MessageDispatcher> messageDispatcherSupplier =
       () -> DefaultMessageDispatcher.INSTANCE;
-  private volatile ExecutorService businessExecutor;
-  private final boolean ownsBusinessExecutor;
 
   private volatile GlobalTrafficShapingHandler trafficShaper;
   // Caller-supplied shapers survive restartable stop(); dynamically created shapers do not,
@@ -274,38 +260,40 @@ public class WebTransportServer implements AutoCloseable {
     return watcher != null && watcher.checkAndReload();
   }
 
+  private final boolean zeroGc;
+
+  /**
+   * Returns whether this server is running in zero-GC mode.
+   *
+   * @return true if zero-GC mode is enabled
+   */
+  public boolean isZeroGc() {
+    return zeroGc;
+  }
+
   public static @NonNull WebTransportServerBuilder builder() {
     return new WebTransportServerBuilder();
   }
 
   /** Web Transport Server. */
   public WebTransportServer(WebTransportHandler defaultHandler) {
+    this.zeroGc = false;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
-    this.businessExecutor = BusinessExecutorFactory.create();
-    this.ownsBusinessExecutor = true;
   }
 
   /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
+    this.zeroGc = false;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
-    this.businessExecutor = BusinessExecutorFactory.create();
-    this.ownsBusinessExecutor = true;
   }
 
-  /** Web Transport Server with custom business executor. */
-  public WebTransportServer(WebTransportHandler defaultHandler, ExecutorService businessExecutor) {
-    this.defaultHandler = requireHandler(defaultHandler);
-    handlers.put("/", this.defaultHandler);
-    this.ownsBusinessExecutor = businessExecutor == null;
-    this.businessExecutor =
-        businessExecutor != null ? businessExecutor : BusinessExecutorFactory.create();
-  }
 
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     Objects.requireNonNull(builder, "builder");
+    this.zeroGc = builder.isZeroGc();
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -342,11 +330,6 @@ public class WebTransportServer implements AutoCloseable {
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
     }
-    this.ownsBusinessExecutor = builder.getBusinessExecutor() == null;
-    this.businessExecutor =
-        builder.getBusinessExecutor() != null
-            ? builder.getBusinessExecutor()
-            : BusinessExecutorFactory.create();
 
     this.handlers.putAll(builder.getHandlers());
     WebTransportHandler configuredDefault = builder.getDefaultHandler();
@@ -686,13 +669,6 @@ public class WebTransportServer implements AutoCloseable {
     return WebTransportConfig.get("webtransport4j.server.host", DEFAULT_HOST);
   }
 
-  /**
-   * Returns the executor used for application callbacks. After {@link #stop()} of an owned executor
-   * this may be a terminated pool; {@link #start()} replaces it before accepting connections again.
-   */
-  public ExecutorService getBusinessExecutor() {
-    return businessExecutor;
-  }
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
@@ -1029,7 +1005,6 @@ public class WebTransportServer implements AutoCloseable {
     TlsCertificateWatcher newWatcher = null;
     GlobalTrafficShapingHandler createdShaper = null;
     SelfSignedCertificate generatedCert = null;
-    ExecutorService createdExecutor = null;
     QuicSslContext previousActiveSslContext = this.activeSslContext;
     boolean startupSslContextInstalled = false;
     boolean published = false;
@@ -1040,12 +1015,6 @@ public class WebTransportServer implements AutoCloseable {
               transportConfig.ioHandlerFactory);
 
       abortIfStartInvalidated(epoch);
-
-      ExecutorService previousExecutor = this.businessExecutor;
-      ExecutorService executor = ensureBusinessExecutor();
-      if (ownsBusinessExecutor && executor != previousExecutor) {
-        createdExecutor = executor;
-      }
 
       GlobalTrafficShapingHandler preexistingShaper = this.trafficShaper;
       GlobalTrafficShapingHandler shaper = resolveTrafficShaper(newGroup);
@@ -1084,7 +1053,6 @@ public class WebTransportServer implements AutoCloseable {
                   new QuicChannelInitializer(
                       this,
                       settings,
-                      executor,
                       resolvedOrigins,
                       globalActiveSessions,
                       globalSessionSlots));
@@ -1118,7 +1086,6 @@ public class WebTransportServer implements AutoCloseable {
             newWatcher,
             createdShaper,
             generatedCert,
-            createdExecutor,
             previousActiveSslContext,
             startupSslContextInstalled);
       }
@@ -1186,7 +1153,6 @@ public class WebTransportServer implements AutoCloseable {
       @Nullable TlsCertificateWatcher newWatcher,
       @Nullable GlobalTrafficShapingHandler createdShaper,
       @Nullable SelfSignedCertificate generatedCert,
-      @Nullable ExecutorService createdExecutor,
       @Nullable QuicSslContext previousActiveSslContext,
       boolean startupSslContextInstalled) {
     closeQuietly(newChannel);
@@ -1210,13 +1176,6 @@ public class WebTransportServer implements AutoCloseable {
       }
       if (this.generatedCertificate == generatedCert) {
         this.generatedCertificate = null;
-      }
-    }
-    if (createdExecutor != null) {
-      try {
-        createdExecutor.shutdownNow();
-      } catch (RuntimeException e) {
-        logger.error("Error shutting down unpublished business executor", e);
       }
     }
     if (startupSslContextInstalled) {
@@ -1437,37 +1396,6 @@ public class WebTransportServer implements AutoCloseable {
     }
     logger.info(
         "TLS certificate context reloaded; new handshakes will use the updated certificate");
-  }
-
-  /**
-   * Returns a live business executor, allocating a new owned pool if {@link #stop()} terminated the
-   * previous one. Caller-supplied executors are never replaced: a shutdown pool fails start-up.
-   */
-  private ExecutorService ensureBusinessExecutor() {
-    ExecutorService current = this.businessExecutor;
-    if (isLive(current)) {
-      return current;
-    }
-    if (!ownsBusinessExecutor) {
-      throw new IllegalStateException(
-          "Caller-supplied business executor is shutdown; supply a live executor or omit it so the"
-              + " server can manage one");
-    }
-    EventLoopSafety.requireBlockingAllowed();
-    synchronized (lifecycleLock) {
-      current = this.businessExecutor;
-      if (isLive(current)) {
-        return current;
-      }
-      current = BusinessExecutorFactory.create();
-      this.businessExecutor = current;
-      logger.info("Allocated a new business executor for server restart");
-      return current;
-    }
-  }
-
-  private static boolean isLive(@Nullable ExecutorService executor) {
-    return executor != null && !executor.isShutdown() && !executor.isTerminated();
   }
 
   private @NonNull ResolvedLimits resolveLimits() {
@@ -2209,9 +2137,6 @@ public class WebTransportServer implements AutoCloseable {
         return;
       }
       if (previous == ServerState.STOPPED) {
-        if (shutdownExecutor || permanentlyClosed) {
-          shutdownBusinessExecutorSafely(timeout, unit);
-        }
         if (permanentlyClosed) {
           // close() owns and must release a caller-supplied shaper even if start() never ran.
           releaseTrafficShaperSafely();
@@ -2229,7 +2154,6 @@ public class WebTransportServer implements AutoCloseable {
           if (state.get() == ServerState.CLOSED) {
             return;
           }
-          shutdownBusinessExecutorSafely(timeout, unit);
           releaseTrafficShaperSafely();
           this.activeSslContext = null;
           deleteGeneratedCertificate();
@@ -2322,10 +2246,6 @@ public class WebTransportServer implements AutoCloseable {
       this.activeSslContext = null;
       unregisterServerInstanceSafely();
       deleteGeneratedCertificate();
-      if (shutdownExecutor || permanentlyClosed) {
-        timeout = Math.max(0, deadline - System.nanoTime());
-        shutdownBusinessExecutorSafely(timeout, unit);
-      }
       logger.info("WebTransport server stopped successfully.");
     } finally {
       EventLoopSafety.requireBlockingAllowed();
@@ -2403,33 +2323,6 @@ public class WebTransportServer implements AutoCloseable {
       } catch (Exception ignored) {
         // best-effort rollback of a start that never published
       }
-    }
-  }
-
-  private void shutdownBusinessExecutor(long timeout, TimeUnit unit) {
-    ExecutorService executor = this.businessExecutor;
-    if (ownsBusinessExecutor && executor != null && !executor.isShutdown()) {
-      EventLoopSafety.requireBlockingAllowed();
-      executor.shutdown();
-      try {
-        if (!executor.awaitTermination(timeout, unit)) {
-          executor.shutdownNow();
-          if (!executor.awaitTermination(timeout, unit)) {
-            logger.warn("!!! WARNING !!! Business executor did not terminate !!! WARNING !!!");
-          }
-        }
-      } catch (InterruptedException e) {
-        executor.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
-    }
-  }
-
-  private void shutdownBusinessExecutorSafely(long timeout, TimeUnit unit) {
-    try {
-      shutdownBusinessExecutor(timeout, unit);
-    } catch (RuntimeException e) {
-      logger.error("Error shutting down business executor", e);
     }
   }
 
