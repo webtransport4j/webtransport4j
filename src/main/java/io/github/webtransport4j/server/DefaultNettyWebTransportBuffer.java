@@ -5,7 +5,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -22,8 +22,11 @@ import org.jspecify.annotations.NonNull;
  */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
+  private static final AtomicIntegerFieldUpdater<DefaultNettyWebTransportBuffer> REF_CNT_UPDATER =
+      AtomicIntegerFieldUpdater.newUpdater(DefaultNettyWebTransportBuffer.class, "refCnt");
+
   private final @NonNull ByteBuf delegate;
-  private final AtomicInteger refCnt = new AtomicInteger(1);
+  private volatile int refCnt = 1;
 
   /**
    * Wraps a byte array into a {@link WebTransportBuffer}.
@@ -95,7 +98,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
    * @return the current wrapper reference count
    */
   public int refCnt() {
-    return refCnt.get();
+    return refCnt;
   }
 
   @Override
@@ -196,14 +199,14 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
       throw new IllegalArgumentException("increment must be positive: " + increment);
     }
     for (; ; ) {
-      int current = refCnt.get();
+      int current = refCnt;
       if (current == 0) {
         throw new IllegalStateException("buffer has already been released");
       }
       if (increment > Integer.MAX_VALUE - current) {
         throw new IllegalStateException("reference count overflow");
       }
-      if (refCnt.compareAndSet(current, current + increment)) {
+      if (REF_CNT_UPDATER.compareAndSet(this, current, current + increment)) {
         return this;
       }
     }
@@ -216,11 +219,11 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   @Override
   public void release() {
     for (; ; ) {
-      int current = refCnt.get();
+      int current = refCnt;
       if (current == 0) {
         return;
       }
-      if (refCnt.compareAndSet(current, current - 1)) {
+      if (REF_CNT_UPDATER.compareAndSet(this, current, current - 1)) {
         if (current == 1) {
           // Never silently swallow invalid delegate ownership or retry this final release.
           delegate.release();
@@ -236,7 +239,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   }
 
   private void ensureAccessible() {
-    if (refCnt.get() == 0) {
+    if (refCnt == 0) {
       throw new IllegalStateException("buffer has already been released");
     }
   }

@@ -424,8 +424,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
       }
     }
     if (data instanceof DefaultNettyWebTransportBuffer) {
-      ByteBuf retained = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
-      streamChannel.writeAndFlush(retained, streamChannel.voidPromise());
+      streamChannel.writeAndFlush(
+          ((DefaultNettyWebTransportBuffer) data).delegate().retain(), streamChannel.voidPromise());
       return;
     }
     ByteBuf packet = Unpooled.wrappedBuffer(data.nioBuffer());

@@ -256,7 +256,7 @@ public class WebTransportUtils {
                         ? BI_STREAM_TYPE
                         : UNI_STREAM_TYPE);
                 writeVarInt(header, connectStreamChannel.streamId());
-                stream.writeAndFlush(header);
+                stream.writeAndFlush(header, stream.voidPromise());
                 if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
                   session.getActiveServerInitiatedBi().add(stream);
                 } else {

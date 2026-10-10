@@ -664,12 +664,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       }
       return;
     }
-    ByteBuf payload;
     if (data instanceof DefaultNettyWebTransportBuffer) {
-      payload = ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer();
-    } else {
-      payload = Unpooled.wrappedBuffer(data.nioBuffer());
+      writeDatagramDirect(
+          parentChannel, ((DefaultNettyWebTransportBuffer) data).delegate());
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
+      if (metrics != null) {
+        metrics.onDatagramSent(sessionStreamId, dataBytes);
+      }
+      return;
     }
+    ByteBuf payload = Unpooled.wrappedBuffer(data.nioBuffer());
     writeDatagram(parentChannel, payload);
     // Fire metrics: datagram sent
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
