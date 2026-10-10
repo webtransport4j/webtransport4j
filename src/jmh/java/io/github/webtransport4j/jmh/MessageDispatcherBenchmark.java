@@ -1,7 +1,6 @@
 package io.github.webtransport4j.jmh;
 
 import io.github.webtransport4j.server.DefaultMessageDispatcher;
-import io.github.webtransport4j.server.StreamMailbox;
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportFrame;
 import io.github.webtransport4j.server.WebTransportSessionManager;
@@ -16,9 +15,7 @@ import io.netty.handler.codec.quic.QuicStreamChannelConfig;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.mockito.Mockito;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -43,7 +40,7 @@ import org.openjdk.jmh.annotations.Warmup;
 @Fork(1)
 public class MessageDispatcherBenchmark {
 
-  @Param({"NETTY_EVENT_LOOP", "VIRTUAL_THREADS", "FIXED_THREAD_POOL"})
+  @Param({"NETTY_EVENT_LOOP"})
   public String executionMode;
 
   private DefaultMessageDispatcher dispatcher;
@@ -79,36 +76,15 @@ public class MessageDispatcherBenchmark {
     Mockito.when(mockStream.config()).thenReturn(mockConfig);
     Mockito.when(mockConfig.isAutoRead()).thenReturn(true);
 
-    // Setup Executor based on param
-    if ("VIRTUAL_THREADS".equalsIgnoreCase(executionMode)) {
-      try {
-        Method method = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
-        executor = (ExecutorService) method.invoke(null);
-      } catch (Exception e) {
-        executor = Executors.newCachedThreadPool();
-      }
-    } else if ("FIXED_THREAD_POOL".equalsIgnoreCase(executionMode)) {
-      executor = Executors.newFixedThreadPool(8);
-    } else {
-      executor = null; // NETTY_EVENT_LOOP
-    }
+    executor = null; // Direct NETTY_EVENT_LOOP dispatch
 
     // Mock WT_SESSION_MGR (default mock returns null for get(1L), bypassing cleanly)
     WebTransportSessionManager mockSessionMgr = Mockito.mock(WebTransportSessionManager.class);
-
-    // Setup high-performance attributes
-    BenchmarkAttribute<ExecutorService> execAttr = new BenchmarkAttribute<>();
-    execAttr.set(executor);
-    Mockito.when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)).thenReturn(execAttr);
 
     BenchmarkAttribute<WebTransportSessionManager> sessionMgrAttr = new BenchmarkAttribute<>();
     sessionMgrAttr.set(mockSessionMgr);
     Mockito.when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR))
         .thenReturn(sessionMgrAttr);
-
-    BenchmarkAttribute<StreamMailbox> mailboxAttr = new BenchmarkAttribute<>();
-    Mockito.when(mockStream.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY))
-        .thenReturn(mailboxAttr);
 
     ByteBuf buf = Unpooled.wrappedBuffer(new byte[] {1, 2, 3, 4, 5});
     try {

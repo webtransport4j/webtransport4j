@@ -8,18 +8,18 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
-import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Default dispatcher routing WebTransport frames to handlers. */
+/** Default dispatcher routing WebTransport frames and buffers directly to handlers. */
 @ChannelHandler.Sharable
-public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTransportFrame>
+public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
     implements MessageDispatcher {
 
   public static final DefaultMessageDispatcher INSTANCE = new DefaultMessageDispatcher();
@@ -29,59 +29,63 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
   private static final WebTransportHandler NOOP_HANDLER = new WebTransportHandler() {};
 
   @Override
-  protected void channelRead0(@NonNull ChannelHandlerContext ctx, @NonNull WebTransportFrame msg) {
+  public void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Object msg)
+      throws Exception {
     Channel channel = ctx.channel();
-    if (logger.isDebugEnabled()) {
-      logger.debug("📦 [RAW PAYLOAD] {}", WebTransportUtils.formatHexBytes(msg.content()));
-    }
-    final long finalSessionId = msg.sessionId();
-    ExecutorService executor;
-    if (channel instanceof QuicStreamChannel) {
-      executor =
-          ((QuicStreamChannel) channel)
-              .parent()
-              .attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR)
-              .get();
-    } else {
-      executor = channel.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).get();
-    }
-
-    if (executor == null) {
-      try {
-        tryDispatchToHandler(channel, finalSessionId, msg);
-      } catch (Throwable t) {
-        logger.error("Uncaught exception/error during business logic execution", t);
-        notifyHandlerError(channel, finalSessionId, t);
-      }
-    } else {
-      if (channel instanceof QuicStreamChannel) {
-        QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
-        StreamMailbox mailbox =
-            streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).get();
-        if (mailbox == null) {
-          mailbox =
-              new StreamMailbox(
-                  streamChannel, executor, this::tryDispatchToHandler, finalSessionId);
-          StreamMailbox oldMailbox =
-              streamChannel.attr(WebTransportAttributeKeys.STREAM_MAILBOX_KEY).setIfAbsent(mailbox);
-          if (oldMailbox != null) {
-            mailbox = oldMailbox;
+    try {
+      if (msg instanceof ByteBuf) {
+        ByteBuf content = (ByteBuf) msg;
+        if (channel instanceof QuicStreamChannel) {
+          QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
+          Long sessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+          if (sessionId == null) {
+            content.release();
+            WebTransportUtils.rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
+            return;
           }
-        }
-        mailbox.enqueue(msg);
-      } else {
-        DatagramMailbox mailbox =
-            channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).get();
-        if (mailbox == null) {
-          mailbox = new DatagramMailbox(channel, executor, this::tryDispatchToHandler);
-          DatagramMailbox oldMailbox =
-              channel.attr(WebTransportAttributeKeys.DATAGRAM_MAILBOX_KEY).setIfAbsent(mailbox);
-          if (oldMailbox != null) {
-            mailbox = oldMailbox;
+          if (logger.isDebugEnabled()) {
+            logger.debug("📦 [STREAM PAYLOAD] {}", WebTransportUtils.formatHexBytes(content));
           }
+          tryDispatchStreamToHandler(streamChannel, sessionId, content);
+        } else {
+          long quarterSessionId = WebTransportUtils.readVariableLengthInt(content);
+          if (quarterSessionId == -1) {
+            content.release();
+            return;
+          }
+          long sessionId = quarterSessionId << 2;
+          if (logger.isDebugEnabled()) {
+            logger.debug("📦 [DATAGRAM PAYLOAD] {}", WebTransportUtils.formatHexBytes(content));
+          }
+          tryDispatchDatagramToHandler(channel, sessionId, content);
         }
-        mailbox.enqueue(msg);
+        return;
       }
+      if (msg instanceof WebTransportStreamFrame) {
+        WebTransportStreamFrame frame = (WebTransportStreamFrame) msg;
+        try {
+          if (channel instanceof QuicStreamChannel) {
+            tryDispatchStreamToHandler(
+                (QuicStreamChannel) channel, frame.sessionId(), frame.content().retain());
+          }
+        } finally {
+          frame.release();
+        }
+        return;
+      }
+      if (msg instanceof WebTransportDatagramFrame) {
+        WebTransportDatagramFrame frame = (WebTransportDatagramFrame) msg;
+        try {
+          tryDispatchDatagramToHandler(channel, frame.sessionId(), frame.content().retain());
+        } finally {
+          frame.release();
+        }
+        return;
+      }
+      ctx.fireChannelRead(msg);
+    } catch (Throwable t) {
+      logger.error("Uncaught exception/error during message dispatch", t);
+      notifyHandlerError(channel, t);
     }
   }
 
@@ -163,16 +167,99 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
     }
   }
 
-  private void notifyHandlerError(
-      @NonNull QuicStreamChannel streamChannel, @NonNull Throwable cause) {
-    Long sessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
-    if (sessionId != null) {
-      notifyHandlerError(streamChannel, sessionId, cause);
+  private void notifyHandlerError(@NonNull Channel channel, @NonNull Throwable cause) {
+    if (channel instanceof QuicStreamChannel) {
+      Long sessionId = channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+      if (sessionId != null) {
+        notifyHandlerError(channel, sessionId, cause);
+      }
     }
   }
 
-  private void tryDispatchToHandler(
-      @NonNull Channel channel, long sessionId, @NonNull WebTransportFrame frame) {
+  protected void tryDispatchStreamToHandler(
+      @NonNull QuicStreamChannel streamChannel, long sessionId, @NonNull ByteBuf content) {
+    WebTransportSessionManager mgr =
+        streamChannel.parent().attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+    if (mgr == null) {
+      content.release();
+      return;
+    }
+    WebTransportSession session = mgr.get(sessionId);
+    if (session == null || !session.isOpen()) {
+      content.release();
+      return;
+    }
+    Attribute<WebTransportServer> attr =
+        streamChannel.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+    WebTransportServer server = (attr != null) ? attr.get() : null;
+    WebTransportHandler handler =
+        (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
+    if (handler == null) {
+      content.release();
+      return;
+    }
+    try {
+      WebTransportStream stream =
+          streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
+      if (stream == null) {
+        stream = new DefaultNettyWebTransportStream(streamChannel, sessionId);
+        streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
+        final WebTransportStream finalStream = stream;
+        streamChannel
+            .closeFuture()
+            .addListener(
+                f -> {
+                  if (finalStream.getCloseHandler() != null) {
+                    try {
+                      finalStream.getCloseHandler().onClose();
+                    } catch (Exception e) {
+                      logger.error("Error in stream onClose handler", e);
+                    }
+                  }
+                });
+      }
+      // Notify incoming stream if client-initiated and not yet notified
+      Boolean serverInitiated =
+          streamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).get();
+      if (!Boolean.TRUE.equals(serverInitiated)) {
+        if (!Boolean.TRUE.equals(
+            streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).get())) {
+          streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).set(true);
+          try {
+            handler.onIncomingStream(session, stream);
+          } catch (Exception e) {
+            logger.error("Error in onIncomingStream callback", e);
+          }
+        }
+      }
+
+      // Dispatch data
+      Consumer<ByteBuf> rawConsumer = null;
+      if (stream instanceof NettyWebTransportStream) {
+        rawConsumer = ((NettyWebTransportStream) stream).getRawByteBufConsumer();
+      }
+      if (rawConsumer != null) {
+        dispatchRawStreamData(rawConsumer, content);
+      } else if (stream.getDataConsumer() != null) {
+        dispatchStreamData(stream, content, streamChannel);
+      } else {
+        content.release();
+      }
+    } catch (Throwable t) {
+      logger.error("Exception in tryDispatchStreamToHandler", t);
+      if (content.refCnt() > 0) {
+        content.release();
+      }
+      try {
+        handler.onError(session, t);
+      } catch (Exception ex) {
+        logger.error("Error in handler onError callback", ex);
+      }
+    }
+  }
+
+  protected void tryDispatchDatagramToHandler(
+      @NonNull Channel channel, long sessionId, @NonNull ByteBuf content) {
     WebTransportSessionManager mgr;
     if (channel instanceof QuicStreamChannel) {
       mgr =
@@ -184,118 +271,128 @@ public class DefaultMessageDispatcher extends SimpleChannelInboundHandler<WebTra
       mgr = channel.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
     }
     if (mgr == null) {
+      content.release();
       return;
     }
     WebTransportSession session = mgr.get(sessionId);
-    if (session == null) {
-      // Fire metrics: discard — session not found at dispatch time
+    if (session == null || !session.isOpen()) {
+      content.release();
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
       if (metrics != null) {
         metrics.onDatagramDiscarded(sessionId, "session_not_found_at_dispatch");
       }
       return;
     }
-    WebTransportServer server;
     Attribute<WebTransportServer> attr;
     if (channel instanceof QuicStreamChannel) {
       attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
     } else {
       attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
     }
-    server = attr != null ? attr.get() : null;
+    WebTransportServer server = (attr != null) ? attr.get() : null;
     WebTransportHandler handler =
         (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
+    if (handler == null) {
+      content.release();
+      return;
+    }
     try {
-      if (frame instanceof WebTransportStreamFrame) {
-        if (!(channel instanceof QuicStreamChannel)) {
-          throw new RuntimeException("Implemented only for QuicStreamChannel");
-        }
-        QuicStreamChannel streamChannel = (QuicStreamChannel) channel;
-        WebTransportStream stream =
-            streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-        if (stream == null) {
-          stream = new DefaultNettyWebTransportStream(streamChannel, sessionId);
-          streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-          final WebTransportStream finalStream = stream;
-          streamChannel
-              .closeFuture()
-              .addListener(
-                  f -> {
-                    if (finalStream.getCloseHandler() != null) {
-                      try {
-                        finalStream.getCloseHandler().onClose();
-                      } catch (Exception e) {
-                        logger.error("Error in stream onClose handler", e);
-                      }
-                    }
-                  });
-        }
-        // Notify incoming stream if client-initiated and not yet notified
-        Boolean serverInitiated =
-            streamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).get();
-        if (!Boolean.TRUE.equals(serverInitiated)) {
-          if (!Boolean.TRUE.equals(
-              streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).get())) {
-            streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).set(true);
-            try {
-              handler.onIncomingStream(session, stream);
-            } catch (Exception e) {
-              logger.error("Error in onIncomingStream callback", e);
-            }
-          }
-        }
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+      if (metrics != null) {
+        metrics.onDatagramReceived(sessionId, content.readableBytes());
+      }
+      Consumer<ByteBuf> rawDatagramConsumer = null;
+      if (session instanceof NettyWebTransportSession) {
+        rawDatagramConsumer = ((NettyWebTransportSession) session).getRawDatagramConsumer();
+      }
+      if (rawDatagramConsumer != null) {
+        dispatchRawDatagramData(rawDatagramConsumer, content);
+      } else {
+        dispatchDatagramData(handler, session, content, channel);
+      }
+    } catch (Throwable t) {
+      logger.error("Exception in tryDispatchDatagramToHandler", t);
+      if (content.refCnt() > 0) {
+        content.release();
+      }
+      try {
+        handler.onError(session, t);
+      } catch (Exception ex) {
+        logger.error("Error in handler onError callback", ex);
+      }
+    }
+  }
 
-        // Dispatch data
-        if (stream.getDataConsumer() != null) {
-          ByteBuf slice = frame.content().retainedSlice();
-          try {
-            DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(slice);
-            slice = null; // ownership transferred to buffer
-            try {
-              stream.getDataConsumer().accept(buffer);
-            } finally {
-              buffer.release();
-            }
-          } catch (Exception e) {
-            logger.error("Error in stream onData callback", e);
-          } finally {
-            if (slice != null) {
-              slice.release();
-            }
-          }
-        }
-      } else if (frame instanceof WebTransportDatagramFrame) {
-        // Fire metrics: datagram received
-        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
-        if (metrics != null) {
-          metrics.onDatagramReceived(sessionId, frame.content().readableBytes());
-        }
-        ByteBuf slice = frame.content().retainedSlice();
-        try {
-          DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(slice);
-          slice = null; // ownership transferred to buffer
-          try {
-            handler.onDatagramReceived(session, buffer);
-          } finally {
-            buffer.release();
-          }
-        } catch (Exception e) {
-          logger.error("Error in onDatagramReceived callback", e);
-        } finally {
-          if (slice != null) {
-            slice.release();
-          }
-        }
+  protected void tryDispatchToHandler(
+      @NonNull Channel channel, long sessionId, @NonNull WebTransportFrame frame) {
+    if (frame instanceof WebTransportStreamFrame) {
+      if (channel instanceof QuicStreamChannel) {
+        tryDispatchStreamToHandler(
+            (QuicStreamChannel) channel, sessionId, frame.content().retain());
       }
+    } else if (frame instanceof WebTransportDatagramFrame) {
+      tryDispatchDatagramToHandler(channel, sessionId, frame.content().retain());
+    }
+  }
+
+  /**
+   * Dispatches incoming stream data to the stream consumer.
+   */
+  protected void dispatchStreamData(
+      @NonNull WebTransportStream stream, @NonNull ByteBuf content, @NonNull Channel channel) {
+    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    try {
+      stream.getDataConsumer().accept(buffer);
     } catch (Exception e) {
-      logger.error("Exception in tryDispatchToHandler", e);
-      if (handler != null && session != null) {
-        try {
-          handler.onError(session, e);
-        } catch (Exception ex) {
-          logger.error("Error in handler onError callback", ex);
-        }
-      }
+      logger.error("Error in stream onData callback", e);
+    } finally {
+      buffer.release();
+    }
+  }
+
+  /**
+   * Dispatches incoming raw ByteBuf stream data to the stream consumer.
+   */
+  protected void dispatchRawStreamData(
+      @NonNull Consumer<ByteBuf> rawConsumer, @NonNull ByteBuf content) {
+    try {
+      rawConsumer.accept(content);
+    } catch (Exception e) {
+      logger.error("Error in stream onRawByteBuf callback", e);
+    } finally {
+      content.release();
+    }
+  }
+
+  /**
+   * Dispatches incoming raw ByteBuf datagram data to the raw datagram consumer.
+   */
+  protected void dispatchRawDatagramData(
+      @NonNull Consumer<ByteBuf> rawDatagramConsumer, @NonNull ByteBuf content) {
+    try {
+      rawDatagramConsumer.accept(content);
+    } catch (Exception e) {
+      logger.error("Error in onRawDatagram callback", e);
+    } finally {
+      content.release();
+    }
+  }
+
+  /**
+   * Dispatches incoming datagram data to the handler.
+   */
+  protected void dispatchDatagramData(
+      @NonNull WebTransportHandler handler,
+      @NonNull WebTransportSession session,
+      @NonNull ByteBuf content,
+      @NonNull Channel channel) {
+    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    try {
+      handler.onDatagramReceived(session, buffer);
+    } catch (Exception e) {
+      logger.error("Error in onDatagramReceived callback", e);
+    } finally {
+      buffer.release();
     }
   }
 }

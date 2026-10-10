@@ -1,11 +1,14 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import java.lang.invoke.MethodHandles;
 import java.nio.ByteBuffer;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -22,8 +25,17 @@ import org.jspecify.annotations.NonNull;
  */
 public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
 
+  private static final IntHandle<DefaultNettyWebTransportBuffer> REF_CNT_HANDLE =
+      Handles.newIntHandle(
+          DefaultNettyWebTransportBuffer.class,
+          "refCnt",
+          MethodHandles.lookup(),
+          () ->
+              AtomicIntegerFieldUpdater.newUpdater(
+                  DefaultNettyWebTransportBuffer.class, "refCnt"));
+
   private final @NonNull ByteBuf delegate;
-  private final AtomicInteger refCnt = new AtomicInteger(1);
+  private volatile int refCnt = 1;
 
   /**
    * Wraps a byte array into a {@link WebTransportBuffer}.
@@ -95,7 +107,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
    * @return the current wrapper reference count
    */
   public int refCnt() {
-    return refCnt.get();
+    return refCnt;
   }
 
   @Override
@@ -115,6 +127,60 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   public ByteBuffer skipBytes(int length) {
     ensureAccessible();
     return delegate.skipBytes(length).nioBuffer();
+  }
+
+  @Override
+  public byte getByte(int index) {
+    ensureAccessible();
+    return delegate.getByte(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public byte readByte() {
+    ensureAccessible();
+    return delegate.readByte();
+  }
+
+  @Override
+  public int getInt(int index) {
+    ensureAccessible();
+    return delegate.getInt(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public long getLong(int index) {
+    ensureAccessible();
+    return delegate.getLong(delegate.readerIndex() + index);
+  }
+
+  @Override
+  public boolean equalsBytes(byte @NonNull [] expected) {
+    ensureAccessible();
+    if (delegate.readableBytes() != expected.length) {
+      return false;
+    }
+    int readerIdx = delegate.readerIndex();
+    for (int i = 0; i < expected.length; i++) {
+      if (delegate.getByte(readerIdx + i) != expected[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  @Override
+  public boolean startsWith(byte @NonNull [] prefix) {
+    ensureAccessible();
+    if (delegate.readableBytes() < prefix.length) {
+      return false;
+    }
+    int readerIdx = delegate.readerIndex();
+    for (int i = 0; i < prefix.length; i++) {
+      if (delegate.getByte(readerIdx + i) != prefix[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
@@ -142,14 +208,14 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
       throw new IllegalArgumentException("increment must be positive: " + increment);
     }
     for (; ; ) {
-      int current = refCnt.get();
+      int current = refCnt;
       if (current == 0) {
         throw new IllegalStateException("buffer has already been released");
       }
       if (increment > Integer.MAX_VALUE - current) {
         throw new IllegalStateException("reference count overflow");
       }
-      if (refCnt.compareAndSet(current, current + increment)) {
+      if (REF_CNT_HANDLE.compareAndSet(this, current, current + increment)) {
         return this;
       }
     }
@@ -162,11 +228,11 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   @Override
   public void release() {
     for (; ; ) {
-      int current = refCnt.get();
+      int current = refCnt;
       if (current == 0) {
         return;
       }
-      if (refCnt.compareAndSet(current, current - 1)) {
+      if (REF_CNT_HANDLE.compareAndSet(this, current, current - 1)) {
         if (current == 1) {
           // Never silently swallow invalid delegate ownership or retry this final release.
           delegate.release();
@@ -182,7 +248,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   }
 
   private void ensureAccessible() {
-    if (refCnt.get() == 0) {
+    if (refCnt == 0) {
       throw new IllegalStateException("buffer has already been released");
     }
   }

@@ -69,27 +69,40 @@ public class DynamicConfigReloadIntegrationTest {
           buffer -> {
             byte[] bytes = buffer.readBytes();
             String content = new String(bytes, StandardCharsets.UTF_8);
+
+            Runnable replyTask =
+                () -> {
+                  if (isBidi) {
+                    if (!stream.hasAttribute("prefixed")) {
+                      stream.setAttribute("prefixed", true);
+                      stream.writeText("ACK BI: " + content);
+                    } else {
+                      stream.write(bytes);
+                    }
+                  } else {
+                    session
+                        .createUniStream()
+                        .thenAccept(
+                            ackStream -> {
+                              ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
+                            });
+                  }
+                };
+
             if (content.startsWith("SleepServer_")) {
-              try {
-                Thread.sleep(3000);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-              }
-            }
-            if (isBidi) {
-              if (!stream.hasAttribute("prefixed")) {
-                stream.setAttribute("prefixed", true);
-                stream.writeText("ACK BI: " + content);
-              } else {
-                stream.write(bytes);
-              }
+              new Thread(
+                      () -> {
+                        try {
+                          Thread.sleep(3000);
+                          replyTask.run();
+                        } catch (InterruptedException e) {
+                          Thread.currentThread().interrupt();
+                        }
+                      },
+                      "config-test-sleep-" + stream.streamId())
+                  .start();
             } else {
-              session
-                  .createUniStream()
-                  .thenAccept(
-                      ackStream -> {
-                        ackStream.writeText("ACK UNI: " + content).thenRun(ackStream::close);
-                      });
+              replyTask.run();
             }
           });
     }
@@ -133,7 +146,6 @@ public class DynamicConfigReloadIntegrationTest {
 
   @Test
   public void testUnmockedDynamicConfigReloadIntegration() throws Exception {
-    WebTransportConfig.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
     SelfSignedCertificate cert = new SelfSignedCertificate("localhost");
     File keyFile = tempFolder.newFile("key.pem");
     File certFile = tempFolder.newFile("cert.pem");

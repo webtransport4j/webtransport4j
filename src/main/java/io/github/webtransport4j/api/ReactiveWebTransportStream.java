@@ -1,11 +1,14 @@
 package io.github.webtransport4j.api;
 
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
+import io.github.webtransport4j.internal.handles.LongHandle;
+import java.lang.invoke.MethodHandles;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.reactivestreams.Publisher;
@@ -63,27 +66,61 @@ public class ReactiveWebTransportStream
 
   @Override
   public void subscribe(Subscriber<? super WebTransportBuffer> subscriber) {
-    SubscriptionImpl incomingSubscription = new SubscriptionImpl(subscriber);
+    SubscriptionImpl incomingSubscription = new SubscriptionImpl(stream, subscriber);
     subscriber.onSubscribe(incomingSubscription);
   }
 
-  private class SubscriptionImpl implements Subscription {
+  private static final class SubscriptionImpl implements Subscription {
 
+    private static final IntHandle<SubscriptionImpl> DRAIN_WIP_HANDLE =
+        Handles.newIntHandle(
+            SubscriptionImpl.class,
+            "drainWip",
+            MethodHandles.lookup(),
+            () -> AtomicIntegerFieldUpdater.newUpdater(SubscriptionImpl.class, "drainWip"));
+    private static final LongHandle<SubscriptionImpl> DEMAND_HANDLE =
+        Handles.newLongHandle(
+            SubscriptionImpl.class,
+            "demand",
+            MethodHandles.lookup(),
+            () -> AtomicLongFieldUpdater.newUpdater(SubscriptionImpl.class, "demand"));
+    private static final IntHandle<SubscriptionImpl> CANCELLED_HANDLE =
+        Handles.newIntHandle(
+            SubscriptionImpl.class,
+            "cancelled",
+            MethodHandles.lookup(),
+            () -> AtomicIntegerFieldUpdater.newUpdater(SubscriptionImpl.class, "cancelled"));
+    private static final IntHandle<SubscriptionImpl> TERMINATED_HANDLE =
+        Handles.newIntHandle(
+            SubscriptionImpl.class,
+            "terminated",
+            MethodHandles.lookup(),
+            () -> AtomicIntegerFieldUpdater.newUpdater(SubscriptionImpl.class, "terminated"));
+    private static final IntHandle<SubscriptionImpl> STREAM_CLOSED_HANDLE =
+        Handles.newIntHandle(
+            SubscriptionImpl.class,
+            "streamClosed",
+            MethodHandles.lookup(),
+            () -> AtomicIntegerFieldUpdater.newUpdater(SubscriptionImpl.class, "streamClosed"));
+
+    private final WebTransportStream stream;
     private final Subscriber<? super WebTransportBuffer> subscriber;
-    private final AtomicInteger drainWip = new AtomicInteger();
-    private final AtomicLong demand = new AtomicLong(0L);
-    private final AtomicBoolean cancelled = new AtomicBoolean(false);
-    private final AtomicBoolean terminated = new AtomicBoolean(false);
-    private final AtomicBoolean streamClosed = new AtomicBoolean(false);
+    private volatile int drainWip;
+    private volatile long demand;
+    private volatile int cancelled;
+    private volatile int terminated;
+    private volatile int streamClosed;
     private final Queue<WebTransportBuffer> pendingQueue = new ConcurrentLinkedQueue<>();
 
-    SubscriptionImpl(Subscriber<? super WebTransportBuffer> subscriber) {
+    SubscriptionImpl(
+        WebTransportStream stream, Subscriber<? super WebTransportBuffer> subscriber) {
+      this.stream = stream;
       this.subscriber = subscriber;
       stream.setAutoRead(false);
 
       stream.onData(
           buffer -> {
-            if (cancelled.get() || terminated.get()) {
+            if (cancelled != 0 || terminated != 0) {
               return;
             }
             // The dispatcher owns its original reference. Acquire one for reactive delivery.
@@ -95,8 +132,8 @@ public class ReactiveWebTransportStream
 
       stream.onClose(
           () -> {
-            streamClosed.set(true);
-            if (!cancelled.get()) {
+            streamClosed = 1;
+            if (cancelled == 0) {
               drainQueue();
             }
           });
@@ -105,17 +142,18 @@ public class ReactiveWebTransportStream
     }
 
     private void drainQueue() {
-      if (drainWip.getAndIncrement() != 0) {
+      if (DRAIN_WIP_HANDLE.getAndIncrement(this) != 0) {
         return;
       }
       int missed = 1;
       do {
-        while (!terminated.get() && !cancelled.get() && demand.get() > 0) {
+        while (terminated == 0 && cancelled == 0 && demand > 0) {
           WebTransportBuffer buffer = pendingQueue.poll();
           if (buffer == null) {
             break;
           }
-          demand.updateAndGet(current -> current == Long.MAX_VALUE ? current : current - 1);
+          DEMAND_HANDLE.updateAndGet(
+              this, current -> current == Long.MAX_VALUE ? current : current - 1);
           try {
             subscriber.onNext(buffer);
           } catch (Throwable failure) {
@@ -128,24 +166,24 @@ public class ReactiveWebTransportStream
             break;
           }
         }
-        if (terminated.get() || cancelled.get()) {
+        if (terminated != 0 || cancelled != 0) {
           releasePendingBuffers();
         }
-        if (streamClosed.get() && pendingQueue.isEmpty()) {
+        if (streamClosed != 0 && pendingQueue.isEmpty()) {
           signalComplete();
         }
-        missed = drainWip.addAndGet(-missed);
+        missed = DRAIN_WIP_HANDLE.addAndGet(this, -missed);
       } while (missed != 0);
     }
 
     private void signalComplete() {
-      if (!cancelled.get() && terminated.compareAndSet(false, true)) {
+      if (cancelled == 0 && TERMINATED_HANDLE.compareAndSet(this, 0, 1)) {
         subscriber.onComplete();
       }
     }
 
     private void signalError(Throwable failure) {
-      if (!cancelled.get() && terminated.compareAndSet(false, true)) {
+      if (cancelled == 0 && TERMINATED_HANDLE.compareAndSet(this, 0, 1)) {
         try {
           subscriber.onError(failure);
         } finally {
@@ -156,7 +194,7 @@ public class ReactiveWebTransportStream
 
     private void addDemand(long n) {
       for (; ; ) {
-        long current = demand.get();
+        long current = demand;
         if (current == Long.MAX_VALUE) {
           return;
         }
@@ -164,17 +202,17 @@ public class ReactiveWebTransportStream
         if (next < 0) {
           next = Long.MAX_VALUE;
         }
-        if (demand.compareAndSet(current, next)) {
+        if (DEMAND_HANDLE.compareAndSet(this, current, next)) {
           return;
         }
       }
     }
 
     private void checkAndTriggerRead() {
-      if (cancelled.get() || terminated.get() || streamClosed.get()) {
+      if (cancelled != 0 || terminated != 0 || streamClosed != 0) {
         return;
       }
-      long currentDemand = demand.get();
+      long currentDemand = demand;
       if (currentDemand > 0 && pendingQueue.isEmpty()) {
         if (currentDemand == Long.MAX_VALUE) {
           stream.setAutoRead(true);
@@ -189,7 +227,7 @@ public class ReactiveWebTransportStream
 
     @Override
     public void request(long n) {
-      if (cancelled.get() || terminated.get()) {
+      if (cancelled != 0 || terminated != 0) {
         return;
       }
       if (n <= 0) {
@@ -203,8 +241,8 @@ public class ReactiveWebTransportStream
 
     @Override
     public void cancel() {
-      terminated.set(true);
-      if (!cancelled.compareAndSet(false, true)) {
+      terminated = 1;
+      if (!CANCELLED_HANDLE.compareAndSet(this, 0, 1)) {
         return;
       }
       try {

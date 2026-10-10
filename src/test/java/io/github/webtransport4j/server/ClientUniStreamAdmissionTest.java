@@ -203,6 +203,7 @@ public class ClientUniStreamAdmissionTest {
     decoder.decode(ctx, in, out);
 
     verify(mockUniStream).shutdown(eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED), any());
+    verify(mockUniStream).close();
     assertEquals(0, out.size());
     in.release();
   }
@@ -250,6 +251,7 @@ public class ClientUniStreamAdmissionTest {
     decoder.decode(ctx, in, out);
 
     verify(mockUniStream).shutdown(eq(WebTransportUtils.WT_SESSION_GONE), any());
+    verify(mockUniStream).close();
     assertFalse(session.getActiveClientInitiatedUni().contains(mockUniStream));
     assertEquals(0, out.size());
     in.release();

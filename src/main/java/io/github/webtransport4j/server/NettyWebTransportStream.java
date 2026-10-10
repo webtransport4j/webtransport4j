@@ -27,4 +27,30 @@ public interface NettyWebTransportStream extends WebTransportStream {
    * @return a future that completes when the write operation is done
    */
   @NonNull CompletableFuture<Void> write(@NonNull ByteBuf buf);
+
+  /**
+   * Power-user escape hatch: registers a direct callback for raw Netty {@link ByteBuf} instances.
+   *
+   * <p>When registered, incoming stream payloads are passed directly to this consumer without
+   * allocating a {@link WebTransportBuffer} wrapper. The callback executes synchronously on the
+   * Netty EventLoop. The buffer is automatically released after the consumer returns; if retained
+   * asynchronously, caller must explicitly call {@code buf.retain()} and later {@code buf.release()}.
+   *
+   * @param consumer the raw ByteBuf consumer
+   */
+  void onRawByteBuf(@NonNull Consumer<ByteBuf> consumer);
+
+  /**
+   * Returns the registered raw ByteBuf consumer, if any.
+   *
+   * @return the raw ByteBuf consumer, or null
+   */
+  @Nullable Consumer<ByteBuf> getRawByteBufConsumer();
+
+  /**
+   * Writes and flushes a Netty {@link ByteBuf} directly using a void promise for zero-allocation.
+   *
+   * @param buf the buffer to write
+   */
+  void writeDirect(@NonNull ByteBuf buf);
 }

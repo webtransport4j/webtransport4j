@@ -3,11 +3,12 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
@@ -343,12 +344,12 @@ public interface NettyWebTransportSession extends WebTransportSession {
   long incrementCumulativeBytesReceived(long value);
 
   /**
-   * Returns the AtomicLong tracking the last peer limit for which a WT_DATA_BLOCKED capsule was
-   * sent.
+   * Atomically records the data blocked peer limit if it is greater than the last recorded limit.
    *
-   * @return AtomicLong tracking data blocked limit
+   * @param peerLimit the peer limit that triggered data blocking
+   * @return {@code true} if this limit was recorded and should trigger a capsule, {@code false} otherwise
    */
-  @NonNull AtomicLong getLastSentDataBlockedLimit();
+  boolean tryRecordDataBlockedLimit(long peerLimit);
 
   /**
    * Resets a WebTransport data stream with an application error code mapped per Section 4.4.
@@ -421,4 +422,25 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   @NonNull CompletableFuture<WebTransportStream> createBiStream(
       @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority);
+
+  /**
+   * Power-user escape hatch: registers a direct consumer for incoming raw Netty {@link ByteBuf} datagrams.
+   *
+   * @param consumer consumer receiving raw ByteBuf datagrams
+   */
+  void onRawDatagram(@NonNull Consumer<ByteBuf> consumer);
+
+  /**
+   * Returns the registered raw ByteBuf datagram consumer, if any.
+   *
+   * @return the raw ByteBuf datagram consumer, or null
+   */
+  @Nullable Consumer<ByteBuf> getRawDatagramConsumer();
+
+  /**
+   * Power-user escape hatch: sends a raw Netty {@link ByteBuf} datagram directly with zero allocation.
+   *
+   * @param data the raw ByteBuf datagram payload
+   */
+  void sendDatagramDirect(@NonNull ByteBuf data);
 }

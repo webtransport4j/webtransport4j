@@ -71,38 +71,49 @@ public class WebTransportClientTestSuiteTest {
             byte[] bytes = data.readBytes();
             String content = new String(bytes, StandardCharsets.UTF_8);
 
+            Runnable replyTask =
+                () -> {
+                  if (isBidi) {
+                    if (!stream.hasAttribute("prefixed")) {
+                      stream.setAttribute("prefixed", true);
+                      byte[] prefix = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
+                      byte[] resp = new byte[prefix.length + bytes.length];
+                      System.arraycopy(prefix, 0, resp, 0, prefix.length);
+                      System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
+                      stream.write(resp);
+                    } else {
+                      stream.write(bytes);
+                    }
+                  } else {
+                    session
+                        .createUniStream()
+                        .thenAccept(
+                            ackStream -> {
+                              byte[] prefix = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                              byte[] resp = new byte[prefix.length + bytes.length];
+                              System.arraycopy(prefix, 0, resp, 0, prefix.length);
+                              System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
+                              ackStream.write(resp).thenRun(ackStream::close);
+                            });
+                  }
+                };
+
             if (content.startsWith("SleepServer_")) {
               logger.info("😴 Server sleeping on stream {}...", stream.streamId());
-              try {
-                Thread.sleep(3000);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-              }
-              logger.info("⏰ Server awake on stream {}!", stream.streamId());
-            }
-
-            if (isBidi) {
-              if (!stream.hasAttribute("prefixed")) {
-                stream.setAttribute("prefixed", true);
-                byte[] prefix = "ACK BI: ".getBytes(StandardCharsets.UTF_8);
-                byte[] resp = new byte[prefix.length + bytes.length];
-                System.arraycopy(prefix, 0, resp, 0, prefix.length);
-                System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
-                stream.write(resp);
-              } else {
-                stream.write(bytes);
-              }
+              new Thread(
+                      () -> {
+                        try {
+                          Thread.sleep(3000);
+                          logger.info("⏰ Server awake on stream {}!", stream.streamId());
+                          replyTask.run();
+                        } catch (InterruptedException e) {
+                          Thread.currentThread().interrupt();
+                        }
+                      },
+                      "test-sleep-worker-" + stream.streamId())
+                  .start();
             } else {
-              session
-                  .createUniStream()
-                  .thenAccept(
-                      ackStream -> {
-                        byte[] prefix = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
-                        byte[] resp = new byte[prefix.length + bytes.length];
-                        System.arraycopy(prefix, 0, resp, 0, prefix.length);
-                        System.arraycopy(bytes, 0, resp, prefix.length, bytes.length);
-                        ackStream.write(resp).thenRun(ackStream::close);
-                      });
+              replyTask.run();
             }
           });
     }
@@ -132,7 +143,6 @@ public class WebTransportClientTestSuiteTest {
   public void setUp() throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
     System.setProperty("webtransport4j.server.port", "0");
-    System.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
     System.setProperty("webtransport4j.quic.max.streams.bidi", "50");
     System.setProperty("webtransport4j.webtransport.initial.max.streams.bidi", "50");
     System.setProperty("webtransport4j.test.require_flow_control_exhaustion", "true");

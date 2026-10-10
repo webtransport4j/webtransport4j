@@ -68,12 +68,19 @@ public final class WebTransportMdcContext {
 
   /** Scoped resource that restores previous MDC values when closed. */
   public static final class Scope implements AutoCloseable {
+
+    private static final io.github.webtransport4j.internal.handles.IntHandle<Scope> CLOSED_HANDLE =
+        io.github.webtransport4j.internal.handles.Handles.newIntHandle(
+            Scope.class,
+            "closed",
+            java.lang.invoke.MethodHandles.lookup(),
+            () -> java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater(Scope.class, "closed"));
+
     private final String prevSessionId;
     private final String prevPath;
     private final String prevRemoteAddress;
     private final String prevConnectionId;
-    private final java.util.concurrent.atomic.AtomicBoolean closed =
-        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private volatile int closed;
 
     /**
      * Constructs a new scope capturing previous MDC values.
@@ -97,7 +104,7 @@ public final class WebTransportMdcContext {
     /** Closes the scope and restores previous MDC values idempotently. */
     @Override
     public void close() {
-      if (closed.compareAndSet(false, true)) {
+      if (CLOSED_HANDLE.compareAndSet(this, 0, 1)) {
         restoreOrRemove(KEY_SESSION_ID, prevSessionId);
         restoreOrRemove(KEY_PATH, prevPath);
         restoreOrRemove(KEY_REMOTE_ADDRESS, prevRemoteAddress);

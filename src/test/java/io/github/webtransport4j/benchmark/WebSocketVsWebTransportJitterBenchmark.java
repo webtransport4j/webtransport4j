@@ -109,7 +109,6 @@ public class WebSocketVsWebTransportJitterBenchmark {
   public static void startServers() throws Exception {
     System.setProperty("webtransport4j.server.port", "0");
     System.setProperty("webtransport4j.dev_mode", "true");
-    System.setProperty("webtransport4j.dispatch.execution.mode", "NETTY_EVENT_LOOP");
     System.setProperty("webtransport4j.quic.active.migration.enabled", "true");
 
     // 1. Start Netty Secure WebSocket Server (as in lila-ws with WSS on IPv6)

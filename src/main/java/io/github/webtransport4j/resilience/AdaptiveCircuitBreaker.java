@@ -1,8 +1,13 @@
 package io.github.webtransport4j.resilience;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
+import io.github.webtransport4j.internal.handles.LongHandle;
+import io.github.webtransport4j.internal.handles.RefHandle;
+import java.lang.invoke.MethodHandles;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -22,11 +27,35 @@ public class AdaptiveCircuitBreaker {
     HALF_OPEN
   }
 
+  private static final RefHandle<AdaptiveCircuitBreaker, State> STATE_HANDLE =
+      Handles.newRefHandle(
+          AdaptiveCircuitBreaker.class,
+          State.class,
+          "state",
+          MethodHandles.lookup(),
+          () -> AtomicReferenceFieldUpdater.newUpdater(AdaptiveCircuitBreaker.class, State.class, "state"));
+
+  private static final IntHandle<AdaptiveCircuitBreaker> FAILURE_COUNT_HANDLE =
+      Handles.newIntHandle(
+          AdaptiveCircuitBreaker.class,
+          "failureCount",
+          MethodHandles.lookup(),
+          () -> AtomicIntegerFieldUpdater.newUpdater(AdaptiveCircuitBreaker.class, "failureCount"));
+
+  private static final LongHandle<AdaptiveCircuitBreaker> LAST_STATE_CHANGE_HANDLE =
+      Handles.newLongHandle(
+          AdaptiveCircuitBreaker.class,
+          "lastStateChangeTimestamp",
+          MethodHandles.lookup(),
+          () ->
+              AtomicLongFieldUpdater.newUpdater(
+                  AdaptiveCircuitBreaker.class, "lastStateChangeTimestamp"));
+
   private final int failureThreshold;
   private final long resetTimeoutMillis;
-  private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
-  private final AtomicInteger failureCount = new AtomicInteger(0);
-  private final AtomicLong lastStateChangeTimestamp = new AtomicLong(System.currentTimeMillis());
+  private volatile State state = State.CLOSED;
+  private volatile int failureCount = 0;
+  private volatile long lastStateChangeTimestamp = System.currentTimeMillis();
 
   /**
    * Constructs a circuit breaker with specified failure threshold and cool-off timeout.
@@ -54,15 +83,15 @@ public class AdaptiveCircuitBreaker {
    * @return true if execution is permitted
    */
   public boolean allowExecution() {
-    final State current = state.get();
+    final State current = this.state;
     if (current == State.CLOSED) {
       return true;
     }
     if (current == State.OPEN) {
       final long now = System.currentTimeMillis();
-      if (now - lastStateChangeTimestamp.get() >= resetTimeoutMillis) {
-        if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
-          lastStateChangeTimestamp.set(now);
+      if (now - this.lastStateChangeTimestamp >= resetTimeoutMillis) {
+        if (STATE_HANDLE.compareAndSet(this, State.OPEN, State.HALF_OPEN)) {
+          this.lastStateChangeTimestamp = now;
           return true;
         }
       }
@@ -75,10 +104,10 @@ public class AdaptiveCircuitBreaker {
    * Records a successful operation, resetting failures and closing half-open circuits.
    */
   public void recordSuccess() {
-    failureCount.set(0);
-    if (state.get() == State.HALF_OPEN) {
-      state.set(State.CLOSED);
-      lastStateChangeTimestamp.set(System.currentTimeMillis());
+    this.failureCount = 0;
+    if (this.state == State.HALF_OPEN) {
+      this.state = State.CLOSED;
+      this.lastStateChangeTimestamp = System.currentTimeMillis();
     }
   }
 
@@ -86,8 +115,8 @@ public class AdaptiveCircuitBreaker {
    * Records an operation failure or overload condition, potentially tripping the circuit open.
    */
   public void recordFailure() {
-    final int failures = failureCount.incrementAndGet();
-    if (failures >= failureThreshold || state.get() == State.HALF_OPEN) {
+    final int failures = FAILURE_COUNT_HANDLE.incrementAndGet(this);
+    if (failures >= failureThreshold || this.state == State.HALF_OPEN) {
       trip();
     }
   }
@@ -96,17 +125,17 @@ public class AdaptiveCircuitBreaker {
    * Explicitly forces the circuit breaker into the OPEN state.
    */
   public void trip() {
-    state.set(State.OPEN);
-    lastStateChangeTimestamp.set(System.currentTimeMillis());
+    this.state = State.OPEN;
+    this.lastStateChangeTimestamp = System.currentTimeMillis();
   }
 
   /**
    * Explicitly resets the circuit breaker to the CLOSED state.
    */
   public void reset() {
-    failureCount.set(0);
-    state.set(State.CLOSED);
-    lastStateChangeTimestamp.set(System.currentTimeMillis());
+    this.failureCount = 0;
+    this.state = State.CLOSED;
+    this.lastStateChangeTimestamp = System.currentTimeMillis();
   }
 
   /**
@@ -115,7 +144,7 @@ public class AdaptiveCircuitBreaker {
    * @return current state
    */
   public @NonNull State getState() {
-    return state.get();
+    return this.state;
   }
 
   /**

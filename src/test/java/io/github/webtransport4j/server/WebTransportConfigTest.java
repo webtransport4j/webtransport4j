@@ -9,9 +9,6 @@ import static org.junit.Assert.assertTrue;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.Arrays;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -24,9 +21,6 @@ public class WebTransportConfigTest {
   public void cleanup() {
     System.clearProperty("test.math.key");
     System.clearProperty("test.string.key");
-    System.clearProperty("webtransport4j.dispatch.execution.mode");
-    System.clearProperty("webtransport4j.business.queue.type");
-    System.clearProperty("webtransport4j.business.queue.capacity");
     System.clearProperty("webtransport4j.quic.token.handler.hmac.key");
     System.clearProperty("webtransport4j.quic.token.handler.hmac.expiration.ms");
     System.clearProperty("webtransport4j.ssl.session.timeout.seconds");
@@ -76,36 +70,6 @@ public class WebTransportConfigTest {
   @Test
   public void testGetLongDefaultValue() {
     assertEquals(555L, WebTransportConfig.getLong("nonexistent.key.for.test", 555L));
-  }
-
-  @Test
-  public void testBusinessExecutorFactoryFixedThreadPoolWithArrayQueue() {
-    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
-    System.setProperty("webtransport4j.business.queue.type", "ARRAY");
-    System.setProperty("webtransport4j.business.queue.capacity", "500");
-
-    ExecutorService executor = BusinessExecutorFactory.create();
-    assertNotNull(executor);
-    assertTrue(executor instanceof ThreadPoolExecutor);
-    ThreadPoolExecutor tp = (ThreadPoolExecutor) executor;
-    assertTrue(tp.getQueue() instanceof ArrayBlockingQueue);
-    assertEquals(500, tp.getQueue().remainingCapacity());
-    executor.shutdown();
-  }
-
-  @Test
-  public void testBusinessExecutorFactoryUnboundedFallback() {
-    System.setProperty("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL");
-    System.setProperty("webtransport4j.business.queue.type", "ARRAY");
-    System.setProperty("webtransport4j.business.queue.capacity", "0");
-
-    ExecutorService executor = BusinessExecutorFactory.create();
-    assertNotNull(executor);
-    assertTrue(executor instanceof ThreadPoolExecutor);
-    ThreadPoolExecutor tp = (ThreadPoolExecutor) executor;
-    assertTrue(tp.getQueue() instanceof ArrayBlockingQueue);
-    assertEquals(10000, tp.getQueue().remainingCapacity());
-    executor.shutdown();
   }
 
   @Test
@@ -261,13 +225,13 @@ public class WebTransportConfigTest {
 
   @Test
   public void testSetPropertyAndRemoveProperty() {
-    WebTransportConfig.setProperty("webtransport4j.dispatch.execution.mode", "VIRTUAL_THREADS");
+    WebTransportConfig.setProperty("test.sample.custom.key", "CUSTOM_VALUE");
     assertEquals(
-        "VIRTUAL_THREADS", WebTransportConfig.get("webtransport4j.dispatch.execution.mode", null));
+        "CUSTOM_VALUE", WebTransportConfig.get("test.sample.custom.key", null));
 
-    WebTransportConfig.removeProperty("webtransport4j.dispatch.execution.mode");
+    WebTransportConfig.removeProperty("test.sample.custom.key");
     assertEquals(
-        "NETTY_EVENT_LOOP",
-        WebTransportConfig.get("webtransport4j.dispatch.execution.mode", "FIXED_THREAD_POOL"));
+        "FALLBACK_VALUE",
+        WebTransportConfig.get("test.sample.custom.key", "FALLBACK_VALUE"));
   }
 }

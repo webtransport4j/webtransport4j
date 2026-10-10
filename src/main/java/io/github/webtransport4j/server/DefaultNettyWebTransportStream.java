@@ -5,6 +5,8 @@ import io.github.webtransport4j.api.OnCloseListener;
 import io.github.webtransport4j.api.StreamCodec;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
@@ -14,6 +16,7 @@ import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
+import java.lang.invoke.MethodHandles;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.channels.ClosedChannelException;
@@ -46,17 +49,24 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private volatile @Nullable Consumer<WebTransportBuffer> dataConsumer;
 
+  private volatile @Nullable Consumer<ByteBuf> rawByteBufConsumer;
+
   private volatile @Nullable OnCloseListener closeHandler;
 
   private volatile @Nullable Consumer<Throwable> errorHandler;
 
-  volatile @Nullable Map<String, Object> attributes;
+  private volatile @Nullable Map<String, Object> attributes;
 
   @SuppressWarnings("rawtypes")
-  private static final AtomicReferenceFieldUpdater<DefaultNettyWebTransportStream, Map>
-      ATTRIBUTES_UPDATER =
-          AtomicReferenceFieldUpdater.newUpdater(
-              DefaultNettyWebTransportStream.class, Map.class, "attributes");
+  private static final RefHandle<DefaultNettyWebTransportStream, Map> ATTRIBUTES_HANDLE =
+      Handles.newRefHandle(
+          DefaultNettyWebTransportStream.class,
+          Map.class,
+          "attributes",
+          MethodHandles.lookup(),
+          () ->
+              AtomicReferenceFieldUpdater.newUpdater(
+                  DefaultNettyWebTransportStream.class, Map.class, "attributes"));
 
   private static final CompletableFuture<Void> COMPLETED_FUTURE =
       CompletableFuture.completedFuture(null);
@@ -156,8 +166,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param consumer the data consumer callback
    */
   public void onData(@NonNull Consumer<WebTransportBuffer> consumer) {
-    if (this.dataConsumer != null) {
-      throw new IllegalStateException("onData handler already registered");
+    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+      throw new IllegalStateException("Data consumer already registered");
     }
     this.dataConsumer = consumer;
   }
@@ -176,6 +186,19 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         data -> {
           codec.decode(data, autoReleasingConsumer);
         });
+  }
+
+  @Override
+  public void onRawByteBuf(@NonNull Consumer<ByteBuf> consumer) {
+    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+      throw new IllegalStateException("Data consumer already registered");
+    }
+    this.rawByteBufConsumer = Objects.requireNonNull(consumer, "consumer must not be null");
+  }
+
+  @Override
+  public @Nullable Consumer<ByteBuf> getRawByteBufConsumer() {
+    return rawByteBufConsumer;
   }
 
   public void onClose(@NonNull OnCloseListener onCloseListener) {
@@ -308,6 +331,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         throw e;
       }
     }
+    if (data instanceof FlyweightWebTransportBuffer) {
+      ByteBuf del = ((FlyweightWebTransportBuffer) data).delegate();
+      if (del != null) {
+        int len = del.readableBytes();
+        ByteBuf packet = streamChannel.alloc().directBuffer(len);
+        packet.writeBytes(del, del.readerIndex(), len);
+        return writeOutbound(packet);
+      }
+    }
     return writeOutbound(Unpooled.wrappedBuffer(data.nioBuffer()));
   }
 
@@ -402,6 +434,36 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     return writeOutbound(buf);
   }
 
+  @Override
+  public void writeDirect(@NonNull WebTransportBuffer data) {
+    if (!streamChannel.isActive()) {
+      return;
+    }
+    if (data instanceof FlyweightWebTransportBuffer) {
+      ByteBuf del = ((FlyweightWebTransportBuffer) data).delegate();
+      if (del != null) {
+        streamChannel.writeAndFlush(del.retain(), streamChannel.voidPromise());
+        return;
+      }
+    }
+    if (data instanceof DefaultNettyWebTransportBuffer) {
+      streamChannel.writeAndFlush(
+          ((DefaultNettyWebTransportBuffer) data).delegate().retain(), streamChannel.voidPromise());
+      return;
+    }
+    ByteBuf packet = Unpooled.wrappedBuffer(data.nioBuffer());
+    streamChannel.writeAndFlush(packet, streamChannel.voidPromise());
+  }
+
+  @Override
+  public void writeDirect(@NonNull ByteBuf buf) {
+    if (!streamChannel.isActive()) {
+      ReferenceCountUtil.release(buf);
+      return;
+    }
+    streamChannel.writeAndFlush(buf, streamChannel.voidPromise());
+  }
+
   public void close() {
     streamChannel().close();
   }
@@ -423,7 +485,7 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     Map<String, Object> attrs = attributes;
     if (attrs == null) {
       Map<String, Object> newMap = new ConcurrentHashMap<>();
-      if (ATTRIBUTES_UPDATER.compareAndSet(this, null, newMap)) {
+      if (ATTRIBUTES_HANDLE.compareAndSet(this, null, newMap)) {
         attrs = newMap;
       } else {
         attrs = attributes;

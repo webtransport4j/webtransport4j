@@ -70,6 +70,15 @@ public interface WebTransportStream {
 
   @NonNull CompletableFuture<Void> writeText(@NonNull String text, @NonNull Charset charset);
 
+  /**
+   * Writes and flushes data directly without allocating a promise or future.
+   *
+   * @param data the buffer to write
+   */
+  default void writeDirect(@NonNull WebTransportBuffer data) {
+    write(data);
+  }
+
   /* ---------- Attributes ---------- */
   boolean hasAttribute(@NonNull String key);
 
