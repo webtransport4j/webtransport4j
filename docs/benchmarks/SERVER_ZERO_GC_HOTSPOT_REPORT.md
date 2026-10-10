@@ -20,13 +20,13 @@ Datagrams, Bidirectional Streams, and Unidirectional Streams.
 
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
-| **Active Flood Duration** | 12.987 s | - |
-| **Aggregate Throughput** | 230,992.7 ops/s | - |
+| **Active Flood Duration** | 11.640 s | - |
+| **Aggregate Throughput** | 257,740.5 ops/s | - |
 | **GC Collections** | **0** | ✅ **ZERO COLLECTIONS** |
 | **Total GC Pause Time** | **0 ms** | ✅ **ZERO PAUSE TIME** |
-| **Used Heap at Start** | 185,727,152 bytes (177.12 MB) | Pre-flood baseline |
-| **Used Heap at End** | 497,154,224 bytes (474.12 MB) | Post-flood steady-state |
-| **Heap Delta** | 311,427,072 bytes | Net change; does not measure total allocation |
+| **Used Heap at Start** | 182,581,424 bytes (174.12 MB) | Pre-flood baseline |
+| **Used Heap at End** | 466,745,520 bytes (445.12 MB) | Post-flood steady-state |
+| **Heap Delta** | 284,164,096 bytes | Net change; does not measure total allocation |
 
 ### Active Garbage Collectors (JVM MXBeans)
 
@@ -40,7 +40,7 @@ Datagrams, Bidirectional Streams, and Unidirectional Streams.
 
 | Pool Name | Current Usage | Peak Usage |
 | :--- | :--- | :--- |
-| `G1 Eden Space` | 488,636,416 bytes (466.00 MB) | 488,636,416 bytes (466.00 MB) |
+| `G1 Eden Space` | 457,179,136 bytes (436.00 MB) | 457,179,136 bytes (436.00 MB) |
 | `G1 Old Gen` | 9,566,384 bytes (9.12 MB) | 9,566,384 bytes (9.12 MB) |
 | `G1 Survivor Space` | 0 bytes (0.00 MB) | 0 bytes (0.00 MB) |
 

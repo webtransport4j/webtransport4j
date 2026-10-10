@@ -291,4 +291,70 @@ public class ReducedAllocationDispatchTest {
       replacement.release();
     }
   }
+
+  @Test
+  public void rawByteBufStreamDispatchDirectlyInvokesConsumerWithoutWrapper() throws Exception {
+    QuicChannel quic = mock(QuicChannel.class);
+    QuicStreamChannel streamChannel = mock(QuicStreamChannel.class);
+    DefaultAttributeMap parentAttrs = new DefaultAttributeMap();
+    DefaultAttributeMap streamAttrs = new DefaultAttributeMap();
+    when(quic.attr(any())).thenAnswer(call -> parentAttrs.attr(call.getArgument(0)));
+    when(streamChannel.attr(any())).thenAnswer(call -> streamAttrs.attr(call.getArgument(0)));
+    when(streamChannel.parent()).thenReturn(quic);
+    NettyWebTransportSession session = mock(NettyWebTransportSession.class);
+    when(session.isOpen()).thenReturn(true);
+    WebTransportSessionManager manager = mock(WebTransportSessionManager.class);
+    when(manager.get(0L)).thenReturn(session);
+    parentAttrs.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
+    streamAttrs.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(0L);
+    streamAttrs.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).set(true);
+
+    DefaultNettyWebTransportStream apiStream =
+        new DefaultNettyWebTransportStream(streamChannel, 0L);
+    AtomicReference<ByteBuf> captured = new AtomicReference<>();
+    apiStream.onRawByteBuf(buf -> {
+      captured.set(buf.retain());
+      assertEquals(55, buf.readByte());
+    });
+    assertThrows(IllegalStateException.class, () -> apiStream.onData(b -> {}));
+
+    streamAttrs.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(apiStream);
+    ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.channel()).thenReturn(streamChannel);
+    ByteBuf input = Unpooled.buffer().writeByte(55);
+    ZeroGcMessageDispatcher.INSTANCE.channelRead(ctx, input);
+
+    assertNotNull(captured.get());
+    assertEquals(1, captured.get().refCnt());
+    captured.get().release();
+    assertEquals(0, input.refCnt());
+  }
+
+  @Test
+  public void rawByteBufDatagramDispatchDirectlyInvokesConsumerWithoutWrapper() {
+    DefaultWebTransportSession session = mock(DefaultWebTransportSession.class);
+    when(session.isOpen()).thenReturn(true);
+    when(session.path()).thenReturn("/test");
+    AtomicReference<ByteBuf> captured = new AtomicReference<>();
+    when(session.getRawDatagramConsumer()).thenReturn(buf -> {
+      captured.set(buf.retain());
+      assertEquals(77, buf.readByte());
+    });
+
+    EmbeddedChannel ch = new EmbeddedChannel(ZeroGcMessageDispatcher.INSTANCE);
+    WebTransportSessionManager manager = mock(WebTransportSessionManager.class);
+    when(manager.get(0L)).thenReturn(session);
+    ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
+
+    ByteBuf input = datagram(77);
+    try {
+      ch.writeInbound(input);
+      assertNotNull(captured.get());
+      assertEquals(1, captured.get().refCnt());
+      captured.get().release();
+      assertEquals(0, input.refCnt());
+    } finally {
+      ch.finishAndReleaseAll();
+    }
+  }
 }

@@ -20,6 +20,7 @@ import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.net.SocketAddress;
@@ -38,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLPeerUnverifiedException;
@@ -134,6 +136,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private final AtomicBoolean hasReceivedPeerMaxDataCapsule;
 
   private final AtomicBoolean draining = new AtomicBoolean(false);
+
+  private volatile @Nullable Consumer<ByteBuf> rawDatagramConsumer;
 
   /** Returns true if graceful shutdown was signaled locally or by the peer. */
   @Override
@@ -699,6 +703,34 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
     if (metrics != null) {
       metrics.onDatagramSent(sessionStreamId, data.length);
+    }
+  }
+
+  @Override
+  public void onRawDatagram(@NonNull Consumer<ByteBuf> consumer) {
+    if (this.rawDatagramConsumer != null) {
+      throw new IllegalStateException("Raw datagram consumer already registered");
+    }
+    this.rawDatagramConsumer = Objects.requireNonNull(consumer, "consumer must not be null");
+  }
+
+  @Override
+  public @Nullable Consumer<ByteBuf> getRawDatagramConsumer() {
+    return rawDatagramConsumer;
+  }
+
+  @Override
+  public void sendDatagramDirect(@NonNull ByteBuf data) {
+    if (!isOpen()) {
+      ReferenceCountUtil.release(data);
+      throw new IllegalStateException("Session is closed");
+    }
+    Channel parentChannel = connectStream.parent();
+    int dataBytes = data.readableBytes();
+    writeDatagramDirect(parentChannel, data);
+    WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(parentChannel);
+    if (metrics != null) {
+      metrics.onDatagramSent(sessionStreamId, dataBytes);
     }
   }
 

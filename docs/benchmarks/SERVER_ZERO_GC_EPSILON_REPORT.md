@@ -20,13 +20,13 @@ Datagrams, Bidirectional Streams, and Unidirectional Streams.
 
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
-| **Active Flood Duration** | 11.508 s | - |
-| **Aggregate Throughput** | 260,686.0 ops/s | - |
+| **Active Flood Duration** | 10.565 s | - |
+| **Aggregate Throughput** | 283,963.3 ops/s | - |
 | **GC Collections** | **0** | ✅ **ZERO COLLECTIONS** |
 | **Total GC Pause Time** | **0 ms** | ✅ **ZERO PAUSE TIME** |
-| **Used Heap at Start** | 183,282,256 bytes (174.79 MB) | Pre-flood baseline |
-| **Used Heap at End** | 492,375,488 bytes (469.57 MB) | Post-flood steady-state |
-| **Heap Delta** | 309,093,232 bytes | Net change; does not measure total allocation |
+| **Used Heap at Start** | 187,486,040 bytes (178.80 MB) | Pre-flood baseline |
+| **Used Heap at End** | 467,219,144 bytes (445.57 MB) | Post-flood steady-state |
+| **Heap Delta** | 279,733,104 bytes | Net change; does not measure total allocation |
 
 ### Active Garbage Collectors (JVM MXBeans)
 
@@ -38,7 +38,7 @@ Datagrams, Bidirectional Streams, and Unidirectional Streams.
 
 | Pool Name | Current Usage | Peak Usage |
 | :--- | :--- | :--- |
-| `Epsilon Heap` | 494,524,904 bytes (471.62 MB) | 494,524,904 bytes (471.62 MB) |
+| `Epsilon Heap` | 471,939,144 bytes (450.08 MB) | 471,939,144 bytes (450.08 MB) |
 
 **Overall Status:** No collections observed during this finite workload; allocation unmeasured
 

@@ -4,6 +4,8 @@ import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.server.NettyWebTransportSession;
+import io.github.webtransport4j.server.NettyWebTransportStream;
 import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.server.WebTransportServerBuilder;
 import java.io.FileWriter;
@@ -94,6 +96,14 @@ public class ZeroGcServerMain {
             startUsedHeap.set(getUsedHeap());
             startHistogramRef.set(captureClassHistogram());
             startTime.set(System.nanoTime());
+            if (session instanceof NettyWebTransportSession) {
+              ((NettyWebTransportSession) session).onRawDatagram(
+                  raw -> {
+                    receivedDatagrams.incrementAndGet();
+                    totalBytesReceived.addAndGet(raw.readableBytes());
+                    ((NettyWebTransportSession) session).sendDatagramDirect(raw);
+                  });
+            }
           }
 
           @Override
@@ -112,6 +122,28 @@ public class ZeroGcServerMain {
           @Override
           public void onIncomingStream(
               @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+            if (stream instanceof NettyWebTransportStream) {
+              NettyWebTransportStream nettyStream = (NettyWebTransportStream) stream;
+              if (stream.isBidirectional()) {
+                nettyStream.onRawByteBuf(
+                    raw -> {
+                      int bytes = raw.readableBytes();
+                      totalBytesReceived.addAndGet(bytes);
+                      long totalBidi = receivedBidiBytes.addAndGet(bytes);
+                      receivedBidiMessages.set(totalBidi / STREAM_MSG_SIZE);
+                      nettyStream.writeDirect(raw.retain());
+                    });
+              } else {
+                nettyStream.onRawByteBuf(
+                    raw -> {
+                      int bytes = raw.readableBytes();
+                      totalBytesReceived.addAndGet(bytes);
+                      long totalUni = receivedUniBytes.addAndGet(bytes);
+                      receivedUniMessages.set(totalUni / STREAM_MSG_SIZE);
+                    });
+              }
+              return;
+            }
             if (stream.isBidirectional()) {
               stream.onData(
                   buf -> {

@@ -12,6 +12,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
+import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -233,7 +234,13 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       }
 
       // Dispatch data
-      if (stream.getDataConsumer() != null) {
+      Consumer<ByteBuf> rawConsumer = null;
+      if (stream instanceof NettyWebTransportStream) {
+        rawConsumer = ((NettyWebTransportStream) stream).getRawByteBufConsumer();
+      }
+      if (rawConsumer != null) {
+        dispatchRawStreamData(rawConsumer, content);
+      } else if (stream.getDataConsumer() != null) {
         dispatchStreamData(stream, content, streamChannel);
       } else {
         content.release();
@@ -294,7 +301,15 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (metrics != null) {
         metrics.onDatagramReceived(sessionId, content.readableBytes());
       }
-      dispatchDatagramData(handler, session, content, channel);
+      Consumer<ByteBuf> rawDatagramConsumer = null;
+      if (session instanceof NettyWebTransportSession) {
+        rawDatagramConsumer = ((NettyWebTransportSession) session).getRawDatagramConsumer();
+      }
+      if (rawDatagramConsumer != null) {
+        dispatchRawDatagramData(rawDatagramConsumer, content);
+      } else {
+        dispatchDatagramData(handler, session, content, channel);
+      }
     } catch (Throwable t) {
       logger.error("Exception in tryDispatchDatagramToHandler", t);
       if (content.refCnt() > 0) {
@@ -332,6 +347,34 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       logger.error("Error in stream onData callback", e);
     } finally {
       buffer.release();
+    }
+  }
+
+  /**
+   * Dispatches incoming raw ByteBuf stream data to the stream consumer.
+   */
+  protected void dispatchRawStreamData(
+      @NonNull Consumer<ByteBuf> rawConsumer, @NonNull ByteBuf content) {
+    try {
+      rawConsumer.accept(content);
+    } catch (Exception e) {
+      logger.error("Error in stream onRawByteBuf callback", e);
+    } finally {
+      content.release();
+    }
+  }
+
+  /**
+   * Dispatches incoming raw ByteBuf datagram data to the raw datagram consumer.
+   */
+  protected void dispatchRawDatagramData(
+      @NonNull Consumer<ByteBuf> rawDatagramConsumer, @NonNull ByteBuf content) {
+    try {
+      rawDatagramConsumer.accept(content);
+    } catch (Exception e) {
+      logger.error("Error in onRawDatagram callback", e);
+    } finally {
+      content.release();
     }
   }
 

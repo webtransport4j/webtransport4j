@@ -46,6 +46,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private volatile @Nullable Consumer<WebTransportBuffer> dataConsumer;
 
+  private volatile @Nullable Consumer<ByteBuf> rawByteBufConsumer;
+
   private volatile @Nullable OnCloseListener closeHandler;
 
   private volatile @Nullable Consumer<Throwable> errorHandler;
@@ -156,8 +158,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param consumer the data consumer callback
    */
   public void onData(@NonNull Consumer<WebTransportBuffer> consumer) {
-    if (this.dataConsumer != null) {
-      throw new IllegalStateException("onData handler already registered");
+    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+      throw new IllegalStateException("Data consumer already registered");
     }
     this.dataConsumer = consumer;
   }
@@ -176,6 +178,19 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
         data -> {
           codec.decode(data, autoReleasingConsumer);
         });
+  }
+
+  @Override
+  public void onRawByteBuf(@NonNull Consumer<ByteBuf> consumer) {
+    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+      throw new IllegalStateException("Data consumer already registered");
+    }
+    this.rawByteBufConsumer = Objects.requireNonNull(consumer, "consumer must not be null");
+  }
+
+  @Override
+  public @Nullable Consumer<ByteBuf> getRawByteBufConsumer() {
+    return rawByteBufConsumer;
   }
 
   public void onClose(@NonNull OnCloseListener onCloseListener) {
@@ -430,6 +445,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     }
     ByteBuf packet = Unpooled.wrappedBuffer(data.nioBuffer());
     streamChannel.writeAndFlush(packet, streamChannel.voidPromise());
+  }
+
+  @Override
+  public void writeDirect(@NonNull ByteBuf buf) {
+    if (!streamChannel.isActive()) {
+      ReferenceCountUtil.release(buf);
+      return;
+    }
+    streamChannel.writeAndFlush(buf, streamChannel.voidPromise());
   }
 
   public void close() {
