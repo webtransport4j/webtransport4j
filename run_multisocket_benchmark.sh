@@ -43,9 +43,12 @@ run_benchmark() {
   rm -f server_benchmark.log "$GC_LOG"
 
   java --enable-native-access=ALL-UNNAMED \
-       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms2048m -Xmx3072m \
+       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC \
+       -XX:+AlwaysPreTouch -XX:ZAllocationSpikeTolerance=5 \
+       -Xms4096m -Xmx4096m \
        "-Xlog:gc*:file=$GC_LOG:time,uptime,level,tags" \
-       -Dwebtransport4j.server.socket.rcvbuf=33554432 \
+       -Dwebtransport4j.server.socket.rcvbuf=67108864 \
+       -Dwebtransport4j.server.recv.max_messages_per_read=128 \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \
@@ -72,7 +75,9 @@ run_benchmark() {
 
   # Launch client flood
   java --enable-native-access=ALL-UNNAMED \
-       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms512m -Xmx1024m \
+       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC \
+       -XX:+AlwaysPreTouch \
+       -Xms1024m -Xmx1024m \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \

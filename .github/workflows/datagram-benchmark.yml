@@ -12,9 +12,9 @@ on:
         required: false
         default: '2'
       concurrency:
-        description: 'Number of concurrent client streams (default: 16)'
+        description: 'Number of concurrent client streams (default: 8)'
         required: false
-        default: '16'
+        default: '8'
       pacing_micros:
         description: 'Client pacing delay in microseconds (0 for unthrottled flood; e.g. 5 or 10 for zero-loss rate matching)'
         required: false
@@ -58,6 +58,9 @@ jobs:
           sudo sysctl -w net.core.wmem_default=67108864 || true
           sudo sysctl -w net.core.netdev_max_backlog=250000 || true
           sudo sysctl -w net.core.optmem_max=67108864 || true
+          sudo sysctl -w net.core.netdev_budget=1000 || true
+          sudo sysctl -w net.core.netdev_budget_usecs=8000 || true
+          sudo sysctl -w net.ipv4.udp_mem="262144 524288 1048576" || true
 
       - name: Run Multi-Socket Benchmark
         run: |
@@ -66,7 +69,7 @@ jobs:
             "${{ github.event.inputs.target_bytes || '1073741824' }}" \
             "${{ github.event.inputs.sockets || '2' }}" \
             1024 \
-            "${{ github.event.inputs.concurrency || '16' }}" \
+            "${{ github.event.inputs.concurrency || '8' }}" \
             "${{ github.event.inputs.pacing_micros || '0' }}"
 
       - name: Publish Benchmark Reports to Job Summary
