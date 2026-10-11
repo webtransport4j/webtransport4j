@@ -8,10 +8,13 @@ This guide provides quantitative resource sizing formulas, CPU/memory recommenda
 
 Each `WebTransportServer` instance binds **one UDP socket**. Netty's QUIC codec reads, decrypts, and demultiplexes every inbound packet on that channel's single event loop, so all packet I/O for one instance crosses one thread regardless of the event-loop group size. A single instance is therefore bounded by single-thread UDP receive throughput well below the session counts in the sizing matrix below.
 
-**The sizing tiers in this guide assume horizontal sharding.** To reach the larger tiers on one node, run multiple `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer so that each flow is pinned to one instance.
+**The sizing tiers in this guide assume horizontal sharding.** Two sharding options:
+
+- **Multiple sockets, one port (in-process)**: bind several UDP channels to the same IP and port via `SO_REUSEPORT`, each on its own event loop, and front them with Netty's `QuicCodecDispatcher` (`io.netty.handler.codec.quic`), which steers each packet to the correct QUIC codec by decoding a channel index embedded in the connection ID. Netty's documentation also describes an eBPF-based routing alternative for steering packets to the right socket. This keeps one logical `WebTransportServer` — no extra ports or external load balancer — while giving each socket its own receive thread.
+- **Multiple instances**: run N `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer so that each flow is pinned to one instance.
 
 > [!NOTE]
-> QUIC connection migration can change a client's 4-tuple mid-session. Per-flow (4-tuple) pinning alone may then reroute a migrated connection to a different instance; prefer load balancers that key on the QUIC connection ID, or deployments that tolerate rerouting.
+> QUIC connection migration can change a client's 4-tuple mid-session. Per-flow (4-tuple) pinning or plain `SO_REUSEPORT` hashing may then reroute a migrated connection to the wrong instance or socket; prefer connection-ID-aware routing (the dispatcher's index-encoded connection IDs, a connection-ID-aware load balancer, or eBPF steering), or deployments that tolerate rerouting.
 
 ---
 
