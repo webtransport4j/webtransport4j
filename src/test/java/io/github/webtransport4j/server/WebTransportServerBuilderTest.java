@@ -66,6 +66,29 @@ public class WebTransportServerBuilderTest {
   }
 
   @Test
+  public void testConfiguredDefaultAllocatorInBothModes() {
+    String key = "webtransport4j.server.allocator";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "DeFaUlT");
+      for (boolean zeroGc : new boolean[] {false, true}) {
+        Assert.assertNull(WebTransportServer.builder().enableZeroGc(zeroGc)
+            .build().getByteBufAllocator());
+        Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
+            WebTransportServer.builder().enableZeroGc(zeroGc)
+                .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
+                .build().getByteBufAllocator());
+      }
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
   public void testByteBufAllocatorZeroGcDefaultsToPooled() {
     WebTransportServer server =
         WebTransportServer.builder()

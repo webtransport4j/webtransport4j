@@ -7,6 +7,9 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 | Metric | Value |
 | :--- | :--- |
+| **Run Status** | **INCOMPLETE** (16 GiB target not reached) |
+| **Target Payload** | 17,179,869,184 bytes |
+| **Target Reached** | false |
 | **Total Datagrams Received** | 15,973,549 packets |
 | **Total Ingested Payload** | 16,356,914,176 bytes (15599.17 MB / 15.23 GiB) |
 | **Active Transfer Duration** | 129.007 s |
@@ -18,7 +21,8 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
 | **GC Collections** | **42** | Concurrently managed |
-| **Total GC Pause Time** | **260 ms** | < 1 ms sub-millisecond pause |
+| **Total GC Pause Time** | **0 ms** | 0 ms recorded by pause MXBeans (millisecond resolution) |
+| **Total ZGC Cycle Time** | **260 ms** | Concurrent cycle time |
 | **Initial Used Heap** | 4,194,304 bytes (4.00 MB) | Baseline before flood |
 | **Peak Used Heap** | 2,575,302,656 bytes (2456.00 MB) | Maximum heap during 1GB flood |
 | **Final Used Heap** | 306,184,192 bytes (292.00 MB) | Steady-state post-flood |
@@ -27,7 +31,7 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 ### 3. Active Garbage Collector Details
 
-| Collector Name | Collection Cycles | Total Pause Time |
+| Collector Name | Collection Count | Collection Time |
 | :--- | :--- | :--- |
 | `ZGC Minor Pauses` | 0 | 0 ms |
 | `ZGC Major Pauses` | 35 | 0 ms |

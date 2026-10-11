@@ -218,7 +218,6 @@ public final class Datagram1GbZgcBenchmark {
     peakHeapUsed.accumulateAndGet(finalHeapUsed, Math::max);
 
     long totalGcCount = 0;
-    long totalGcPauseMs = 0;
     Map<String, long[]> collectorDetails = new HashMap<>();
     for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
       long prevCount = initialGcCounts.getOrDefault(gc.getName(), 0L);
@@ -228,9 +227,11 @@ public final class Datagram1GbZgcBenchmark {
       long deltaCount = Math.max(0, curCount - prevCount);
       long deltaTime = Math.max(0, curTime - prevTime);
       totalGcCount += deltaCount;
-      totalGcPauseMs += deltaTime;
       collectorDetails.put(gc.getName(), new long[] {deltaCount, deltaTime});
     }
+
+    long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
+    long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
 
     Map<String, Long> threadAllocDeltas = new HashMap<>();
     if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -259,11 +260,14 @@ public final class Datagram1GbZgcBenchmark {
     printConsoleReport(
         totalDgrams,
         totalBytes,
+        targetBytes,
+        completedOnTime,
         durationSec,
         throughputMbPerSec,
         throughputDgramSec,
         totalGcCount,
         totalGcPauseMs,
+        totalGcCycleMs,
         initialHeapUsed,
         finalHeapUsed,
         peakHeapUsed.get(),
@@ -276,11 +280,14 @@ public final class Datagram1GbZgcBenchmark {
         reportPath,
         totalDgrams,
         totalBytes,
+        targetBytes,
+        completedOnTime,
         durationSec,
         throughputMbPerSec,
         throughputDgramSec,
         totalGcCount,
         totalGcPauseMs,
+        totalGcCycleMs,
         initialHeapUsed,
         finalHeapUsed,
         peakHeapUsed.get(),
@@ -290,7 +297,7 @@ public final class Datagram1GbZgcBenchmark {
         topHistogram);
 
     server.stop();
-    System.exit(0);
+    System.exit(totalBytes >= targetBytes ? 0 : 1);
   }
 
   /**
@@ -440,14 +447,42 @@ public final class Datagram1GbZgcBenchmark {
     }
   }
 
+  static long collectionTime(Map<String, long[]> collectorDetails, String kind) {
+    return collectorDetails.entrySet().stream()
+        .filter(entry -> entry.getKey().contains(kind))
+        .mapToLong(entry -> entry.getValue()[1])
+        .sum();
+  }
+
+  static String runStatus(long totalBytes, long targetBytes) {
+    return totalBytes >= targetBytes ? "COMPLETE" : "INCOMPLETE";
+  }
+
+  static String objectHeaderMode() {
+    try {
+      com.sun.management.HotSpotDiagnosticMXBean bean =
+          ManagementFactory.getPlatformMXBean(com.sun.management.HotSpotDiagnosticMXBean.class);
+      if (bean != null) {
+        return Boolean.parseBoolean(bean.getVMOption("UseCompactObjectHeaders").getValue())
+            ? "Compact Object Headers (JEP 450)" : "Standard Object Headers";
+      }
+    } catch (IllegalArgumentException | UnsupportedOperationException e) {
+      // Older or non-HotSpot JVMs may not expose this option.
+    }
+    return "Unknown Object Header Mode";
+  }
+
   private static void printConsoleReport(
       long totalDgrams,
       long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
       double durationSec,
       double throughputMbPerSec,
       double throughputDgramSec,
       long totalGcCount,
       long totalGcPauseMs,
+      long totalGcCycleMs,
       long initialHeapUsed,
       long finalHeapUsed,
       long peakHeapUsed,
@@ -458,9 +493,13 @@ public final class Datagram1GbZgcBenchmark {
 
     System.out.println();
     System.out.println("=========================================================================================");
-    System.out.printf("   1GB DATAGRAM TRANSFER BENCHMARK REPORT (JAVA %s + ZGC + COMPACT OBJECT HEADERS)%n",
-        System.getProperty("java.version"));
+    System.out.printf("   DATAGRAM TRANSFER BENCHMARK REPORT (JAVA %s + ZGC + %s)%n",
+        System.getProperty("java.version"), objectHeaderMode());
     System.out.println("=========================================================================================");
+    System.out.printf("Run Status:                 %s%n", runStatus(totalBytes, targetBytes));
+    System.out.printf("Target Payload:             %,d bytes%n", targetBytes);
+    System.out.printf("Completed On Time (latch):  %s%n", completedOnTime);
+    System.out.printf("Target Reached:             %s%n", totalBytes >= targetBytes);
     System.out.printf("Total Datagrams Received:    %,d packets%n", totalDgrams);
     System.out.printf("Total Ingested Payload:      %,d bytes (%.2f MB / %.2f GiB)%n",
         totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
@@ -469,7 +508,9 @@ public final class Datagram1GbZgcBenchmark {
     System.out.printf("Throughput (Packet Rate):    %,.1f datagrams/sec%n", throughputDgramSec);
     System.out.println("-----------------------------------------------------------------------------------------");
     System.out.printf("Garbage Collection Cycles:   %d collections%n", totalGcCount);
-    System.out.printf("Total GC Pause Time:         %d ms%n", totalGcPauseMs);
+    System.out.printf("Total GC Pause Time:         %d ms (MXBean millisecond resolution)%n",
+        totalGcPauseMs);
+    System.out.printf("Total ZGC Cycle Time:        %d ms%n", totalGcCycleMs);
     System.out.printf("Initial Used Heap:           %,d bytes (%.2f MB)%n",
         initialHeapUsed, initialHeapUsed / (1024.0 * 1024.0));
     System.out.printf("Peak Used Heap:              %,d bytes (%.2f MB)%n",
@@ -483,7 +524,7 @@ public final class Datagram1GbZgcBenchmark {
     System.out.println("-----------------------------------------------------------------------------------------");
     System.out.println("Active Garbage Collectors (MXBeans):");
     for (Map.Entry<String, long[]> entry : collectorDetails.entrySet()) {
-      System.out.printf("  - %-25s : %d collections, %d ms pause%n",
+      System.out.printf("  - %-25s : %d collections, %d ms collection time%n",
           entry.getKey(), entry.getValue()[0], entry.getValue()[1]);
     }
     System.out.println("-----------------------------------------------------------------------------------------");
@@ -503,15 +544,18 @@ public final class Datagram1GbZgcBenchmark {
     System.out.println();
   }
 
-  private static void writeMarkdownReport(
+  static void writeMarkdownReport(
       String filePath,
       long totalDgrams,
       long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
       double durationSec,
       double throughputMbPerSec,
       double throughputDgramSec,
       long totalGcCount,
       long totalGcPauseMs,
+      long totalGcCycleMs,
       long initialHeapUsed,
       long finalHeapUsed,
       long peakHeapUsed,
@@ -526,17 +570,22 @@ public final class Datagram1GbZgcBenchmark {
     }
 
     try (PrintWriter out = new PrintWriter(new FileWriter(file))) {
-      double gib = totalBytes / (1024.0 * 1024.0 * 1024.0);
+      double gib = targetBytes / (1024.0 * 1024.0 * 1024.0);
       out.printf(Locale.ROOT, "# WebTransport4J: %.2f GiB Datagram Ingestion Report (Java %s + ZGC)%n%n",
           gib, System.getProperty("java.version"));
       out.printf(Locale.ROOT, "Empirical benchmark measuring high-velocity transfer of **%.2f GiB** over"
           + " WebTransport Datagrams%n", gib);
-      out.println("running in an isolated dedicated server process with **ZGC**.");
+      out.printf("running in an isolated dedicated server process with **ZGC** and **%s**.%n",
+          objectHeaderMode());
       out.println();
       out.println("### 1. Ingestion & Throughput Metrics");
       out.println();
       out.println("| Metric | Value |");
       out.println("| :--- | :--- |");
+      out.printf("| **Run Status** | **%s** |%n", runStatus(totalBytes, targetBytes));
+      out.printf(Locale.ROOT, "| **Target Payload** | %,d bytes |%n", targetBytes);
+      out.printf("| **Completed On Time (latch)** | %s |%n", completedOnTime);
+      out.printf("| **Target Reached** | %s |%n", totalBytes >= targetBytes);
       out.printf(Locale.ROOT, "| **Total Datagrams Received** | %,d packets |%n", totalDgrams);
       out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MB / %.2f GiB) |%n",
           totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
@@ -549,12 +598,16 @@ public final class Datagram1GbZgcBenchmark {
       out.println("| Metric | Value | Verdict |");
       out.println("| :--- | :--- | :--- |");
       out.printf(Locale.ROOT, "| **GC Collections** | **%d** | %s |%n",
-          totalGcCount, totalGcCount == 0 ? "✅ **ZERO COLLECTIONS**" : "Concurrently managed");
+          totalGcCount, totalGcCount == 0 ? "No collections recorded" : "Collections recorded");
       out.printf(Locale.ROOT, "| **Total GC Pause Time** | **%d ms** | %s |%n",
-          totalGcPauseMs, totalGcPauseMs == 0 ? "✅ **ZERO PAUSE TIME**" : "< 1 ms sub-millisecond pause");
+          totalGcPauseMs, totalGcPauseMs == 0
+              ? "0 ms recorded by pause MXBeans (millisecond resolution)"
+              : "Nonzero pause time recorded by pause MXBeans");
+      out.printf(Locale.ROOT, "| **Total ZGC Cycle Time** | **%d ms** | Concurrent cycle time |%n",
+          totalGcCycleMs);
       out.printf(Locale.ROOT, "| **Initial Used Heap** | %,d bytes (%.2f MB) | Baseline before flood |%n",
           initialHeapUsed, initialHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MB) | Maximum heap during 1GB flood |%n",
+      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MB) | Maximum heap during flood |%n",
           peakHeapUsed, peakHeapUsed / (1024.0 * 1024.0));
       out.printf(Locale.ROOT, "| **Final Used Heap** | %,d bytes (%.2f MB) | Steady-state post-flood |%n",
           finalHeapUsed, finalHeapUsed / (1024.0 * 1024.0));
@@ -565,7 +618,7 @@ public final class Datagram1GbZgcBenchmark {
       out.println();
       out.println("### 3. Active Garbage Collector Details");
       out.println();
-      out.println("| Collector Name | Collection Cycles | Total Pause Time |");
+      out.println("| Collector Name | Collection Count | Collection Time |");
       out.println("| :--- | :--- | :--- |");
       for (Map.Entry<String, long[]> entry : collectorDetails.entrySet()) {
         out.printf(Locale.ROOT, "| `%s` | %d | %d ms |%n",
