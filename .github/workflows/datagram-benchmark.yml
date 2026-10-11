@@ -15,6 +15,10 @@ on:
         description: 'Number of concurrent client streams (default: 16)'
         required: false
         default: '16'
+      pacing_micros:
+        description: 'Client pacing delay in microseconds (0 for unthrottled flood; e.g. 5 or 10 for zero-loss rate matching)'
+        required: false
+        default: '0'
 
 permissions:
   contents: read
@@ -48,9 +52,12 @@ jobs:
 
       - name: Tune Linux UDP Kernel Buffers
         run: |
-          sudo sysctl -w net.core.rmem_max=26214400 || true
-          sudo sysctl -w net.core.wmem_max=26214400 || true
-          sudo sysctl -w net.core.rmem_default=26214400 || true
+          sudo sysctl -w net.core.rmem_max=134217728 || true
+          sudo sysctl -w net.core.wmem_max=134217728 || true
+          sudo sysctl -w net.core.rmem_default=67108864 || true
+          sudo sysctl -w net.core.wmem_default=67108864 || true
+          sudo sysctl -w net.core.netdev_max_backlog=250000 || true
+          sudo sysctl -w net.core.optmem_max=67108864 || true
 
       - name: Run Multi-Socket Benchmark
         run: |
@@ -59,7 +66,8 @@ jobs:
             "${{ github.event.inputs.target_bytes || '1073741824' }}" \
             "${{ github.event.inputs.sockets || '2' }}" \
             1024 \
-            "${{ github.event.inputs.concurrency || '16' }}"
+            "${{ github.event.inputs.concurrency || '16' }}" \
+            "${{ github.event.inputs.pacing_micros || '0' }}"
 
       - name: Publish Benchmark Reports to Job Summary
         if: always()

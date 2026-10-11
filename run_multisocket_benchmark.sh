@@ -5,6 +5,7 @@ TARGET_BYTES=${1:-1073741824} # 1 GiB (1,073,741,824 bytes)
 SOCKETS=${2:-8}               # 8 sockets for multi-socket run
 DGRAM_SIZE=${3:-1024}         # 1 KiB per datagram
 CONCURRENCY=${4:-8}           # 8 concurrent client connections
+PACING_MICROS=${5:-0}         # Microseconds pacing per packet (0 = unthrottled burst)
 REPORT_DIR="docs/benchmarks"
 mkdir -p "$REPORT_DIR" target
 
@@ -21,6 +22,9 @@ echo " Target Payload: $TARGET_BYTES bytes ($(( TARGET_BYTES / 1024 / 1024 )) MB
 echo " Datagram Size:  $DGRAM_SIZE bytes ($(( TARGET_BYTES / DGRAM_SIZE )) packets)"
 echo " Sharded Sockets: $SOCKETS UDP sockets on the same port"
 echo " Concurrency:    $CONCURRENCY parallel client connections"
+if [ "$PACING_MICROS" -gt 0 ]; then
+  echo " Client Pacing:  ${PACING_MICROS} µs/datagram (zero-loss rate matching)"
+fi
 echo " JVM:            $(java -version 2>&1 | head -n 1)"
 echo "=========================================================================="
 
@@ -73,7 +77,7 @@ run_benchmark() {
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
-       client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE" "$CONCURRENCY"
+       client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE" "$CONCURRENCY" "$PACING_MICROS"
 
   wait "$SERVER_PID" || true
   trap - EXIT

@@ -95,7 +95,10 @@ public final class Datagram1GbZgcBenchmark {
       long targetBytes = args.length > 2 ? Long.parseLong(args[2]) : ONE_GB;
       int payloadSize = args.length > 3 ? Integer.parseInt(args[3]) : DEFAULT_DGRAM_PAYLOAD;
       int concurrency = args.length > 4 ? Integer.parseInt(args[4]) : 1;
-      runClient(HOST, port, targetBytes, payloadSize, concurrency);
+      long pacingMicros = args.length > 5
+          ? Long.parseLong(args[5])
+          : Long.getLong("webtransport4j.benchmark.client.pacing.micros", 0L);
+      runClient(HOST, port, targetBytes, payloadSize, concurrency, pacingMicros);
     } else {
       System.err.println("Unknown mode: " + mode);
       System.exit(1);
@@ -365,14 +368,31 @@ public final class Datagram1GbZgcBenchmark {
   public static void runClient(
       String host, int port, long targetBytes, int payloadSize, int concurrency)
       throws Exception {
+    long pacingMicros = Long.getLong("webtransport4j.benchmark.client.pacing.micros", 0L);
+    runClient(host, port, targetBytes, payloadSize, concurrency, pacingMicros);
+  }
+
+  /**
+   * Runs the client process with multiple concurrent client connections and pacing.
+   */
+  public static void runClient(
+      String host, int port, long targetBytes, int payloadSize, int concurrency, long pacingMicros)
+      throws Exception {
     if (concurrency <= 1) {
-      runSingleClient(host, port, targetBytes, payloadSize, 0, null, null);
+      runSingleClient(host, port, targetBytes, payloadSize, 0, null, null, pacingMicros);
       return;
     }
 
-    System.out.printf(
-        ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
-        concurrency, targetBytes);
+    if (pacingMicros > 0) {
+      System.out.printf(
+          ">>> Client: Launching %d concurrent client connections streaming total %,d bytes"
+              + " (pacing: %,d µs/pkt)...%n",
+          concurrency, targetBytes, pacingMicros);
+    } else {
+      System.out.printf(
+          ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
+          concurrency, targetBytes);
+    }
     QuicSslContext sslContext =
         QuicSslContextBuilder.forClient()
             .trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -393,7 +413,8 @@ public final class Datagram1GbZgcBenchmark {
             : perClientBytes;
         executor.submit(() -> {
           try {
-            runSingleClient(host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext);
+            runSingleClient(
+                host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext, pacingMicros);
           } catch (Throwable t) {
             System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
             failure.compareAndSet(null, t);
@@ -403,7 +424,7 @@ public final class Datagram1GbZgcBenchmark {
         });
       }
 
-      long clientTimeoutSeconds = Math.max(300, (targetBytes / (15L * 1024 * 1024)) + 60);
+      long clientTimeoutSeconds = Math.max(300, (targetBytes / (5L * 1024 * 1024)) + 120);
       clientLatch.await(clientTimeoutSeconds, TimeUnit.SECONDS);
       executor.shutdown();
       executor.awaitTermination(10, TimeUnit.SECONDS);
@@ -419,7 +440,7 @@ public final class Datagram1GbZgcBenchmark {
 
   private static void runSingleClient(
       String host, int port, long targetBytes, int payloadSize, int clientId,
-      EventLoopGroup sharedGroup, QuicSslContext sharedSsl)
+      EventLoopGroup sharedGroup, QuicSslContext sharedSsl, long pacingMicros)
       throws Exception {
     EventLoopGroup group = sharedGroup != null ? sharedGroup : new NioEventLoopGroup(2);
     try {
@@ -535,6 +556,7 @@ public final class Datagram1GbZgcBenchmark {
       long packetsSent = 0;
       final long clientStart = System.nanoTime();
 
+      final long pacingNanos = pacingMicros * 1_000L;
       while (bytesSent < targetBytes && quicChannel.isOpen()) {
         while (!quicChannel.isWritable() && quicChannel.isOpen()) {
           quicChannel.flush();
@@ -545,6 +567,12 @@ public final class Datagram1GbZgcBenchmark {
         packetsSent++;
         if ((packetsSent & 0x3F) == 0) {
           quicChannel.flush();
+          if (pacingNanos > 0) {
+            LockSupport.parkNanos(pacingNanos * 16L);
+          }
+        } else if (pacingNanos > 0 && (packetsSent & 0x0F) == 0) {
+          quicChannel.flush();
+          LockSupport.parkNanos(pacingNanos * 16L);
         }
       }
       quicChannel.flush();
