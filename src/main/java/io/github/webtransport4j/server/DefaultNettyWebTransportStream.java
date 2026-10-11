@@ -47,9 +47,32 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private final boolean bidirectional;
 
-  private volatile @Nullable Consumer<WebTransportBuffer> dataConsumer;
+  static final class ConsumerHolder {
+    final @Nullable Consumer<WebTransportBuffer> dataConsumer;
+    final @Nullable Consumer<ByteBuf> rawByteBufConsumer;
 
-  private volatile @Nullable Consumer<ByteBuf> rawByteBufConsumer;
+    ConsumerHolder(
+        @Nullable Consumer<WebTransportBuffer> dataConsumer,
+        @Nullable Consumer<ByteBuf> rawByteBufConsumer) {
+      this.dataConsumer = dataConsumer;
+      this.rawByteBufConsumer = rawByteBufConsumer;
+    }
+  }
+
+  private volatile @Nullable ConsumerHolder consumerHolder;
+
+  private static final RefHandle<DefaultNettyWebTransportStream, ConsumerHolder>
+      CONSUMER_HOLDER_HANDLE =
+          Handles.newRefHandle(
+              DefaultNettyWebTransportStream.class,
+              ConsumerHolder.class,
+              "consumerHolder",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicReferenceFieldUpdater.newUpdater(
+                      DefaultNettyWebTransportStream.class,
+                      ConsumerHolder.class,
+                      "consumerHolder"));
 
   private volatile @Nullable OnCloseListener closeHandler;
 
@@ -169,10 +192,10 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param consumer the data consumer callback
    */
   public void onData(@NonNull Consumer<WebTransportBuffer> consumer) {
-    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+    Objects.requireNonNull(consumer, "consumer must not be null");
+    if (!CONSUMER_HOLDER_HANDLE.compareAndSet(this, null, new ConsumerHolder(consumer, null))) {
       throw new IllegalStateException("Data consumer already registered");
     }
-    this.dataConsumer = consumer;
   }
 
   /**
@@ -199,15 +222,16 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   @Override
   public void onRawByteBuf(@NonNull Consumer<ByteBuf> consumer) {
-    if (this.dataConsumer != null || this.rawByteBufConsumer != null) {
+    Objects.requireNonNull(consumer, "consumer must not be null");
+    if (!CONSUMER_HOLDER_HANDLE.compareAndSet(this, null, new ConsumerHolder(null, consumer))) {
       throw new IllegalStateException("Data consumer already registered");
     }
-    this.rawByteBufConsumer = Objects.requireNonNull(consumer, "consumer must not be null");
   }
 
   @Override
   public @Nullable Consumer<ByteBuf> getRawByteBufConsumer() {
-    return rawByteBufConsumer;
+    ConsumerHolder holder = this.consumerHolder;
+    return holder != null ? holder.rawByteBufConsumer : null;
   }
 
   public void onClose(@NonNull OnCloseListener onCloseListener) {
@@ -219,7 +243,8 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   }
 
   public @Nullable Consumer<WebTransportBuffer> getDataConsumer() {
-    return dataConsumer;
+    ConsumerHolder holder = this.consumerHolder;
+    return holder != null ? holder.dataConsumer : null;
   }
 
   public @Nullable OnCloseListener getCloseHandler() {

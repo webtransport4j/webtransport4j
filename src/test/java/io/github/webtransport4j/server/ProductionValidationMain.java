@@ -155,80 +155,82 @@ public final class ProductionValidationMain {
         .build();
 
     server.start();
-    System.out.println("VALIDATION_PORT=" + server.getPort());
-    com.sun.management.ThreadMXBean allocation =
-        (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-    allocation.setThreadAllocatedMemoryEnabled(true);
-    Map<Long, Long> previous = new HashMap<>();
-    long allocated = 0;
-    long start = System.nanoTime();
-    try (PrintWriter out = new PrintWriter(new FileWriter(csv))) {
-      out.println("seconds,heap_used,nonheap_used,direct_used,allocated_sampled_cumulative,"
-          + "gc_count,gc_ms,sessions,active_children,opened,closed,bytes,datagrams,"
-          + "peak_session_uni,errors,transport_uni_live,transport_uni_peak,"
-          + "transport_uni_created,transport_uni_closed,netty_direct,epoch_ms,retained_quic_uni");
-      for (int i = 0; i <= seconds; i++) {
-        for (long id : allocation.getAllThreadIds()) {
-          long value = allocation.getThreadAllocatedBytes(id);
-          if (value < 0) {
-            continue;
-          }
-          Long old = previous.put(id, value);
-          if (old != null && value >= old) {
-            allocated += value - old;
-          }
-        }
-        long active = 0;
-        for (WebTransportSession apiSession : server.getActiveSessions()) {
-          NettyWebTransportSession session = (NettyWebTransportSession) apiSession;
-          active += session.getAllActiveWebTransportStreams().size();
-          peakSessionUni.accumulateAndGet(session.getActiveClientInitiatedUni().size(), Math::max);
-        }
-        long direct = 0;
-        long gc = 0;
-        long gcMs = 0;
-        for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
-          if ("direct".equals(pool.getName())) {
-            direct = pool.getMemoryUsed();
-          }
-        }
-        for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
-          gc += Math.max(0, bean.getCollectionCount());
-          gcMs += Math.max(0, bean.getCollectionTime());
-        }
-        long retainedQuicUni = 0;
-        for (QuicChannel quic : trackedConnections) {
-          if (!quic.isOpen()) {
-            continue;
-          }
-          retainedQuicUni += quic.eventLoop().submit(() -> {
-            java.lang.reflect.Field field = quic.getClass().getDeclaredField("streams");
-            field.setAccessible(true);
-            io.netty.util.collection.LongObjectMap<?> map =
-                (io.netty.util.collection.LongObjectMap<?>) field.get(quic);
-            long count = 0;
-            for (Object value : map.values()) {
-              if (((QuicStreamChannel) value).type() == QuicStreamType.UNIDIRECTIONAL) {
-                count++;
-              }
+    try {
+      System.out.println("VALIDATION_PORT=" + server.getPort());
+      com.sun.management.ThreadMXBean allocation =
+          (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+      allocation.setThreadAllocatedMemoryEnabled(true);
+      Map<Long, Long> previous = new HashMap<>();
+      long allocated = 0;
+      long start = System.nanoTime();
+      try (PrintWriter out = new PrintWriter(new FileWriter(csv))) {
+        out.println("seconds,heap_used,nonheap_used,direct_used,allocated_sampled_cumulative,"
+            + "gc_count,gc_ms,sessions,active_children,opened,closed,bytes,datagrams,"
+            + "peak_session_uni,errors,transport_uni_live,transport_uni_peak,"
+            + "transport_uni_created,transport_uni_closed,netty_direct,epoch_ms,retained_quic_uni");
+        for (int i = 0; i <= seconds; i++) {
+          for (long id : allocation.getAllThreadIds()) {
+            long value = allocation.getThreadAllocatedBytes(id);
+            if (value < 0) {
+              continue;
             }
-            return count;
-          }).get(2, TimeUnit.SECONDS);
-        }
-        out.printf(Locale.ROOT,
-            "%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d%n",
-            (System.nanoTime() - start) / 1e9,
-            ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed(),
-            ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getUsed(), direct,
-            allocated, gc, gcMs, server.getActiveSessions().size(), active,
-            streamsOpened.get(), streamsClosed.get(), bytes.get(), datagrams.get(),
-            peakSessionUni.get(), errors.get(), transportUniLive.get(), transportUniPeak.get(),
-            transportUniCreated.get(), transportUniClosed.get(),
-            PooledByteBufAllocator.DEFAULT.metric().usedDirectMemory(), System.currentTimeMillis(),
-            retainedQuicUni);
-        out.flush();
-        if (i < seconds) {
-          Thread.sleep(1000);
+            Long old = previous.put(id, value);
+            if (old != null && value >= old) {
+              allocated += value - old;
+            }
+          }
+          long active = 0;
+          for (WebTransportSession apiSession : server.getActiveSessions()) {
+            NettyWebTransportSession session = (NettyWebTransportSession) apiSession;
+            active += session.getAllActiveWebTransportStreams().size();
+            peakSessionUni.accumulateAndGet(session.getActiveClientInitiatedUni().size(), Math::max);
+          }
+          long direct = 0;
+          long gc = 0;
+          long gcMs = 0;
+          for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
+            if ("direct".equals(pool.getName())) {
+              direct = pool.getMemoryUsed();
+            }
+          }
+          for (GarbageCollectorMXBean bean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            gc += Math.max(0, bean.getCollectionCount());
+            gcMs += Math.max(0, bean.getCollectionTime());
+          }
+          long retainedQuicUni = 0;
+          for (QuicChannel quic : trackedConnections) {
+            if (!quic.isOpen()) {
+              continue;
+            }
+            retainedQuicUni += quic.eventLoop().submit(() -> {
+              java.lang.reflect.Field field = quic.getClass().getDeclaredField("streams");
+              field.setAccessible(true);
+              io.netty.util.collection.LongObjectMap<?> map =
+                  (io.netty.util.collection.LongObjectMap<?>) field.get(quic);
+              long count = 0;
+              for (Object value : map.values()) {
+                if (((QuicStreamChannel) value).type() == QuicStreamType.UNIDIRECTIONAL) {
+                  count++;
+                }
+              }
+              return count;
+            }).get(2, TimeUnit.SECONDS);
+          }
+          out.printf(Locale.ROOT,
+              "%.3f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d%n",
+              (System.nanoTime() - start) / 1e9,
+              ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed(),
+              ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getUsed(), direct,
+              allocated, gc, gcMs, server.getActiveSessions().size(), active,
+              streamsOpened.get(), streamsClosed.get(), bytes.get(), datagrams.get(),
+              peakSessionUni.get(), errors.get(), transportUniLive.get(), transportUniPeak.get(),
+              transportUniCreated.get(), transportUniClosed.get(),
+              PooledByteBufAllocator.DEFAULT.metric().usedDirectMemory(), System.currentTimeMillis(),
+              retainedQuicUni);
+          out.flush();
+          if (i < seconds) {
+            Thread.sleep(1000);
+          }
         }
       }
     } finally {
