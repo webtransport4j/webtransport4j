@@ -1924,7 +1924,16 @@ public class WebTransportServer implements AutoCloseable {
     settings.put(SETTING_WT_MAX_STREAMS_UNI, limits.wtMaxUni);
     settings.put(SETTING_WT_MAX_STREAMS_BIDI, limits.wtMaxBidi);
     settings.put(SETTING_WT_INITIAL_MAX_DATA, limits.wtMaxData);
-    settings.put(SETTING_WEBTRANSPORT_MAX_SESSIONS, 1L);
+    // Advertise the same limit enforced in WebTransportHeadersHandler. Per
+    // draft-ietf-webtrans-http3 Section 5.1, a peer without negotiated flow control still sees at
+    // most one session; reserveSession caps the effective limit accordingly. Clamp to 0 because
+    // HTTP/3 setting values are unsigned varints.
+    settings.put(
+        SETTING_WEBTRANSPORT_MAX_SESSIONS,
+        Math.max(
+            0L,
+            WebTransportConfig.getInt(
+                "webtransport4j.webtransport.max_sessions_per_connection", 1)));
     if (logger.isDebugEnabled()) {
       logger.debug("Server side settings : {}", settings);
     }
