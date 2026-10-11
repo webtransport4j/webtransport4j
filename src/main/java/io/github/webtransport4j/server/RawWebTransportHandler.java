@@ -258,18 +258,14 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
       // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
       // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
-      long lastLimit;
-      while ((lastLimit = session.getLastSentDataBlockedLimit().get()) < peerLimit) {
-        if (session.getLastSentDataBlockedLimit().compareAndSet(lastLimit, peerLimit)) {
-          logger.warn(
-              "❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit"
-                  + " ({}). Sending WT_DATA_BLOCKED.",
-              currentSent,
-              bytesToWrite,
-              peerLimit);
-          WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
-          break;
-        }
+      if (session.tryRecordDataBlockedLimit(peerLimit)) {
+        logger.warn(
+            "❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit"
+                + " ({}). Sending WT_DATA_BLOCKED.",
+            currentSent,
+            bytesToWrite,
+            peerLimit);
+        WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
       }
       // Fail the write request immediately and release buffer to avoid leaks
       try {

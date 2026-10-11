@@ -1,10 +1,9 @@
 # Java concurrency verification
 
-These tests exercise the Java implementation alongside the [TLA+ specifications](../tla/README.md). They cover the six additional areas discussed: mailboxes, reactive publishers, TLS reload, flow control, async metrics, and configuration reload. Real QUIC tests also exercise established sessions during server drain.
+These tests exercise the Java implementation alongside the [TLA+ specifications](../tla/README.md). They cover the additional areas: reactive publishers, TLS reload, flow control, async metrics, and configuration reload. Real QUIC tests also exercise established sessions during server drain.
 
 | Area | Deterministic checks | Model/history checks | JCStress | Real QUIC |
 | --- | --- | --- | --- | --- |
-| Mailboxes | Enqueue/close and in-flight callback ownership | 100 seeded, 20-command FIFO/capacity/refcount histories | Datagram enqueue/close ownership | Streams and datagrams during drain |
 | Reactive publisher | Cancel during delivery; competing terminals; emit/complete ownership | All 1,024 five-command emit/request/complete/cancel histories | Item ownership and terminal count | — |
 | TLS reload | Late callback after close; older callback after newer reload | — | Install/close publication | New handshakes use rotated certificate; existing connection remains active |
 | Flow control | Two creators compete for one peer stream credit | 100 seeded, 20-command create/grant cumulative-credit histories | Concurrent stream reservation | Stream transport exercised; credit race uses controlled transport |
@@ -20,7 +19,7 @@ Event-loop lock safety is checked separately by `verification/locking`: an ASM c
 From the repository root, run:
 
 ```sh
-mvn -Pbench -Dexec.skip=true test -Dtest=PublisherConcurrencyTest,PublisherModelBasedTest,MetricsConcurrencyTest,MailboxConcurrencyTest,MailboxModelBasedTest,FlowControlModelBasedTest,ConfigReloadConcurrencyTest,QuicConcurrencyIntegrationTest,ConcurrencyRaceRegressionTest
+mvn -Pbench -Dexec.skip=true test -Dtest=PublisherConcurrencyTest,PublisherModelBasedTest,MetricsConcurrencyTest,FlowControlModelBasedTest,ConfigReloadConcurrencyTest,QuicConcurrencyIntegrationTest,ConcurrencyRaceRegressionTest
 ```
 
 These 21 tests are also included by ordinary Surefire discovery. QUIC tests require working local UDP sockets and the supported native QUIC library. They use real handshakes and trust the exact test certificate, with `localhost` as the peer name. Synchronization uses bounded latches, barriers and futures rather than sleeps. Configuration tests save and restore the root dynamic-properties file; run them serially, without an external process editing that file.

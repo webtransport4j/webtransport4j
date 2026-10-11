@@ -13,9 +13,9 @@ import org.junit.Test;
 /** Verifies the event-loop boundary rejects blocking control-plane operations. */
 public class EventLoopThreadSafetyTest {
   @Test(timeout = 10000)
-  public void rejectsControlPlaneLocksOnEventLoopButAllowsBusinessExecutor() throws Exception {
+  public void rejectsControlPlaneLocksOnEventLoopButAllowsWorkerThread() throws Exception {
     DefaultEventLoop loop = new DefaultEventLoop();
-    DefaultEventExecutor business = new DefaultEventExecutor();
+    DefaultEventExecutor worker = new DefaultEventExecutor();
     WebTransportServer server = WebTransportServer.builder().build();
     try {
       loop.submit(
@@ -32,7 +32,7 @@ public class EventLoopThreadSafetyTest {
                     () -> WebTransportConfig.removeProperty("locking.test"));
               })
           .get(3, TimeUnit.SECONDS);
-      business
+      worker
           .submit(
               () -> {
                 assertFalse(EventLoopSafety.inEventLoop());
@@ -42,7 +42,7 @@ public class EventLoopThreadSafetyTest {
     } finally {
       server.close();
       loop.shutdownGracefully(0, 0, TimeUnit.SECONDS).sync();
-      business.shutdownGracefully(0, 0, TimeUnit.SECONDS).sync();
+      worker.shutdownGracefully(0, 0, TimeUnit.SECONDS).sync();
     }
   }
 }

@@ -8,7 +8,6 @@ import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.server.WebTransportServerBuilder;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,8 +21,7 @@ import org.springframework.core.env.Environment;
 
 /**
  * Spring Auto-Configuration for WebTransport4J. Discovers handlers, endpoints annotated with {@link
- * WebTransportEndpoint}, custom metric listeners, executors, and bootstraps {@link
- * WebTransportServer}.
+ * WebTransportEndpoint}, custom metric listeners, and bootstraps {@link WebTransportServer}.
  */
 @Configuration
 public class WebTransportAutoConfiguration implements ApplicationContextAware {
@@ -200,15 +198,13 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
    * @param properties WebTransport configuration properties
    * @param metricsListenerProvider optional metrics listener provider
    * @param tokenHandlerProvider optional token handler provider
-   * @param executorProvider optional business executor provider
    * @return initialized WebTransportServer instance
    */
   @Bean
   public WebTransportServer webTransportServer(
       WebTransportProperties properties,
       ObjectProvider<WebTransportMetricsListener> metricsListenerProvider,
-      ObjectProvider<QuicTokenHandler> tokenHandlerProvider,
-      ObjectProvider<ExecutorService> executorProvider) {
+      ObjectProvider<QuicTokenHandler> tokenHandlerProvider) {
 
     WebTransportServerBuilder builder = WebTransportServer.builder();
 
@@ -227,7 +223,6 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
 
     metricsListenerProvider.ifAvailable(builder::metricsListener);
     tokenHandlerProvider.ifAvailable(builder::quicTokenHandler);
-    executorProvider.ifAvailable(builder::businessExecutor);
 
     // Auto-discover @WebTransportEndpoint annotated beans or WebTransportHandler beans
     Map<String, Object> endpointBeans =

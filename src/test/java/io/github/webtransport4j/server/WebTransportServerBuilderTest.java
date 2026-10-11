@@ -4,7 +4,6 @@ import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,7 +28,6 @@ public class WebTransportServerBuilderTest {
             .maxData(100000)
             .metricsListener(NoOpWebTransportMetricsListener.INSTANCE)
             .quicTokenHandler(InsecureQuicTokenHandler.INSTANCE)
-            .businessExecutor(Executors.newSingleThreadExecutor())
             .defaultHandler(customHandler)
             .reactiveHandler("/chat", customReactiveHandler)
             .build();

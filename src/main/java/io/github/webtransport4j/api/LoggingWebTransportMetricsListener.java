@@ -1,10 +1,13 @@
 package io.github.webtransport4j.api;
 
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.LongHandle;
+import java.lang.invoke.MethodHandles;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,24 +34,134 @@ public class LoggingWebTransportMetricsListener
   private static final Logger logger =
       LoggerFactory.getLogger(LoggingWebTransportMetricsListener.class);
 
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      TOTAL_SESSIONS_OPENED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "totalSessionsOpened",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "totalSessionsOpened"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      TOTAL_SESSIONS_CLOSED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "totalSessionsClosed",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "totalSessionsClosed"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      ACTIVE_SESSIONS_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "activeSessions",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "activeSessions"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      TOTAL_STREAMS_OPENED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "totalStreamsOpened",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "totalStreamsOpened"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      TOTAL_STREAMS_CLOSED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "totalStreamsClosed",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "totalStreamsClosed"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      DATAGRAMS_RECEIVED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "datagramsReceived",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "datagramsReceived"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      DATAGRAMS_SENT_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "datagramsSent",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "datagramsSent"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      DATAGRAMS_DISCARDED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "datagramsDiscarded",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "datagramsDiscarded"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      BYTES_RECEIVED_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "bytesReceived",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "bytesReceived"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      BYTES_SENT_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "bytesSent",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "bytesSent"));
+
+  private static final LongHandle<LoggingWebTransportMetricsListener>
+      CONNECTION_MIGRATIONS_HANDLE =
+          Handles.newLongHandle(
+              LoggingWebTransportMetricsListener.class,
+              "connectionMigrations",
+              MethodHandles.lookup(),
+              () ->
+                  AtomicLongFieldUpdater.newUpdater(
+                      LoggingWebTransportMetricsListener.class, "connectionMigrations"));
+
   // Session counters
-  private final AtomicLong totalSessionsOpened = new AtomicLong(0);
-  private final AtomicLong totalSessionsClosed = new AtomicLong(0);
-  private final AtomicLong activeSessions = new AtomicLong(0);
+  private volatile long totalSessionsOpened;
+  private volatile long totalSessionsClosed;
+  private volatile long activeSessions;
 
   // Stream counters
-  private final AtomicLong totalStreamsOpened = new AtomicLong(0);
-  private final AtomicLong totalStreamsClosed = new AtomicLong(0);
+  private volatile long totalStreamsOpened;
+  private volatile long totalStreamsClosed;
 
   // Datagram counters
-  private final AtomicLong datagramsReceived = new AtomicLong(0);
-  private final AtomicLong datagramsSent = new AtomicLong(0);
-  private final AtomicLong datagramsDiscarded = new AtomicLong(0);
-  private final AtomicLong bytesReceived = new AtomicLong(0);
-  private final AtomicLong bytesSent = new AtomicLong(0);
+  private volatile long datagramsReceived;
+  private volatile long datagramsSent;
+  private volatile long datagramsDiscarded;
+  private volatile long bytesReceived;
+  private volatile long bytesSent;
 
   // Connection migration counter
-  private final AtomicLong connectionMigrations = new AtomicLong(0);
+  private volatile long connectionMigrations;
 
   private final ScheduledExecutorService scheduler;
   private final ScheduledFuture<?> reportFuture;
@@ -79,47 +192,47 @@ public class LoggingWebTransportMetricsListener
 
   @Override
   public void onSessionOpened(long sessionId, @NonNull String path) {
-    totalSessionsOpened.incrementAndGet();
-    activeSessions.incrementAndGet();
+    TOTAL_SESSIONS_OPENED_HANDLE.incrementAndGet(this);
+    ACTIVE_SESSIONS_HANDLE.incrementAndGet(this);
   }
 
   @Override
   public void onSessionClosed(long sessionId, int closeCode) {
-    totalSessionsClosed.incrementAndGet();
-    activeSessions.decrementAndGet();
+    TOTAL_SESSIONS_CLOSED_HANDLE.incrementAndGet(this);
+    ACTIVE_SESSIONS_HANDLE.decrementAndGet(this);
   }
 
   @Override
   public void onStreamOpened(long sessionId, long streamId, boolean bidirectional) {
-    totalStreamsOpened.incrementAndGet();
+    TOTAL_STREAMS_OPENED_HANDLE.incrementAndGet(this);
   }
 
   @Override
   public void onStreamClosed(long sessionId, long streamId) {
-    totalStreamsClosed.incrementAndGet();
+    TOTAL_STREAMS_CLOSED_HANDLE.incrementAndGet(this);
   }
 
   @Override
   public void onDatagramReceived(long sessionId, int bytes) {
-    datagramsReceived.incrementAndGet();
-    bytesReceived.addAndGet(bytes);
+    DATAGRAMS_RECEIVED_HANDLE.incrementAndGet(this);
+    BYTES_RECEIVED_HANDLE.addAndGet(this, bytes);
   }
 
   @Override
   public void onDatagramSent(long sessionId, int bytes) {
-    datagramsSent.incrementAndGet();
-    bytesSent.addAndGet(bytes);
+    DATAGRAMS_SENT_HANDLE.incrementAndGet(this);
+    BYTES_SENT_HANDLE.addAndGet(this, bytes);
   }
 
   @Override
   public void onDatagramDiscarded(long sessionId, @NonNull String reason) {
-    datagramsDiscarded.incrementAndGet();
+    DATAGRAMS_DISCARDED_HANDLE.incrementAndGet(this);
   }
 
   @Override
   public void onConnectionMigration(
       long sessionId, @NonNull String oldAddress, @NonNull String newAddress) {
-    connectionMigrations.incrementAndGet();
+    CONNECTION_MIGRATIONS_HANDLE.incrementAndGet(this);
     logger.info(
         "🔀 [WT Metrics] Connection Migration | Session: {} | {} → {}",
         sessionId,
@@ -133,17 +246,17 @@ public class LoggingWebTransportMetricsListener
     if (!logger.isInfoEnabled()) {
       return;
     }
-    long active = activeSessions.get();
-    long opened = totalSessionsOpened.get();
-    long closed = totalSessionsClosed.get();
-    long streamsOpened = totalStreamsOpened.get();
-    long streamsClosed = totalStreamsClosed.get();
-    long dgRecv = datagramsReceived.get();
-    long dgSent = datagramsSent.get();
-    long dgDiscard = datagramsDiscarded.get();
-    long bytesReceivedTotal = bytesReceived.get();
-    long bytesSentTotal = bytesSent.get();
-    long migrations = connectionMigrations.get();
+    long active = activeSessions;
+    long opened = totalSessionsOpened;
+    long closed = totalSessionsClosed;
+    long streamsOpened = totalStreamsOpened;
+    long streamsClosed = totalStreamsClosed;
+    long dgRecv = datagramsReceived;
+    long dgSent = datagramsSent;
+    long dgDiscard = datagramsDiscarded;
+    long bytesReceivedTotal = bytesReceived;
+    long bytesSentTotal = bytesSent;
+    long migrations = connectionMigrations;
 
     logger.info(
         "📊 [WT Metrics] Active: {} sessions | Opened: {} | Closed: {} | Streams: {} opened / {}"
@@ -182,17 +295,17 @@ public class LoggingWebTransportMetricsListener
     return String.format(
         "Sessions[active=%d, opened=%d, closed=%d] Streams[opened=%d, closed=%d] "
             + "Datagrams[recv=%d, sent=%d, discarded=%d] Bytes[recv=%s, sent=%s] Migrations=%d",
-        activeSessions.get(),
-        totalSessionsOpened.get(),
-        totalSessionsClosed.get(),
-        totalStreamsOpened.get(),
-        totalStreamsClosed.get(),
-        datagramsReceived.get(),
-        datagramsSent.get(),
-        datagramsDiscarded.get(),
-        formatBytes(bytesReceived.get()),
-        formatBytes(bytesSent.get()),
-        connectionMigrations.get());
+        activeSessions,
+        totalSessionsOpened,
+        totalSessionsClosed,
+        totalStreamsOpened,
+        totalStreamsClosed,
+        datagramsReceived,
+        datagramsSent,
+        datagramsDiscarded,
+        formatBytes(bytesReceived),
+        formatBytes(bytesSent),
+        connectionMigrations);
   }
 
   private static String formatBytes(long bytes) {

@@ -97,6 +97,12 @@ public class WebTransportSessionPriorityTest {
               ReferenceCountUtil.safeRelease(invocation.getArgument(0));
               return mock(ChannelFuture.class);
             });
+    when(mockCreatedStream.writeAndFlush(any(), any()))
+        .thenAnswer(
+            invocation -> {
+              ReferenceCountUtil.safeRelease(invocation.getArgument(0));
+              return mock(ChannelFuture.class);
+            });
 
     Attribute<WebTransportStream> streamAttr = mock(Attribute.class);
     when(mockCreatedStream.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);

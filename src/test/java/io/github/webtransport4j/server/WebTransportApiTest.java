@@ -205,17 +205,11 @@ public class WebTransportApiTest {
     when(mockStreamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
         .thenReturn(serverInitAttr);
 
-    when(mockParent.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR))
-        .thenReturn(mock(Attribute.class));
-
     ByteBuf data = Unpooled.copiedBuffer("Hello API", StandardCharsets.UTF_8);
     WebTransportStreamFrame frame = new WebTransportStreamFrame(100L, 200L, true, data);
 
     MessageDispatcher dispatcher = new DefaultMessageDispatcher();
     dispatcher.channelRead(mockCtx, frame);
-
-    // Wait for the asynchronous businessPool task execution to finish
-    Thread.sleep(200);
 
     assertNotNull(incomingStreamRef.get());
     assertEquals("Hello API", dataReceivedRef.get());

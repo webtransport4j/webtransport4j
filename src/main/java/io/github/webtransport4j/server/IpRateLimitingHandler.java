@@ -1,5 +1,7 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.internal.handles.Handles;
+import io.github.webtransport4j.internal.handles.IntHandle;
 import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
 import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
@@ -8,6 +10,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.lang.invoke.MethodHandles;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Map;
@@ -17,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -350,10 +353,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   }
 
   private static class ConnectionCount {
-    private final AtomicInteger count = new AtomicInteger(0);
+    private static final IntHandle<ConnectionCount> COUNT_HANDLE =
+        Handles.newIntHandle(
+            ConnectionCount.class,
+            "count",
+            MethodHandles.lookup(),
+            () -> AtomicIntegerFieldUpdater.newUpdater(ConnectionCount.class, "count"));
+
+    private volatile int count;
 
     public int incrementAndGet() {
-      return count.incrementAndGet();
+      return COUNT_HANDLE.incrementAndGet(this);
     }
   }
 }

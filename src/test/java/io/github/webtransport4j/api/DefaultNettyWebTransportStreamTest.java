@@ -2,6 +2,8 @@ package io.github.webtransport4j.api;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -21,8 +23,15 @@ import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.GenericFutureListener;
 import java.nio.channels.ClosedChannelException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -276,5 +285,103 @@ public class DefaultNettyWebTransportStreamTest {
 
     stream.read();
     verify(channel).read();
+  }
+
+  @Test
+  public void testConsumerRegistrationMutualExclusionAndAtomicity() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(1L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    assertNull(stream.getDataConsumer());
+    assertNull(stream.getRawByteBufConsumer());
+
+    stream.onData(b -> {});
+    assertNotNull(stream.getDataConsumer());
+    assertNull(stream.getRawByteBufConsumer());
+
+    try {
+      stream.onData(b -> {});
+      fail("Expected IllegalStateException on duplicate onData");
+    } catch (IllegalStateException expected) {
+      // expected
+    }
+
+    try {
+      stream.onRawByteBuf(b -> {});
+      fail("Expected IllegalStateException on onRawByteBuf after onData");
+    } catch (IllegalStateException expected) {
+      // expected
+    }
+  }
+
+  @Test
+  public void testRawConsumerRegistrationPreventsDataConsumer() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(2L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    stream.onRawByteBuf(b -> {});
+    assertNotNull(stream.getRawByteBufConsumer());
+    assertNull(stream.getDataConsumer());
+
+    try {
+      stream.onRawByteBuf(b -> {});
+      fail("Expected IllegalStateException on duplicate onRawByteBuf");
+    } catch (IllegalStateException expected) {
+      // expected
+    }
+
+    try {
+      stream.onData(b -> {});
+      fail("Expected IllegalStateException on onData after onRawByteBuf");
+    } catch (IllegalStateException expected) {
+      // expected
+    }
+  }
+
+  @Test
+  public void testConcurrentConsumerRegistrationAllowsExactlyOne() throws Exception {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    when(channel.streamId()).thenReturn(3L);
+    when(channel.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+
+    DefaultNettyWebTransportStream stream = new DefaultNettyWebTransportStream(channel, 0L);
+    int threads = 8;
+    ExecutorService executor = Executors.newFixedThreadPool(threads);
+    CyclicBarrier barrier = new CyclicBarrier(threads);
+    AtomicInteger successes = new AtomicInteger();
+    AtomicInteger failures = new AtomicInteger();
+    List<Future<?>> futures = new ArrayList<>();
+
+    for (int i = 0; i < threads; i++) {
+      final int idx = i;
+      futures.add(executor.submit(() -> {
+        try {
+          barrier.await();
+          if (idx % 2 == 0) {
+            stream.onData(b -> {});
+          } else {
+            stream.onRawByteBuf(b -> {});
+          }
+          successes.incrementAndGet();
+        } catch (IllegalStateException e) {
+          failures.incrementAndGet();
+        } catch (Exception e) {
+          throw new RuntimeException(e);
+        }
+      }));
+    }
+
+    for (Future<?> f : futures) {
+      f.get();
+    }
+    executor.shutdown();
+
+    assertEquals(1, successes.get());
+    assertEquals(threads - 1, failures.get());
+    assertTrue(stream.getDataConsumer() != null ^ stream.getRawByteBufConsumer() != null);
   }
 }

@@ -111,9 +111,8 @@ public class AdaptiveOverloadProtectionTest {
   }
 
   private static void expireCoolOff(AdaptiveCircuitBreaker breaker) throws Exception {
-    AtomicLong timestamp = (AtomicLong) ConcurrencySupport.field(
-        breaker, "lastStateChangeTimestamp");
-    timestamp.set(System.currentTimeMillis() - breaker.getResetTimeoutMillis());
+    ConcurrencySupport.replace(
+        breaker, "lastStateChangeTimestamp", System.currentTimeMillis() - breaker.getResetTimeoutMillis());
   }
 
   @Test

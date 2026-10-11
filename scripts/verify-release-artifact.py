@@ -11,8 +11,10 @@ from pathlib import Path
 
 
 BASELINE_CLASS_VERSION = 52  # Java 8
+JAVA_11_CLASS_VERSION = 55
 JAVA_25_CLASS_VERSION = 69
-VERSIONED_PREFIX = "META-INF/versions/25/"
+JAVA_11_PREFIX = "META-INF/versions/11/"
+JAVA_25_PREFIX = "META-INF/versions/25/"
 
 
 def fail(message: str) -> None:
@@ -54,12 +56,24 @@ def validate_jar(path: Path) -> None:
             name for name in class_names if name.startswith("META-INF/versions/")
         ]
         if not versioned_classes:
+            fail("JAR contains no versioned classes")
+
+        java_11_classes = [
+            name for name in versioned_classes if name.startswith(JAVA_11_PREFIX)
+        ]
+        if not java_11_classes:
+            fail("JAR contains no Java 11 versioned classes")
+
+        java_25_classes = [
+            name for name in versioned_classes if name.startswith(JAVA_25_PREFIX)
+        ]
+        if not java_25_classes:
             fail("JAR contains no Java 25 versioned classes")
 
         unexpected_versions = [
             name
             for name in versioned_classes
-            if not name.startswith(VERSIONED_PREFIX)
+            if not name.startswith(JAVA_11_PREFIX) and not name.startswith(JAVA_25_PREFIX)
         ]
         if unexpected_versions:
             fail(
@@ -69,9 +83,12 @@ def validate_jar(path: Path) -> None:
 
         for name in class_names:
             major = class_major(jar.read(name), name)
-            if name.startswith(VERSIONED_PREFIX):
+            if name.startswith(JAVA_25_PREFIX):
                 if major != JAVA_25_CLASS_VERSION:
                     fail(f"{name} has class version {major}, expected 69")
+            elif name.startswith(JAVA_11_PREFIX):
+                if major != JAVA_11_CLASS_VERSION:
+                    fail(f"{name} has class version {major}, expected 55")
             elif major > BASELINE_CLASS_VERSION:
                 fail(f"{name} has class version {major}, expected at most 52")
 

@@ -13,12 +13,10 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicPathEvent;
 import io.netty.handler.ssl.SslHandshakeCompletionEvent;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
-import io.netty.util.concurrent.EventExecutorGroup;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -36,8 +34,6 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
 
   private final Http3Settings settings;
 
-  private final ExecutorService businessExecutor;
-
   private final WebTransportServer server;
 
   private final List<String> allowedOrigins;
@@ -49,13 +45,11 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
   public QuicChannelInitializer(
       WebTransportServer server,
       Http3Settings settings,
-      ExecutorService businessExecutor,
       List<String> allowedOrigins,
       AtomicInteger globalActiveSessions,
       AtomicInteger globalSessionSlots) {
     this.server = server;
     this.settings = settings;
-    this.businessExecutor = businessExecutor;
     this.allowedOrigins = allowedOrigins;
     this.globalActiveSessions = globalActiveSessions;
     this.globalSessionSlots = globalSessionSlots;
@@ -75,19 +69,6 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
     ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(false);
 
-    ExecutorService resolvedExecutor = this.businessExecutor;
-    if (resolvedExecutor instanceof EventExecutorGroup) {
-      resolvedExecutor = ((EventExecutorGroup) resolvedExecutor).next();
-    }
-
-    if (resolvedExecutor != null) {
-      ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(resolvedExecutor);
-      logger.debug(
-          "⚠️  BUSINESS EXECUTOR CONFIGURED: {} (Execution mode: NOT NETTY_EVENT_LOOP)",
-          resolvedExecutor.getClass().getSimpleName());
-    } else {
-      logger.debug("✓ Business executor is NULL - using direct NETTY_EVENT_LOOP execution");
-    }
     long connWriteLimit =
         WebTransportConfig.getLong("webtransport4j.server.traffic.connection.write.limit", 0L);
     long connReadLimit =
@@ -145,24 +126,9 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     ch.attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER)
         .set(this.server.getMessageDispatcherSupplier());
     ch.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(this.server.getMetricsListener());
-    if (resolvedExecutor != null) {
-      ch.attr(WebTransportAttributeKeys.BUSINESS_EXECUTOR).set(resolvedExecutor);
-      if (logger.isDebugEnabled()) {
-        logger.debug(
-            "📌 Set BUSINESS_EXECUTOR on channel: {}", resolvedExecutor.getClass().getSimpleName());
-      }
-    } else {
-      if (logger.isDebugEnabled()) {
-        logger.debug("📌 BUSINESS_EXECUTOR is NULL on channel (direct event loop execution)");
-      }
-    }
     ch.attr(WebTransportAttributeKeys.ALLOWED_ORIGINS).set(allowedOrigins);
     ch.attr(WebTransportAttributeKeys.ORIGIN_VALIDATOR).set(this.server.getOriginValidator());
     ch.attr(WebTransportAttributeKeys.STRICT_ORIGIN_VALIDATION).set(this.server.isStrictOriginValidation());
-    ch.pipeline().addLast(WebTransportDatagramDecoder.INSTANCE);
-    if (logger.isDebugEnabled()) {
-      logger.debug("🔧 Added WebTransportDatagramDecoder. Pipeline now: {}", ch.pipeline().names());
-    }
     ch.pipeline().addLast(this.server.getMessageDispatcherSupplier().get());
     if (logger.isDebugEnabled()) {
       logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());

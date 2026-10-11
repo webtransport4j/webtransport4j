@@ -7,7 +7,6 @@ import io.github.webtransport4j.security.OriginValidator;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import io.netty.util.AttributeKey;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -18,6 +17,8 @@ public final class WebTransportAttributeKeys {
 
   public static final AttributeKey<Boolean> CONNECTION_DRAINING =
       AttributeKey.valueOf("wt.connection.draining");
+  public static final AttributeKey<AtomicInteger> REJECTED_CLIENT_STREAMS =
+      AttributeKey.valueOf("wt.connection.rejectedClientStreams");
 
   // Session-related Attribute Keys
   public static final AttributeKey<WebTransportServer> SERVER_KEY =
@@ -41,9 +42,6 @@ public final class WebTransportAttributeKeys {
       AttributeKey.valueOf("wt.peer.settings.valid");
 
   public static final AttributeKey<Boolean> WT_ENABLED = AttributeKey.valueOf("wt.enabled");
-
-  public static final AttributeKey<ExecutorService> BUSINESS_EXECUTOR =
-      AttributeKey.valueOf("wt.business.executor");
 
   public static final AttributeKey<List<String>> ALLOWED_ORIGINS =
       AttributeKey.valueOf("wt.allowed.origins");
@@ -99,14 +97,6 @@ public final class WebTransportAttributeKeys {
   // Message dispatcher factory
   public static final AttributeKey<Supplier<MessageDispatcher>> MESSAGE_DISPATCHER_SUPPLIER =
       AttributeKey.valueOf("wt.message.dispatcher.supplier");
-
-  // Stream Mailbox Attribute Key
-  public static final AttributeKey<StreamMailbox> STREAM_MAILBOX_KEY =
-      AttributeKey.valueOf("wt.stream.mailbox");
-
-  // Datagram Mailbox Attribute Key
-  public static final AttributeKey<DatagramMailbox> DATAGRAM_MAILBOX_KEY =
-      AttributeKey.valueOf("wt.datagram.mailbox");
 
   // Resilience & Overload Protection Attribute Key
   public static final AttributeKey<OverloadProtectionPolicy> OVERLOAD_POLICY =

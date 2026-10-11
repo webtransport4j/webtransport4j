@@ -123,7 +123,17 @@ public interface WebTransportHandler {
         });
   }
 
-  /** On Datagram Received. */
+  /**
+   * Invoked when an incoming WebTransport datagram is received.
+   *
+   * <p>The payload is delivered as a neutral {@link WebTransportBuffer} abstraction.
+   * If the session registers a direct raw consumer via
+   * {@link io.github.webtransport4j.server.NettyWebTransportSession#onRawDatagram}, incoming
+   * datagrams are routed directly to that consumer instead to eliminate wrapper allocations.
+   *
+   * @param session the receiving WebTransport session
+   * @param data the datagram payload buffer
+   */
   default void onDatagramReceived(
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
     if (logger.isDebugEnabled()) {

@@ -17,12 +17,12 @@ We introduced multi-layered overload protection and admission control:
 3. **Adaptive Circuit Breaker (`AdaptiveCircuitBreaker`)**:
    - Atomic state transitions (`CLOSED` -> `OPEN` -> `HALF_OPEN`).
    - Automatically trips open when consecutive failure thresholds are breached, shedding requests immediately.
-4. **QoS Priority Datagram Scheduling (`DatagramMailbox`)**:
-   - Dual-queue priority scheduling with eviction of older normal-priority frames when high-priority frames arrive on a saturated queue.
+4. **Zero-Copy Netty EventLoop Dispatching**:
+   - Inbound datagrams and stream buffers are dispatched directly on the Netty `EventLoop` thread with zero transport-level queuing overhead or mailbox allocation. Handlers needing custom prioritization or worker pools can safely retain buffers (`buffer.retain()`) and manage application-level queues.
 
 ## Consequences
 
 ### Positive
 - **Graceful Degradation**: Protects the server process from crashing; rejects new sessions with HTTP 503, includes a retry delay when supplied, and closes the CONNECT stream.
-- **Fair QoS Delivery**: Urgent telemetry and control datagrams preempt bulk background datagrams under congestion.
+- **Zero-GC Throughput**: Direct EventLoop dispatch avoids synchronization contention, locks, and intermediate object allocation.
 - **Standard Protocol Compliance**: Employs standard HTTP/3 status codes and headers.

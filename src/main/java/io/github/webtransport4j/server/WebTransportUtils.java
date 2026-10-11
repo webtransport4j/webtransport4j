@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -255,7 +256,7 @@ public class WebTransportUtils {
                         ? BI_STREAM_TYPE
                         : UNI_STREAM_TYPE);
                 writeVarInt(header, connectStreamChannel.streamId());
-                stream.writeAndFlush(header);
+                stream.writeAndFlush(header, stream.voidPromise());
                 if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
                   session.getActiveServerInitiatedBi().add(stream);
                 } else {
@@ -819,8 +820,7 @@ public class WebTransportUtils {
           channel,
           sessionId);
       if (channel instanceof QuicStreamChannel) {
-        ((QuicStreamChannel) channel)
-            .shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+        rejectClientStream(ctx, WebTransportUtils.WT_BUFFERED_STREAM_REJECTED);
       } else if (channel != null) {
         ctx.close();
       }
@@ -838,7 +838,7 @@ public class WebTransportUtils {
       if (metrics != null) {
         metrics.onDatagramDiscarded(sessionId, "unknown_session_id");
       }
-      stream.shutdown(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_BUFFERED_STREAM_REJECTED);
       return false;
     }
 
@@ -852,7 +852,7 @@ public class WebTransportUtils {
             streamType,
             isBidiStream);
         mgr.closeSessionWithFlowControlError(sessionId);
-        stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+        rejectClientStream(ctx, WebTransportUtils.WT_FLOW_CONTROL_ERROR);
         return false;
       }
     }
@@ -887,7 +887,7 @@ public class WebTransportUtils {
     NettyWebTransportSession session = mgr.get(sessionId);
     if (session == null) {
       logger.warn("❌ Session {} disappeared during stream admission", sessionId);
-      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       return false;
     }
     // Draft-16 Section 4.7 permits new streams after WT_DRAIN_SESSION.
@@ -896,7 +896,7 @@ public class WebTransportUtils {
           "❌ Rejecting incoming stream for session {}: session is closed."
               + " Resetting stream with WT_SESSION_GONE.",
           sessionId);
-      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       return false;
     }
     boolean isBidi = (streamType == WebTransportUtils.BI_STREAM_TYPE);
@@ -913,7 +913,7 @@ public class WebTransportUtils {
           value,
           maxAllowed);
       mgr.closeSessionWithFlowControlError(session);
-      stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_FLOW_CONTROL_ERROR);
       return false;
     }
     if (logger.isDebugEnabled()) {
@@ -932,7 +932,7 @@ public class WebTransportUtils {
           "❌ Rejecting incoming stream for session {}: session was closed concurrently."
               + " Resetting stream with WT_SESSION_GONE.",
           sessionId);
-      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       return false;
     }
 
@@ -969,8 +969,7 @@ public class WebTransportUtils {
           parent,
           channel);
       if (channel instanceof QuicStreamChannel) {
-        ((QuicStreamChannel) channel)
-            .shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+        rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       } else if (channel != null) {
         ctx.close();
       }
@@ -991,7 +990,7 @@ public class WebTransportUtils {
       logger.warn(
           "❌ Received stream data with missing SessionManager for session {}",
           sessionId);
-      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       return false;
     }
     NettyWebTransportSession session = mgr.get(sessionId);
@@ -999,7 +998,7 @@ public class WebTransportUtils {
       logger.warn(
           "❌ Received data for unknown or closed WebTransport Session {}. Rejecting QUIC stream.",
           sessionId);
-      stream.shutdown(WebTransportUtils.WT_SESSION_GONE, ctx.newPromise());
+      rejectClientStream(ctx, WebTransportUtils.WT_SESSION_GONE);
       return false;
     }
 
@@ -1017,7 +1016,7 @@ public class WebTransportUtils {
             newCumulativeReceived,
             localLimit);
         mgr.closeSessionWithFlowControlError(session);
-        stream.shutdown(WebTransportUtils.WT_FLOW_CONTROL_ERROR, ctx.newPromise());
+        rejectClientStream(ctx, WebTransportUtils.WT_FLOW_CONTROL_ERROR);
         return false;
       }
       if (logger.isDebugEnabled()) {
@@ -1029,5 +1028,37 @@ public class WebTransportUtils {
       }
     }
     return true;
+  }
+
+  /** Signal the protocol error and release local channel ownership even without peer FIN. */
+  static void rejectClientStream(ChannelHandlerContext ctx, int error) {
+    try {
+      ((QuicStreamChannel) ctx.channel()).shutdown(error, ctx.newPromise());
+    } finally {
+      ctx.channel().close();
+      Channel parent = ctx.channel().parent();
+      if (parent instanceof QuicChannel) {
+        Attribute<AtomicInteger> attribute =
+            parent.attr(WebTransportAttributeKeys.REJECTED_CLIENT_STREAMS);
+        if (attribute != null) {
+          AtomicInteger rejected = attribute.get();
+          if (rejected == null) {
+            AtomicInteger candidate = new AtomicInteger();
+            AtomicInteger existing = attribute.setIfAbsent(candidate);
+            rejected = existing == null ? candidate : existing;
+          }
+          int limit = Math.max(1, WebTransportConfig.getInt(
+              "webtransport4j.webtransport.max.rejected.streams.per.connection", 64));
+          if (rejected.incrementAndGet() == limit) {
+            // Netty retains remotely-created stream entries until peer FIN/RESET, even after local
+            // close. Bound peers that ignore STOP_SENDING by retiring the abusive connection.
+            logger.warn("Closing QUIC connection after {} rejected WebTransport streams", limit);
+            ((QuicChannel) parent).close(true,
+                (int) io.netty.handler.codec.http3.Http3ErrorCode.H3_EXCESSIVE_LOAD.code(),
+                Unpooled.EMPTY_BUFFER);
+          }
+        }
+      }
+    }
   }
 }

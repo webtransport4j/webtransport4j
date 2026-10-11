@@ -25,9 +25,27 @@ public interface WebTransportStream {
   void reset(long appErrorCode);
 
   /* ---------- Callbacks ---------- */
+
+  /**
+   * Registers a callback to be invoked when stream payload data is received.
+   *
+   * <p>Incoming payloads are provided as neutral {@link WebTransportBuffer} instances.
+   * Only one consumer may be registered per stream. Registering multiple data consumers or
+   * mixing with raw Netty consumers (e.g., {@code onRawByteBuf}) is rejected with
+   * {@link IllegalStateException} to prevent conflicting buffer mutations and ensure deterministic
+   * reference counting.
+   *
+   * @param consumer the data consumer callback
+   */
   void onData(@NonNull Consumer<WebTransportBuffer> consumer);
 
-  /** On Data. */
+  /**
+   * Registers a decoded message callback using the specified {@link StreamCodec}.
+   *
+   * @param <T> decoded message type
+   * @param codec codec used to decode incoming payloads
+   * @param consumer consumer receiving decoded messages
+   */
   default <T> void onData(@NonNull StreamCodec<T> codec, @NonNull Consumer<T> consumer) {
     onData(
         buf ->
@@ -69,6 +87,15 @@ public interface WebTransportStream {
   @NonNull CompletableFuture<Void> writeText(@NonNull String text);
 
   @NonNull CompletableFuture<Void> writeText(@NonNull String text, @NonNull Charset charset);
+
+  /**
+   * Writes and flushes data directly without allocating a promise or future.
+   *
+   * @param data the buffer to write
+   */
+  default void writeDirect(@NonNull WebTransportBuffer data) {
+    write(data);
+  }
 
   /* ---------- Attributes ---------- */
   boolean hasAttribute(@NonNull String key);
