@@ -149,7 +149,6 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
-  private final Set<WebTransportSession> activeSessionsSet = ConcurrentHashMap.newKeySet();
   private final Map<Long, WebTransportSession> activeSessionsById = new ConcurrentHashMap<>();
   private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
@@ -674,7 +673,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
-    return activeSessionsSet.size();
+    return activeSessionsById.size();
   }
 
   /**
@@ -684,7 +683,6 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void registerSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
-    activeSessionsSet.add(session);
     activeSessionsById.put(session.getUniqueSessionId(), session);
     activeSessionsMap.put(session.getSessionStreamId(), session);
     if (state.get() == ServerState.DRAINING || state.get() == ServerState.STOPPING) {
@@ -699,7 +697,6 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void unregisterSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
-    activeSessionsSet.remove(session);
     activeSessionsById.remove(session.getUniqueSessionId());
     activeSessionsMap.remove(session.getSessionStreamId(), session);
     sessionClosures.release();
@@ -713,23 +710,20 @@ public class WebTransportServer implements AutoCloseable {
   public void unregisterSession(long sessionId) {
     WebTransportSession removed = activeSessionsById.remove(sessionId);
     if (removed != null) {
-      activeSessionsSet.remove(removed);
       activeSessionsMap.remove(removed.getSessionStreamId(), removed);
       sessionClosures.release();
       return;
     }
     removed = activeSessionsMap.remove(sessionId);
     if (removed != null) {
-      activeSessionsSet.remove(removed);
       activeSessionsById.remove(removed.getUniqueSessionId());
       sessionClosures.release();
       return;
     }
-    for (WebTransportSession s : activeSessionsSet) {
+    for (WebTransportSession s : activeSessionsById.values()) {
       if (s.getUniqueSessionId() == sessionId
           || s.getSessionStreamId() == sessionId
           || Math.abs((long) System.identityHashCode(s)) == sessionId) {
-        activeSessionsSet.remove(s);
         activeSessionsById.remove(s.getUniqueSessionId());
         activeSessionsMap.remove(s.getSessionStreamId(), s);
         sessionClosures.release();
@@ -744,7 +738,7 @@ public class WebTransportServer implements AutoCloseable {
    * @return collection of active sessions
    */
   public @NonNull Collection<WebTransportSession> getActiveSessions() {
-    return Collections.unmodifiableCollection(activeSessionsSet);
+    return Collections.unmodifiableCollection(activeSessionsById.values());
   }
 
   /**
@@ -762,7 +756,7 @@ public class WebTransportServer implements AutoCloseable {
     if (session != null) {
       return session;
     }
-    for (WebTransportSession s : activeSessionsSet) {
+    for (WebTransportSession s : activeSessionsById.values()) {
       if (s.getUniqueSessionId() == sessionId
           || s.getSessionStreamId() == sessionId
           || Math.abs((long) System.identityHashCode(s)) == sessionId) {
@@ -791,7 +785,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void drainActiveSessions() {
-    for (WebTransportSession session : activeSessionsSet) {
+    for (WebTransportSession session : activeSessionsById.values()) {
       try {
         if (session.isOpen()) {
           session.drain();
@@ -2174,7 +2168,7 @@ public class WebTransportServer implements AutoCloseable {
       }
       drainActiveSessions();
       sessionClosures.drainPermits();
-      while (!activeSessionsSet.isEmpty()) {
+      while (!activeSessionsById.isEmpty()) {
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
           break;
@@ -2188,7 +2182,7 @@ public class WebTransportServer implements AutoCloseable {
           break;
         }
       }
-      for (WebTransportSession session : activeSessionsSet) {
+      for (WebTransportSession session : activeSessionsById.values()) {
         try {
           session.close();
         } catch (RuntimeException failure) {
