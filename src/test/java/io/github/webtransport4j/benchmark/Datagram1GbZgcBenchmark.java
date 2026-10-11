@@ -386,8 +386,8 @@ public final class Datagram1GbZgcBenchmark {
     if (pacingMicros > 0) {
       System.out.printf(
           ">>> Client: Launching %d concurrent client connections streaming total %,d bytes"
-              + " (pacing: %,d µs/pkt)...%n",
-          concurrency, targetBytes, pacingMicros);
+              + " (aggregate: %,d µs/pkt, %,d µs/client)...%n",
+          concurrency, targetBytes, pacingMicros, pacingMicros * concurrency);
     } else {
       System.out.printf(
           ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
@@ -406,6 +406,8 @@ public final class Datagram1GbZgcBenchmark {
       CountDownLatch clientLatch = new CountDownLatch(concurrency);
       AtomicReference<Throwable> failure = new AtomicReference<>();
 
+      final long perClientPacingMicros = pacingMicros > 0 ? (pacingMicros * concurrency) : 0L;
+
       for (int i = 0; i < concurrency; i++) {
         final int clientId = i;
         final long bytesToSend = (i == concurrency - 1)
@@ -414,7 +416,7 @@ public final class Datagram1GbZgcBenchmark {
         executor.submit(() -> {
           try {
             runSingleClient(
-                host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext, pacingMicros);
+                host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext, perClientPacingMicros);
           } catch (Throwable t) {
             System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
             failure.compareAndSet(null, t);
