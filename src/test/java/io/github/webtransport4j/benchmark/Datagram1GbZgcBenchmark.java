@@ -544,6 +544,10 @@ public final class Datagram1GbZgcBenchmark {
     System.out.println();
   }
 
+  static String formatMemoryPoolMax(long maxBytes) {
+    return maxBytes < 0 ? "N/A" : String.format(Locale.ROOT, "%.2f MiB", maxBytes / (1024.0 * 1024.0));
+  }
+
   static void writeMarkdownReport(
       String filePath,
       long totalDgrams,
@@ -587,10 +591,10 @@ public final class Datagram1GbZgcBenchmark {
       out.printf("| **Completed On Time (latch)** | %s |%n", completedOnTime);
       out.printf("| **Target Reached** | %s |%n", totalBytes >= targetBytes);
       out.printf(Locale.ROOT, "| **Total Datagrams Received** | %,d packets |%n", totalDgrams);
-      out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MB / %.2f GiB) |%n",
+      out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MiB / %.2f GiB) |%n",
           totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
       out.printf(Locale.ROOT, "| **Active Transfer Duration** | %.3f s |%n", durationSec);
-      out.printf(Locale.ROOT, "| **Data Throughput** | **%.2f MB/s** |%n", throughputMbPerSec);
+      out.printf(Locale.ROOT, "| **Data Throughput** | **%.2f MiB/s** |%n", throughputMbPerSec);
       out.printf(Locale.ROOT, "| **Packet Throughput** | **%,.1f datagrams/s** |%n", throughputDgramSec);
       out.println();
       out.println("### 2. Garbage Collection & Heap Performance");
@@ -605,15 +609,15 @@ public final class Datagram1GbZgcBenchmark {
               : "Nonzero pause time recorded by pause MXBeans");
       out.printf(Locale.ROOT, "| **Total ZGC Cycle Time** | **%d ms** | Concurrent cycle time |%n",
           totalGcCycleMs);
-      out.printf(Locale.ROOT, "| **Initial Used Heap** | %,d bytes (%.2f MB) | Baseline before flood |%n",
+      out.printf(Locale.ROOT, "| **Initial Used Heap** | %,d bytes (%.2f MiB) | Baseline before flood |%n",
           initialHeapUsed, initialHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MB) | Maximum heap during flood |%n",
+      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MiB) | Maximum heap during flood |%n",
           peakHeapUsed, peakHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Final Used Heap** | %,d bytes (%.2f MB) | Steady-state post-flood |%n",
+      out.printf(Locale.ROOT, "| **Final Used Heap** | %,d bytes (%.2f MiB) | Steady-state post-flood |%n",
           finalHeapUsed, finalHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Heap Delta** | %,d bytes (%.2f MB) | Net change |%n",
+      out.printf(Locale.ROOT, "| **Heap Delta** | %,d bytes (%.2f MiB) | Net change |%n",
           (finalHeapUsed - initialHeapUsed), (finalHeapUsed - initialHeapUsed) / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Off-Heap Direct Memory** | %,d bytes (%.2f MB) | Netty direct buffer pool |%n",
+      out.printf(Locale.ROOT, "| **Off-Heap Direct Memory** | %,d bytes (%.2f MiB) | Netty direct buffer pool |%n",
           directUsed, directUsed / (1024.0 * 1024.0));
       out.println();
       out.println("### 3. Active Garbage Collector Details");
@@ -627,12 +631,12 @@ public final class Datagram1GbZgcBenchmark {
       out.println();
       out.println("### 4. Thread-by-Thread Allocations During Flood");
       out.println();
-      out.println("| Thread Name | Bytes Allocated | Megabytes Allocated |");
+      out.println("| Thread Name | Bytes Allocated | MiB Allocated |");
       out.println("| :--- | :--- | :--- |");
       threadAllocDeltas.entrySet().stream()
           .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
           .forEach(e -> {
-            out.printf(Locale.ROOT, "| `%s` | %,d bytes | %.2f MB |%n",
+            out.printf(Locale.ROOT, "| `%s` | %,d bytes | %.2f MiB |%n",
                 e.getKey(), e.getValue(), e.getValue() / (1024.0 * 1024.0));
           });
       out.println();
@@ -646,13 +650,13 @@ public final class Datagram1GbZgcBenchmark {
       out.println();
       out.println("### 6. Memory Pools Usage");
       out.println();
-      out.println("| Memory Pool | Used (MB) | Max (MB) |");
+      out.println("| Memory Pool | Used (MiB) | Max (MiB) |");
       out.println("| :--- | :--- | :--- |");
       for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
         MemoryUsage usage = pool.getUsage();
         if (usage != null) {
-          out.printf(Locale.ROOT, "| `%s` | %.2f MB | %.2f MB |%n",
-              pool.getName(), usage.getUsed() / (1024.0 * 1024.0), usage.getMax() / (1024.0 * 1024.0));
+          out.printf(Locale.ROOT, "| `%s` | %.2f MiB | %s |%n",
+              pool.getName(), usage.getUsed() / (1024.0 * 1024.0), formatMemoryPoolMax(usage.getMax()));
         }
       }
       out.println();

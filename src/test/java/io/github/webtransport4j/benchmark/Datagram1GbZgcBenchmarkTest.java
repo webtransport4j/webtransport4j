@@ -12,6 +12,41 @@ import org.junit.Test;
 /** Regression checks for benchmark measurement reporting. */
 public class Datagram1GbZgcBenchmarkTest {
   @Test
+  public void formatsDefinedAndUndefinedMemoryPoolMaximums() {
+    Assert.assertEquals("N/A", Datagram1GbZgcBenchmark.formatMemoryPoolMax(-1));
+    Assert.assertEquals("0.00 MiB", Datagram1GbZgcBenchmark.formatMemoryPoolMax(0));
+    Assert.assertEquals("1.00 MiB", Datagram1GbZgcBenchmark.formatMemoryPoolMax(1024 * 1024));
+    Assert.assertEquals("1.50 MiB", Datagram1GbZgcBenchmark.formatMemoryPoolMax(1536 * 1024));
+  }
+
+  @Test
+  public void labelsBinaryUnitsConsistently() throws Exception {
+    Path report = Files.createTempFile("datagram-report-units", ".md");
+    long mib = 1024 * 1024;
+    try {
+      Datagram1GbZgcBenchmark.writeMarkdownReport(
+          report.toString(), 1024, mib, mib, true,
+          1, 1, 1024, 0, 0, 0, mib, 2 * mib, 3 * mib, 4 * mib,
+          Collections.emptyMap(), Collections.singletonMap("worker", 5 * mib), Collections.emptyList());
+      String markdown = new String(Files.readAllBytes(report), StandardCharsets.UTF_8);
+      Assert.assertTrue(markdown.contains("1,048,576 bytes (1.00 MiB / 0.00 GiB)"));
+      Assert.assertTrue(markdown.contains("| **Data Throughput** | **1.00 MiB/s** |"));
+      Assert.assertTrue(markdown.contains("| **Initial Used Heap** | 1,048,576 bytes (1.00 MiB) |"));
+      Assert.assertTrue(markdown.contains("| **Final Used Heap** | 2,097,152 bytes (2.00 MiB) |"));
+      Assert.assertTrue(markdown.contains("| **Peak Used Heap** | 3,145,728 bytes (3.00 MiB) |"));
+      Assert.assertTrue(markdown.contains("| **Heap Delta** | 1,048,576 bytes (1.00 MiB) |"));
+      Assert.assertTrue(markdown.contains("| **Off-Heap Direct Memory** | 4,194,304 bytes (4.00 MiB) |"));
+      Assert.assertTrue(markdown.contains("| Thread Name | Bytes Allocated | MiB Allocated |"));
+      Assert.assertTrue(markdown.contains("| `worker` | 5,242,880 bytes | 5.00 MiB |"));
+      Assert.assertTrue(markdown.contains("| Memory Pool | Used (MiB) | Max (MiB) |"));
+      Assert.assertFalse(markdown.contains(" MB"));
+      Assert.assertFalse(markdown.contains("Megabytes"));
+    } finally {
+      Files.deleteIfExists(report);
+    }
+  }
+
+  @Test
   public void separatesPauseAndCycleTime() {
     Map<String, long[]> collectors = new LinkedHashMap<>();
     collectors.put("ZGC Minor Pauses", new long[] {30, 0});
