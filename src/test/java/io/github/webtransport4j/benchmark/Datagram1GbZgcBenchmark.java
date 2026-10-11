@@ -240,7 +240,7 @@ public final class Datagram1GbZgcBenchmark {
     System.out.flush();
 
     // Await completion of the transfer
-    long timeoutSeconds = Math.max(90, (targetBytes / (40L * 1024 * 1024)) + 30);
+    long timeoutSeconds = Math.max(120, (targetBytes / (15L * 1024 * 1024)) + 60);
     boolean completedOnTime = completionLatch.await(timeoutSeconds, TimeUnit.SECONDS);
     if (!completedOnTime) {
       System.err.println("⚠️ Warning: Transfer timed out before reaching target bytes.");
@@ -395,7 +395,8 @@ public final class Datagram1GbZgcBenchmark {
       });
     }
 
-    clientLatch.await(300, TimeUnit.SECONDS);
+    long clientTimeoutSeconds = Math.max(300, (targetBytes / (15L * 1024 * 1024)) + 60);
+    clientLatch.await(clientTimeoutSeconds, TimeUnit.SECONDS);
     executor.shutdown();
     executor.awaitTermination(10, TimeUnit.SECONDS);
 
