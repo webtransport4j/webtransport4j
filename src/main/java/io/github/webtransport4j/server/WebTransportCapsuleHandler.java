@@ -290,7 +290,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             if (session != null && session.isFlowControlEnabled()) {
               long extendAmount =
                   WebTransportConfig.getLong(
-                      "webtransport4j.webtransport.flowcontrol.extend.data", 10000L);
+                      "webtransport4j.webtransport.flowcontrol.extend.data", 2097152L);
               if (extendAmount > 0) {
                 long newLimit = session.getSettingsMaxData() + extendAmount;
                 session.setSettingsMaxData(newLimit);
