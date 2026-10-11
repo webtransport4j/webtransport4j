@@ -366,52 +366,64 @@ public final class Datagram1GbZgcBenchmark {
       String host, int port, long targetBytes, int payloadSize, int concurrency)
       throws Exception {
     if (concurrency <= 1) {
-      runSingleClient(host, port, targetBytes, payloadSize, 0, null);
+      runSingleClient(host, port, targetBytes, payloadSize, 0, null, null);
       return;
     }
 
     System.out.printf(
         ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
         concurrency, targetBytes);
-    ExecutorService executor = Executors.newFixedThreadPool(concurrency);
-    long perClientBytes = targetBytes / concurrency;
-    CountDownLatch clientLatch = new CountDownLatch(concurrency);
-    AtomicReference<Throwable> failure = new AtomicReference<>();
+    QuicSslContext sslContext =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .build();
+    int clientIoThreads = Math.min(16, Math.max(4, Runtime.getRuntime().availableProcessors()));
+    EventLoopGroup sharedGroup = new NioEventLoopGroup(clientIoThreads);
+    try {
+      ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+      long perClientBytes = targetBytes / concurrency;
+      CountDownLatch clientLatch = new CountDownLatch(concurrency);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
 
-    for (int i = 0; i < concurrency; i++) {
-      final int clientId = i;
-      final long bytesToSend = (i == concurrency - 1)
-          ? (targetBytes - perClientBytes * (concurrency - 1))
-          : perClientBytes;
-      executor.submit(() -> {
-        try {
-          runSingleClient(host, port, bytesToSend, payloadSize, clientId, null);
-        } catch (Throwable t) {
-          System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
-          failure.compareAndSet(null, t);
-        } finally {
-          clientLatch.countDown();
-        }
-      });
+      for (int i = 0; i < concurrency; i++) {
+        final int clientId = i;
+        final long bytesToSend = (i == concurrency - 1)
+            ? (targetBytes - perClientBytes * (concurrency - 1))
+            : perClientBytes;
+        executor.submit(() -> {
+          try {
+            runSingleClient(host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext);
+          } catch (Throwable t) {
+            System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
+            failure.compareAndSet(null, t);
+          } finally {
+            clientLatch.countDown();
+          }
+        });
+      }
+
+      long clientTimeoutSeconds = Math.max(300, (targetBytes / (15L * 1024 * 1024)) + 60);
+      clientLatch.await(clientTimeoutSeconds, TimeUnit.SECONDS);
+      executor.shutdown();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+
+      if (failure.get() != null) {
+        throw new RuntimeException("Concurrent client streaming encountered an error", failure.get());
+      }
+      System.out.printf(">>> Client: All %d client streams successfully completed.%n", concurrency);
+    } finally {
+      sharedGroup.shutdownGracefully(0, 200, TimeUnit.MILLISECONDS);
     }
-
-    long clientTimeoutSeconds = Math.max(300, (targetBytes / (15L * 1024 * 1024)) + 60);
-    clientLatch.await(clientTimeoutSeconds, TimeUnit.SECONDS);
-    executor.shutdown();
-    executor.awaitTermination(10, TimeUnit.SECONDS);
-
-    if (failure.get() != null) {
-      throw new RuntimeException("Concurrent client streaming encountered an error", failure.get());
-    }
-    System.out.printf(">>> Client: All %d client streams successfully completed.%n", concurrency);
   }
 
   private static void runSingleClient(
-      String host, int port, long targetBytes, int payloadSize, int clientId, Object unused)
+      String host, int port, long targetBytes, int payloadSize, int clientId,
+      EventLoopGroup sharedGroup, QuicSslContext sharedSsl)
       throws Exception {
-    EventLoopGroup group = new NioEventLoopGroup(2);
+    EventLoopGroup group = sharedGroup != null ? sharedGroup : new NioEventLoopGroup(2);
     try {
-      QuicSslContext sslContext =
+      QuicSslContext sslContext = sharedSsl != null ? sharedSsl :
           QuicSslContextBuilder.forClient()
               .trustManager(InsecureTrustManagerFactory.INSTANCE)
               .applicationProtocols(Http3.supportedApplicationProtocols())
@@ -547,7 +559,9 @@ public final class Datagram1GbZgcBenchmark {
       templateDgram.release();
       quicChannel.close().sync();
     } finally {
-      group.shutdownGracefully(0, 100, TimeUnit.MILLISECONDS);
+      if (sharedGroup == null) {
+        group.shutdownGracefully(0, 100, TimeUnit.MILLISECONDS);
+      }
     }
   }
 
