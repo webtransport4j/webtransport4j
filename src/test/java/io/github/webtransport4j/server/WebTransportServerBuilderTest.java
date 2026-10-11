@@ -52,4 +52,51 @@ public class WebTransportServerBuilderTest {
     Assert.assertNotNull(server);
     Assert.assertNull(server.getTrafficShaper()); // not started yet
   }
+
+  @Test
+  public void testByteBufAllocatorExplicitOverride() {
+    io.netty.buffer.ByteBufAllocator customAlloc = io.netty.buffer.UnpooledByteBufAllocator.DEFAULT;
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .byteBufAllocator(customAlloc)
+            .build();
+
+    Assert.assertSame(customAlloc, server.getByteBufAllocator());
+  }
+
+  @Test
+  public void testConfiguredDefaultAllocatorInBothModes() {
+    String key = "webtransport4j.server.allocator";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "DeFaUlT");
+      for (boolean zeroGc : new boolean[] {false, true}) {
+        Assert.assertNull(WebTransportServer.builder().enableZeroGc(zeroGc)
+            .build().getByteBufAllocator());
+        Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
+            WebTransportServer.builder().enableZeroGc(zeroGc)
+                .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
+                .build().getByteBufAllocator());
+      }
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  public void testByteBufAllocatorZeroGcDefaultsToPooled() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .enableZeroGc(true)
+            .build();
+
+    Assert.assertSame(
+        io.netty.buffer.PooledByteBufAllocator.DEFAULT, server.getByteBufAllocator());
+  }
 }
