@@ -15,7 +15,10 @@ import io.github.webtransport4j.resilience.UdpSocketTuner;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -261,6 +264,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private final boolean zeroGc;
+  private final ByteBufAllocator byteBufAllocator;
 
   /**
    * Returns whether this server is running in zero-GC mode.
@@ -271,6 +275,32 @@ public class WebTransportServer implements AutoCloseable {
     return zeroGc;
   }
 
+  /**
+   * Returns the configured {@link ByteBufAllocator} used by the server transport channel.
+   *
+   * @return allocator or null if using Netty default
+   */
+  public @Nullable ByteBufAllocator getByteBufAllocator() {
+    return byteBufAllocator;
+  }
+
+  private static @Nullable ByteBufAllocator resolveByteBufAllocator(
+      @Nullable ByteBufAllocator explicitAllocator, boolean zeroGc) {
+    if (explicitAllocator != null) {
+      return explicitAllocator;
+    }
+    String config = WebTransportConfig.get("webtransport4j.server.allocator", null);
+    if ("pooled".equalsIgnoreCase(config)) {
+      return PooledByteBufAllocator.DEFAULT;
+    } else if ("unpooled".equalsIgnoreCase(config)) {
+      return UnpooledByteBufAllocator.DEFAULT;
+    }
+    if (zeroGc) {
+      return PooledByteBufAllocator.DEFAULT;
+    }
+    return null;
+  }
+
   public static @NonNull WebTransportServerBuilder builder() {
     return new WebTransportServerBuilder();
   }
@@ -278,6 +308,7 @@ public class WebTransportServer implements AutoCloseable {
   /** Web Transport Server. */
   public WebTransportServer(WebTransportHandler defaultHandler) {
     this.zeroGc = false;
+    this.byteBufAllocator = resolveByteBufAllocator(null, false);
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
   }
@@ -285,15 +316,17 @@ public class WebTransportServer implements AutoCloseable {
   /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
     this.zeroGc = false;
+    this.byteBufAllocator = resolveByteBufAllocator(null, false);
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
-
 
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     Objects.requireNonNull(builder, "builder");
     this.zeroGc = builder.isZeroGc();
+    this.byteBufAllocator =
+        resolveByteBufAllocator(builder.getByteBufAllocator(), builder.isZeroGc());
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -2062,6 +2095,10 @@ public class WebTransportServer implements AutoCloseable {
     if (bindTimeoutSeconds <= 0) {
       throw new IllegalArgumentException(
           "webtransport4j.server.bind.timeout.seconds must be > 0: " + bindTimeoutSeconds);
+    }
+
+    if (this.byteBufAllocator != null) {
+      bootstrap.option(ChannelOption.ALLOCATOR, this.byteBufAllocator);
     }
 
     ChannelFuture bindFuture =

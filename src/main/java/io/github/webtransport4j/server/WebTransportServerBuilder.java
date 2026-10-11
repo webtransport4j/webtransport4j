@@ -9,6 +9,7 @@ import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicTokenHandler;
@@ -63,6 +64,7 @@ public class WebTransportServerBuilder {
   private OriginValidator originValidator;
   private Boolean strictOriginValidation;
   private boolean zeroGc;
+  private ByteBufAllocator byteBufAllocator;
 
   public WebTransportServerBuilder() {}
 
@@ -384,6 +386,27 @@ public class WebTransportServerBuilder {
    */
   public boolean isZeroGc() {
     return zeroGc;
+  }
+
+  /**
+   * Sets the Netty {@link ByteBufAllocator} used by the server transport channel.
+   *
+   * @param byteBufAllocator allocator instance or null to use configuration default
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder byteBufAllocator(
+      @Nullable ByteBufAllocator byteBufAllocator) {
+    this.byteBufAllocator = byteBufAllocator;
+    return this;
+  }
+
+  /**
+   * Returns the explicitly configured {@link ByteBufAllocator}, if any.
+   *
+   * @return configured allocator or null
+   */
+  public @Nullable ByteBufAllocator getByteBufAllocator() {
+    return byteBufAllocator;
   }
 
   /**

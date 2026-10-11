@@ -52,4 +52,28 @@ public class WebTransportServerBuilderTest {
     Assert.assertNotNull(server);
     Assert.assertNull(server.getTrafficShaper()); // not started yet
   }
+
+  @Test
+  public void testByteBufAllocatorExplicitOverride() {
+    io.netty.buffer.ByteBufAllocator customAlloc = io.netty.buffer.UnpooledByteBufAllocator.DEFAULT;
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .byteBufAllocator(customAlloc)
+            .build();
+
+    Assert.assertSame(customAlloc, server.getByteBufAllocator());
+  }
+
+  @Test
+  public void testByteBufAllocatorZeroGcDefaultsToPooled() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .enableZeroGc(true)
+            .build();
+
+    Assert.assertSame(
+        io.netty.buffer.PooledByteBufAllocator.DEFAULT, server.getByteBufAllocator());
+  }
 }
