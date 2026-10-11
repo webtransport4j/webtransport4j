@@ -54,6 +54,46 @@ public class WebTransportServerBuilderTest {
   }
 
   @Test
+  public void testBuilderSocketCountConfiguration() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .socketCount(4)
+            .defaultHandler(new WebTransportHandler() {})
+            .build();
+
+    Assert.assertNotNull(server);
+    Assert.assertEquals(4, server.getSocketCount());
+  }
+
+  @Test
+  public void testServerMultiSocketStartAndStop() throws Exception {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .socketCount(2)
+            .defaultHandler(new WebTransportHandler() {})
+            .build();
+
+    Assert.assertFalse(server.isStarted());
+    server.start();
+
+    Assert.assertTrue(server.isStarted());
+    Assert.assertTrue(server.getPort() > 0);
+    Assert.assertTrue(server.getChannels().size() >= 1);
+    Assert.assertEquals(server.getChannels().size(), server.getSocketCount());
+
+    server.stop();
+    Assert.assertFalse(server.isStarted());
+  }
+
+  @Test
+  public void testBuilderByteBufAllocatorConfiguration() {
+    io.netty.buffer.ByteBufAllocator allocator = io.netty.buffer.PooledByteBufAllocator.DEFAULT;
+    WebTransportServerBuilder builder = new WebTransportServerBuilder().byteBufAllocator(allocator);
+    Assert.assertSame(allocator, builder.getByteBufAllocator());
+  }
+
+  @Test
   public void testByteBufAllocatorExplicitOverride() {
     io.netty.buffer.ByteBufAllocator customAlloc = io.netty.buffer.UnpooledByteBufAllocator.DEFAULT;
     WebTransportServer server =

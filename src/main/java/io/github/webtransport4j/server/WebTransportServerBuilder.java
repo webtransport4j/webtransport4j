@@ -64,6 +64,7 @@ public class WebTransportServerBuilder {
   private OriginValidator originValidator;
   private Boolean strictOriginValidation;
   private boolean zeroGc;
+  private Integer socketCount;
   private ByteBufAllocator byteBufAllocator;
 
   public WebTransportServerBuilder() {}
@@ -386,6 +387,30 @@ public class WebTransportServerBuilder {
    */
   public boolean isZeroGc() {
     return zeroGc;
+  }
+
+  /**
+   * Sets the number of UDP sockets bound to the same port using {@code SO_REUSEPORT}
+   * and packet dispatching via {@link io.netty.handler.codec.quic.QuicCodecDispatcher}.
+   *
+   * <p>Passing 1 disables multi-socket sharding (default single-socket behavior).
+   * Passing 0 or a negative number enables auto-detection matching available processor cores.
+   *
+   * @param socketCount number of sockets to bind, or 0/negative for CPU core count
+   * @return this builder
+   */
+  public @NonNull WebTransportServerBuilder socketCount(int socketCount) {
+    this.socketCount = socketCount;
+    return this;
+  }
+
+  /**
+   * Returns the configured number of sockets, or null if not explicitly set.
+   *
+   * @return configured socket count, or null
+   */
+  public @Nullable Integer getSocketCount() {
+    return socketCount;
   }
 
   /**

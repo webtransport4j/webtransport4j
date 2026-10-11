@@ -44,21 +44,27 @@ import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.jspecify.annotations.NonNull;
 
 /**
- * 1GB Datagram transfer benchmark harness for WebTransport4J.
+ * High-velocity Datagram Ingestion Benchmark targeting 1 GB (and multi-GB) data transfers.
  *
  * <p>Measures raw datagram ingestion throughput, GC cycles, pause times, and heap performance
- * under Java 25 with Compact Object Headers and ZGC.
+ * under Java 25 with Compact Object Headers, ZGC, and optional multi-socket SO_REUSEPORT sharding.
  */
 public final class Datagram1GbZgcBenchmark {
 
@@ -82,12 +88,14 @@ public final class Datagram1GbZgcBenchmark {
       int port = args.length > 1 ? Integer.parseInt(args[1]) : 0;
       long targetBytes = args.length > 2 ? Long.parseLong(args[2]) : ONE_GB;
       String reportPath = args.length > 3 ? args[3] : "target/DATAGRAM_1GB_ZGC_REPORT.md";
-      runServer(port, targetBytes, reportPath);
+      int socketCount = args.length > 4 ? Integer.parseInt(args[4]) : 1;
+      runServer(port, targetBytes, reportPath, socketCount);
     } else if ("client".equalsIgnoreCase(mode)) {
       int port = args.length > 1 ? Integer.parseInt(args[1]) : 54321;
       long targetBytes = args.length > 2 ? Long.parseLong(args[2]) : ONE_GB;
       int payloadSize = args.length > 3 ? Integer.parseInt(args[3]) : DEFAULT_DGRAM_PAYLOAD;
-      runClient(HOST, port, targetBytes, payloadSize);
+      int concurrency = args.length > 4 ? Integer.parseInt(args[4]) : 1;
+      runClient(HOST, port, targetBytes, payloadSize, concurrency);
     } else {
       System.err.println("Unknown mode: " + mode);
       System.exit(1);
@@ -98,6 +106,14 @@ public final class Datagram1GbZgcBenchmark {
    * Runs the server process measuring 1 GB datagram ingestion and GC.
    */
   public static void runServer(int port, long targetBytes, String reportPath) throws Exception {
+    runServer(port, targetBytes, reportPath, 1);
+  }
+
+  /**
+   * Runs the server process measuring datagram ingestion and GC with configurable socketCount.
+   */
+  public static void runServer(int port, long targetBytes, String reportPath, int socketCount)
+      throws Exception {
     if (new File("localhost-key.pem").exists() && new File("localhost.pem").exists()) {
       System.setProperty("webtransport4j.ssl.key.path", "localhost-key.pem");
       System.setProperty("webtransport4j.ssl.cert.path", "localhost.pem");
@@ -107,6 +123,7 @@ public final class Datagram1GbZgcBenchmark {
 
     final AtomicLong receivedDatagrams = new AtomicLong(0);
     final AtomicLong receivedBytes = new AtomicLong(0);
+    final AtomicLong lastPacketTime = new AtomicLong(0);
     final CountDownLatch completionLatch = new CountDownLatch(1);
     final AtomicLong startTime = new AtomicLong(0);
     final AtomicLong endTime = new AtomicLong(0);
@@ -121,7 +138,6 @@ public final class Datagram1GbZgcBenchmark {
 
     final MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
     final long initialHeapUsed = mem.getHeapMemoryUsage().getUsed();
-    final long initialHeapCommitted = mem.getHeapMemoryUsage().getCommitted();
     final AtomicLong peakHeapUsed = new AtomicLong(initialHeapUsed);
 
     final java.lang.management.ThreadMXBean baseThreadBean = ManagementFactory.getThreadMXBean();
@@ -129,18 +145,34 @@ public final class Datagram1GbZgcBenchmark {
         (baseThreadBean instanceof com.sun.management.ThreadMXBean)
             ? (com.sun.management.ThreadMXBean) baseThreadBean
             : null;
-    final Map<Long, Long> threadStartAlloc = new java.util.concurrent.ConcurrentHashMap<>();
-    final Map<Long, String> threadNames = new java.util.concurrent.ConcurrentHashMap<>();
+    final Map<Long, Long> threadStartAlloc = new ConcurrentHashMap<>();
+    final Map<Long, String> threadNames = new ConcurrentHashMap<>();
+    final Map<String, AtomicLong> socketDatagrams = new ConcurrentHashMap<>();
+    final AtomicInteger activeSessions = new AtomicInteger(0);
 
     WebTransportHandler handler =
         new WebTransportHandler() {
           @Override
           public void onSessionReady(@NonNull WebTransportSession session) {
-            System.out.println(">>> Server: WebTransport Session Opened. Ready for 1GB Datagram Flood...");
+            activeSessions.incrementAndGet();
+            String sockInfo = "socket-0";
+            if (session instanceof NettyWebTransportSession) {
+              QuicStreamChannel stmCh = ((NettyWebTransportSession) session).getConnectStream();
+              if (stmCh != null && stmCh.parent() != null && stmCh.parent().parent() != null) {
+                sockInfo = stmCh.parent().parent().id().asShortText();
+              }
+            }
+            final String assignedSocket = sockInfo;
+            System.out.printf(
+                ">>> Server: Session %d ready on socket [%s]. Active sessions: %d%n",
+                session.sessionId(), assignedSocket, activeSessions.get());
             if (session instanceof NettyWebTransportSession) {
               ((NettyWebTransportSession) session)
                   .onRawDatagram(
                       raw -> {
+                        socketDatagrams
+                            .computeIfAbsent(assignedSocket, k -> new AtomicLong())
+                            .incrementAndGet();
                         if (startTime.compareAndSet(0, System.nanoTime())) {
                           System.out.println(">>> Server: First datagram received! Benchmarking started...");
                           if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -155,6 +187,7 @@ public final class Datagram1GbZgcBenchmark {
                         }
                         long dgramCount = receivedDatagrams.incrementAndGet();
                         long total = receivedBytes.addAndGet(raw.readableBytes());
+                        lastPacketTime.set(System.nanoTime());
 
                         if ((dgramCount & 0x7FFF) == 0) {
                           long currentUsed = mem.getHeapMemoryUsage().getUsed();
@@ -176,10 +209,16 @@ public final class Datagram1GbZgcBenchmark {
 
           @Override
           public void onSessionClosed(@NonNull WebTransportSession session) {
-            if (endTime.get() == 0) {
-              endTime.set(System.nanoTime());
+            int remaining = activeSessions.decrementAndGet();
+            System.out.printf(
+                ">>> Server: Session %d closed. Remaining active sessions: %d%n",
+                session.sessionId(), remaining);
+            if (remaining <= 0) {
+              if (endTime.get() == 0) {
+                endTime.set(System.nanoTime());
+              }
+              completionLatch.countDown();
             }
-            completionLatch.countDown();
           }
         };
 
@@ -187,17 +226,21 @@ public final class Datagram1GbZgcBenchmark {
         new WebTransportServerBuilder()
             .host(HOST)
             .port(port)
+            .socketCount(socketCount)
             .enableZeroGc(true)
             .defaultHandler(handler)
             .build();
 
     server.start();
     int actualPort = server.getPort();
+    int boundSockets = server.getChannels().size();
     System.out.printf("SERVER_READY_PORT=%d%n", actualPort);
+    System.out.printf("SERVER_SOCKET_COUNT=%d (active: %d)%n",
+        server.getSocketCount(), boundSockets);
     System.out.flush();
 
     // Await completion of the transfer
-    long timeoutSeconds = Math.max(90, (targetBytes / (40L * 1024 * 1024)) + 30);
+    long timeoutSeconds = Math.max(120, (targetBytes / (15L * 1024 * 1024)) + 60);
     boolean completedOnTime = completionLatch.await(timeoutSeconds, TimeUnit.SECONDS);
     if (!completedOnTime) {
       System.err.println("⚠️ Warning: Transfer timed out before reaching target bytes.");
@@ -208,13 +251,17 @@ public final class Datagram1GbZgcBenchmark {
 
     final long totalDgrams = receivedDatagrams.get();
     final long totalBytes = receivedBytes.get();
-    double durationSec = (endTime.get() - startTime.get()) / 1_000_000_000.0;
+    long durationNanos = (finished.get() && endTime.get() > startTime.get())
+        ? (endTime.get() - startTime.get())
+        : ((lastPacketTime.get() > startTime.get())
+            ? (lastPacketTime.get() - startTime.get())
+            : (endTime.get() - startTime.get()));
+    double durationSec = durationNanos / 1_000_000_000.0;
     if (durationSec <= 0) {
       durationSec = 0.001;
     }
 
     long finalHeapUsed = mem.getHeapMemoryUsage().getUsed();
-    long finalHeapCommitted = mem.getHeapMemoryUsage().getCommitted();
     peakHeapUsed.accumulateAndGet(finalHeapUsed, Math::max);
 
     long totalGcCount = 0;
@@ -272,6 +319,8 @@ public final class Datagram1GbZgcBenchmark {
         finalHeapUsed,
         peakHeapUsed.get(),
         directUsed,
+        boundSockets,
+        socketDatagrams,
         collectorDetails,
         threadAllocDeltas,
         topHistogram);
@@ -292,6 +341,8 @@ public final class Datagram1GbZgcBenchmark {
         finalHeapUsed,
         peakHeapUsed.get(),
         directUsed,
+        boundSockets,
+        socketDatagrams,
         collectorDetails,
         threadAllocDeltas,
         topHistogram);
@@ -301,13 +352,78 @@ public final class Datagram1GbZgcBenchmark {
   }
 
   /**
-   * Runs the client process streaming datagrams until 1 GB is reached.
+   * Runs the client process streaming datagrams until target bytes is reached.
    */
   public static void runClient(String host, int port, long targetBytes, int payloadSize)
       throws Exception {
-    EventLoopGroup group = new NioEventLoopGroup(2);
+    runClient(host, port, targetBytes, payloadSize, 1);
+  }
+
+  /**
+   * Runs the client process with multiple concurrent client connections.
+   */
+  public static void runClient(
+      String host, int port, long targetBytes, int payloadSize, int concurrency)
+      throws Exception {
+    if (concurrency <= 1) {
+      runSingleClient(host, port, targetBytes, payloadSize, 0, null, null);
+      return;
+    }
+
+    System.out.printf(
+        ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
+        concurrency, targetBytes);
+    QuicSslContext sslContext =
+        QuicSslContextBuilder.forClient()
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .build();
+    int clientIoThreads = Math.min(16, Math.max(4, Runtime.getRuntime().availableProcessors()));
+    EventLoopGroup sharedGroup = new NioEventLoopGroup(clientIoThreads);
     try {
-      QuicSslContext sslContext =
+      ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+      long perClientBytes = targetBytes / concurrency;
+      CountDownLatch clientLatch = new CountDownLatch(concurrency);
+      AtomicReference<Throwable> failure = new AtomicReference<>();
+
+      for (int i = 0; i < concurrency; i++) {
+        final int clientId = i;
+        final long bytesToSend = (i == concurrency - 1)
+            ? (targetBytes - perClientBytes * (concurrency - 1))
+            : perClientBytes;
+        executor.submit(() -> {
+          try {
+            runSingleClient(host, port, bytesToSend, payloadSize, clientId, sharedGroup, sslContext);
+          } catch (Throwable t) {
+            System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
+            failure.compareAndSet(null, t);
+          } finally {
+            clientLatch.countDown();
+          }
+        });
+      }
+
+      long clientTimeoutSeconds = Math.max(300, (targetBytes / (15L * 1024 * 1024)) + 60);
+      clientLatch.await(clientTimeoutSeconds, TimeUnit.SECONDS);
+      executor.shutdown();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+
+      if (failure.get() != null) {
+        throw new RuntimeException("Concurrent client streaming encountered an error", failure.get());
+      }
+      System.out.printf(">>> Client: All %d client streams successfully completed.%n", concurrency);
+    } finally {
+      sharedGroup.shutdownGracefully(0, 200, TimeUnit.MILLISECONDS);
+    }
+  }
+
+  private static void runSingleClient(
+      String host, int port, long targetBytes, int payloadSize, int clientId,
+      EventLoopGroup sharedGroup, QuicSslContext sharedSsl)
+      throws Exception {
+    EventLoopGroup group = sharedGroup != null ? sharedGroup : new NioEventLoopGroup(2);
+    try {
+      QuicSslContext sslContext = sharedSsl != null ? sharedSsl :
           QuicSslContextBuilder.forClient()
               .trustManager(InsecureTrustManagerFactory.INSTANCE)
               .applicationProtocols(Http3.supportedApplicationProtocols())
@@ -328,8 +444,8 @@ public final class Datagram1GbZgcBenchmark {
           new Bootstrap()
               .group(group)
               .channel(NioDatagramChannel.class)
-              .option(ChannelOption.SO_RCVBUF, 32 * 1024 * 1024)
-              .option(ChannelOption.SO_SNDBUF, 32 * 1024 * 1024)
+              .option(ChannelOption.SO_RCVBUF, 1024 * 1024)
+              .option(ChannelOption.SO_SNDBUF, 2 * 1024 * 1024)
               .handler(codec)
               .bind(0)
               .sync()
@@ -400,7 +516,7 @@ public final class Datagram1GbZgcBenchmark {
       connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
       if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
-        throw new IllegalStateException("Client: WebTransport handshake timed out");
+        throw new IllegalStateException("Client " + clientId + ": WebTransport handshake timed out");
       }
       long sessionId = sessionIdHolder[0];
 
@@ -412,8 +528,8 @@ public final class Datagram1GbZgcBenchmark {
       templateDgram.writeBytes(payload);
 
       System.out.printf(
-          ">>> Client: Connected! Streaming %,d bytes (%.2f MB) in %,d-byte datagrams...%n",
-          targetBytes, targetBytes / (1024.0 * 1024.0), payloadSize);
+          ">>> Client %d: Connected! Streaming %,d bytes in %,d-byte datagrams...%n",
+          clientId, targetBytes, payloadSize);
 
       long bytesSent = 0;
       long packetsSent = 0;
@@ -427,7 +543,7 @@ public final class Datagram1GbZgcBenchmark {
         quicChannel.write(templateDgram.retainedDuplicate(), quicChannel.voidPromise());
         bytesSent += payloadSize;
         packetsSent++;
-        if ((packetsSent & 0x7F) == 0) {
+        if ((packetsSent & 0x3F) == 0) {
           quicChannel.flush();
         }
       }
@@ -437,13 +553,15 @@ public final class Datagram1GbZgcBenchmark {
       Thread.sleep(200);
       double clientDuration = (System.nanoTime() - clientStart) / 1_000_000_000.0;
       System.out.printf(
-          ">>> Client: Flood completed in %.2f s (%,d packets, %,d bytes sent).%n",
-          clientDuration, packetsSent, bytesSent);
+          ">>> Client %d: Flood completed in %.2f s (%,d packets, %,d bytes sent).%n",
+          clientId, clientDuration, packetsSent, bytesSent);
 
       templateDgram.release();
       quicChannel.close().sync();
     } finally {
-      group.shutdownGracefully(0, 100, TimeUnit.MILLISECONDS);
+      if (sharedGroup == null) {
+        group.shutdownGracefully(0, 100, TimeUnit.MILLISECONDS);
+      }
     }
   }
 
@@ -472,7 +590,7 @@ public final class Datagram1GbZgcBenchmark {
     return "Unknown Object Header Mode";
   }
 
-  private static void printConsoleReport(
+  static void printConsoleReport(
       long totalDgrams,
       long totalBytes,
       long targetBytes,
@@ -490,6 +608,33 @@ public final class Datagram1GbZgcBenchmark {
       Map<String, long[]> collectorDetails,
       Map<String, Long> threadAllocDeltas,
       java.util.List<String> topHistogram) {
+    printConsoleReport(
+        totalDgrams, totalBytes, targetBytes, completedOnTime, durationSec,
+        throughputMbPerSec, throughputDgramSec, totalGcCount, totalGcPauseMs,
+        totalGcCycleMs, initialHeapUsed, finalHeapUsed, peakHeapUsed, directUsed,
+        1, Collections.emptyMap(), collectorDetails, threadAllocDeltas, topHistogram);
+  }
+
+  static void printConsoleReport(
+      long totalDgrams,
+      long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
+      double durationSec,
+      double throughputMbPerSec,
+      double throughputDgramSec,
+      long totalGcCount,
+      long totalGcPauseMs,
+      long totalGcCycleMs,
+      long initialHeapUsed,
+      long finalHeapUsed,
+      long peakHeapUsed,
+      long directUsed,
+      int activeSocketCount,
+      Map<String, AtomicLong> socketDatagrams,
+      Map<String, long[]> collectorDetails,
+      Map<String, Long> threadAllocDeltas,
+      java.util.List<String> topHistogram) {
 
     System.out.println();
     System.out.println("=========================================================================================");
@@ -503,9 +648,23 @@ public final class Datagram1GbZgcBenchmark {
     System.out.printf("Total Datagrams Received:    %,d packets%n", totalDgrams);
     System.out.printf("Total Ingested Payload:      %,d bytes (%.2f MB / %.2f GiB)%n",
         totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
+    if (activeSocketCount > 1 || !socketDatagrams.isEmpty()) {
+      System.out.printf("Active Sockets (SO_REUSEPORT): %d socket(s)%n",
+          socketDatagrams.isEmpty() ? activeSocketCount : socketDatagrams.size());
+    }
     System.out.printf("Active Transfer Duration:    %.3f seconds%n", durationSec);
     System.out.printf("Throughput (Data Rate):      %.2f MB/s%n", throughputMbPerSec);
     System.out.printf("Throughput (Packet Rate):    %,.1f datagrams/sec%n", throughputDgramSec);
+    if (!socketDatagrams.isEmpty()) {
+      System.out.println("Per-Socket Datagram Distribution:");
+      socketDatagrams.entrySet().stream()
+          .sorted(Map.Entry.<String, AtomicLong>comparingByKey())
+          .forEach(e -> {
+            long count = e.getValue().get();
+            double pct = totalDgrams > 0 ? (count * 100.0 / totalDgrams) : 0.0;
+            System.out.printf("  - Socket [%-10s] : %,d packets (%.1f%%)%n", e.getKey(), count, pct);
+          });
+    }
     System.out.println("-----------------------------------------------------------------------------------------");
     System.out.printf("Garbage Collection Cycles:   %d collections%n", totalGcCount);
     System.out.printf("Total GC Pause Time:         %d ms (MXBean millisecond resolution)%n",
@@ -567,6 +726,35 @@ public final class Datagram1GbZgcBenchmark {
       Map<String, long[]> collectorDetails,
       Map<String, Long> threadAllocDeltas,
       java.util.List<String> topHistogram) {
+    writeMarkdownReport(
+        filePath, totalDgrams, totalBytes, targetBytes, completedOnTime,
+        durationSec, throughputMbPerSec, throughputDgramSec,
+        totalGcCount, totalGcPauseMs, totalGcCycleMs,
+        initialHeapUsed, finalHeapUsed, peakHeapUsed, directUsed,
+        1, Collections.emptyMap(), collectorDetails, threadAllocDeltas, topHistogram);
+  }
+
+  static void writeMarkdownReport(
+      String filePath,
+      long totalDgrams,
+      long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
+      double durationSec,
+      double throughputMbPerSec,
+      double throughputDgramSec,
+      long totalGcCount,
+      long totalGcPauseMs,
+      long totalGcCycleMs,
+      long initialHeapUsed,
+      long finalHeapUsed,
+      long peakHeapUsed,
+      long directUsed,
+      int activeSocketCount,
+      Map<String, AtomicLong> socketDatagrams,
+      Map<String, long[]> collectorDetails,
+      Map<String, Long> threadAllocDeltas,
+      java.util.List<String> topHistogram) {
 
     File file = new File(filePath);
     if (file.getParentFile() != null) {
@@ -593,10 +781,26 @@ public final class Datagram1GbZgcBenchmark {
       out.printf(Locale.ROOT, "| **Total Datagrams Received** | %,d packets |%n", totalDgrams);
       out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MiB / %.2f GiB) |%n",
           totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
+      if (activeSocketCount > 1 || !socketDatagrams.isEmpty()) {
+        out.printf("| **Active Sockets (SO_REUSEPORT)** | %d socket(s) |%n",
+            socketDatagrams.isEmpty() ? activeSocketCount : socketDatagrams.size());
+      }
       out.printf(Locale.ROOT, "| **Active Transfer Duration** | %.3f s |%n", durationSec);
       out.printf(Locale.ROOT, "| **Data Throughput** | **%.2f MiB/s** |%n", throughputMbPerSec);
       out.printf(Locale.ROOT, "| **Packet Throughput** | **%,.1f datagrams/s** |%n", throughputDgramSec);
       out.println();
+      if (!socketDatagrams.isEmpty()) {
+        out.println("### 1.1. Per-Socket Datagram Distribution");
+        out.println();
+        out.println("| Socket ID | Datagrams Received | Share |");
+        out.println("| :--- | :--- | :--- |");
+        for (Map.Entry<String, AtomicLong> entry : socketDatagrams.entrySet()) {
+          long count = entry.getValue().get();
+          double pct = totalDgrams > 0 ? (count * 100.0 / totalDgrams) : 0.0;
+          out.printf(Locale.ROOT, "| `%s` | %,d packets | %.1f%% |%n", entry.getKey(), count, pct);
+        }
+        out.println();
+      }
       out.println("### 2. Garbage Collection & Heap Performance");
       out.println();
       out.println("| Metric | Value | Verdict |");
