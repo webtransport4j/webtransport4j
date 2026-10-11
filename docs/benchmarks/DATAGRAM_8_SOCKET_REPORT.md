@@ -11,63 +11,63 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | **Target Payload** | 17,179,869,184 bytes |
 | **Completed On Time (latch)** | true |
 | **Target Reached** | false |
-| **Total Datagrams Received** | 2,589,045 packets |
-| **Total Ingested Payload** | 2,651,182,080 bytes (2528.36 MiB / 2.47 GiB) |
+| **Total Datagrams Received** | 3,526,517 packets |
+| **Total Ingested Payload** | 3,611,153,408 bytes (3443.86 MiB / 3.36 GiB) |
 | **Active Sockets (SO_REUSEPORT)** | 8 socket(s) |
-| **Active Transfer Duration** | 10.720 s |
-| **Data Throughput** | **235.85 MiB/s** |
-| **Packet Throughput** | **241,513.3 datagrams/s** |
+| **Active Transfer Duration** | 76.792 s |
+| **Data Throughput** | **44.85 MiB/s** |
+| **Packet Throughput** | **45,922.7 datagrams/s** |
 
 ### 1.1. Per-Socket Datagram Distribution
 
 | Socket ID | Datagrams Received | Share |
 | :--- | :--- | :--- |
-| `ce02396f` | 374,845 packets | 14.5% |
-| `a11d3019` | 278,051 packets | 10.7% |
-| `c46570f3` | 372,750 packets | 14.4% |
-| `5c075b14` | 496,235 packets | 19.2% |
-| `0b769dab` | 468,657 packets | 18.1% |
-| `47620e15` | 120,567 packets | 4.7% |
-| `f2535724` | 219,269 packets | 8.5% |
-| `94a26c38` | 258,671 packets | 10.0% |
+| `1b62c75e` | 230,653 packets | 6.5% |
+| `fa237741` | 461,064 packets | 13.1% |
+| `ccf5c843` | 170,461 packets | 4.8% |
+| `ad3a872c` | 391,350 packets | 11.1% |
+| `fd9a2816` | 348,066 packets | 9.9% |
+| `4acfd4eb` | 910,688 packets | 25.8% |
+| `ca60990f` | 440,650 packets | 12.5% |
+| `50eb1da8` | 573,585 packets | 16.3% |
 
 ### 2. Garbage Collection & Heap Performance
 
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
-| **GC Collections** | **18** | Collections recorded |
+| **GC Collections** | **22** | Collections recorded |
 | **Total GC Pause Time** | **0 ms** | 0 ms recorded by pause MXBeans (millisecond resolution) |
-| **Total ZGC Cycle Time** | **973 ms** | Concurrent cycle time |
+| **Total ZGC Cycle Time** | **2254 ms** | Concurrent cycle time |
 | **Initial Used Heap** | 8,388,608 bytes (8.00 MiB) | Baseline before flood |
-| **Peak Used Heap** | 662,700,032 bytes (632.00 MiB) | Maximum heap during flood |
-| **Final Used Heap** | 352,321,536 bytes (336.00 MiB) | Steady-state post-flood |
-| **Heap Delta** | 343,932,928 bytes (328.00 MiB) | Net change |
+| **Peak Used Heap** | 643,825,664 bytes (614.00 MiB) | Maximum heap during flood |
+| **Final Used Heap** | 283,115,520 bytes (270.00 MiB) | Steady-state post-flood |
+| **Heap Delta** | 274,726,912 bytes (262.00 MiB) | Net change |
 | **Off-Heap Direct Memory** | 67,108,864 bytes (64.00 MiB) | Netty direct buffer pool |
 
 ### 3. Active Garbage Collector Details
 
 | Collector Name | Collection Count | Collection Time |
 | :--- | :--- | :--- |
-| `ZGC Minor Pauses` | 0 | 0 ms |
+| `ZGC Minor Pauses` | 3 | 0 ms |
 | `ZGC Major Pauses` | 15 | 0 ms |
-| `ZGC Major Cycles` | 3 | 973 ms |
-| `ZGC Minor Cycles` | 0 | 0 ms |
+| `ZGC Major Cycles` | 3 | 2092 ms |
+| `ZGC Minor Cycles` | 1 | 162 ms |
 
 ### 4. Thread-by-Thread Allocations During Flood
 
 | Thread Name | Bytes Allocated | MiB Allocated |
 | :--- | :--- | :--- |
-| `multiThreadIoEventLoopGroup-2-2` | 192,111,032 bytes | 183.21 MiB |
-| `multiThreadIoEventLoopGroup-2-7` | 180,143,272 bytes | 171.80 MiB |
-| `multiThreadIoEventLoopGroup-2-5` | 145,372,144 bytes | 138.64 MiB |
-| `multiThreadIoEventLoopGroup-2-3` | 143,538,992 bytes | 136.89 MiB |
-| `multiThreadIoEventLoopGroup-2-6` | 107,304,400 bytes | 102.33 MiB |
-| `multiThreadIoEventLoopGroup-2-4` | 100,318,600 bytes | 95.67 MiB |
-| `multiThreadIoEventLoopGroup-2-1` | 85,878,368 bytes | 81.90 MiB |
-| `multiThreadIoEventLoopGroup-2-8` | 47,467,232 bytes | 45.27 MiB |
-| `main` | 151,336 bytes | 0.14 MiB |
-| `wt-rate-limit-reloader` | 47,160 bytes | 0.04 MiB |
-| `wt-tls-cert-watcher` | 3,192 bytes | 0.00 MiB |
+| `multiThreadIoEventLoopGroup-2-8` | 363,109,656 bytes | 346.29 MiB |
+| `multiThreadIoEventLoopGroup-2-5` | 224,932,504 bytes | 214.51 MiB |
+| `multiThreadIoEventLoopGroup-2-2` | 179,807,736 bytes | 171.48 MiB |
+| `multiThreadIoEventLoopGroup-2-7` | 172,551,064 bytes | 164.56 MiB |
+| `multiThreadIoEventLoopGroup-2-3` | 151,869,824 bytes | 144.83 MiB |
+| `multiThreadIoEventLoopGroup-2-4` | 135,372,488 bytes | 129.10 MiB |
+| `multiThreadIoEventLoopGroup-2-6` | 90,428,304 bytes | 86.24 MiB |
+| `multiThreadIoEventLoopGroup-2-1` | 68,417,000 bytes | 65.25 MiB |
+| `wt-rate-limit-reloader` | 460,312 bytes | 0.44 MiB |
+| `main` | 151,296 bytes | 0.14 MiB |
+| `wt-tls-cert-watcher` | 9,880 bytes | 0.01 MiB |
 | `Common-Cleaner` | 0 bytes | 0.00 MiB |
 | `Signal Dispatcher` | 0 bytes | 0.00 MiB |
 | `Notification Thread` | 0 bytes | 0.00 MiB |
@@ -84,10 +84,10 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | Memory Pool | Used (MiB) | Max (MiB) |
 | :--- | :--- | :--- |
 | `CodeHeap 'non-nmethods'` | 1.44 MiB | 5.57 MiB |
-| `Metaspace` | 24.50 MiB | N/A |
+| `Metaspace` | 24.44 MiB | N/A |
 | `CodeHeap 'profiled nmethods'` | 4.86 MiB | 117.22 MiB |
-| `Compressed Class Space` | 5.00 MiB | 1024.00 MiB |
-| `ZGC Old Generation` | 70.00 MiB | 3072.00 MiB |
-| `ZGC Young Generation` | 268.00 MiB | 3072.00 MiB |
-| `CodeHeap 'non-profiled nmethods'` | 1.94 MiB | 117.22 MiB |
+| `Compressed Class Space` | 4.98 MiB | 1024.00 MiB |
+| `ZGC Old Generation` | 66.00 MiB | 3072.00 MiB |
+| `ZGC Young Generation` | 206.00 MiB | 3072.00 MiB |
+| `CodeHeap 'non-profiled nmethods'` | 2.17 MiB | 117.22 MiB |
 

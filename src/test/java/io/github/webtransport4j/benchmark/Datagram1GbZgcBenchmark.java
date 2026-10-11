@@ -444,8 +444,8 @@ public final class Datagram1GbZgcBenchmark {
           new Bootstrap()
               .group(group)
               .channel(NioDatagramChannel.class)
-              .option(ChannelOption.SO_RCVBUF, 32 * 1024 * 1024)
-              .option(ChannelOption.SO_SNDBUF, 32 * 1024 * 1024)
+              .option(ChannelOption.SO_RCVBUF, 1024 * 1024)
+              .option(ChannelOption.SO_SNDBUF, 2 * 1024 * 1024)
               .handler(codec)
               .bind(0)
               .sync()
@@ -543,7 +543,7 @@ public final class Datagram1GbZgcBenchmark {
         quicChannel.write(templateDgram.retainedDuplicate(), quicChannel.voidPromise());
         bytesSent += payloadSize;
         packetsSent++;
-        if ((packetsSent & 0x7F) == 0) {
+        if ((packetsSent & 0x3F) == 0) {
           quicChannel.flush();
         }
       }

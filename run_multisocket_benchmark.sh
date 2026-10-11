@@ -68,7 +68,7 @@ run_benchmark() {
 
   # Launch client flood
   java --enable-native-access=ALL-UNNAMED \
-       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms1024m -Xmx2048m \
+       -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms512m -Xmx1024m \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \
