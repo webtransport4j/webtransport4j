@@ -604,7 +604,19 @@ public class FramingLayerTest {
               ReferenceCountUtil.release(inv.getArgument(0));
               return null;
             });
+    when(mockConnectStream.writeAndFlush(any(), any()))
+        .thenAnswer(
+            inv -> {
+              ReferenceCountUtil.release(inv.getArgument(0));
+              return null;
+            });
     when(mockNewStream.writeAndFlush(any()))
+        .thenAnswer(
+            inv -> {
+              ReferenceCountUtil.release(inv.getArgument(0));
+              return null;
+            });
+    when(mockNewStream.writeAndFlush(any(), any()))
         .thenAnswer(
             inv -> {
               ReferenceCountUtil.release(inv.getArgument(0));

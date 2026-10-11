@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.internal.handles.Handles;
 import io.github.webtransport4j.internal.handles.IntHandle;
+import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
@@ -14,6 +15,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -38,11 +40,33 @@ public class WebTransportSessionManager {
               AtomicIntegerFieldUpdater.newUpdater(
                   WebTransportSessionManager.class, "occupiedSlots"));
 
-  // Fast path for the single-session case (99% of connections have at most 1 session).
-  private volatile @Nullable NettyWebTransportSession singleSession;
+  private static final RefHandle<WebTransportSessionManager, SessionHolder> SESSION_HOLDER_HANDLE =
+      Handles.newRefHandle(
+          WebTransportSessionManager.class,
+          SessionHolder.class,
+          "sessionHolder",
+          MethodHandles.lookup(),
+          () ->
+              AtomicReferenceFieldUpdater.newUpdater(
+                  WebTransportSessionManager.class, SessionHolder.class, "sessionHolder"));
 
-  // Lazily allocated Copy-On-Write primitive map only if multiple sessions are multiplexed.
-  private volatile @Nullable Long2ObjectMap<NettyWebTransportSession> sessions;
+  static final class SessionHolder {
+    static final SessionHolder EMPTY = new SessionHolder(null, null);
+
+    final @Nullable NettyWebTransportSession singleSession;
+    final @Nullable Long2ObjectMap<NettyWebTransportSession> sessions;
+
+    SessionHolder(
+        @Nullable NettyWebTransportSession singleSession,
+        @Nullable Long2ObjectMap<NettyWebTransportSession> sessions) {
+      this.singleSession = singleSession;
+      this.sessions = sessions;
+    }
+  }
+
+  // Fast path for the single-session case (99% of connections have at most 1 session)
+  // or Copy-On-Write map when multiple sessions are multiplexed.
+  private volatile SessionHolder sessionHolder = SessionHolder.EMPTY;
   private volatile int occupiedSlots;
   private final WebTransportSessionFactory sessionFactory;
 
@@ -340,62 +364,74 @@ public class WebTransportSessionManager {
     }
   }
 
-  private synchronized void putSession(
+  private void putSession(
       long sessionStreamId, @NonNull NettyWebTransportSession session) {
-    if (this.singleSession == null && this.sessions == null) {
-      // Fast path: First session on this connection - zero hash map allocated!
-      this.singleSession = session;
-      return;
+    for (;;) {
+      SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+      SessionHolder next;
+      if (current.singleSession == null && current.sessions == null) {
+        // Fast path: First session on this connection - zero hash map allocated!
+        next = new SessionHolder(session, null);
+      } else {
+        // Multiplexed case: 2 or more sessions
+        Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
+            current.sessions != null
+                ? new Long2ObjectOpenHashMap<>(current.sessions)
+                : new Long2ObjectOpenHashMap<>();
+        if (current.singleSession != null) {
+          copy.put(current.singleSession.getSessionStreamId(), current.singleSession);
+        }
+        copy.put(sessionStreamId, session);
+        next = new SessionHolder(null, copy);
+      }
+      if (SESSION_HOLDER_HANDLE.compareAndSet(this, current, next)) {
+        return;
+      }
     }
-    // Multiplexed case: 2 or more sessions
-    Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
-        this.sessions != null
-            ? new Long2ObjectOpenHashMap<>(this.sessions)
-            : new Long2ObjectOpenHashMap<>();
-    if (this.singleSession != null) {
-      copy.put(this.singleSession.getSessionStreamId(), this.singleSession);
-      this.singleSession = null;
-    }
-    copy.put(sessionStreamId, session);
-    this.sessions = copy;
   }
 
-  private synchronized @Nullable NettyWebTransportSession removeSession(long sessionStreamId) {
-    NettyWebTransportSession single = this.singleSession;
-    if (single != null) {
-      if (single.getSessionStreamId() == sessionStreamId) {
-        this.singleSession = null;
-        return single;
+  private @Nullable NettyWebTransportSession removeSession(long sessionStreamId) {
+    for (;;) {
+      SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+      NettyWebTransportSession single = current.singleSession;
+      if (single != null) {
+        if (single.getSessionStreamId() == sessionStreamId) {
+          if (SESSION_HOLDER_HANDLE.compareAndSet(this, current, SessionHolder.EMPTY)) {
+            return single;
+          }
+          continue;
+        }
+        return null;
       }
-      return null;
+      Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
+      if (map == null || !map.containsKey(sessionStreamId)) {
+        return null;
+      }
+      Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
+          new Long2ObjectOpenHashMap<>(map);
+      NettyWebTransportSession removed = copy.remove(sessionStreamId);
+      SessionHolder next;
+      if (copy.isEmpty()) {
+        next = SessionHolder.EMPTY;
+      } else if (copy.size() == 1) {
+        next = new SessionHolder(copy.values().iterator().next(), null);
+      } else {
+        next = new SessionHolder(null, copy);
+      }
+      if (SESSION_HOLDER_HANDLE.compareAndSet(this, current, next)) {
+        return removed;
+      }
     }
-    Long2ObjectMap<NettyWebTransportSession> current = this.sessions;
-    if (current == null || !current.containsKey(sessionStreamId)) {
-      return null;
-    }
-    Long2ObjectOpenHashMap<NettyWebTransportSession> copy =
-        new Long2ObjectOpenHashMap<>(current);
-    NettyWebTransportSession removed = copy.remove(sessionStreamId);
-    if (copy.isEmpty()) {
-      this.sessions = null;
-      this.singleSession = null;
-    } else if (copy.size() == 1) {
-      this.singleSession = copy.values().iterator().next();
-      this.sessions = null;
-    } else {
-      this.sessions = copy;
-      this.singleSession = null;
-    }
-    return removed;
   }
 
   /** Required by the Demux handler to validate incoming Bidi streams. */
   public boolean hasSession(long sessionStreamId) {
-    NettyWebTransportSession single = this.singleSession;
+    SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+    NettyWebTransportSession single = current.singleSession;
     if (single != null && single.getSessionStreamId() == sessionStreamId) {
       return true;
     }
-    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
     return map != null && map.containsKey(sessionStreamId);
   }
 
@@ -406,11 +442,12 @@ public class WebTransportSessionManager {
    * @return the associated session or null if not found
    */
   public @Nullable NettyWebTransportSession get(long sessionStreamId) {
-    NettyWebTransportSession single = this.singleSession;
+    SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+    NettyWebTransportSession single = current.singleSession;
     if (single != null && single.getSessionStreamId() == sessionStreamId) {
       return single;
     }
-    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
     return map != null ? map.get(sessionStreamId) : null;
   }
 
@@ -420,10 +457,11 @@ public class WebTransportSessionManager {
    * @return active session count
    */
   public int sessionsSize() {
-    if (this.singleSession != null) {
+    SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+    if (current.singleSession != null) {
       return 1;
     }
-    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
     return map != null ? map.size() : 0;
   }
 
@@ -433,11 +471,12 @@ public class WebTransportSessionManager {
    * @return registered sessions
    */
   public @NonNull Collection<NettyWebTransportSession> getSessions() {
-    NettyWebTransportSession single = this.singleSession;
+    SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
+    NettyWebTransportSession single = current.singleSession;
     if (single != null) {
       return Collections.singletonList(single);
     }
-    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
     return map != null ? map.values() : Collections.emptyList();
   }
 
@@ -623,12 +662,13 @@ public class WebTransportSessionManager {
     if (logger.isDebugEnabled()) {
       logger.debug("💥 SessionManager: Closing all active sessions due to connection close.");
     }
-    NettyWebTransportSession single = this.singleSession;
+    SessionHolder currentHolder = SESSION_HOLDER_HANDLE.get(this);
+    NettyWebTransportSession single = currentHolder.singleSession;
     if (single != null) {
       unregister(single.getSessionStreamId(), quic);
       return;
     }
-    Long2ObjectMap<NettyWebTransportSession> map = this.sessions;
+    Long2ObjectMap<NettyWebTransportSession> map = currentHolder.sessions;
     if (map != null) {
       for (long sessionStreamId : map.keySet().toLongArray()) {
         unregister(sessionStreamId, quic);
