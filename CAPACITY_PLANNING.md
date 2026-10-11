@@ -4,17 +4,19 @@ This guide provides quantitative resource sizing formulas, CPU/memory recommenda
 
 ---
 
-## Architecture Ceiling
+## Architecture Ceiling & Multi-Core Sharding
 
-Each `WebTransportServer` instance binds **one UDP socket**. Netty's QUIC codec reads, decrypts, and demultiplexes every inbound packet on that channel's single event loop, so all packet I/O for one instance crosses one thread regardless of the event-loop group size. A single instance is therefore bounded by single-thread UDP receive throughput well below the session counts in the sizing matrix below.
+By default, each `WebTransportServer` instance binds **one UDP socket** (`socketCount = 1`). Netty's QUIC codec reads, decrypts, and demultiplexes inbound packets on that channel's single event loop, so all packet I/O for a single socket crosses one thread.
 
-**The sizing tiers in this guide assume horizontal sharding.** Two sharding options:
+To scale packet processing across all CPU cores on a single port without an external load balancer, `webtransport4j` provides native multi-socket sharding:
 
-- **Multiple sockets, one port (in-process)**: bind several UDP channels to the same IP and port via `SO_REUSEPORT`, each on its own event loop, and front them with Netty's `QuicCodecDispatcher` (`io.netty.handler.codec.quic`), which steers each packet to the correct QUIC codec by decoding a channel index embedded in the connection ID. Netty's documentation also describes an eBPF-based routing alternative for steering packets to the right socket. This keeps one logical `WebTransportServer` — no extra ports or external load balancer — while giving each socket its own receive thread.
-- **Multiple instances**: run N `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer so that each flow is pinned to one instance.
+- **In-process Multi-Socket Sharding (`SO_REUSEPORT` + `QuicCodecDispatcher`)**:
+  Configure `builder.socketCount(N)` on `WebTransportServerBuilder` or set `webtransport4j.server.socket.count=0` in `webtransport.properties` (0 auto-detects available CPU cores). The server binds $N$ UDP sockets to the exact same IP and port using `SO_REUSEPORT`, assigns each socket its own EventLoop thread, and fronts them with Netty's `QuicCodecDispatcher`. Incoming packets are automatically routed to the right codec via the channel index encoded into the QUIC Connection ID (or eBPF steering in kernel space).
+- **Multiple Instances (Out-of-Process)**:
+  Alternatively, run $N$ independent `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer.
 
 > [!NOTE]
-> QUIC connection migration can change a client's 4-tuple mid-session. Per-flow (4-tuple) pinning or plain `SO_REUSEPORT` hashing may then reroute a migrated connection to the wrong instance or socket; prefer connection-ID-aware routing (the dispatcher's index-encoded connection IDs, a connection-ID-aware load balancer, or eBPF steering), or deployments that tolerate rerouting.
+> QUIC connection migration can change a client's 4-tuple mid-session. The built-in `QuicCodecDispatcher` embeds the socket index in the Connection ID, ensuring that migrated packets are safely dispatched to the original socket context even if OS 4-tuple hashing delivers them to another socket.
 
 ---
 
@@ -41,7 +43,7 @@ Where:
 | **40,000** (current default ceiling) | 16 vCPU | 8 GB | 64 GB | 80 GB | Load-test required |
 | **100,000** (custom limit) | 32+ vCPU | 16 GB | 160 GB | 192 GB | Load-test required |
 
-*Session counts are per `WebTransportServer` instance (one UDP socket per instance); scale horizontally as described in [Architecture Ceiling](#architecture-ceiling).*
+*Session counts can be scaled vertically per instance by increasing `socketCount(N)` across available CPU cores, or scaled horizontally as described in [Architecture Ceiling](#architecture-ceiling-and-multi-core-sharding).*
 
 ---
 
