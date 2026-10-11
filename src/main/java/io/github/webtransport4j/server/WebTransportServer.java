@@ -300,7 +300,9 @@ public class WebTransportServer implements AutoCloseable {
       return explicitAllocator;
     }
     String config = WebTransportConfig.get("webtransport4j.server.allocator", null);
-    if ("pooled".equalsIgnoreCase(config)) {
+    if ("default".equalsIgnoreCase(config)) {
+      return null;
+    } else if ("pooled".equalsIgnoreCase(config)) {
       return PooledByteBufAllocator.DEFAULT;
     } else if ("unpooled".equalsIgnoreCase(config)) {
       return UnpooledByteBufAllocator.DEFAULT;
@@ -332,7 +334,6 @@ public class WebTransportServer implements AutoCloseable {
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
-
 
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {

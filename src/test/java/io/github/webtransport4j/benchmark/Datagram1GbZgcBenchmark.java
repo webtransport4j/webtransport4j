@@ -44,9 +44,11 @@ import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,10 +61,10 @@ import java.util.concurrent.locks.LockSupport;
 import org.jspecify.annotations.NonNull;
 
 /**
- * 1GB Datagram transfer benchmark harness for WebTransport4J.
+ * High-velocity Datagram Ingestion Benchmark targeting 1 GB (and multi-GB) data transfers.
  *
  * <p>Measures raw datagram ingestion throughput, GC cycles, pause times, and heap performance
- * under Java 25 with Compact Object Headers and ZGC.
+ * under Java 25 with Compact Object Headers, ZGC, and optional multi-socket SO_REUSEPORT sharding.
  */
 public final class Datagram1GbZgcBenchmark {
 
@@ -136,7 +138,6 @@ public final class Datagram1GbZgcBenchmark {
 
     final MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
     final long initialHeapUsed = mem.getHeapMemoryUsage().getUsed();
-    final long initialHeapCommitted = mem.getHeapMemoryUsage().getCommitted();
     final AtomicLong peakHeapUsed = new AtomicLong(initialHeapUsed);
 
     final java.lang.management.ThreadMXBean baseThreadBean = ManagementFactory.getThreadMXBean();
@@ -144,10 +145,9 @@ public final class Datagram1GbZgcBenchmark {
         (baseThreadBean instanceof com.sun.management.ThreadMXBean)
             ? (com.sun.management.ThreadMXBean) baseThreadBean
             : null;
-    final Map<Long, Long> threadStartAlloc = new java.util.concurrent.ConcurrentHashMap<>();
-    final Map<Long, String> threadNames = new java.util.concurrent.ConcurrentHashMap<>();
-    final Map<String, AtomicLong> socketDatagrams = new java.util.concurrent.ConcurrentHashMap<>();
-
+    final Map<Long, Long> threadStartAlloc = new ConcurrentHashMap<>();
+    final Map<Long, String> threadNames = new ConcurrentHashMap<>();
+    final Map<String, AtomicLong> socketDatagrams = new ConcurrentHashMap<>();
     final AtomicInteger activeSessions = new AtomicInteger(0);
 
     WebTransportHandler handler =
@@ -262,11 +262,9 @@ public final class Datagram1GbZgcBenchmark {
     }
 
     long finalHeapUsed = mem.getHeapMemoryUsage().getUsed();
-    long finalHeapCommitted = mem.getHeapMemoryUsage().getCommitted();
     peakHeapUsed.accumulateAndGet(finalHeapUsed, Math::max);
 
     long totalGcCount = 0;
-    long totalGcPauseMs = 0;
     Map<String, long[]> collectorDetails = new HashMap<>();
     for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
       long prevCount = initialGcCounts.getOrDefault(gc.getName(), 0L);
@@ -276,9 +274,11 @@ public final class Datagram1GbZgcBenchmark {
       long deltaCount = Math.max(0, curCount - prevCount);
       long deltaTime = Math.max(0, curTime - prevTime);
       totalGcCount += deltaCount;
-      totalGcPauseMs += deltaTime;
       collectorDetails.put(gc.getName(), new long[] {deltaCount, deltaTime});
     }
+
+    long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
+    long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
 
     Map<String, Long> threadAllocDeltas = new HashMap<>();
     if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -307,11 +307,14 @@ public final class Datagram1GbZgcBenchmark {
     printConsoleReport(
         totalDgrams,
         totalBytes,
+        targetBytes,
+        completedOnTime,
         durationSec,
         throughputMbPerSec,
         throughputDgramSec,
         totalGcCount,
         totalGcPauseMs,
+        totalGcCycleMs,
         initialHeapUsed,
         finalHeapUsed,
         peakHeapUsed.get(),
@@ -326,11 +329,14 @@ public final class Datagram1GbZgcBenchmark {
         reportPath,
         totalDgrams,
         totalBytes,
+        targetBytes,
+        completedOnTime,
         durationSec,
         throughputMbPerSec,
         throughputDgramSec,
         totalGcCount,
         totalGcPauseMs,
+        totalGcCycleMs,
         initialHeapUsed,
         finalHeapUsed,
         peakHeapUsed.get(),
@@ -342,11 +348,11 @@ public final class Datagram1GbZgcBenchmark {
         topHistogram);
 
     server.stop();
-    System.exit(0);
+    System.exit(totalBytes >= targetBytes ? 0 : 1);
   }
 
   /**
-   * Runs the client process streaming datagrams until 1 GB is reached.
+   * Runs the client process streaming datagrams until target bytes is reached.
    */
   public static void runClient(String host, int port, long targetBytes, int payloadSize)
       throws Exception {
@@ -364,44 +370,43 @@ public final class Datagram1GbZgcBenchmark {
       return;
     }
 
-    final long perClientBytes = targetBytes / concurrency;
-    final ExecutorService executor = Executors.newFixedThreadPool(concurrency);
-    final CountDownLatch readyLatch = new CountDownLatch(concurrency);
-    final CountDownLatch latch = new CountDownLatch(concurrency);
-    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    System.out.printf(
+        ">>> Client: Launching %d concurrent client connections streaming total %,d bytes...%n",
+        concurrency, targetBytes);
+    ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+    long perClientBytes = targetBytes / concurrency;
+    CountDownLatch clientLatch = new CountDownLatch(concurrency);
+    AtomicReference<Throwable> failure = new AtomicReference<>();
 
     for (int i = 0; i < concurrency; i++) {
-      final int clientIndex = i;
-      final long bytes = (i == concurrency - 1)
+      final int clientId = i;
+      final long bytesToSend = (i == concurrency - 1)
           ? (targetBytes - perClientBytes * (concurrency - 1))
           : perClientBytes;
-      executor.execute(() -> {
+      executor.submit(() -> {
         try {
-          runSingleClient(host, port, bytes, payloadSize, clientIndex, readyLatch);
+          runSingleClient(host, port, bytesToSend, payloadSize, clientId, null);
         } catch (Throwable t) {
-          readyLatch.countDown();
+          System.err.printf("Client %d failed: %s%n", clientId, t.getMessage());
           failure.compareAndSet(null, t);
         } finally {
-          latch.countDown();
+          clientLatch.countDown();
         }
       });
     }
 
-    latch.await();
+    clientLatch.await(300, TimeUnit.SECONDS);
     executor.shutdown();
     executor.awaitTermination(10, TimeUnit.SECONDS);
+
     if (failure.get() != null) {
-      Throwable t = failure.get();
-      if (t instanceof Exception) {
-        throw (Exception) t;
-      }
-      throw new RuntimeException("Client flood worker failed", t);
+      throw new RuntimeException("Concurrent client streaming encountered an error", failure.get());
     }
+    System.out.printf(">>> Client: All %d client streams successfully completed.%n", concurrency);
   }
 
   private static void runSingleClient(
-      String host, int port, long targetBytes, int payloadSize, int clientIndex,
-      CountDownLatch readyLatch)
+      String host, int port, long targetBytes, int payloadSize, int clientId, Object unused)
       throws Exception {
     EventLoopGroup group = new NioEventLoopGroup(2);
     try {
@@ -498,16 +503,9 @@ public final class Datagram1GbZgcBenchmark {
       connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
       if (!handshakeLatch.await(5, TimeUnit.SECONDS)) {
-        throw new IllegalStateException("Client: WebTransport handshake timed out");
+        throw new IllegalStateException("Client " + clientId + ": WebTransport handshake timed out");
       }
       long sessionId = sessionIdHolder[0];
-
-      if (readyLatch != null) {
-        readyLatch.countDown();
-        if (!readyLatch.await(10, TimeUnit.SECONDS)) {
-          System.err.printf("Client [%d]: Timed out waiting for peer clients.%n", clientIndex);
-        }
-      }
 
       // Prepare template datagram buffer
       byte[] payload = new byte[payloadSize];
@@ -517,8 +515,8 @@ public final class Datagram1GbZgcBenchmark {
       templateDgram.writeBytes(payload);
 
       System.out.printf(
-          ">>> Client [%d]: Connected! Streaming %,d bytes (%.2f MB) in %,d-byte datagrams...%n",
-          clientIndex, targetBytes, targetBytes / (1024.0 * 1024.0), payloadSize);
+          ">>> Client %d: Connected! Streaming %,d bytes in %,d-byte datagrams...%n",
+          clientId, targetBytes, payloadSize);
 
       long bytesSent = 0;
       long packetsSent = 0;
@@ -532,23 +530,18 @@ public final class Datagram1GbZgcBenchmark {
         quicChannel.write(templateDgram.retainedDuplicate(), quicChannel.voidPromise());
         bytesSent += payloadSize;
         packetsSent++;
-        if ((packetsSent & 0x3F) == 0) {
+        if ((packetsSent & 0x7F) == 0) {
           quicChannel.flush();
         }
       }
       quicChannel.flush();
 
       // Short drain to ensure trailing network packets are processed
-      Thread.sleep(300);
-      try {
-        connectStream.close().sync();
-      } catch (Exception ignored) {
-        // Stream close may already be triggered
-      }
+      Thread.sleep(200);
       double clientDuration = (System.nanoTime() - clientStart) / 1_000_000_000.0;
       System.out.printf(
-          ">>> Client [%d]: Flood completed in %.2f s (%,d packets, %,d bytes sent).%n",
-          clientIndex, clientDuration, packetsSent, bytesSent);
+          ">>> Client %d: Flood completed in %.2f s (%,d packets, %,d bytes sent).%n",
+          clientId, clientDuration, packetsSent, bytesSent);
 
       templateDgram.release();
       quicChannel.close().sync();
@@ -557,14 +550,67 @@ public final class Datagram1GbZgcBenchmark {
     }
   }
 
-  private static void printConsoleReport(
+  static long collectionTime(Map<String, long[]> collectorDetails, String kind) {
+    return collectorDetails.entrySet().stream()
+        .filter(entry -> entry.getKey().contains(kind))
+        .mapToLong(entry -> entry.getValue()[1])
+        .sum();
+  }
+
+  static String runStatus(long totalBytes, long targetBytes) {
+    return totalBytes >= targetBytes ? "COMPLETE" : "INCOMPLETE";
+  }
+
+  static String objectHeaderMode() {
+    try {
+      com.sun.management.HotSpotDiagnosticMXBean bean =
+          ManagementFactory.getPlatformMXBean(com.sun.management.HotSpotDiagnosticMXBean.class);
+      if (bean != null) {
+        return Boolean.parseBoolean(bean.getVMOption("UseCompactObjectHeaders").getValue())
+            ? "Compact Object Headers (JEP 450)" : "Standard Object Headers";
+      }
+    } catch (IllegalArgumentException | UnsupportedOperationException e) {
+      // Older or non-HotSpot JVMs may not expose this option.
+    }
+    return "Unknown Object Header Mode";
+  }
+
+  static void printConsoleReport(
       long totalDgrams,
       long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
       double durationSec,
       double throughputMbPerSec,
       double throughputDgramSec,
       long totalGcCount,
       long totalGcPauseMs,
+      long totalGcCycleMs,
+      long initialHeapUsed,
+      long finalHeapUsed,
+      long peakHeapUsed,
+      long directUsed,
+      Map<String, long[]> collectorDetails,
+      Map<String, Long> threadAllocDeltas,
+      java.util.List<String> topHistogram) {
+    printConsoleReport(
+        totalDgrams, totalBytes, targetBytes, completedOnTime, durationSec,
+        throughputMbPerSec, throughputDgramSec, totalGcCount, totalGcPauseMs,
+        totalGcCycleMs, initialHeapUsed, finalHeapUsed, peakHeapUsed, directUsed,
+        1, Collections.emptyMap(), collectorDetails, threadAllocDeltas, topHistogram);
+  }
+
+  static void printConsoleReport(
+      long totalDgrams,
+      long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
+      double durationSec,
+      double throughputMbPerSec,
+      double throughputDgramSec,
+      long totalGcCount,
+      long totalGcPauseMs,
+      long totalGcCycleMs,
       long initialHeapUsed,
       long finalHeapUsed,
       long peakHeapUsed,
@@ -577,27 +623,38 @@ public final class Datagram1GbZgcBenchmark {
 
     System.out.println();
     System.out.println("=========================================================================================");
-    System.out.printf("   DATAGRAM TRANSFER BENCHMARK REPORT (JAVA %s + ZGC)%n",
-        System.getProperty("java.version"));
+    System.out.printf("   DATAGRAM TRANSFER BENCHMARK REPORT (JAVA %s + ZGC + %s)%n",
+        System.getProperty("java.version"), objectHeaderMode());
     System.out.println("=========================================================================================");
+    System.out.printf("Run Status:                 %s%n", runStatus(totalBytes, targetBytes));
+    System.out.printf("Target Payload:             %,d bytes%n", targetBytes);
+    System.out.printf("Completed On Time (latch):  %s%n", completedOnTime);
+    System.out.printf("Target Reached:             %s%n", totalBytes >= targetBytes);
     System.out.printf("Total Datagrams Received:    %,d packets%n", totalDgrams);
     System.out.printf("Total Ingested Payload:      %,d bytes (%.2f MB / %.2f GiB)%n",
         totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
-    System.out.printf("Active Sockets (SO_REUSEPORT): %d socket(s)%n", activeSocketCount);
+    if (activeSocketCount > 1 || !socketDatagrams.isEmpty()) {
+      System.out.printf("Active Sockets (SO_REUSEPORT): %d socket(s)%n",
+          socketDatagrams.isEmpty() ? activeSocketCount : socketDatagrams.size());
+    }
     System.out.printf("Active Transfer Duration:    %.3f seconds%n", durationSec);
     System.out.printf("Throughput (Data Rate):      %.2f MB/s%n", throughputMbPerSec);
     System.out.printf("Throughput (Packet Rate):    %,.1f datagrams/sec%n", throughputDgramSec);
     if (!socketDatagrams.isEmpty()) {
       System.out.println("Per-Socket Datagram Distribution:");
-      for (Map.Entry<String, AtomicLong> entry : socketDatagrams.entrySet()) {
-        long count = entry.getValue().get();
-        double pct = totalDgrams > 0 ? (count * 100.0) / totalDgrams : 0.0;
-        System.out.printf("  - Socket [%-10s] : %,d packets (%.1f%%)%n", entry.getKey(), count, pct);
-      }
+      socketDatagrams.entrySet().stream()
+          .sorted(Map.Entry.<String, AtomicLong>comparingByKey())
+          .forEach(e -> {
+            long count = e.getValue().get();
+            double pct = totalDgrams > 0 ? (count * 100.0 / totalDgrams) : 0.0;
+            System.out.printf("  - Socket [%-10s] : %,d packets (%.1f%%)%n", e.getKey(), count, pct);
+          });
     }
     System.out.println("-----------------------------------------------------------------------------------------");
     System.out.printf("Garbage Collection Cycles:   %d collections%n", totalGcCount);
-    System.out.printf("Total GC Pause Time:         %d ms%n", totalGcPauseMs);
+    System.out.printf("Total GC Pause Time:         %d ms (MXBean millisecond resolution)%n",
+        totalGcPauseMs);
+    System.out.printf("Total ZGC Cycle Time:        %d ms%n", totalGcCycleMs);
     System.out.printf("Initial Used Heap:           %,d bytes (%.2f MB)%n",
         initialHeapUsed, initialHeapUsed / (1024.0 * 1024.0));
     System.out.printf("Peak Used Heap:              %,d bytes (%.2f MB)%n",
@@ -611,7 +668,7 @@ public final class Datagram1GbZgcBenchmark {
     System.out.println("-----------------------------------------------------------------------------------------");
     System.out.println("Active Garbage Collectors (MXBeans):");
     for (Map.Entry<String, long[]> entry : collectorDetails.entrySet()) {
-      System.out.printf("  - %-25s : %d collections, %d ms pause%n",
+      System.out.printf("  - %-25s : %d collections, %d ms collection time%n",
           entry.getKey(), entry.getValue()[0], entry.getValue()[1]);
     }
     System.out.println("-----------------------------------------------------------------------------------------");
@@ -631,15 +688,49 @@ public final class Datagram1GbZgcBenchmark {
     System.out.println();
   }
 
-  private static void writeMarkdownReport(
+  static String formatMemoryPoolMax(long maxBytes) {
+    return maxBytes < 0 ? "N/A" : String.format(Locale.ROOT, "%.2f MiB", maxBytes / (1024.0 * 1024.0));
+  }
+
+  static void writeMarkdownReport(
       String filePath,
       long totalDgrams,
       long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
       double durationSec,
       double throughputMbPerSec,
       double throughputDgramSec,
       long totalGcCount,
       long totalGcPauseMs,
+      long totalGcCycleMs,
+      long initialHeapUsed,
+      long finalHeapUsed,
+      long peakHeapUsed,
+      long directUsed,
+      Map<String, long[]> collectorDetails,
+      Map<String, Long> threadAllocDeltas,
+      java.util.List<String> topHistogram) {
+    writeMarkdownReport(
+        filePath, totalDgrams, totalBytes, targetBytes, completedOnTime,
+        durationSec, throughputMbPerSec, throughputDgramSec,
+        totalGcCount, totalGcPauseMs, totalGcCycleMs,
+        initialHeapUsed, finalHeapUsed, peakHeapUsed, directUsed,
+        1, Collections.emptyMap(), collectorDetails, threadAllocDeltas, topHistogram);
+  }
+
+  static void writeMarkdownReport(
+      String filePath,
+      long totalDgrams,
+      long totalBytes,
+      long targetBytes,
+      boolean completedOnTime,
+      double durationSec,
+      double throughputMbPerSec,
+      double throughputDgramSec,
+      long totalGcCount,
+      long totalGcPauseMs,
+      long totalGcCycleMs,
       long initialHeapUsed,
       long finalHeapUsed,
       long peakHeapUsed,
@@ -656,60 +747,71 @@ public final class Datagram1GbZgcBenchmark {
     }
 
     try (PrintWriter out = new PrintWriter(new FileWriter(file))) {
-      double gib = totalBytes / (1024.0 * 1024.0 * 1024.0);
+      double gib = targetBytes / (1024.0 * 1024.0 * 1024.0);
       out.printf(Locale.ROOT, "# WebTransport4J: %.2f GiB Datagram Ingestion Report (Java %s + ZGC)%n%n",
           gib, System.getProperty("java.version"));
       out.printf(Locale.ROOT, "Empirical benchmark measuring high-velocity transfer of **%.2f GiB** over"
           + " WebTransport Datagrams%n", gib);
-      out.println("running in an isolated dedicated server process with **ZGC**.");
+      out.printf("running in an isolated dedicated server process with **ZGC** and **%s**.%n",
+          objectHeaderMode());
       out.println();
       out.println("### 1. Ingestion & Throughput Metrics");
       out.println();
       out.println("| Metric | Value |");
       out.println("| :--- | :--- |");
+      out.printf("| **Run Status** | **%s** |%n", runStatus(totalBytes, targetBytes));
+      out.printf(Locale.ROOT, "| **Target Payload** | %,d bytes |%n", targetBytes);
+      out.printf("| **Completed On Time (latch)** | %s |%n", completedOnTime);
+      out.printf("| **Target Reached** | %s |%n", totalBytes >= targetBytes);
       out.printf(Locale.ROOT, "| **Total Datagrams Received** | %,d packets |%n", totalDgrams);
-      out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MB / %.2f GiB) |%n",
+      out.printf(Locale.ROOT, "| **Total Ingested Payload** | %,d bytes (%.2f MiB / %.2f GiB) |%n",
           totalBytes, totalBytes / (1024.0 * 1024.0), totalBytes / (1024.0 * 1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Active Sockets (SO_REUSEPORT)** | %d socket(s) |%n",
-          activeSocketCount);
+      if (activeSocketCount > 1 || !socketDatagrams.isEmpty()) {
+        out.printf("| **Active Sockets (SO_REUSEPORT)** | %d socket(s) |%n",
+            socketDatagrams.isEmpty() ? activeSocketCount : socketDatagrams.size());
+      }
       out.printf(Locale.ROOT, "| **Active Transfer Duration** | %.3f s |%n", durationSec);
-      out.printf(Locale.ROOT, "| **Data Throughput** | **%.2f MB/s** |%n", throughputMbPerSec);
+      out.printf(Locale.ROOT, "| **Data Throughput** | **%.2f MiB/s** |%n", throughputMbPerSec);
       out.printf(Locale.ROOT, "| **Packet Throughput** | **%,.1f datagrams/s** |%n", throughputDgramSec);
+      out.println();
       if (!socketDatagrams.isEmpty()) {
-        out.println();
         out.println("### 1.1. Per-Socket Datagram Distribution");
         out.println();
         out.println("| Socket ID | Datagrams Received | Share |");
         out.println("| :--- | :--- | :--- |");
         for (Map.Entry<String, AtomicLong> entry : socketDatagrams.entrySet()) {
           long count = entry.getValue().get();
-          double pct = totalDgrams > 0 ? (count * 100.0) / totalDgrams : 0.0;
+          double pct = totalDgrams > 0 ? (count * 100.0 / totalDgrams) : 0.0;
           out.printf(Locale.ROOT, "| `%s` | %,d packets | %.1f%% |%n", entry.getKey(), count, pct);
         }
+        out.println();
       }
-      out.println();
       out.println("### 2. Garbage Collection & Heap Performance");
       out.println();
       out.println("| Metric | Value | Verdict |");
       out.println("| :--- | :--- | :--- |");
       out.printf(Locale.ROOT, "| **GC Collections** | **%d** | %s |%n",
-          totalGcCount, totalGcCount == 0 ? "✅ **ZERO COLLECTIONS**" : "Concurrently managed");
+          totalGcCount, totalGcCount == 0 ? "No collections recorded" : "Collections recorded");
       out.printf(Locale.ROOT, "| **Total GC Pause Time** | **%d ms** | %s |%n",
-          totalGcPauseMs, totalGcPauseMs == 0 ? "✅ **ZERO PAUSE TIME**" : "< 1 ms sub-millisecond pause");
-      out.printf(Locale.ROOT, "| **Initial Used Heap** | %,d bytes (%.2f MB) | Baseline before flood |%n",
+          totalGcPauseMs, totalGcPauseMs == 0
+              ? "0 ms recorded by pause MXBeans (millisecond resolution)"
+              : "Nonzero pause time recorded by pause MXBeans");
+      out.printf(Locale.ROOT, "| **Total ZGC Cycle Time** | **%d ms** | Concurrent cycle time |%n",
+          totalGcCycleMs);
+      out.printf(Locale.ROOT, "| **Initial Used Heap** | %,d bytes (%.2f MiB) | Baseline before flood |%n",
           initialHeapUsed, initialHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MB) | Maximum heap during 1GB flood |%n",
+      out.printf(Locale.ROOT, "| **Peak Used Heap** | %,d bytes (%.2f MiB) | Maximum heap during flood |%n",
           peakHeapUsed, peakHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Final Used Heap** | %,d bytes (%.2f MB) | Steady-state post-flood |%n",
+      out.printf(Locale.ROOT, "| **Final Used Heap** | %,d bytes (%.2f MiB) | Steady-state post-flood |%n",
           finalHeapUsed, finalHeapUsed / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Heap Delta** | %,d bytes (%.2f MB) | Net change |%n",
+      out.printf(Locale.ROOT, "| **Heap Delta** | %,d bytes (%.2f MiB) | Net change |%n",
           (finalHeapUsed - initialHeapUsed), (finalHeapUsed - initialHeapUsed) / (1024.0 * 1024.0));
-      out.printf(Locale.ROOT, "| **Off-Heap Direct Memory** | %,d bytes (%.2f MB) | Netty direct buffer pool |%n",
+      out.printf(Locale.ROOT, "| **Off-Heap Direct Memory** | %,d bytes (%.2f MiB) | Netty direct buffer pool |%n",
           directUsed, directUsed / (1024.0 * 1024.0));
       out.println();
       out.println("### 3. Active Garbage Collector Details");
       out.println();
-      out.println("| Collector Name | Collection Cycles | Total Pause Time |");
+      out.println("| Collector Name | Collection Count | Collection Time |");
       out.println("| :--- | :--- | :--- |");
       for (Map.Entry<String, long[]> entry : collectorDetails.entrySet()) {
         out.printf(Locale.ROOT, "| `%s` | %d | %d ms |%n",
@@ -718,12 +820,12 @@ public final class Datagram1GbZgcBenchmark {
       out.println();
       out.println("### 4. Thread-by-Thread Allocations During Flood");
       out.println();
-      out.println("| Thread Name | Bytes Allocated | Megabytes Allocated |");
+      out.println("| Thread Name | Bytes Allocated | MiB Allocated |");
       out.println("| :--- | :--- | :--- |");
       threadAllocDeltas.entrySet().stream()
           .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
           .forEach(e -> {
-            out.printf(Locale.ROOT, "| `%s` | %,d bytes | %.2f MB |%n",
+            out.printf(Locale.ROOT, "| `%s` | %,d bytes | %.2f MiB |%n",
                 e.getKey(), e.getValue(), e.getValue() / (1024.0 * 1024.0));
           });
       out.println();
@@ -737,13 +839,13 @@ public final class Datagram1GbZgcBenchmark {
       out.println();
       out.println("### 6. Memory Pools Usage");
       out.println();
-      out.println("| Memory Pool | Used (MB) | Max (MB) |");
+      out.println("| Memory Pool | Used (MiB) | Max (MiB) |");
       out.println("| :--- | :--- | :--- |");
       for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
         MemoryUsage usage = pool.getUsage();
         if (usage != null) {
-          out.printf(Locale.ROOT, "| `%s` | %.2f MB | %.2f MB |%n",
-              pool.getName(), usage.getUsed() / (1024.0 * 1024.0), usage.getMax() / (1024.0 * 1024.0));
+          out.printf(Locale.ROOT, "| `%s` | %.2f MiB | %s |%n",
+              pool.getName(), usage.getUsed() / (1024.0 * 1024.0), formatMemoryPoolMax(usage.getMax()));
         }
       }
       out.println();

@@ -66,15 +66,23 @@ run_benchmark() {
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
        client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE"
 
-  wait "$SERVER_PID" || true
-  trap - EXIT
+  local SERVER_STATUS=0
+  wait "$SERVER_PID" || SERVER_STATUS=$?
   cat server_benchmark.log
+  if (( SERVER_STATUS != 0 )); then
+    echo "❌ Benchmark server failed with status $SERVER_STATUS." >&2
+    exit "$SERVER_STATUS"
+  fi
+  trap - EXIT
 
   echo ""
   echo "--- Native JVM GC Log Verification ($GC_LOG) ---"
-  if grep -E "Pause|Garbage Collection" "$GC_LOG" 2>/dev/null; then
+  if [[ ! -f "$GC_LOG" || ! -r "$GC_LOG" ]]; then
+    echo "❌ GC log is missing or unreadable: $GC_LOG; pause verification unavailable." >&2
+    return 1
+  elif grep -E "Pause|Garbage Collection" "$GC_LOG"; then
     echo "Recorded GC events in $GC_LOG (showing first 15):"
-    grep -E "Pause|Garbage Collection" "$GC_LOG" | head -n 15
+    grep -E "Pause|Garbage Collection" "$GC_LOG" | sed -n '1,15p'
   else
     echo "✅ Verified: EXACTLY 0 GC pause events recorded in native JVM GC log!"
   fi

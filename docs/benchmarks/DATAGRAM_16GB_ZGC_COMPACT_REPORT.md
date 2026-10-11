@@ -7,10 +7,13 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 | Metric | Value |
 | :--- | :--- |
+| **Run Status** | **INCOMPLETE** (16 GiB target not reached) |
+| **Target Payload** | 17,179,869,184 bytes |
+| **Target Reached** | false |
 | **Total Datagrams Received** | 15,973,549 packets |
-| **Total Ingested Payload** | 16,356,914,176 bytes (15599.17 MB / 15.23 GiB) |
+| **Total Ingested Payload** | 16,356,914,176 bytes (15599.17 MiB / 15.23 GiB) |
 | **Active Transfer Duration** | 129.007 s |
-| **Data Throughput** | **120.92 MB/s** |
+| **Data Throughput** | **120.92 MiB/s** |
 | **Packet Throughput** | **123,819.1 datagrams/s** |
 
 ### 2. Garbage Collection & Heap Performance
@@ -18,16 +21,17 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
 | **GC Collections** | **42** | Concurrently managed |
-| **Total GC Pause Time** | **260 ms** | < 1 ms sub-millisecond pause |
-| **Initial Used Heap** | 4,194,304 bytes (4.00 MB) | Baseline before flood |
-| **Peak Used Heap** | 2,575,302,656 bytes (2456.00 MB) | Maximum heap during 1GB flood |
-| **Final Used Heap** | 306,184,192 bytes (292.00 MB) | Steady-state post-flood |
-| **Heap Delta** | 301,989,888 bytes (288.00 MB) | Net change |
-| **Off-Heap Direct Memory** | 4,194,304 bytes (4.00 MB) | Netty direct buffer pool |
+| **Total GC Pause Time** | **0 ms** | 0 ms recorded by pause MXBeans (millisecond resolution) |
+| **Total ZGC Cycle Time** | **260 ms** | Concurrent cycle time |
+| **Initial Used Heap** | 4,194,304 bytes (4.00 MiB) | Baseline before flood |
+| **Peak Used Heap** | 2,575,302,656 bytes (2456.00 MiB) | Maximum heap during 1GB flood |
+| **Final Used Heap** | 306,184,192 bytes (292.00 MiB) | Steady-state post-flood |
+| **Heap Delta** | 301,989,888 bytes (288.00 MiB) | Net change |
+| **Off-Heap Direct Memory** | 4,194,304 bytes (4.00 MiB) | Netty direct buffer pool |
 
 ### 3. Active Garbage Collector Details
 
-| Collector Name | Collection Cycles | Total Pause Time |
+| Collector Name | Collection Count | Collection Time |
 | :--- | :--- | :--- |
 | `ZGC Minor Pauses` | 0 | 0 ms |
 | `ZGC Major Pauses` | 35 | 0 ms |
@@ -36,17 +40,17 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 ### 4. Thread-by-Thread Allocations During Flood
 
-| Thread Name | Bytes Allocated | Megabytes Allocated |
+| Thread Name | Bytes Allocated | MiB Allocated |
 | :--- | :--- | :--- |
-| `multiThreadIoEventLoopGroup-2-1` | 7,712,720,696 bytes | 7355.42 MB |
-| `wt-rate-limit-reloader` | 200,120 bytes | 0.19 MB |
-| `main` | 42,592 bytes | 0.04 MB |
-| `wt-tls-cert-watcher` | 5,736 bytes | 0.01 MB |
-| `Reference Handler` | 0 bytes | 0.00 MB |
-| `Common-Cleaner` | 0 bytes | 0.00 MB |
-| `Signal Dispatcher` | 0 bytes | 0.00 MB |
-| `Finalizer` | 0 bytes | 0.00 MB |
-| `Notification Thread` | 0 bytes | 0.00 MB |
+| `multiThreadIoEventLoopGroup-2-1` | 7,712,720,696 bytes | 7355.42 MiB |
+| `wt-rate-limit-reloader` | 200,120 bytes | 0.19 MiB |
+| `main` | 42,592 bytes | 0.04 MiB |
+| `wt-tls-cert-watcher` | 5,736 bytes | 0.01 MiB |
+| `Reference Handler` | 0 bytes | 0.00 MiB |
+| `Common-Cleaner` | 0 bytes | 0.00 MiB |
+| `Signal Dispatcher` | 0 bytes | 0.00 MiB |
+| `Finalizer` | 0 bytes | 0.00 MiB |
+| `Notification Thread` | 0 bytes | 0.00 MiB |
 
 ### 5. Top Classes In Heap (Post-Flood Histogram)
 
@@ -55,13 +59,13 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 ### 6. Memory Pools Usage
 
-| Memory Pool | Used (MB) | Max (MB) |
+| Memory Pool | Used (MiB) | Max (MiB) |
 | :--- | :--- | :--- |
-| `CodeHeap 'non-nmethods'` | 1.44 MB | 5.56 MB |
-| `Metaspace` | 24.28 MB | -0.00 MB |
-| `CodeHeap 'profiled nmethods'` | 4.41 MB | 117.20 MB |
-| `Compressed Class Space` | 4.79 MB | 1024.00 MB |
-| `ZGC Old Generation` | 62.00 MB | 8192.00 MB |
-| `ZGC Young Generation` | 232.00 MB | 8192.00 MB |
-| `CodeHeap 'non-profiled nmethods'` | 1.70 MB | 117.23 MB |
+| `CodeHeap 'non-nmethods'` | 1.44 MiB | 5.56 MiB |
+| `Metaspace` | 24.28 MiB | N/A |
+| `CodeHeap 'profiled nmethods'` | 4.41 MiB | 117.20 MiB |
+| `Compressed Class Space` | 4.79 MiB | 1024.00 MiB |
+| `ZGC Old Generation` | 62.00 MiB | 8192.00 MiB |
+| `ZGC Young Generation` | 232.00 MiB | 8192.00 MiB |
+| `CodeHeap 'non-profiled nmethods'` | 1.70 MiB | 117.23 MiB |
 
