@@ -28,6 +28,13 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
 
   private static final WebTransportHandler NOOP_HANDLER = new WebTransportHandler() {};
 
+  /**
+   * One thread-confined flyweight buffer per dispatching thread. Dispatch always runs on the
+   * channel's {@code EventLoop}, so a single instance per thread is safe.
+   */
+  private static final ThreadLocal<FlyweightWebTransportBuffer> DISPATCH_BUFFER =
+      ThreadLocal.withInitial(FlyweightWebTransportBuffer::createFlyweight);
+
   @Override
   public void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Object msg)
       throws Exception {
@@ -336,17 +343,36 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
   }
 
   /**
+   * Borrows the thread-confined flyweight buffer for this dispatch. A buffer that a consumer
+   * promoted via {@code retain()} stays live for that consumer, so the shared slot is replaced
+   * with a fresh instance. A buffer still attached to an outer dispatch on this thread
+   * (re-entrant callbacks) is left in the slot and a fresh instance is used instead.
+   */
+  private static FlyweightWebTransportBuffer borrowDispatchBuffer() {
+    FlyweightWebTransportBuffer buffer = DISPATCH_BUFFER.get();
+    if (buffer.isReusable()) {
+      return buffer;
+    }
+    FlyweightWebTransportBuffer fresh = FlyweightWebTransportBuffer.createFlyweight();
+    if (buffer.isPromoted()) {
+      DISPATCH_BUFFER.set(fresh);
+    }
+    return fresh;
+  }
+
+  /**
    * Dispatches incoming stream data to the stream consumer.
    */
   protected void dispatchStreamData(
       @NonNull WebTransportStream stream, @NonNull ByteBuf content) {
-    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    FlyweightWebTransportBuffer buffer = borrowDispatchBuffer().attach(content);
     try {
       stream.getDataConsumer().accept(buffer);
     } catch (Exception e) {
       logger.error("Error in stream onData callback", e);
     } finally {
-      buffer.release();
+      buffer.detach();
+      content.release();
     }
   }
 
@@ -385,13 +411,14 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       @NonNull WebTransportHandler handler,
       @NonNull WebTransportSession session,
       @NonNull ByteBuf content) {
-    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    FlyweightWebTransportBuffer buffer = borrowDispatchBuffer().attach(content);
     try {
       handler.onDatagramReceived(session, buffer);
     } catch (Exception e) {
       logger.error("Error in onDatagramReceived callback", e);
     } finally {
-      buffer.release();
+      buffer.detach();
+      content.release();
     }
   }
 }

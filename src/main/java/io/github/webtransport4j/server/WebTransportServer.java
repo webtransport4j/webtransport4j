@@ -266,13 +266,26 @@ public class WebTransportServer implements AutoCloseable {
    * Returns whether this server is running in zero-GC mode.
    *
    * @return true if zero-GC mode is enabled
+   * @deprecated flyweight-based dispatch is unconditional in {@link DefaultMessageDispatcher};
+   *     this flag is retained for API compatibility only.
    */
+  @Deprecated
   public boolean isZeroGc() {
     return zeroGc;
   }
 
   public static @NonNull WebTransportServerBuilder builder() {
     return new WebTransportServerBuilder();
+  }
+
+  @SuppressWarnings("deprecation")
+  private static boolean isZeroGcEnabled(@NonNull WebTransportServerBuilder builder) {
+    return builder.isZeroGc();
+  }
+
+  @SuppressWarnings("deprecation")
+  private static @NonNull Supplier<MessageDispatcher> zeroGcDispatcherSupplier() {
+    return () -> ZeroGcMessageDispatcher.INSTANCE;
   }
 
   /** Web Transport Server. */
@@ -329,8 +342,8 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
-    } else if (builder.isZeroGc()) {
-      this.messageDispatcherSupplier = () -> ZeroGcMessageDispatcher.INSTANCE;
+    } else if (isZeroGcEnabled(builder)) {
+      this.messageDispatcherSupplier = zeroGcDispatcherSupplier();
     }
 
     this.handlers.putAll(builder.getHandlers());

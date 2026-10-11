@@ -13,6 +13,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -65,6 +66,7 @@ public class ClientUniStreamAdmissionTest {
 
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     when(mockCtx.channel()).thenReturn(mockUniStream);
+    when(mockCtx.pipeline()).thenReturn(mock(ChannelPipeline.class));
 
     ByteBuf in = Unpooled.buffer();
     WebTransportUtils.writeVarInt(in, 0L); // sessionId = 0
