@@ -329,6 +329,8 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
+    } else if (builder.isZeroGc()) {
+      this.messageDispatcherSupplier = () -> ZeroGcMessageDispatcher.INSTANCE;
     }
 
     this.handlers.putAll(builder.getHandlers());

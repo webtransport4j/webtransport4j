@@ -104,6 +104,7 @@ public class FlyweightWebTransportBuffer implements WebTransportBuffer {
   public byte getByte(int index) {
     ensureAccessible();
     ByteBuf d = Objects.requireNonNull(delegate);
+    checkReadable(index, 1, d.readableBytes());
     return d.getByte(d.readerIndex() + index);
   }
 
@@ -117,6 +118,7 @@ public class FlyweightWebTransportBuffer implements WebTransportBuffer {
   public int getInt(int index) {
     ensureAccessible();
     ByteBuf d = Objects.requireNonNull(delegate);
+    checkReadable(index, 4, d.readableBytes());
     return d.getInt(d.readerIndex() + index);
   }
 
@@ -124,6 +126,7 @@ public class FlyweightWebTransportBuffer implements WebTransportBuffer {
   public long getLong(int index) {
     ensureAccessible();
     ByteBuf d = Objects.requireNonNull(delegate);
+    checkReadable(index, 8, d.readableBytes());
     return d.getLong(d.readerIndex() + index);
   }
 
@@ -197,6 +200,13 @@ public class FlyweightWebTransportBuffer implements WebTransportBuffer {
   private void ensureAccessible() {
     if (delegate == null) {
       throw new IllegalStateException("Buffer is detached or already released");
+    }
+  }
+
+  private static void checkReadable(int index, int width, int readableBytes) {
+    if (index < 0 || width < 0 || index > readableBytes - width) {
+      throw new IndexOutOfBoundsException(
+          "index: " + index + ", length: " + width + " (expected: range [0, " + readableBytes + "])");
     }
   }
 }

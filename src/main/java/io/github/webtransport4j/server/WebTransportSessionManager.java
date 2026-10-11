@@ -477,7 +477,7 @@ public class WebTransportSessionManager {
       return Collections.singletonList(single);
     }
     Long2ObjectMap<NettyWebTransportSession> map = current.sessions;
-    return map != null ? map.values() : Collections.emptyList();
+    return map != null ? Collections.unmodifiableCollection(map.values()) : Collections.emptyList();
   }
 
   /** Removes a specific session (e.g., when the CONNECT stream is closed). */

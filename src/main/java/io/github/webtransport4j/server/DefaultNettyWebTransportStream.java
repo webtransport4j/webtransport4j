@@ -163,6 +163,9 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   /**
    * Registers a callback to be invoked when stream payload data is received.
    *
+   * <p>Only one consumer may be registered per stream. Registering multiple data consumers or
+   * mixing with {@link #onRawByteBuf(Consumer)} throws {@link IllegalStateException}.
+   *
    * @param consumer the data consumer callback
    */
   public void onData(@NonNull Consumer<WebTransportBuffer> consumer) {
@@ -172,7 +175,13 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     this.dataConsumer = consumer;
   }
 
-  /** On Data. */
+  /**
+   * Registers a decoded message callback using the specified {@link StreamCodec}.
+   *
+   * @param <T> decoded message type
+   * @param codec codec used to decode incoming payloads
+   * @param consumer consumer receiving decoded messages
+   */
   public <T> void onData(@NonNull StreamCodec<T> codec, @NonNull Consumer<T> consumer) {
     Consumer<T> autoReleasingConsumer =
         msg -> {
@@ -442,13 +451,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     if (data instanceof FlyweightWebTransportBuffer) {
       ByteBuf del = ((FlyweightWebTransportBuffer) data).delegate();
       if (del != null) {
-        streamChannel.writeAndFlush(del.retain(), streamChannel.voidPromise());
+        streamChannel.writeAndFlush(
+            del.retainedSlice(del.readerIndex(), del.readableBytes()), streamChannel.voidPromise());
         return;
       }
     }
     if (data instanceof DefaultNettyWebTransportBuffer) {
       streamChannel.writeAndFlush(
-          ((DefaultNettyWebTransportBuffer) data).delegate().retain(), streamChannel.voidPromise());
+          ((DefaultNettyWebTransportBuffer) data).retainedReadableBuffer(),
+          streamChannel.voidPromise());
       return;
     }
     ByteBuf packet = Unpooled.wrappedBuffer(data.nioBuffer());

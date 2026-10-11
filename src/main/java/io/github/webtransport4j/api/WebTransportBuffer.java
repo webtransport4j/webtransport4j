@@ -50,7 +50,8 @@ public interface WebTransportBuffer extends AutoCloseable {
    * @return byte value
    */
   default byte getByte(int index) {
-    return nioBuffer().get(index);
+    ByteBuffer nio = nioBuffer();
+    return nio.get(nio.position() + index);
   }
 
   /**
@@ -59,7 +60,9 @@ public interface WebTransportBuffer extends AutoCloseable {
    * @return byte value
    */
   default byte readByte() {
-    return nioBuffer().get();
+    byte val = getByte(0);
+    skipBytes(1);
+    return val;
   }
 
   /**
@@ -69,7 +72,8 @@ public interface WebTransportBuffer extends AutoCloseable {
    * @return 32-bit int
    */
   default int getInt(int index) {
-    return nioBuffer().getInt(index);
+    ByteBuffer nio = nioBuffer();
+    return nio.getInt(nio.position() + index);
   }
 
   /**
@@ -79,7 +83,8 @@ public interface WebTransportBuffer extends AutoCloseable {
    * @return 64-bit long
    */
   default long getLong(int index) {
-    return nioBuffer().getLong(index);
+    ByteBuffer nio = nioBuffer();
+    return nio.getLong(nio.position() + index);
   }
 
   /**

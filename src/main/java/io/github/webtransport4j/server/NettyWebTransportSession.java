@@ -426,6 +426,14 @@ public interface NettyWebTransportSession extends WebTransportSession {
   /**
    * Power-user escape hatch: registers a direct consumer for incoming raw Netty {@link ByteBuf} datagrams.
    *
+   * <p>When registered, incoming datagrams for this session bypass the standard
+   * {@link io.github.webtransport4j.api.WebTransportHandler#onDatagramReceived} callback and are
+   * delivered directly as raw Netty {@link ByteBuf} instances with zero wrapper allocation.
+   *
+   * <p>The buffer is automatically released after the consumer returns; if retained
+   * asynchronously, the caller must call {@code buf.retain()} and later {@code buf.release()}.
+   * Only one raw datagram consumer may be registered per session.
+   *
    * @param consumer consumer receiving raw ByteBuf datagrams
    */
   void onRawDatagram(@NonNull Consumer<ByteBuf> consumer);
@@ -439,6 +447,9 @@ public interface NettyWebTransportSession extends WebTransportSession {
 
   /**
    * Power-user escape hatch: sends a raw Netty {@link ByteBuf} datagram directly with zero allocation.
+   *
+   * <p>This method borrows the provided buffer; caller retains ownership and remains responsible
+   * for releasing it.
    *
    * @param data the raw ByteBuf datagram payload
    */

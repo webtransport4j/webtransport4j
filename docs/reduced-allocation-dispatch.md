@@ -37,6 +37,55 @@ The benchmark script reports finite-window GC observations. Heap delta is not al
 Epsilon completion only establishes that the measured workload fit the available memory. These
 checks do not replace allocation profiling or long-duration validation.
 
+## Inbound Data Dispatching: Standard vs. Raw Netty Consumers
+
+`webtransport4j` offers two complementary programming models for incoming stream chunks and datagrams:
+
+### 1. Standard API (`WebTransportBuffer`)
+* **Streams**: `stream.onData(Consumer<WebTransportBuffer>)`
+* **Datagrams**: `WebTransportHandler#onDatagramReceived(WebTransportSession, WebTransportBuffer)`
+* **Description**: Transport-neutral abstraction. Decouples application logic from Netty internals. Safe, zero-copy readable views backed by Netty `ByteBuf`.
+
+### 2. Power-User Raw API (`ByteBuf`)
+* **Streams**: `((NettyWebTransportStream) stream).onRawByteBuf(Consumer<ByteBuf>)`
+* **Datagrams**: `((NettyWebTransportSession) session).onRawDatagram(Consumer<ByteBuf>)`
+* **Description**: Direct access to Netty's raw direct `ByteBuf` on the event loop with **zero wrapper object allocation**. Designed for ultra-low-latency workloads (e.g. game servers, media relays).
+
+### Mutual Exclusivity Design
+
+Each stream or datagram channel permits **either** a standard consumer or a raw consumer, but **never both**. Registering both on the same stream throws `IllegalStateException`.
+
+This is an intentional design choice for several key reasons:
+
+1. **Inbound Buffer Mutation & Reader Index Integrity**:
+   Netty allocates a single direct buffer for each incoming network frame. When a consumer reads data (e.g. `readByte()`, decoding payload), it mutates the buffer's `readerIndex`. Calling two consumers in sequence would cause the second consumer to receive an empty or partially consumed buffer (`readableBytes() == 0`).
+2. **Deterministic Ownership & Leak Prevention**:
+   The dispatcher automatically returns the pooled `ByteBuf` to Netty's allocator once the callback returns:
+   ```java
+   try {
+     consumer.accept(content);
+   } finally {
+     content.release(); // refCnt drops to 0, recycled to pool
+   }
+   ```
+   Single-consumer ownership guarantees deterministic deallocation without reference-counting races or leaks.
+3. **Preserving Zero-GC Invariants**:
+   If the dispatcher simultaneously fed standard consumers, it would be forced to allocate `WebTransportBuffer` wrappers for every packet, undermining the zero-allocation guarantee of the raw API.
+
+### Fanning Out Multiple Listeners
+
+If an application requires multiple operations (e.g., auditing, metrics inspection, and message decoding), handle fan-out inside a single consumer:
+
+```java
+nettyStream.onRawByteBuf(buf -> {
+    // 1. Inspect metrics without modifying readerIndex
+    recordThroughput(buf.readableBytes());
+
+    // 2. Decode or dispatch business payload
+    processDirect(buf);
+});
+```
+
 ## Rejected stream retention
 
 Rejected children receive a protocol shutdown and an explicit local close. Netty 4.2.16 can

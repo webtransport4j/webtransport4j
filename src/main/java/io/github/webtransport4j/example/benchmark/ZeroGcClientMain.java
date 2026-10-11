@@ -388,7 +388,7 @@ public class ZeroGcClientMain {
 
       long durationNs = System.nanoTime() - startTime;
       double durationSec = durationNs / 1_000_000_000.0;
-      long totalSent = finalDgrams + (bidiStreams * finalMsgsPerBidi) + uniSent.get();
+      long totalSent = finalDgrams + ((long) bidiStreams * finalMsgsPerBidi) + uniSent.get();
       double opsSec = totalSent / durationSec;
 
       System.out.printf(

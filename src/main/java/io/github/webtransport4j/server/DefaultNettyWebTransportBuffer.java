@@ -132,6 +132,7 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   @Override
   public byte getByte(int index) {
     ensureAccessible();
+    checkReadable(index, 1, delegate.readableBytes());
     return delegate.getByte(delegate.readerIndex() + index);
   }
 
@@ -144,12 +145,14 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   @Override
   public int getInt(int index) {
     ensureAccessible();
+    checkReadable(index, 4, delegate.readableBytes());
     return delegate.getInt(delegate.readerIndex() + index);
   }
 
   @Override
   public long getLong(int index) {
     ensureAccessible();
+    checkReadable(index, 8, delegate.readableBytes());
     return delegate.getLong(delegate.readerIndex() + index);
   }
 
@@ -250,6 +253,13 @@ public class DefaultNettyWebTransportBuffer implements WebTransportBuffer {
   private void ensureAccessible() {
     if (refCnt == 0) {
       throw new IllegalStateException("buffer has already been released");
+    }
+  }
+
+  private static void checkReadable(int index, int width, int readableBytes) {
+    if (index < 0 || width < 0 || index > readableBytes - width) {
+      throw new IndexOutOfBoundsException(
+          "index: " + index + ", length: " + width + " (expected: range [0, " + readableBytes + "])");
     }
   }
 }

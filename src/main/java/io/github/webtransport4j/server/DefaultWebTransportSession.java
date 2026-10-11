@@ -859,7 +859,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public void sendDatagramDirect(@NonNull ByteBuf data) {
     if (!isOpen()) {
-      ReferenceCountUtil.release(data);
       throw new IllegalStateException("Session is closed");
     }
     Channel parentChannel = connectStream.parent();

@@ -200,10 +200,7 @@ public class ConcurrencyRaceRegressionTest {
           DefaultWebTransportSession.class.getDeclaredField("serverInitiatedStreamsBidi");
       counter.setAccessible(true);
       Object val = counter.get(session);
-      long used =
-          (val instanceof Number)
-              ? ((Number) val).longValue()
-              : ((java.util.concurrent.atomic.AtomicLong) val).get();
+      long used = ((Number) val).longValue();
       assertEquals("Peer limit=1", 1, used);
     } finally {
       resumeRead.countDown();

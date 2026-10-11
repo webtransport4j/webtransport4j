@@ -32,6 +32,7 @@ java $HOTSPOT_HEAP_ARGS \
      -cp "$CP" \
      io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_HOTSPOT_REPORT.md" > server_output.log 2>&1 &
 SERVER_PID=$!
+trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
 echo "Waiting for server to bind on port $PORT..."
 for i in {1..30}; do
@@ -54,6 +55,7 @@ java -cp "$CP" \
      io.github.webtransport4j.example.benchmark.ZeroGcClientMain "$PORT" "$OPS"
 
 wait "$SERVER_PID"
+trap - EXIT
 cat server_output.log
 
 echo ""
@@ -77,6 +79,7 @@ java -XX:+UnlockExperimentalVMOptions \
      -cp "$CP" \
      io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_EPSILON_REPORT.md" > server_output.log 2>&1 &
 SERVER_PID=$!
+trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
 echo "Waiting for server to bind on port $PORT..."
 for i in {1..30}; do
@@ -99,6 +102,7 @@ java -cp "$CP" \
      io.github.webtransport4j.example.benchmark.ZeroGcClientMain "$PORT" "$OPS"
 
 wait "$SERVER_PID"
+trap - EXIT
 cat server_output.log
 
 echo ""

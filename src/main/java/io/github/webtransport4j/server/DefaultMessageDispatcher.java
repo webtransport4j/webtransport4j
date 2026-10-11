@@ -241,7 +241,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (rawConsumer != null) {
         dispatchRawStreamData(rawConsumer, content);
       } else if (stream.getDataConsumer() != null) {
-        dispatchStreamData(stream, content, streamChannel);
+        dispatchStreamData(stream, content);
       } else {
         content.release();
       }
@@ -308,7 +308,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (rawDatagramConsumer != null) {
         dispatchRawDatagramData(rawDatagramConsumer, content);
       } else {
-        dispatchDatagramData(handler, session, content, channel);
+        dispatchDatagramData(handler, session, content);
       }
     } catch (Throwable t) {
       logger.error("Exception in tryDispatchDatagramToHandler", t);
@@ -339,7 +339,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
    * Dispatches incoming stream data to the stream consumer.
    */
   protected void dispatchStreamData(
-      @NonNull WebTransportStream stream, @NonNull ByteBuf content, @NonNull Channel channel) {
+      @NonNull WebTransportStream stream, @NonNull ByteBuf content) {
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
     try {
       stream.getDataConsumer().accept(buffer);
@@ -384,8 +384,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
   protected void dispatchDatagramData(
       @NonNull WebTransportHandler handler,
       @NonNull WebTransportSession session,
-      @NonNull ByteBuf content,
-      @NonNull Channel channel) {
+      @NonNull ByteBuf content) {
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
     try {
       handler.onDatagramReceived(session, buffer);

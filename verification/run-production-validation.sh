@@ -38,6 +38,6 @@ echo "QUOTA CONTROL complete"
 echo "ATTACK REPLAY complete; waiting for idle recovery"
 wait "$server_pid"
 trap - EXIT
-if rg -n 'OutOfMemoryError|LEAK:|AssertionError' "$report_dir"/*.log; then exit 1; fi
+if grep -nE 'OutOfMemoryError|LEAK:|AssertionError' "$report_dir"/*.log; then exit 1; fi
 tail -n 2 "$report_dir/server.csv"
 echo "VALIDATION COMPLETE $report_dir"

@@ -378,11 +378,6 @@ public class WebTransportServerBuilder {
    */
   public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
     this.zeroGc = enable;
-    if (enable) {
-      this.messageDispatcherSupplier = () -> ZeroGcMessageDispatcher.INSTANCE;
-    } else {
-      this.messageDispatcherSupplier = () -> DefaultMessageDispatcher.INSTANCE;
-    }
     return this;
   }
 

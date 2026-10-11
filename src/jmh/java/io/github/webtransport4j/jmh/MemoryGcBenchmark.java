@@ -13,7 +13,6 @@ import java.lang.invoke.MethodHandles;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -393,19 +392,24 @@ public class MemoryGcBenchmark {
   private static long measureAllocatedBytes(Runnable task) {
     ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
     long threadId = Thread.currentThread().getId();
-    try {
-      Method m = threadBean.getClass().getMethod("getThreadAllocatedBytes", long.class);
-      long start = (Long) m.invoke(threadBean, threadId);
-      task.run();
-      long end = (Long) m.invoke(threadBean, threadId);
-      return Math.max(0, end - start);
-    } catch (Throwable t) {
-      // Fallback if thread allocation tracking is unsupported
-      long memBefore = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
-      task.run();
-      long memAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
-      return Math.max(0, memAfter - memBefore);
+    if (threadBean instanceof com.sun.management.ThreadMXBean) {
+      com.sun.management.ThreadMXBean sunBean = (com.sun.management.ThreadMXBean) threadBean;
+      if (sunBean.isThreadAllocatedMemorySupported()) {
+        if (!sunBean.isThreadAllocatedMemoryEnabled()) {
+          sunBean.setThreadAllocatedMemoryEnabled(true);
+        }
+        long start = sunBean.getThreadAllocatedBytes(threadId);
+        task.run();
+        long end = sunBean.getThreadAllocatedBytes(threadId);
+        return Math.max(0, end - start);
+      }
     }
+    System.err.println(
+        "WARNING: Thread allocated memory tracking not supported; falling back to heap delta estimate");
+    long memBefore = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+    task.run();
+    long memAfter = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+    return Math.max(0, memAfter - memBefore);
   }
 
   private static long getUsedHeapMemory() {

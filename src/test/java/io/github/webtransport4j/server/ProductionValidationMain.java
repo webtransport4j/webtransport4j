@@ -397,8 +397,15 @@ public final class ProductionValidationMain {
                   protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
                     if (msg instanceof Http3HeadersFrame) {
                       Http3Headers headers = ((Http3HeadersFrame) msg).headers();
-                      status.set(Integer.parseInt(headers.status().toString()));
-                      ready.countDown();
+                      try {
+                        CharSequence s = headers.status();
+                        if (s != null) {
+                          status.set(Integer.parseInt(s.toString()));
+                          ready.countDown();
+                        }
+                      } catch (NumberFormatException ignored) {
+                        // Ignore malformed status header
+                      }
                     }
                   }
 

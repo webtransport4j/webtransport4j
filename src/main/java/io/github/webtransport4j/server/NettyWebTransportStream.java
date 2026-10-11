@@ -36,6 +36,12 @@ public interface NettyWebTransportStream extends WebTransportStream {
    * Netty EventLoop. The buffer is automatically released after the consumer returns; if retained
    * asynchronously, caller must explicitly call {@code buf.retain()} and later {@code buf.release()}.
    *
+   * <p><strong>Mutual Exclusivity:</strong> This method is mutually exclusive with
+   * {@link WebTransportStream#onData(Consumer)}. Registering both on the same stream throws
+   * {@link IllegalStateException}. This prevents reader-index mutation conflicts on shared Netty
+   * buffers and guarantees that zero-allocation dispatch is not diluted by wrapper construction.
+   * If both raw inspection and decoding are needed, perform them within a single consumer.
+   *
    * @param consumer the raw ByteBuf consumer
    */
   void onRawByteBuf(@NonNull Consumer<ByteBuf> consumer);
