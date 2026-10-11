@@ -81,9 +81,9 @@ run_benchmark() {
 
   echo ""
   echo "--- Native JVM GC Log Verification ($GC_LOG) ---"
-  if grep -E "Pause|Garbage Collection" "$GC_LOG" 2>/dev/null; then
+  if grep -E "Pause|Garbage Collection" "$GC_LOG" >/dev/null 2>&1; then
     echo "Recorded GC events in $GC_LOG:"
-    grep -E "Pause|Garbage Collection" "$GC_LOG" | head -n 10
+    { grep -E "Pause|Garbage Collection" "$GC_LOG" 2>/dev/null || true; } | head -n 10
   else
     echo "✅ Verified: EXACTLY 0 GC pause events recorded in native JVM GC log!"
   fi
