@@ -371,11 +371,6 @@ public class WebTransportServerBuilder {
 
   /**
    * Enables experimental reduced-allocation dispatch with normal ownership and executor semantics.
-   * This mode does not guarantee zero allocation or zero garbage collection.
-   *
-   * @param enable true to use zero-GC dispatching
-   * @return this builder
-   */
   public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
     this.zeroGc = enable;
     return this;
