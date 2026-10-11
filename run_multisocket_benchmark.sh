@@ -97,12 +97,14 @@ run_benchmark \
   "$REPORT_DIR/DATAGRAM_SINGLE_SOCKET_REPORT.md" \
   "54361"
 
-# Run 2: Multi-Socket Sharded via SO_REUSEPORT + QuicCodecDispatcher (8 sockets)
+MULTI_REPORT_FILE="$REPORT_DIR/DATAGRAM_${SOCKETS}_SOCKET_REPORT.md"
+
+# Run 2: Multi-Socket Sharded via SO_REUSEPORT + QuicCodecDispatcher ($SOCKETS sockets)
 run_benchmark \
   "Multi-Socket Sharded (socketCount=$SOCKETS)" \
   "$SOCKETS" \
   "target/server_zgc_multi_socket.log" \
-  "$REPORT_DIR/DATAGRAM_8_SOCKET_REPORT.md" \
+  "$MULTI_REPORT_FILE" \
   "54362"
 
 echo ""
@@ -110,5 +112,5 @@ echo "==========================================================================
 echo " MULTI-SOCKET BENCHMARKS COMPLETED!"
 echo " Reports generated:"
 echo "   - $REPORT_DIR/DATAGRAM_SINGLE_SOCKET_REPORT.md"
-echo "   - $REPORT_DIR/DATAGRAM_8_SOCKET_REPORT.md"
+echo "   - $MULTI_REPORT_FILE"
 echo "=========================================================================="
