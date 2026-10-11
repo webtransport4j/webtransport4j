@@ -371,6 +371,7 @@ public class WebTransportServerBuilder {
 
   /**
    * Enables experimental reduced-allocation dispatch with normal ownership and executor semantics.
+  */
   public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
     this.zeroGc = enable;
     return this;

@@ -241,7 +241,6 @@ public class MemoryGcBenchmark {
     System.out.println("Measuring thread-allocated bytes across 10,000,000 operations per scenario...");
     System.out.println();
 
-    final int iterations = 10_000_000;
     HandleSessionHolder handleSession = new HandleSessionHolder();
     BoxedSessionHolder boxedSession = new BoxedSessionHolder();
     ByteBuf rawBuf = Unpooled.directBuffer(64);
@@ -260,59 +259,123 @@ public class MemoryGcBenchmark {
       defaultBuf.release();
     }
 
-    long handleIntBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        HandleSessionHolder.STREAMS_CREATED_HANDLE.incrementAndGet(handleSession);
-      }
-    });
+    final int rounds = 4;
+    final int opsPerRound = 2_500_000;
+    final int totalIterations = rounds * opsPerRound;
 
-    long boxedIntBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        boxedSession.streamsCreated.incrementAndGet();
-      }
-    });
+    long handleIntBytes = 0;
+    long boxedIntBytes = 0;
+    long handleLongBytes = 0;
+    long boxedLongBytes = 0;
+    long bufferRetainReleaseBytes = 0;
+    long flyweightReadBytes = 0;
 
-    long handleLongBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        HandleSessionHolder.BYTES_SENT_HANDLE.addAndGet(handleSession, 128L);
-      }
-    });
+    List<String> roundRecords = new ArrayList<>();
 
-    long boxedLongBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        boxedSession.bytesSent.addAndGet(128L);
-      }
-    });
+    for (int r = 0; r < rounds; r++) {
+      boolean handleFirst = (r % 2 == 0);
+      long roundHandleInt;
+      long roundBoxedInt;
+      long roundHandleLong;
+      long roundBoxedLong;
 
-    long bufferRetainReleaseBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        defaultBuf.retain();
-        defaultBuf.release();
+      if (handleFirst) {
+        roundHandleInt = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            HandleSessionHolder.STREAMS_CREATED_HANDLE.incrementAndGet(handleSession);
+          }
+        });
+        roundBoxedInt = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            boxedSession.streamsCreated.incrementAndGet();
+          }
+        });
+        roundHandleLong = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            HandleSessionHolder.BYTES_SENT_HANDLE.addAndGet(handleSession, 128L);
+          }
+        });
+        roundBoxedLong = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            boxedSession.bytesSent.addAndGet(128L);
+          }
+        });
+      } else {
+        roundBoxedInt = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            boxedSession.streamsCreated.incrementAndGet();
+          }
+        });
+        roundHandleInt = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            HandleSessionHolder.STREAMS_CREATED_HANDLE.incrementAndGet(handleSession);
+          }
+        });
+        roundBoxedLong = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            boxedSession.bytesSent.addAndGet(128L);
+          }
+        });
+        roundHandleLong = measureAllocatedBytes(() -> {
+          for (int i = 0; i < opsPerRound; i++) {
+            HandleSessionHolder.BYTES_SENT_HANDLE.addAndGet(handleSession, 128L);
+          }
+        });
       }
-    });
 
-    long flyweightReadBytes = measureAllocatedBytes(() -> {
-      for (int i = 0; i < iterations; i++) {
-        flyweight.getByte(0);
-      }
-    });
+      final long roundBufferBytes = measureAllocatedBytes(() -> {
+        for (int i = 0; i < opsPerRound; i++) {
+          defaultBuf.retain();
+          defaultBuf.release();
+        }
+      });
+
+      final long roundFlyweightBytes = measureAllocatedBytes(() -> {
+        for (int i = 0; i < opsPerRound; i++) {
+          flyweight.getByte(0);
+        }
+      });
+
+      handleIntBytes += roundHandleInt;
+      boxedIntBytes += roundBoxedInt;
+      handleLongBytes += roundHandleLong;
+      boxedLongBytes += roundBoxedLong;
+      bufferRetainReleaseBytes += roundBufferBytes;
+      flyweightReadBytes += roundFlyweightBytes;
+
+      roundRecords.add(
+          String.format(
+              "Round %d [%s]: handleInt=%,d B, boxedInt=%,d B, handleLong=%,d B, boxedLong=%,d B",
+              r + 1,
+              handleFirst ? "Handle -> Boxed" : "Boxed -> Handle",
+              roundHandleInt,
+              roundBoxedInt,
+              roundHandleLong,
+              roundBoxedLong));
+    }
+
+    System.out.println("Execution order & per-round allocations (alternating to reduce order bias):");
+    for (String record : roundRecords) {
+      System.out.println("  " + record);
+    }
+    System.out.println();
 
     System.out.printf("%-40s | %15s | %15s%n", "Operation / Component", "Total Allocated", "Bytes / Op (B/op)");
     System.out.println("--------------------------------------------------------------------------------");
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
-        "Handle Int Increment (VarHandle)", handleIntBytes / 1024, (double) handleIntBytes / iterations);
+        "Handle Int Increment (VarHandle)", handleIntBytes / 1024, (double) handleIntBytes / totalIterations);
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
-        "Boxed AtomicInteger Increment", boxedIntBytes / 1024, (double) boxedIntBytes / iterations);
+        "Boxed AtomicInteger Increment", boxedIntBytes / 1024, (double) boxedIntBytes / totalIterations);
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
-        "Handle Long Add (VarHandle)", handleLongBytes / 1024, (double) handleLongBytes / iterations);
+        "Handle Long Add (VarHandle)", handleLongBytes / 1024, (double) handleLongBytes / totalIterations);
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
-        "Boxed AtomicLong Add", boxedLongBytes / 1024, (double) boxedLongBytes / iterations);
+        "Boxed AtomicLong Add", boxedLongBytes / 1024, (double) boxedLongBytes / totalIterations);
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
         "Buffer Retain/Release (Handles refCnt)",
         bufferRetainReleaseBytes / 1024,
-        (double) bufferRetainReleaseBytes / iterations);
+        (double) bufferRetainReleaseBytes / totalIterations);
     System.out.printf("%-40s | %12d KB | %15.2f B/op%n",
-        "FlyweightBuffer Direct Read", flyweightReadBytes / 1024, (double) flyweightReadBytes / iterations);
+        "FlyweightBuffer Direct Read", flyweightReadBytes / 1024, (double) flyweightReadBytes / totalIterations);
     System.out.println();
 
     // 2. Retained Heap Footprint at Scale (50,000 sessions)
