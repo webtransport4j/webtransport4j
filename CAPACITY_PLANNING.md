@@ -4,6 +4,17 @@ This guide provides quantitative resource sizing formulas, CPU/memory recommenda
 
 ---
 
+## Architecture Ceiling
+
+Each `WebTransportServer` instance binds **one UDP socket**. Netty's QUIC codec reads, decrypts, and demultiplexes every inbound packet on that channel's single event loop, so all packet I/O for one instance crosses one thread regardless of the event-loop group size. A single instance is therefore bounded by single-thread UDP receive throughput well below the session counts in the sizing matrix below.
+
+**The sizing tiers in this guide assume horizontal sharding.** To reach the larger tiers on one node, run multiple `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer so that each flow is pinned to one instance.
+
+> [!NOTE]
+> QUIC connection migration can change a client's 4-tuple mid-session. Per-flow (4-tuple) pinning alone may then reroute a migrated connection to a different instance; prefer load balancers that key on the QUIC connection ID, or deployments that tolerate rerouting.
+
+---
+
 ## 1. Resource Consumption Formulas
 
 ### Memory Sizing Model
@@ -26,6 +37,8 @@ Where:
 | **10,000** (Standard Pod) | 4 to 8 vCPU | 2 GB | 16 GB | 24 GB | Load-test required |
 | **40,000** (current default ceiling) | 16 vCPU | 8 GB | 64 GB | 80 GB | Load-test required |
 | **100,000** (custom limit) | 32+ vCPU | 16 GB | 160 GB | 192 GB | Load-test required |
+
+*Session counts are per `WebTransportServer` instance (one UDP socket per instance); scale horizontally as described in [Architecture Ceiling](#architecture-ceiling).*
 
 ---
 

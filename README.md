@@ -155,6 +155,8 @@ The application works with WebTransport concepts rather than HTTP/3 framing dire
 
 `WebTransportSession` represents a session. Each session can receive or create streams and exchange datagrams independently.
 
+Each `WebTransportServer` instance binds a single UDP socket, and Netty's QUIC codec reads, decrypts, and demultiplexes all inbound packets on that channel's single event loop. One instance is therefore capped by single-thread UDP receive throughput; scale beyond that ceiling by running multiple instances behind a UDP load balancer, as described in [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md).
+
 ---
 
 ## Core capabilities
