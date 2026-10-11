@@ -51,6 +51,10 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
           long quarterSessionId = WebTransportUtils.readVariableLengthInt(content);
           if (quarterSessionId == -1) {
             content.release();
+            WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+            if (metrics != null) {
+              metrics.onDatagramDiscarded(-1, "malformed_datagram_header");
+            }
             return;
           }
           long sessionId = quarterSessionId << 2;
@@ -272,6 +276,10 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
     }
     if (mgr == null) {
       content.release();
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+      if (metrics != null) {
+        metrics.onDatagramDiscarded(sessionId, "session_manager_unavailable");
+      }
       return;
     }
     WebTransportSession session = mgr.get(sessionId);
@@ -294,6 +302,10 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
         (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
     if (handler == null) {
       content.release();
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+      if (metrics != null) {
+        metrics.onDatagramDiscarded(sessionId, "handler_not_found");
+      }
       return;
     }
     try {
@@ -314,6 +326,10 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       logger.error("Exception in tryDispatchDatagramToHandler", t);
       if (content.refCnt() > 0) {
         content.release();
+        WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
+        if (metrics != null) {
+          metrics.onDatagramDiscarded(sessionId, "dispatch_error");
+        }
       }
       try {
         handler.onError(session, t);

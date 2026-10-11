@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
@@ -25,6 +26,10 @@ public class WebTransportDatagramDecoder extends MessageToMessageDecoder<ByteBuf
     }
     long quarterSessionId = WebTransportUtils.readVariableLengthInt(msg);
     if (quarterSessionId == -1) {
+      WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(ctx.channel());
+      if (metrics != null) {
+        metrics.onDatagramDiscarded(-1, "malformed_datagram_header");
+      }
       return;
     }
     ByteBuf payload = msg.readRetainedSlice(msg.readableBytes());

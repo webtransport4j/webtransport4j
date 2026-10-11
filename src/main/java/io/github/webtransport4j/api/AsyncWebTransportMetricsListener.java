@@ -174,6 +174,16 @@ public final class AsyncWebTransportMetricsListener
   }
 
   @Override
+  public void onUdpReceiveBufferErrors(long delta) {
+    dispatch(() -> delegate.onUdpReceiveBufferErrors(delta));
+  }
+
+  @Override
+  public void onUdpReceiveErrors(long delta) {
+    dispatch(() -> delegate.onUdpReceiveErrors(delta));
+  }
+
+  @Override
   public void onConnectionMigration(
       long sessionId, @NonNull String oldAddress, @NonNull String newAddress) {
     dispatch(() -> delegate.onConnectionMigration(sessionId, oldAddress, newAddress));
