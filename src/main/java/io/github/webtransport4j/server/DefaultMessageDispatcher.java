@@ -162,7 +162,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (mgr == null) {
         return;
       }
-      NettyWebTransportSession session = mgr.get(sessionId);
+      WebTransportSession session = mgr.get(sessionId);
       if (session == null) {
         return;
       }
@@ -210,7 +210,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       content.release();
       return;
     }
-    NettyWebTransportSession session = mgr.get(sessionId);
+    WebTransportSession session = mgr.get(sessionId);
     if (session == null || !session.isOpen()) {
       content.release();
       return;
@@ -314,7 +314,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       content.release();
       return;
     }
-    NettyWebTransportSession session = mgr.get(sessionId);
+    WebTransportSession session = mgr.get(sessionId);
     if (session == null || !session.isOpen()) {
       content.release();
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);

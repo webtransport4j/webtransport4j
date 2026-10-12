@@ -176,7 +176,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
               ctx.channel().attr(WebTransportAttributeKeys.SERVER_KEY).get();
 
           if (mgr != null) {
-            for (NettyWebTransportSession session : mgr.getSessions()) {
+            for (WebTransportSession session : mgr.getSessions()) {
               if (metrics != null) {
                 metrics.onConnectionMigration(
                     session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);

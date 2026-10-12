@@ -281,11 +281,19 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private volatile @Nullable WebTransportHandler boundHandler;
 
+  /** Returns the handler bound to this session upon admission, or null. */
   @Override
   public @Nullable WebTransportHandler getBoundHandler() {
     return boundHandler;
   }
 
+  /** Alias for {@link #getBoundHandler()}. */
+  @Override
+  public @Nullable WebTransportHandler getHandler() {
+    return boundHandler;
+  }
+
+  /** Binds the handler resolved for this session's path upon admission. */
   @Override
   public void setBoundHandler(@Nullable WebTransportHandler handler) {
     this.boundHandler = handler;

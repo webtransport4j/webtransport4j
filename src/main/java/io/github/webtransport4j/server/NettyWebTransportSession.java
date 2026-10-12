@@ -434,6 +434,7 @@ public interface NettyWebTransportSession extends WebTransportSession {
    *
    * @return the bound handler, or null
    */
+  @Override
   default @Nullable WebTransportHandler getBoundHandler() {
     return null;
   }
