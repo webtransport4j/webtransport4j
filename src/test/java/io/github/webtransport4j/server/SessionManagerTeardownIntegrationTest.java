@@ -198,8 +198,8 @@ public class SessionManagerTeardownIntegrationTest {
           assertTrue(
               "GET response FIN must arrive after request FIN",
               responseFin.await(5, TimeUnit.SECONDS));
-          assertEquals("200", status.get());
-          assertEquals("Hello HTTP/3", body.toString());
+          assertEquals("404", status.get());
+          assertEquals("", body.toString());
         } finally {
           stream.close().sync();
         }

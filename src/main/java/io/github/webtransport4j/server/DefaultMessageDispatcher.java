@@ -9,11 +9,14 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.quic.QuicException;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import javax.net.ssl.SSLException;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -140,10 +143,31 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
               Long.toHexString(httpErrorCode));
         }
       }
-    } else {
-      logger.error("❌ Pipeline error: ", cause);
+      // A peer-initiated stream reset is an expected, stream-scoped condition; the
+      // stream channel is already being torn down by QUIC so an explicit close
+      // only risks tearing down more than intended.
+      return;
     }
-    ctx.close();
+    // Close policy: this dispatcher also runs on the QuicChannel pipeline, where
+    // close() kills every session and stream on the connection, so only
+    // unrecoverable conditions justify closing:
+    //  - DecoderException: codec state may be corrupt; subsequent frames cannot
+    //    be trusted
+    //  - QuicException / SSLException: the transport itself has failed
+    //  - any throwable on an already-inactive channel: close is idempotent cleanup
+    // Any other throwable on a still-active channel (dispatch- or
+    // handler-originated errors, transient codec hiccups) is logged and the
+    // channel stays open: closing a live QUIC connection mid-flight is the
+    // harsher failure for a library component.
+    if (cause instanceof DecoderException
+        || cause instanceof QuicException
+        || cause instanceof SSLException
+        || !ctx.channel().isActive()) {
+      logger.error("❌ Fatal pipeline error, closing channel: ", cause);
+      ctx.close();
+      return;
+    }
+    logger.error("❌ Pipeline error on active channel, keeping it open: ", cause);
   }
 
   private void notifyHandlerError(
