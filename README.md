@@ -155,6 +155,8 @@ The application works with WebTransport concepts rather than HTTP/3 framing dire
 
 `WebTransportSession` represents a session. Each session can receive or create streams and exchange datagrams independently.
 
+By default, each `WebTransportServer` instance binds a single UDP socket (`socketCount = 1`), with Netty's QUIC codec reading, decrypting, and demultiplexes inbound packets on that channel's single event loop. To scale beyond single-core UDP throughput on the same port, configure `.socketCount(N)` on `WebTransportServerBuilder` or set `webtransport4j.server.socket.count=0` (auto-detects CPU cores) to shard packet I/O across $N$ sockets via `SO_REUSEPORT` and Netty's `QuicCodecDispatcher`, as described in [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md).
+
 ---
 
 ## Core capabilities
