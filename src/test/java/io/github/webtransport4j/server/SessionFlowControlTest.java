@@ -349,7 +349,7 @@ public class SessionFlowControlTest {
 
     // Assert: settingsMaxData extended from 1000 by the configured extend amount
     long extendAmount =
-        WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.extend.data", 10000L);
+        WebTransportConfig.getLong("webtransport4j.webtransport.flowcontrol.extend.data", 2097152L);
     assertEquals(1000L + extendAmount, session.getSettingsMaxData());
 
     // Verify: WT_MAX_DATA capsule sent to connectStream
