@@ -28,9 +28,10 @@ We will acknowledge receipt of your vulnerability report within 48 hours and pro
 
 When deploying WebTransport4J in production environments, adhere to the following security recommendations:
 
-1. **Disable Development Mode**:
-   - Ensure `webtransport4j.dev_mode=false` in production.
+1. **Profile-Aware Security and Development Mode**:
+   - WebTransport4J uses a profile-aware configuration model (`prod`, `dev`, `test`). In `prod` (the default profile in `webtransport.properties`), `webtransport4j.dev_mode` is `false` and self-signed certificate generation is strictly blocked.
    - Supply trusted, valid TLS certificates and private keys via `webtransport4j.ssl.cert.path` and `webtransport4j.ssl.key.path`. WebTransport requires TLS 1.3 as mandated by RFC 9001.
+   - Self-signed TLS certificate generation via `CertificateBuilder` is only permitted when running under the `dev` or `test` profile (configured via `webtransport-dev.properties`, `webtransport-test.properties`, or `-Dwebtransport4j.profile=dev|test`).
 
 2. **Stateless QUIC Token Secret**:
    - In distributed or multi-instance server deployments, always configure a shared high-entropy HMAC key via `webtransport4j.quic.token.handler.hmac.key` to ensure safe address validation and prevent UDP amplification attacks.

@@ -108,6 +108,7 @@ Thumbs.db
 *.crt
 *.p12
 *.jks
+!src/test/resources/*.pem
 
 # Python
 __pycache__/
