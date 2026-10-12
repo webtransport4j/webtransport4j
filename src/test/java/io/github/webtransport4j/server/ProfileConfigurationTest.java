@@ -134,6 +134,20 @@ public class ProfileConfigurationTest {
   }
 
   @Test
+  public void commaSeparatedProfilesPreferProd() {
+    System.clearProperty("webtransport4j.dev_mode");
+    for (String profiles :
+        new String[] {
+          "prod,dev", "dev,prod", "prod,test", "test,prod", "custom,dev,prod", " DEV , PrOd , test "
+        }) {
+      System.setProperty("webtransport4j.profile", profiles);
+      assertEquals(profiles, "prod", WebTransportConfig.getActiveProfile());
+      assertFalse(profiles, WebTransportConfig.isDevOrTestProfile());
+      assertFalse(profiles, WebTransportConfig.getBoolean("webtransport4j.dev_mode", false));
+    }
+  }
+
+  @Test
   public void commaSeparatedProfilesNormalizeToDevOrTest() {
     System.setProperty("webtransport4j.profile", "custom,dev");
     assertEquals("dev", WebTransportConfig.getActiveProfile());

@@ -269,6 +269,11 @@ public class WebTransportConfig {
     if (trimmed.contains(",")) {
       String[] parts = trimmed.split(",");
       for (String part : parts) {
+        if (DEFAULT_PROFILE.equalsIgnoreCase(part.trim())) {
+          return DEFAULT_PROFILE;
+        }
+      }
+      for (String part : parts) {
         String p = part.trim().toLowerCase(Locale.ROOT);
         if ("dev".equals(p) || "test".equals(p)) {
           return p;
