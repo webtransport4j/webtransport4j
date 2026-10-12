@@ -131,6 +131,8 @@ public final class Datagram1GbZgcBenchmark {
     final AtomicLong startTime = new AtomicLong(0);
     final AtomicLong endTime = new AtomicLong(0);
     final AtomicBoolean finished = new AtomicBoolean(false);
+    final AtomicLong targetDatagrams = new AtomicLong(0);
+    final AtomicLong targetReceivedBytes = new AtomicLong(0);
 
     final Map<String, Long> initialGcCounts = new HashMap<>();
     final Map<String, Long> initialGcTimes = new HashMap<>();
@@ -173,9 +175,6 @@ public final class Datagram1GbZgcBenchmark {
               ((NettyWebTransportSession) session)
                   .onRawDatagram(
                       raw -> {
-                        socketDatagrams
-                            .computeIfAbsent(assignedSocket, k -> new AtomicLong())
-                            .incrementAndGet();
                         if (startTime.compareAndSet(0, System.nanoTime())) {
                           System.out.println(">>> Server: First datagram received! Benchmarking started...");
                           if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -188,19 +187,34 @@ public final class Datagram1GbZgcBenchmark {
                             }
                           }
                         }
-                        long dgramCount = receivedDatagrams.incrementAndGet();
-                        long total = receivedBytes.addAndGet(raw.readableBytes());
-                        lastPacketTime.set(System.nanoTime());
+                        long dgramCount;
+                        long total;
+                        boolean reachedTarget = false;
+                        // Keep totals and socket counts in the same measurement window.
+                        synchronized (socketDatagrams) {
+                          if (finished.get()) {
+                            return;
+                          }
+                          socketDatagrams
+                              .computeIfAbsent(assignedSocket, k -> new AtomicLong())
+                              .incrementAndGet();
+                          dgramCount = receivedDatagrams.incrementAndGet();
+                          total = receivedBytes.addAndGet(raw.readableBytes());
+                          lastPacketTime.set(System.nanoTime());
+                          if (total >= targetBytes && finished.compareAndSet(false, true)) {
+                            endTime.set(System.nanoTime());
+                            targetDatagrams.set(dgramCount);
+                            targetReceivedBytes.set(total);
+                            reachedTarget = true;
+                          }
+                        }
 
-                        if ((dgramCount & 0x7FFF) == 0) {
+                        if ((dgramCount & 0x7FFF) == 0 || reachedTarget) {
                           long currentUsed = mem.getHeapMemoryUsage().getUsed();
                           peakHeapUsed.accumulateAndGet(currentUsed, Math::max);
                         }
 
-                        if (total >= targetBytes && finished.compareAndSet(false, true)) {
-                          endTime.set(System.nanoTime());
-                          long finalUsed = mem.getHeapMemoryUsage().getUsed();
-                          peakHeapUsed.accumulateAndGet(finalUsed, Math::max);
+                        if (reachedTarget) {
                           System.out.printf(
                               ">>> Server: Target %,d bytes (%.2f MB) reached in %,d datagrams!%n",
                               total, total / (1024.0 * 1024.0), dgramCount);
@@ -251,13 +265,21 @@ public final class Datagram1GbZgcBenchmark {
       endTime.set(System.nanoTime());
     }
 
-    final long totalDgrams = receivedDatagrams.get();
-    final long totalBytes = receivedBytes.get();
-    long durationNanos = (finished.get() && endTime.get() > startTime.get())
+    final long totalDgrams;
+    final long totalBytes;
+    final Map<String, AtomicLong> measuredSocketDatagrams = new HashMap<>();
+    final long durationNanos;
+    synchronized (socketDatagrams) {
+      totalDgrams = finished.get() ? targetDatagrams.get() : receivedDatagrams.get();
+      totalBytes = finished.get() ? targetReceivedBytes.get() : receivedBytes.get();
+      socketDatagrams.forEach((socket, count) ->
+          measuredSocketDatagrams.put(socket, new AtomicLong(count.get())));
+      durationNanos = (finished.get() && endTime.get() > startTime.get())
         ? (endTime.get() - startTime.get())
         : ((lastPacketTime.get() > startTime.get())
             ? (lastPacketTime.get() - startTime.get())
             : (endTime.get() - startTime.get()));
+    }
     double durationSec = durationNanos / 1_000_000_000.0;
     if (durationSec <= 0) {
       durationSec = 0.001;
@@ -279,8 +301,8 @@ public final class Datagram1GbZgcBenchmark {
       collectorDetails.put(gc.getName(), new long[] {deltaCount, deltaTime});
     }
 
-    long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
-    long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
+    final long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
+    final long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
 
     Map<String, Long> threadAllocDeltas = new HashMap<>();
     if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -295,6 +317,36 @@ public final class Datagram1GbZgcBenchmark {
     }
 
     java.util.List<String> topHistogram = new java.util.ArrayList<>();
+    try {
+      javax.management.MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+      javax.management.ObjectName name =
+          new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand");
+      String res =
+          (String)
+              mbs.invoke(
+                  name,
+                  "gcClassHistogram",
+                  new Object[] {new String[] {"-all"}},
+                  new String[] {"[Ljava.lang.String;"});
+      if (res != null) {
+        String[] lines = res.split("\\R");
+        int count = Math.min(lines.length, 35);
+        for (int i = 0; i < count; i++) {
+          topHistogram.add(lines[i]);
+        }
+        if (lines.length > 35) {
+          for (int i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].trim().startsWith("Total")) {
+              topHistogram.add("...");
+              topHistogram.add(lines[i]);
+              break;
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      System.err.println("Could not capture GC.class_histogram: " + e.getMessage());
+    }
 
     long directUsed = PooledByteBufAllocator.DEFAULT.metric().usedDirectMemory();
     for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
@@ -322,7 +374,7 @@ public final class Datagram1GbZgcBenchmark {
         peakHeapUsed.get(),
         directUsed,
         boundSockets,
-        socketDatagrams,
+        measuredSocketDatagrams,
         collectorDetails,
         threadAllocDeltas,
         topHistogram);
@@ -344,7 +396,7 @@ public final class Datagram1GbZgcBenchmark {
         peakHeapUsed.get(),
         directUsed,
         boundSockets,
-        socketDatagrams,
+        measuredSocketDatagrams,
         collectorDetails,
         threadAllocDeltas,
         topHistogram);
@@ -558,7 +610,8 @@ public final class Datagram1GbZgcBenchmark {
       final long clientStart = System.nanoTime();
 
       final long pacingNanos = pacingMicros * 1_000L;
-      while (bytesSent < targetBytes && quicChannel.isOpen()) {
+      final long maxBytesToSend = (long) (targetBytes * 1.05);
+      while (bytesSent < maxBytesToSend && quicChannel.isOpen()) {
         while (!quicChannel.isWritable() && quicChannel.isOpen()) {
           quicChannel.flush();
           LockSupport.parkNanos(5_000);
