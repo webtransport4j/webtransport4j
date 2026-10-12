@@ -245,14 +245,14 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               long currentPeerLimit = session.getPeerSettingsMaxData();
               boolean isFirstUpdate = session.markPeerMaxDataCapsuleReceived();
               if (!isFirstUpdate && maxData < currentPeerLimit) {
-                logger.info(
+                logger.debug(
                     "❌ Received WT_MAX_DATA ({}) less than previous limit ({}). Closing session.",
                     maxData,
                     currentPeerLimit);
                 mgr.closeSessionWithFlowControlError(session);
               } else {
                 session.setPeerSettingsMaxData(maxData);
-                logger.info(
+                logger.debug(
                     "📊 WT_MAX_DATA received. Updated peer settings max data to {} for"
                         + " session {}",
                     maxData,
@@ -294,7 +294,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               if (extendAmount > 0) {
                 long newLimit = session.getSettingsMaxData() + extendAmount;
                 session.setSettingsMaxData(newLimit);
-                logger.info(
+                logger.debug(
                     "📈 Received WT_DATA_BLOCKED. Extending local settings max data to {}"
                         + " (extended by {}) for session {}",
                     newLimit,
@@ -302,7 +302,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     capsule.sessionId());
                 WebTransportUtils.sendMaxDataCapsule(session.getConnectStream(), newLimit);
               } else {
-                logger.info(
+                logger.debug(
                     "ℹ️ Received WT_DATA_BLOCKED but extend.data is 0 or negative. No extension.");
               }
             }
@@ -360,7 +360,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                 } else {
                   session.setSettingsMaxStreamsUni(newLimit);
                 }
-                logger.info(
+                logger.debug(
                     "📊 WT_STREAMS_BLOCKED received. Extending {} limit to {} (blocked={}"
                         + " + capped_remaining={} / {} max_active={} max_absolute={})",
                     isBidi ? "bidi" : "uni",
@@ -373,7 +373,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                 WebTransportUtils.sendMaxStreamsCapsule(
                     session.getConnectStream(), isBidi, newLimit);
               } else {
-                logger.info(
+                logger.debug(
                     "ℹ️ WT_STREAMS_BLOCKED received but no remaining active slots available"
                         + " (active={} initial={} max_extension={}). Not extending limit.",
                     activeCount,
