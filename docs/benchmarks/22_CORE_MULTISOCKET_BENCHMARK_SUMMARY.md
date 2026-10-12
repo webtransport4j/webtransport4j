@@ -8,15 +8,15 @@ This report documents the multi-socket benchmark and throughput scalability test
 +-----------------------------------------------------------------------------------------+
 |                                22-CORE THROUGHPUT SUMMARY                                |
 +-----------------------+------------------+---------------------+------------------------+
-| Architecture Tier     | Sockets / Cores  | Throughput (MB/s)   | Packet Rate (dgram/s)  |
+| Architecture Tier     | Sockets / Cores  | Throughput (MiB/s)  | Packet Rate (dgram/s)  |
 +-----------------------+------------------+---------------------+------------------------+
-| 1-Socket Baseline     |  1 socket / 22   | 144.60 MB/s         | 148,071.1 dgrams/s     |
-| 8-Socket Sharded      |  8 sockets / 22  | 529.96 MB/s (3.66x) | 542,674.7 dgrams/s     |
-| 22-Socket Full Shard  | 22 sockets / 22  | 570.63 MB/s (3.95x) | 584,328.8 dgrams/s     |
+| 1-Socket Baseline     |  1 socket / 22   | 144.60 MiB/s        | 148,071.1 dgrams/s     |
+| 8-Socket Sharded      |  8 sockets / 22  | 529.96 MiB/s (3.66x) | 542,674.7 dgrams/s     |
+| 22-Socket Full Shard  | 22 sockets / 22  | 570.63 MiB/s (3.95x) | 584,328.8 dgrams/s     |
 +-----------------------+------------------+---------------------+------------------------+
-| Zero-Loss Paced (22)  | 22 sockets / 22  | 319.10 MB/s (100%)  | 326,756.6 dgrams/s     |
+| Zero-Loss Paced (22)  | 22 sockets / 22  | 319.10 MiB/s (100%) | 326,756.6 dgrams/s     |
 +-----------------------+------------------+---------------------+------------------------+
-| GC Pause Time (ZGC)   | Across All Runs  | 0.00 ms (0 pauses)  | True Zero-Pause GC     |
+| GC Pause Time (ZGC)   | Across All Runs  | 0.00 ms            | Millisecond resolution |
 +-----------------------+------------------+---------------------+------------------------+
 ```
 
@@ -94,17 +94,17 @@ flowchart TD
 
 ### 3.1 Throughput and Packet Rate Comparison
 
-| Benchmark Tier | Sockets Bound | Active Concurrent Clients | Ingested Payload | Transfer Time | Data Throughput | Packet Rate |
+| Benchmark Tier | Sockets Bound | Active Concurrent Clients | Ingested Payload | Transfer Time | Data Throughput (MiB/s) | Packet Rate |
 | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
-| **Tier 1: Single Socket Baseline** | 1 | 22 | 219.57 MB | 1.448 s | **144.60 MB/s** | 148,071 dgrams/s |
-| **Tier 2: 8-Socket Sharded** | 8 | 22 | 796.02 MB | 1.432 s | **529.96 MB/s** (3.66x) | 542,675 dgrams/s |
-| **Tier 3: 22-Socket Sharded** | 22 | 22 | 904.68 MB | 1.512 s | **570.63 MB/s** (3.95x) | **584,329 dgrams/s** |
-| **Tier 4: Paced Zero-Loss (22-Socket)** | 22 | 22 | 268.44 MB (100%) | 0.802 s | **319.10 MB/s** | 326,757 dgrams/s |
+| **Tier 1: Single Socket Baseline** | 1 | 22 | 219.57 MB | 1.448 s | **144.60 MiB/s** | 148,071 dgrams/s |
+| **Tier 2: 8-Socket Sharded** | 8 | 22 | 796.02 MB | 1.432 s | **529.96 MiB/s** (3.66x) | 542,675 dgrams/s |
+| **Tier 3: 22-Socket Sharded** | 22 | 22 | 904.68 MB | 1.512 s | **570.63 MiB/s** (3.95x) | **584,329 dgrams/s** |
+| **Tier 4: Paced Zero-Loss (22-Socket)** | 22 | 22 | 268.44 MB (100%) | 0.802 s | **319.10 MiB/s** | 326,757 dgrams/s |
 
 ### 3.2 Key Observations:
-* **Elimination of Single-Socket Bottleneck**: A single socket maxed out at 144.60 MB/s (~148k pkts/sec) due to single-core softirq/event loop limits.
-* **3.95x Speedup**: Moving to 22 sharded sockets increased throughput to **570.63 MB/s** and packet handling to **584,328 datagrams per second**.
-* **Zero-Loss Completion**: When paced with 1 µs inter-burst spacing, 100% of datagrams (262,144/262,144 packets) were successfully ingested without a single dropped packet at 319.10 MB/s.
+* **Elimination of Single-Socket Bottleneck**: A single socket maxed out at 144.60 MiB/s (~148k pkts/sec) due to single-core softirq/event loop limits.
+* **3.95x Speedup**: Moving to 22 sharded sockets increased throughput to **570.63 MiB/s** and packet handling to **584,328 datagrams per second**.
+* **Zero-Loss Completion**: When paced with 1 µs inter-burst spacing, 100% of datagrams (262,144/262,144 packets) were successfully ingested without a single dropped packet at 319.10 MiB/s.
 
 ---
 

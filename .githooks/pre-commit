@@ -195,16 +195,14 @@ LARGEST_FILE=""
 
 while IFS= read -r file; do
     [ -z "$file" ] && continue
-    if [ -f "$file" ]; then
-        file_size_bytes=$(wc -c < "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo 0)
-        file_size_kb=$(( file_size_bytes / 1024 ))
-        if [ "$file_size_kb" -gt "$MAX_OBSERVED_KB" ]; then
-            MAX_OBSERVED_KB=$file_size_kb
-            LARGEST_FILE="$file"
-        fi
-        if [ "$file_size_kb" -gt "$MAX_FILE_SIZE_KB" ]; then
-            LARGE_FILES="${LARGE_FILES}\n     ${RED}✗${NC} $file (${file_size_kb} KB > ${MAX_FILE_SIZE_KB} KB)"
-        fi
+    file_size_bytes=$(git cat-file -s ":$file" 2>/dev/null || echo 0)
+    file_size_kb=$(( file_size_bytes / 1024 ))
+    if [ "$file_size_kb" -gt "$MAX_OBSERVED_KB" ]; then
+        MAX_OBSERVED_KB=$file_size_kb
+        LARGEST_FILE="$file"
+    fi
+    if [ "$file_size_kb" -gt "$MAX_FILE_SIZE_KB" ]; then
+        LARGE_FILES="${LARGE_FILES}\n     ${RED}✗${NC} $file (${file_size_kb} KB > ${MAX_FILE_SIZE_KB} KB)"
     fi
 done <<< "$STAGED_FILES"
 
@@ -286,15 +284,13 @@ JSON_FILES=$(echo "$STAGED_FILES" | grep -E '\.json$' || true)
 if [ -n "$JSON_FILES" ]; then
     while IFS= read -r jf; do
         [ -z "$jf" ] && continue
-        if [ -f "$jf" ]; then
-            SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
-            if [ -n "$PYTHON_CMD" ]; then
-                if ! $PYTHON_CMD -m json.tool "$jf" > /dev/null 2>&1; then
-                    echo -e "  ${RED}❌ [FAIL] Invalid JSON syntax in:${NC} $jf"
-                    SYNTAX_FAILED=1
-                else
-                    echo -e "  ${GREEN}✔ [JSON]${NC} Validated: $jf"
-                fi
+        SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
+        if [ -n "$PYTHON_CMD" ]; then
+            if ! (set -o pipefail; git show ":$jf" | $PYTHON_CMD -m json.tool) > /dev/null 2>&1; then
+                echo -e "  ${RED}❌ [FAIL] Invalid JSON syntax in:${NC} $jf"
+                SYNTAX_FAILED=1
+            else
+                echo -e "  ${GREEN}✔ [JSON]${NC} Validated: $jf"
             fi
         fi
     done <<< "$JSON_FILES"
@@ -305,14 +301,12 @@ SH_FILES=$(echo "$STAGED_FILES" | grep -E '\.sh$' || true)
 if [ -n "$SH_FILES" ]; then
     while IFS= read -r sf; do
         [ -z "$sf" ] && continue
-        if [ -f "$sf" ]; then
-            SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
-            if ! bash -n "$sf" 2>/dev/null; then
-                echo -e "  ${RED}❌ [FAIL] Shell script syntax error in:${NC} $sf"
-                SYNTAX_FAILED=1
-            else
-                echo -e "  ${GREEN}✔ [Bash]${NC} Syntax verified: $sf"
-            fi
+        SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
+        if ! (set -o pipefail; git show ":$sf" | bash -n) 2>/dev/null; then
+            echo -e "  ${RED}❌ [FAIL] Shell script syntax error in:${NC} $sf"
+            SYNTAX_FAILED=1
+        else
+            echo -e "  ${GREEN}✔ [Bash]${NC} Syntax verified: $sf"
         fi
     done <<< "$SH_FILES"
 fi
@@ -322,17 +316,15 @@ YAML_FILES=$(echo "$STAGED_FILES" | grep -E '\.(yaml|yml)$' || true)
 if [ -n "$YAML_FILES" ] && [ -n "$PYTHON_CMD" ]; then
     while IFS= read -r yf; do
         [ -z "$yf" ] && continue
-        if [ -f "$yf" ]; then
-            SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
-            if ! $PYTHON_CMD -c "import yaml; list(yaml.safe_load_all(open('$yf')))" > /dev/null 2>&1; then
-                # Only fail if yaml module is actually installed
-                if $PYTHON_CMD -c "import yaml" > /dev/null 2>&1; then
-                    echo -e "  ${RED}❌ [FAIL] Invalid YAML syntax in:${NC} $yf"
-                    SYNTAX_FAILED=1
-                fi
-            else
-                echo -e "  ${GREEN}✔ [YAML]${NC} Validated: $yf"
+        SYNTAX_CHECKED=$(( SYNTAX_CHECKED + 1 ))
+        if ! $PYTHON_CMD -c 'import subprocess, sys, yaml; list(yaml.safe_load_all(subprocess.check_output(["git", "show", ":" + sys.argv[1]])))' "$yf" > /dev/null 2>&1; then
+            # Only fail if yaml module is actually installed
+            if $PYTHON_CMD -c "import yaml" > /dev/null 2>&1; then
+                echo -e "  ${RED}❌ [FAIL] Invalid YAML syntax in:${NC} $yf"
+                SYNTAX_FAILED=1
             fi
+        else
+            echo -e "  ${GREEN}✔ [YAML]${NC} Validated: $yf"
         fi
     done <<< "$YAML_FILES"
 fi

@@ -78,7 +78,7 @@ run_tier() {
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
        client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE" "$CONCURRENCY" "$PACING_MICROS"
 
-  wait "$SERVER_PID" || true
+  wait "$SERVER_PID"
   trap - EXIT
   cat server_benchmark.log
 
