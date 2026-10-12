@@ -6,6 +6,10 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.server.WebTransportConfig;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -33,6 +37,61 @@ public class WebTransportTestHandler implements WebTransportHandler {
   private final ScheduledExecutorService delayScheduler;
   private final Semaphore delayAdmissionSemaphore;
   private final int maxDelayedTasks;
+  private final ConcurrentHashMap<Long, AckStreamState> sessionAckStreams = new ConcurrentHashMap<>();
+
+  private static final class AckStreamState {
+    private final CompletableFuture<WebTransportStream> stream = new CompletableFuture<>();
+    private final Queue<byte[]> pendingWrites = new ArrayDeque<>();
+    private boolean draining;
+
+    private void write(byte[] bytes, long sessionId) {
+      synchronized (this) {
+        pendingWrites.add(bytes);
+        if (draining) {
+          return;
+        }
+        draining = true;
+      }
+
+      // One callback drains the FIFO; independent future callbacks have no ordering guarantee.
+      stream.whenComplete(
+          (ackStream, creationErr) -> {
+            while (true) {
+              byte[] next;
+              synchronized (this) {
+                next = pendingWrites.poll();
+                if (next == null) {
+                  draining = false;
+                  return;
+                }
+              }
+              if (creationErr != null) {
+                logger.error(
+                    "❌ Failed to create or obtain ack uni stream for session {}",
+                    sessionId,
+                    creationErr);
+                continue;
+              }
+              try {
+                ackStream
+                    .write(next)
+                    .whenComplete(
+                        (res, err) -> {
+                          if (err != null) {
+                            logger.error(
+                                "❌ Failed to write to cached ack uni stream for session {}",
+                                sessionId,
+                                err);
+                          }
+                        });
+              } catch (Throwable t) {
+                logger.error(
+                    "❌ Failed to write to cached ack uni stream for session {}", sessionId, t);
+              }
+            }
+          });
+    }
+  }
 
   /** Default constructor using shared scheduler and configured max delayed tasks. */
   public WebTransportTestHandler() {
@@ -145,8 +204,56 @@ public class WebTransportTestHandler implements WebTransportHandler {
             });
   }
 
+  private void writeAck(WebTransportSession session, byte[] bytes) {
+    long sessId = session.getSessionStreamId();
+    AckStreamState state = new AckStreamState();
+    // Enqueue before publishing or creating the stream, either of which may admit another chunk.
+    state.write(bytes, sessId);
+    AckStreamState existing = sessionAckStreams.putIfAbsent(sessId, state);
+    if (existing != null) {
+      existing.write(bytes, sessId);
+      return;
+    }
+
+    try {
+      session
+          .createUniStream()
+          .whenComplete(
+              (ackStream, err) -> {
+                if (err != null) {
+                  sessionAckStreams.remove(sessId, state);
+                  state.stream.completeExceptionally(err);
+                } else {
+                  ackStream.onClose(() -> sessionAckStreams.remove(sessId, state));
+                  ackStream.onError(e -> sessionAckStreams.remove(sessId, state));
+                  state.stream.complete(ackStream);
+                }
+              });
+    } catch (Throwable t) {
+      sessionAckStreams.remove(sessId, state);
+      state.stream.completeExceptionally(t);
+    }
+  }
+
   @Override
   public void onSessionClosed(@NonNull WebTransportSession session) {
+    long sessId = session.getSessionStreamId();
+    AckStreamState state = sessionAckStreams.remove(sessId);
+    if (state != null) {
+      state.stream.thenAccept(
+              s -> {
+                try {
+                  s.close();
+                } catch (Throwable t) {
+                  logger.debug("Error closing cached ack stream for session {}", sessId, t);
+                }
+              })
+          .exceptionally(
+              e -> {
+                return null;
+              });
+    }
+
     logger.info(
         "🔴 [TEST HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}",
         session.path(),
@@ -202,17 +309,14 @@ public class WebTransportTestHandler implements WebTransportHandler {
                     stream.write(bytes);
                   }
                 } else {
-                  // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
-                  session
-                      .createUniStream()
-                      .thenAccept(
-                          ackStream -> {
-                            byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
-                            byte[] outBytes = new byte[prefixBytes.length + bytes.length];
-                            System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
-                            System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-                            ackStream.write(outBytes).thenRun(ackStream::close);
-                          });
+                  // Echo an ACK back via a cached Server-to-Client Unidirectional stream to avoid
+                  // creating one ack stream per incoming chunk (prevents exhausting server stream limits).
+                  byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                  byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                  System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                  System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+
+                  writeAck(session, outBytes);
                 }
               };
 
