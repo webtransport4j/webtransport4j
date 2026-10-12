@@ -63,7 +63,6 @@ public class WebTransportServerBuilder {
   private TrustManager trustManager;
   private OriginValidator originValidator;
   private Boolean strictOriginValidation;
-  private boolean zeroGc;
   private Integer socketCount;
   private ByteBufAllocator byteBufAllocator;
 
@@ -370,23 +369,6 @@ public class WebTransportServerBuilder {
       @NonNull Supplier<MessageDispatcher> supplier) {
     this.messageDispatcherSupplier = supplier;
     return this;
-  }
-
-  /**
-   * Enables experimental reduced-allocation dispatch with normal ownership and executor semantics.
-  */
-  public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
-    this.zeroGc = enable;
-    return this;
-  }
-
-  /**
-   * Returns whether zero-GC mode is enabled.
-   *
-   * @return true if enabled
-   */
-  public boolean isZeroGc() {
-    return zeroGc;
   }
 
   /**
