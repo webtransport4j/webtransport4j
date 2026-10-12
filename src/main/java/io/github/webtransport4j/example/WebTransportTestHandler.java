@@ -151,25 +151,31 @@ public class WebTransportTestHandler implements WebTransportHandler {
 
   private CompletableFuture<WebTransportStream> getOrCreateAckStream(WebTransportSession session) {
     long sessId = session.getSessionStreamId();
-    return sessionAckStreams.computeIfAbsent(
-        sessId,
-        id -> {
-          CompletableFuture<WebTransportStream> f = new CompletableFuture<>();
-          session
-              .createUniStream()
-              .whenComplete(
-                  (ackStream, err) -> {
-                    if (err != null) {
-                      sessionAckStreams.remove(sessId);
-                      f.completeExceptionally(err);
-                    } else {
-                      f.complete(ackStream);
-                      ackStream.onClose(() -> sessionAckStreams.remove(sessId));
-                      ackStream.onError(e -> sessionAckStreams.remove(sessId));
-                    }
-                  });
-          return f;
-        });
+    CompletableFuture<WebTransportStream> f = new CompletableFuture<>();
+    CompletableFuture<WebTransportStream> existing = sessionAckStreams.putIfAbsent(sessId, f);
+    if (existing != null) {
+      return existing;
+    }
+
+    try {
+      session
+          .createUniStream()
+          .whenComplete(
+              (ackStream, err) -> {
+                if (err != null) {
+                  sessionAckStreams.remove(sessId, f);
+                  f.completeExceptionally(err);
+                } else {
+                  ackStream.onClose(() -> sessionAckStreams.remove(sessId, f));
+                  ackStream.onError(e -> sessionAckStreams.remove(sessId, f));
+                  f.complete(ackStream);
+                }
+              });
+    } catch (Throwable t) {
+      sessionAckStreams.remove(sessId, f);
+      f.completeExceptionally(t);
+    }
+    return f;
   }
 
   @Override
@@ -257,7 +263,17 @@ public class WebTransportTestHandler implements WebTransportHandler {
                       .thenAccept(
                           ackStream -> {
                             try {
-                              ackStream.write(outBytes);
+                              ackStream
+                                  .write(outBytes)
+                                  .whenComplete(
+                                      (res, err) -> {
+                                        if (err != null) {
+                                          logger.error(
+                                              "❌ Failed to write to cached ack uni stream for session {}",
+                                              session.getSessionStreamId(),
+                                              err);
+                                        }
+                                      });
                             } catch (Throwable t) {
                               logger.error(
                                   "❌ Failed to write to cached ack uni stream for session {}",
