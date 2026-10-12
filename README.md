@@ -512,6 +512,8 @@ Supported transport values:
 | `kqueue`  | macOS/BSD native kqueue                     |
 | `nio`     | Java NIO                                    |
 
+> **Note:** On Linux where both `io_uring` and `epoll` are available, `auto` picks `io_uring` first, but the UDP GRO/GSO socket options are epoll-only in the current Netty integration — benchmark `epoll` (with GRO/GSO) against `iouring` explicitly for QUIC receive-heavy workloads. See the `webtransport4j.server.transport` comment in `webtransport.properties` and [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md).
+
 ---
 
 ## Reactive Streams
