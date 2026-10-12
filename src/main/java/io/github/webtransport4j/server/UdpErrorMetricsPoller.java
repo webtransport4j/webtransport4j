@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.internal.EventLoopSafety;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -74,6 +75,7 @@ public final class UdpErrorMetricsPoller {
 
   private void add(Object key, Supplier<WebTransportMetricsListener> listenerSupplier) {
     listeners.put(key, listenerSupplier);
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       if (!isSupported()) {
         return;
@@ -90,6 +92,7 @@ public final class UdpErrorMetricsPoller {
 
   private void remove(Object key) {
     listeners.remove(key);
+    EventLoopSafety.requireBlockingAllowed();
     synchronized (lifecycleLock) {
       if (listeners.isEmpty()) {
         running = false;
@@ -100,6 +103,7 @@ public final class UdpErrorMetricsPoller {
 
   private void runLoop() {
     for (; ; ) {
+      EventLoopSafety.requireBlockingAllowed();
       synchronized (lifecycleLock) {
         if (!running || listeners.isEmpty()) {
           running = false;
