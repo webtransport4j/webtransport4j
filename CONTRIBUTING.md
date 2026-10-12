@@ -46,6 +46,19 @@ webtransport4j/
 
 ## Building and Testing
 
+### 0. Install Git Pre-Commit Hooks
+To ensure code integrity, style compliance, and protect against secret/certificate leaks, install the pre-commit hooks:
+```bash
+./scripts/install-hooks.sh
+```
+*(Or via the Python pre-commit framework: `pre-commit install`)*
+
+These hooks automatically validate:
+* **Zero-Committed-Certificate Policy**: Prevents committing TLS certificates or private keys (`*.pem`, `*.key`, `*.p12`, etc.).
+* **Google Java Style Checkstyle**: Verifies 0 violations with `mvn checkstyle:check`.
+* **Multi-Release Build Gate**: Validates multi-release Java compilation (`mvn test-compile -DskipTests`).
+* **Hygiene & Safety**: Guards against merge conflict markers, trailing whitespace, invalid JSON/YAML syntax, and oversized files.
+
 ### 1. Build the project
 To compile the core sources:
 ```bash
