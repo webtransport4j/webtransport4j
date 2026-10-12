@@ -291,7 +291,8 @@ public class WebTransportHandlerLifecycleTest {
 
   @Test
   public void testExceptionCaughtClosePolicy() {
-    // Peer stream reset: expected, stream-scoped — never close the channel.
+    // Peer stream reset: stream-scoped — close stream channel to tear down send side and replenish permits,
+    // but never close parent QuicChannel.
     QuicStreamChannel resetStream = mock(QuicStreamChannel.class);
     DefaultAttributeMap resetAttrs = new DefaultAttributeMap();
     when(resetStream.attr(any())).thenAnswer(inv -> resetAttrs.attr(inv.getArgument(0)));
@@ -299,7 +300,15 @@ public class WebTransportHandlerLifecycleTest {
     when(resetCtx.channel()).thenReturn(resetStream);
     DefaultMessageDispatcher.INSTANCE.exceptionCaught(
         resetCtx, new QuicStreamResetException("reset", 0x52));
-    verify(resetCtx, never()).close();
+    verify(resetCtx).close();
+
+    QuicChannel resetConn = mock(QuicChannel.class);
+    ChannelHandlerContext resetConnCtx = mock(ChannelHandlerContext.class);
+    when(resetConnCtx.channel()).thenReturn(resetConn);
+    when(resetConn.isActive()).thenReturn(true);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        resetConnCtx, new QuicStreamResetException("reset", 0x52));
+    verify(resetConnCtx, never()).close();
 
     // Unknown throwable on an active QuicChannel: keep open — close() would kill
     // every session and stream on the connection.
