@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyBoolean;
 import static org.mockito.Mockito.anyInt;
@@ -38,7 +39,7 @@ import org.junit.Test;
  */
 public class ReducedAllocationDispatchTest {
   private EmbeddedChannel channel(WebTransportHandler handler) {
-    EmbeddedChannel channel = new EmbeddedChannel(ZeroGcMessageDispatcher.INSTANCE);
+    EmbeddedChannel channel = new EmbeddedChannel(DefaultMessageDispatcher.INSTANCE);
     NettyWebTransportSession session = mock(NettyWebTransportSession.class);
     when(session.path()).thenReturn("/test");
     when(session.isOpen()).thenReturn(true);
@@ -104,7 +105,7 @@ public class ReducedAllocationDispatchTest {
     ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
     when(ctx.channel()).thenReturn(stream);
     ByteBuf input = Unpooled.buffer().writeByte(42);
-    ZeroGcMessageDispatcher.INSTANCE.channelRead(ctx, input);
+    DefaultMessageDispatcher.INSTANCE.channelRead(ctx, input);
     assertEquals(42, retained.get().getByte(0));
     retained.get().release();
     assertEquals(0, input.refCnt());
@@ -157,6 +158,40 @@ public class ReducedAllocationDispatchTest {
       ch.writeInbound(input);
       assertNotNull(seen.get());
       assertEquals(0, input.refCnt());
+    } finally {
+      ch.finishAndReleaseAll();
+    }
+  }
+
+  @Test
+  public void retainedDispatchBufferPromotesAndReadsAfterCallback() {
+    AtomicReference<WebTransportBuffer> retained = new AtomicReference<>();
+    AtomicReference<Byte> lastValue = new AtomicReference<>();
+    EmbeddedChannel ch = channel(new WebTransportHandler() {
+      @Override
+      public void onDatagramReceived(io.github.webtransport4j.api.WebTransportSession session,
+          WebTransportBuffer buffer) {
+        lastValue.set(buffer.getByte(0));
+        if (buffer.getByte(0) == 9) {
+          assertSame(buffer, buffer.retain());
+          retained.set(buffer);
+        }
+      }
+    });
+    ByteBuf first = datagram(9);
+    ByteBuf second = datagram(8);
+    try {
+      ch.writeInbound(first);
+      // Promotion keeps the bytes valid after dispatch released its own reference.
+      assertEquals(1, first.refCnt());
+      assertTrue(retained.get() instanceof FlyweightWebTransportBuffer);
+      assertEquals(9, retained.get().getByte(0));
+      // A subsequent dispatch on the same thread still works after promotion.
+      ch.writeInbound(second);
+      assertEquals(Byte.valueOf((byte) 8), lastValue.get());
+      assertEquals(0, second.refCnt());
+      retained.get().release();
+      assertEquals(0, first.refCnt());
     } finally {
       ch.finishAndReleaseAll();
     }
@@ -322,7 +357,7 @@ public class ReducedAllocationDispatchTest {
     ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
     when(ctx.channel()).thenReturn(streamChannel);
     ByteBuf input = Unpooled.buffer().writeByte(55);
-    ZeroGcMessageDispatcher.INSTANCE.channelRead(ctx, input);
+    DefaultMessageDispatcher.INSTANCE.channelRead(ctx, input);
 
     assertNotNull(captured.get());
     assertEquals(1, captured.get().refCnt());
@@ -341,7 +376,7 @@ public class ReducedAllocationDispatchTest {
       assertEquals(77, buf.readByte());
     });
 
-    EmbeddedChannel ch = new EmbeddedChannel(ZeroGcMessageDispatcher.INSTANCE);
+    EmbeddedChannel ch = new EmbeddedChannel(DefaultMessageDispatcher.INSTANCE);
     WebTransportSessionManager manager = mock(WebTransportSessionManager.class);
     when(manager.get(0L)).thenReturn(session);
     ch.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(manager);
