@@ -324,8 +324,10 @@ public class WebTransportConfig {
     try {
       Class<?> testCertClass = Class.forName("io.github.webtransport4j.test.TestCertificates");
       testCertClass.getMethod("ensureTestCertificatesExist").invoke(null);
-    } catch (Throwable ignored) {
+    } catch (ClassNotFoundException ignored) {
       // TestCertificates is only present on the test classpath
+    } catch (ReflectiveOperationException | LinkageError | SecurityException e) {
+      logger.error("Failed to ensure test certificates exist", e);
     }
   }
 
