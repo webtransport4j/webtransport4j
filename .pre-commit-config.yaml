@@ -4,7 +4,7 @@
 # ==============================================================================
 default_install_hook_types: [pre-commit]
 default_stages: [pre-commit]
-minimum_pre_commit_version: "2.20.0"
+minimum_pre_commit_version: "3.2.0"
 
 repos:
   # 1. Standard repository hygiene and security hooks
