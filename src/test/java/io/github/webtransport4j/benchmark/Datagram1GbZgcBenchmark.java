@@ -280,8 +280,8 @@ public final class Datagram1GbZgcBenchmark {
       collectorDetails.put(gc.getName(), new long[] {deltaCount, deltaTime});
     }
 
-    long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
-    long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
+    final long totalGcPauseMs = collectionTime(collectorDetails, "Pauses");
+    final long totalGcCycleMs = collectionTime(collectorDetails, "Cycles");
 
     Map<String, Long> threadAllocDeltas = new HashMap<>();
     if (sunThreadBean != null && sunThreadBean.isThreadAllocatedMemorySupported()) {
@@ -296,6 +296,36 @@ public final class Datagram1GbZgcBenchmark {
     }
 
     java.util.List<String> topHistogram = new java.util.ArrayList<>();
+    try {
+      javax.management.MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
+      javax.management.ObjectName name =
+          new javax.management.ObjectName("com.sun.management:type=DiagnosticCommand");
+      String res =
+          (String)
+              mbs.invoke(
+                  name,
+                  "gcClassHistogram",
+                  new Object[] {new String[0]},
+                  new String[] {"[Ljava.lang.String;"});
+      if (res != null) {
+        String[] lines = res.split("\\R");
+        int count = Math.min(lines.length, 35);
+        for (int i = 0; i < count; i++) {
+          topHistogram.add(lines[i]);
+        }
+        if (lines.length > 35) {
+          for (int i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].trim().startsWith("Total")) {
+              topHistogram.add("...");
+              topHistogram.add(lines[i]);
+              break;
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      System.err.println("Could not capture GC.class_histogram: " + e.getMessage());
+    }
 
     long directUsed = PooledByteBufAllocator.DEFAULT.metric().usedDirectMemory();
     for (BufferPoolMXBean pool : ManagementFactory.getPlatformMXBeans(BufferPoolMXBean.class)) {
@@ -559,7 +589,8 @@ public final class Datagram1GbZgcBenchmark {
       final long clientStart = System.nanoTime();
 
       final long pacingNanos = pacingMicros * 1_000L;
-      while (bytesSent < targetBytes && quicChannel.isOpen()) {
+      final long maxBytesToSend = (long) (targetBytes * 1.05);
+      while (bytesSent < maxBytesToSend && quicChannel.isOpen()) {
         while (!quicChannel.isWritable() && quicChannel.isOpen()) {
           quicChannel.flush();
           LockSupport.parkNanos(5_000);
