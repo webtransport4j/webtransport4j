@@ -27,6 +27,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -92,6 +93,7 @@ public class Draft16Section4WebTransportFeaturesTest {
         new WebTransportUniStreamHeaderDecoder(WebTransportUtils.UNI_STREAM_TYPE);
 
     final ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    when(mockCtx.pipeline()).thenReturn(mock(ChannelPipeline.class));
     final QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     final QuicChannel mockParent = mock(QuicChannel.class);
     final QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
