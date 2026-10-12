@@ -188,20 +188,23 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (mgr == null) {
         return;
       }
-      WebTransportSession session = mgr.get(sessionId);
+      NettyWebTransportSession session = mgr.get(sessionId);
       if (session == null) {
         return;
       }
-      WebTransportServer server;
-      if (channel instanceof QuicStreamChannel) {
-        Attribute<WebTransportServer> attr =
-            ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
-        server = attr != null ? attr.get() : null;
-      } else {
-        Attribute<WebTransportServer> attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
-        server = attr != null ? attr.get() : null;
+      WebTransportHandler handler = session.getBoundHandler();
+      if (handler == null) {
+        WebTransportServer server;
+        if (channel instanceof QuicStreamChannel) {
+          Attribute<WebTransportServer> attr =
+              ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+          server = attr != null ? attr.get() : null;
+        } else {
+          Attribute<WebTransportServer> attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+          server = attr != null ? attr.get() : null;
+        }
+        handler = (server != null) ? server.getHandler(session.path()) : null;
       }
-      WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : null;
       if (handler != null) {
         long errorStart = System.nanoTime();
         try {
@@ -233,16 +236,18 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       content.release();
       return;
     }
-    WebTransportSession session = mgr.get(sessionId);
+    NettyWebTransportSession session = mgr.get(sessionId);
     if (session == null || !session.isOpen()) {
       content.release();
       return;
     }
-    Attribute<WebTransportServer> attr =
-        streamChannel.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
-    WebTransportServer server = (attr != null) ? attr.get() : null;
-    WebTransportHandler handler =
-        (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
+    WebTransportHandler handler = session.getBoundHandler();
+    if (handler == null) {
+      Attribute<WebTransportServer> attr =
+          streamChannel.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+      WebTransportServer server = (attr != null) ? attr.get() : null;
+      handler = (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
+    }
     if (handler == null) {
       content.release();
       return;
@@ -335,7 +340,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       content.release();
       return;
     }
-    WebTransportSession session = mgr.get(sessionId);
+    NettyWebTransportSession session = mgr.get(sessionId);
     if (session == null || !session.isOpen()) {
       content.release();
       WebTransportMetricsListener metrics = WebTransportUtils.getMetrics(channel);
@@ -344,15 +349,17 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       }
       return;
     }
-    Attribute<WebTransportServer> attr;
-    if (channel instanceof QuicStreamChannel) {
-      attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
-    } else {
-      attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+    WebTransportHandler handler = session.getBoundHandler();
+    if (handler == null) {
+      Attribute<WebTransportServer> attr;
+      if (channel instanceof QuicStreamChannel) {
+        attr = ((QuicStreamChannel) channel).parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+      } else {
+        attr = channel.attr(WebTransportAttributeKeys.SERVER_KEY);
+      }
+      WebTransportServer server = (attr != null) ? attr.get() : null;
+      handler = (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
     }
-    WebTransportServer server = (attr != null) ? attr.get() : null;
-    WebTransportHandler handler =
-        (server != null) ? server.getHandler(session.path()) : NOOP_HANDLER;
     if (handler == null) {
       content.release();
       return;

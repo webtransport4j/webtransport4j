@@ -353,6 +353,7 @@ public class WebTransportSessionManager {
       server.registerSession(session);
     }
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : null;
+    session.setBoundHandler(handler);
     if (handler != null) {
       try {
         handler.onSessionReady(session);
@@ -547,7 +548,10 @@ public class WebTransportSessionManager {
     if (server != null) {
       server.unregisterSession(removed);
     }
-    WebTransportHandler handler = server != null ? server.getHandler(removed.path()) : null;
+    WebTransportHandler handler = removed.getBoundHandler();
+    if (handler == null && server != null) {
+      handler = server.getHandler(removed.path());
+    }
     if (handler != null) {
       try {
         handler.onSessionClosed(removed, removed.getCloseCode(), removed.getCloseReason());
