@@ -29,7 +29,7 @@ jobs:
         with:
           name: eventloop-locks-java-${{ matrix.java }}
           path: |
-            target-maven/surefire-reports/**
+            ${{ runner.temp }}/worktree.*/target-maven/surefire-reports/**
             ${{ runner.temp }}/lock-count
             ${{ runner.temp }}/negative-count
             ${{ runner.temp }}/static-negative.log

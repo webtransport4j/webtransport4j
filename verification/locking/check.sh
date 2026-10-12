@@ -8,6 +8,19 @@ AUDIT_DIR=${RUNNER_TEMP:-$(mktemp -d "${TMPDIR:-/tmp}/wt4j-lock-audit.XXXXXX")}
 mkdir -p "$AUDIT_DIR"
 echo "Event-loop safety evidence: $AUDIT_DIR"
 
+# Tests regenerate certificates and configuration; Maven clean also removes
+# test resources. Never let a validation hook mutate the developer's checkout.
+# Copy current file contents (including pre-commit's staged-only working tree),
+# not HEAD, and exclude ignored build outputs to avoid stale/IDE-written classes.
+AUDIT_WORKTREE=$(mktemp -d "$AUDIT_DIR/worktree.XXXXXX")
+git ls-files -z --cached --others --exclude-standard | \
+    while IFS= read -r -d '' file; do
+        if [ -e "$file" ] || [ -L "$file" ]; then
+            printf '%s\0' "$file"
+        fi
+    done | rsync -a --from0 --files-from=- ./ "$AUDIT_WORKTREE/"
+cd "$AUDIT_WORKTREE"
+
 # Audits scan every class file: incremental builds can retain deleted/renamed
 # classes, so clean both outputs before compiling the code we actually inspect.
 mvn -B -ntp -f verification/locking/pom.xml clean package
