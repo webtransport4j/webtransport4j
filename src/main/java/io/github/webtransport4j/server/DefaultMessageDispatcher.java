@@ -12,6 +12,7 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.util.Attribute;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -24,9 +25,27 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
 
   public static final DefaultMessageDispatcher INSTANCE = new DefaultMessageDispatcher();
 
+  /**
+   * Config key: milliseconds a user handler callback may run before it is reported as slow.
+   * Defaults to 5000 ms; it is a correctness tripwire, not a performance alarm, because every
+   * callback runs on the connection event loop and a blocking one stalls all streams, datagrams,
+   * and capsules on that connection, including its own flow control.
+   */
+  public static final String SLOW_HANDLER_WARN_MS_KEY =
+      "webtransport4j.dispatch.slow_handler.warn_ms";
+
+  private static final long DEFAULT_SLOW_HANDLER_WARN_MS = 5000L;
+
   private static final Logger logger = LoggerFactory.getLogger(DefaultMessageDispatcher.class);
 
   private static final WebTransportHandler NOOP_HANDLER = new WebTransportHandler() {};
+
+  /**
+   * One thread-confined flyweight buffer per dispatching thread. Dispatch always runs on the
+   * channel's {@code EventLoop}, so a single instance per thread is safe.
+   */
+  private static final ThreadLocal<FlyweightWebTransportBuffer> DISPATCH_BUFFER =
+      ThreadLocal.withInitial(FlyweightWebTransportBuffer::createFlyweight);
 
   @Override
   public void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Object msg)
@@ -95,11 +114,13 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
       WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (stream != null && stream.getErrorHandler() != null) {
+        long errorStart = System.nanoTime();
         try {
           stream.getErrorHandler().accept(cause);
         } catch (Exception e) {
           logger.error("Error in stream onError handler", e);
         }
+        warnIfSlowHandler(streamChannel, "onError", errorStart);
       }
       notifyHandlerError(streamChannel, cause);
     }
@@ -156,11 +177,13 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       }
       WebTransportHandler handler = (server != null) ? server.getHandler(session.path()) : null;
       if (handler != null) {
+        long errorStart = System.nanoTime();
         try {
           handler.onError(session, cause);
         } catch (Exception e) {
           logger.error("Error in handler onError callback", e);
         }
+        warnIfSlowHandler(channel, "onError", errorStart);
       }
     } catch (Exception ex) {
       logger.error("Error dispatching onError to handler", ex);
@@ -225,11 +248,13 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
         if (!Boolean.TRUE.equals(
             streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).get())) {
           streamChannel.attr(WebTransportAttributeKeys.STREAM_NOTIFIED).set(true);
+          long notifyStart = System.nanoTime();
           try {
             handler.onIncomingStream(session, stream);
           } catch (Exception e) {
             logger.error("Error in onIncomingStream callback", e);
           }
+          warnIfSlowHandler(streamChannel, "onIncomingStream", notifyStart);
         }
       }
 
@@ -238,23 +263,33 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (stream instanceof NettyWebTransportStream) {
         rawConsumer = ((NettyWebTransportStream) stream).getRawByteBufConsumer();
       }
+      long dispatchStart = System.nanoTime();
+      String dataCallback;
       if (rawConsumer != null) {
+        dataCallback = "onRawByteBuf";
         dispatchRawStreamData(rawConsumer, content);
       } else if (stream.getDataConsumer() != null) {
+        dataCallback = "onData";
         dispatchStreamData(stream, content);
       } else {
+        dataCallback = null;
         content.release();
+      }
+      if (dataCallback != null) {
+        warnIfSlowHandler(streamChannel, dataCallback, dispatchStart);
       }
     } catch (Throwable t) {
       logger.error("Exception in tryDispatchStreamToHandler", t);
       if (content.refCnt() > 0) {
         content.release();
       }
+      long errorStart = System.nanoTime();
       try {
         handler.onError(session, t);
       } catch (Exception ex) {
         logger.error("Error in handler onError callback", ex);
       }
+      warnIfSlowHandler(streamChannel, "onError", errorStart);
     }
   }
 
@@ -305,21 +340,26 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       if (session instanceof NettyWebTransportSession) {
         rawDatagramConsumer = ((NettyWebTransportSession) session).getRawDatagramConsumer();
       }
+      long dispatchStart = System.nanoTime();
       if (rawDatagramConsumer != null) {
         dispatchRawDatagramData(rawDatagramConsumer, content);
+        warnIfSlowHandler(channel, "onRawDatagram", dispatchStart);
       } else {
         dispatchDatagramData(handler, session, content);
+        warnIfSlowHandler(channel, "onDatagramReceived", dispatchStart);
       }
     } catch (Throwable t) {
       logger.error("Exception in tryDispatchDatagramToHandler", t);
       if (content.refCnt() > 0) {
         content.release();
       }
+      long errorStart = System.nanoTime();
       try {
         handler.onError(session, t);
       } catch (Exception ex) {
         logger.error("Error in handler onError callback", ex);
       }
+      warnIfSlowHandler(channel, "onError", errorStart);
     }
   }
 
@@ -336,17 +376,36 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
   }
 
   /**
+   * Borrows the thread-confined flyweight buffer for this dispatch. A buffer that a consumer
+   * promoted via {@code retain()} stays live for that consumer, so the shared slot is replaced
+   * with a fresh instance. A buffer still attached to an outer dispatch on this thread
+   * (re-entrant callbacks) is left in the slot and a fresh instance is used instead.
+   */
+  private static FlyweightWebTransportBuffer borrowDispatchBuffer() {
+    FlyweightWebTransportBuffer buffer = DISPATCH_BUFFER.get();
+    if (buffer.isReusable()) {
+      return buffer;
+    }
+    FlyweightWebTransportBuffer fresh = FlyweightWebTransportBuffer.createFlyweight();
+    if (buffer.isPromoted()) {
+      DISPATCH_BUFFER.set(fresh);
+    }
+    return fresh;
+  }
+
+  /**
    * Dispatches incoming stream data to the stream consumer.
    */
   protected void dispatchStreamData(
       @NonNull WebTransportStream stream, @NonNull ByteBuf content) {
-    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    FlyweightWebTransportBuffer buffer = borrowDispatchBuffer().attach(content);
     try {
       stream.getDataConsumer().accept(buffer);
     } catch (Exception e) {
       logger.error("Error in stream onData callback", e);
     } finally {
-      buffer.release();
+      buffer.detach();
+      content.release();
     }
   }
 
@@ -385,13 +444,42 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       @NonNull WebTransportHandler handler,
       @NonNull WebTransportSession session,
       @NonNull ByteBuf content) {
-    DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(content);
+    FlyweightWebTransportBuffer buffer = borrowDispatchBuffer().attach(content);
     try {
       handler.onDatagramReceived(session, buffer);
     } catch (Exception e) {
       logger.error("Error in onDatagramReceived callback", e);
     } finally {
-      buffer.release();
+      buffer.detach();
+      content.release();
+    }
+  }
+
+  /**
+   * Reports a user handler callback that ran longer than {@link #SLOW_HANDLER_WARN_MS_KEY}.
+   * Callbacks run directly on the channel event loop, so a slow or blocking one stalls every
+   * stream, datagram, and capsule on the connection, including its own flow control. The warning
+   * is emitted once per channel; subsequent overruns stay silent until the channel is replaced.
+   */
+  private void warnIfSlowHandler(
+      @NonNull Channel channel, @NonNull String callbackName, long startNanos) {
+    long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+    long warnMs =
+        WebTransportConfig.getLong(SLOW_HANDLER_WARN_MS_KEY, DEFAULT_SLOW_HANDLER_WARN_MS);
+    if (elapsedMs <= warnMs) {
+      return;
+    }
+    if (channel.attr(WebTransportAttributeKeys.SLOW_HANDLER_WARNED).setIfAbsent(Boolean.TRUE)
+        == null) {
+      logger.warn(
+          "🐢 Slow WebTransport handler callback '{}' took {} ms on channel {} (threshold {}"
+              + " ms). Handler callbacks run on the connection event loop; blocking them stalls"
+              + " all streams and datagrams on this connection. Offload blocking work to an"
+              + " executor, e.g. via ExecutorOffloadDispatcher.",
+          callbackName,
+          elapsedMs,
+          channel.id(),
+          warnMs);
     }
   }
 }
