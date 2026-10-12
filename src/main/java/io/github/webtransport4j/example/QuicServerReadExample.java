@@ -19,7 +19,8 @@ import io.netty.handler.codec.quic.QuicServerCodecBuilder;
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.pkitesting.CertificateBuilder;
+import io.netty.pkitesting.X509Bundle;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -46,10 +47,16 @@ public final class QuicServerReadExample {
    * @throws Exception if server execution fails
    */
   public static void main(String[] args) throws Exception {
-    SelfSignedCertificate selfSignedCertificate = new SelfSignedCertificate();
+    X509Bundle bundle =
+        new CertificateBuilder()
+            .subject("CN=localhost")
+            .setIsCertificateAuthority(true)
+            .addSanDnsName("localhost")
+            .rsa2048()
+            .buildSelfSigned();
     QuicSslContext context =
         QuicSslContextBuilder.forServer(
-                selfSignedCertificate.privateKey(), null, selfSignedCertificate.certificate())
+                bundle.getKeyPair().getPrivate(), null, bundle.getCertificate())
             .applicationProtocols(Http3.supportedApplicationProtocols())
             .build();
     NioEventLoopGroup group = new NioEventLoopGroup(1);

@@ -4,7 +4,10 @@ import io.github.webtransport4j.internal.EventLoopSafety;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -16,7 +19,9 @@ public class WebTransportConfig {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
 
+  private static final String DEFAULT_PROFILE = "prod";
   private static final Properties staticProperties = new Properties();
+  private static final Map<String, Properties> profilePropertiesCache = new ConcurrentHashMap<>();
   private static final AtomicLong revision = new AtomicLong();
   // Published generations are never mutated; writers replace them under the revision monitor.
   private static volatile Properties dynamicProperties = new Properties();
@@ -162,7 +167,7 @@ public class WebTransportConfig {
       return value;
     }
     // 2. Check Environment Variables (SERVER_PORT=...)
-    String envKey = key.toUpperCase().replace('.', '_');
+    String envKey = key.toUpperCase(Locale.ROOT).replace('.', '_');
     value = System.getenv(envKey);
     if (value != null) {
       return value;
@@ -172,8 +177,158 @@ public class WebTransportConfig {
     if (value != null) {
       return value;
     }
-    // 4. Fallback to static properties file
+    // 4. Check active profile properties (if not querying the profile property itself)
+    if (!"webtransport4j.profile".equals(key)) {
+      String profile = getActiveProfile();
+      if (!DEFAULT_PROFILE.equals(profile)) {
+        Properties profileProps = getProfileProperties(profile);
+        if (profileProps != null) {
+          value = profileProps.getProperty(key);
+          if (value != null) {
+            return value;
+          }
+        }
+      }
+    }
+    // 5. Fallback to static properties file
     return staticProperties.getProperty(key, defaultVal);
+  }
+
+  /**
+   * Returns the currently active configuration profile (e.g. {@code "prod"}, {@code "dev"},
+   * {@code "test"}).
+   *
+   * <p>Precedence order:
+   * <ol>
+   *   <li>Java System Property ({@code -Dwebtransport4j.profile=...})</li>
+   *   <li>Environment Variable ({@code WEBTRANSPORT4J_PROFILE=...})</li>
+   *   <li>Framework active profiles (Spring {@code spring.profiles.active}, Quarkus {@code quarkus.profile})</li>
+   *   <li>Dynamic properties ({@code webtransport4j.profile})</li>
+   *   <li>Static properties in {@code webtransport.properties} ({@code webtransport4j.profile})</li>
+   *   <li>Default: {@code "prod"}</li>
+   * </ol>
+   *
+   * @return active profile name normalized to lowercase
+   */
+  public static @NonNull String getActiveProfile() {
+    String profile = System.getProperty("webtransport4j.profile");
+    if (profile != null && !profile.trim().isEmpty()) {
+      return normalizeProfile(profile);
+    }
+    String envProfile = System.getenv("WEBTRANSPORT4J_PROFILE");
+    if (envProfile != null && !envProfile.trim().isEmpty()) {
+      return normalizeProfile(envProfile);
+    }
+    String springProfile = System.getProperty("spring.profiles.active");
+    if (springProfile != null && !springProfile.trim().isEmpty()) {
+      return normalizeProfile(springProfile);
+    }
+    String quarkusProfile = System.getProperty("quarkus.profile");
+    if (quarkusProfile != null && !quarkusProfile.trim().isEmpty()) {
+      return normalizeProfile(quarkusProfile);
+    }
+    String configured = dynamicProperties.getProperty("webtransport4j.profile");
+    if (configured != null && !configured.trim().isEmpty()) {
+      return normalizeProfile(configured);
+    }
+    configured = staticProperties.getProperty("webtransport4j.profile");
+    if (configured != null && !configured.trim().isEmpty()) {
+      return normalizeProfile(configured);
+    }
+    return DEFAULT_PROFILE;
+  }
+
+  /** Returns {@code true} if the current active profile is {@code "dev"}. */
+  public static boolean isDevProfile() {
+    return "dev".equalsIgnoreCase(getActiveProfile());
+  }
+
+  /** Returns {@code true} if the current active profile is {@code "test"}. */
+  public static boolean isTestProfile() {
+    return "test".equalsIgnoreCase(getActiveProfile());
+  }
+
+  /** Returns {@code true} if the current active profile is {@code "dev"} or {@code "test"}. */
+  public static boolean isDevOrTestProfile() {
+    String profile = getActiveProfile();
+    return "dev".equalsIgnoreCase(profile) || "test".equalsIgnoreCase(profile);
+  }
+
+  static void clearProfileCache() {
+    profilePropertiesCache.clear();
+  }
+
+  private static String normalizeProfile(@Nullable String raw) {
+    if (raw == null) {
+      return DEFAULT_PROFILE;
+    }
+    String trimmed = raw.trim();
+    if (trimmed.isEmpty()) {
+      return DEFAULT_PROFILE;
+    }
+    if (trimmed.contains(",")) {
+      String[] parts = trimmed.split(",");
+      for (String part : parts) {
+        if (DEFAULT_PROFILE.equalsIgnoreCase(part.trim())) {
+          return DEFAULT_PROFILE;
+        }
+      }
+      for (String part : parts) {
+        String p = part.trim().toLowerCase(Locale.ROOT);
+        if ("dev".equals(p) || "test".equals(p)) {
+          return p;
+        }
+      }
+      return parts[0].trim().toLowerCase(Locale.ROOT);
+    }
+    return trimmed.toLowerCase(Locale.ROOT);
+  }
+
+  private static @Nullable Properties getProfileProperties(String profile) {
+    return profilePropertiesCache.computeIfAbsent(
+        profile, WebTransportConfig::loadProfileProperties);
+  }
+
+  private static @Nullable Properties loadProfileProperties(String profile) {
+    if ("test".equalsIgnoreCase(profile)) {
+      ensureTestCertificatesIfPresent();
+    }
+    String filename = "webtransport-" + profile + ".properties";
+    Properties props = new Properties();
+    File localFile = new File(filename);
+    if (localFile.exists()) {
+      try (InputStream in = new FileInputStream(localFile)) {
+        props.load(in);
+        logger.info(
+            "📡 Loaded profile configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
+        return props;
+      } catch (Exception e) {
+        logger.error("❌ Failed to load local profile properties file '{}'", filename, e);
+      }
+    }
+    try (InputStream in =
+        WebTransportConfig.class.getClassLoader().getResourceAsStream(filename)) {
+      if (in != null) {
+        props.load(in);
+        logger.info("📡 Loaded profile configuration from classpath resources: {}", filename);
+        return props;
+      }
+    } catch (Exception e) {
+      logger.error("❌ Failed to load profile properties from classpath: {}", filename, e);
+    }
+    return null;
+  }
+
+  private static void ensureTestCertificatesIfPresent() {
+    try {
+      Class<?> testCertClass = Class.forName("io.github.webtransport4j.test.TestCertificates");
+      testCertClass.getMethod("ensureTestCertificatesExist").invoke(null);
+    } catch (ClassNotFoundException ignored) {
+      // TestCertificates is only present on the test classpath
+    } catch (ReflectiveOperationException | LinkageError | SecurityException e) {
+      logger.error("Failed to ensure test certificates exist", e);
+    }
   }
 
   private static long evaluateExpression(@NonNull String val) {
@@ -281,6 +436,7 @@ public class WebTransportConfig {
     synchronized (revision) {
       token = revision.incrementAndGet();
     }
+    profilePropertiesCache.clear();
     Properties newDynamic = new Properties();
     loadDynamicConfig(newDynamic);
     boolean unchanged = newDynamic.equals(dynamicProperties);
