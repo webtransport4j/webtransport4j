@@ -66,6 +66,9 @@ if git diff --cached -S"${KEY_HEADER} ${KEY_FOOTER}" --name-only | grep -q . || 
    git diff --cached -S"${KEY_HEADER} EC ${KEY_FOOTER}" --name-only | grep -q . || \
    git diff --cached -S"${KEY_HEADER} OPENSSH ${KEY_FOOTER}" --name-only | grep -q . || \
    git diff --cached -S"${KEY_HEADER} DSA ${KEY_FOOTER}" --name-only | grep -q .; then
+# Distinguish added lines from diff file headers.
+if git diff --cached --unified=0 --output-indicator-new='>' -- . ':(exclude).githooks/pre-commit' | \
+   grep -E "^>.*${KEY_HEADER} (RSA |EC |OPENSSH |DSA )?${KEY_FOOTER}" > /dev/null; then
     echo -e "${RED}[FAIL] Detected private key content block in staged changes!${NC}"
     FAILED=1
 fi
@@ -74,6 +77,15 @@ fi
 # 3. Merge Conflict Markers Check
 # ------------------------------------------------------------------------------
 CONFLICT_FILES=$(git diff --cached -G'^[<>=]{7}( |$)' --name-only || true)
+CONFLICT_FILES=""
+while IFS= read -r file; do
+    case "$file" in
+        *.md|*.rst) continue ;;
+    esac
+    if git diff --cached --unified=0 -- "$file" | grep -E '^\+[<>=]{7}( |$)' > /dev/null; then
+        CONFLICT_FILES="${CONFLICT_FILES}${file}"$'\n'
+    fi
+done <<< "$STAGED_FILES"
 if [ -n "$CONFLICT_FILES" ]; then
     echo -e "${RED}[FAIL] Unresolved merge conflict markers detected in:${NC}"
     echo "$CONFLICT_FILES" | while IFS= read -r f; do echo -e "  ${RED}✗${NC} $f"; done
@@ -174,6 +186,11 @@ if [ -n "$JAVA_STAGED" ]; then
     else
         echo -e "${RED}[FAIL] Checkstyle violations detected!${NC}"
         echo "$CHECKSTYLE_OUTPUT" | grep -E "(\[ERROR\]|\[WARN\]|violations)" | head -n 30 || echo "$CHECKSTYLE_OUTPUT"
+    if CHECKSTYLE_OUTPUT=$(mvn --batch-mode checkstyle:check 2>&1); then
+        echo -e "  ${GREEN}✓${NC} Checkstyle passed with 0 violations."
+    else
+        echo -e "${RED}[FAIL] Checkstyle violations detected!${NC}"
+        echo "$CHECKSTYLE_OUTPUT" | grep -E "(\[ERROR\]|\[WARN\]|violations)" | head -n 30 || echo "$CHECKSTYLE_OUTPUT" | tail -n 30
         echo -e "${YELLOW}Hint: Run 'mvn checkstyle:check' locally to view full audit logs.${NC}"
         exit 1
     fi
