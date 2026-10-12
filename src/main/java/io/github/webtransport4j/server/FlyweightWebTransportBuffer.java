@@ -65,6 +65,26 @@ public class FlyweightWebTransportBuffer implements WebTransportBuffer {
   }
 
   /**
+   * Returns whether this flyweight can currently be attached to a new {@link ByteBuf}: it must
+   * be a flyweight instance that is neither attached nor promoted by {@link #retain()}.
+   *
+   * @return true if {@link #attach(ByteBuf)} may be called on this instance
+   */
+  public boolean isReusable() {
+    return flyweight && delegate == null && owned == null;
+  }
+
+  /**
+   * Returns whether this buffer was permanently promoted to owned storage by {@link #retain()}.
+   * Promoted instances stay live for their owner and can never be re-attached.
+   *
+   * @return true if this buffer was promoted
+   */
+  public boolean isPromoted() {
+    return owned != null;
+  }
+
+  /**
    * Detaches a borrowed view. Retained ownership remains live until released.
    */
   public void detach() {

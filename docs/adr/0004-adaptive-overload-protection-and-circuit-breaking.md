@@ -18,7 +18,7 @@ We introduced multi-layered overload protection and admission control:
    - Atomic state transitions (`CLOSED` -> `OPEN` -> `HALF_OPEN`).
    - Automatically trips open when consecutive failure thresholds are breached, shedding requests immediately.
 4. **Zero-Copy Netty EventLoop Dispatching**:
-   - Inbound datagrams and stream buffers are dispatched directly on the Netty `EventLoop` thread with zero transport-level queuing overhead or mailbox allocation. Handlers needing custom prioritization or worker pools can safely retain buffers (`buffer.retain()`) and manage application-level queues.
+   - Inbound datagrams and stream buffers are dispatched directly on the Netty `EventLoop` thread with zero transport-level queuing overhead or mailbox allocation. Handlers needing custom prioritization or worker pools can safely retain buffers (`buffer.retain()`) and manage application-level queues, or install `ExecutorOffloadDispatcher` to run callbacks on an application executor. Callbacks exceeding `webtransport4j.dispatch.slow_handler.warn_ms` (default 5000 ms) are reported via WARN once per channel.
 
 ## Consequences
 

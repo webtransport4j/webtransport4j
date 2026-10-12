@@ -1,0 +1,99 @@
+name: Datagram Sharding Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_bytes:
+        description: 'Target payload in bytes (default: 1073741824 = 1 GiB; 17179869184 = 16 GiB)'
+        required: false
+        default: '1073741824'
+      sockets:
+        description: 'Number of sharded sockets (default: 2 for standard 2-vCPU runner)'
+        required: false
+        default: '2'
+      concurrency:
+        description: 'Number of concurrent client streams (default: 8)'
+        required: false
+        default: '8'
+      pacing_micros:
+        description: 'Client pacing delay in microseconds (0 for unthrottled flood; e.g. 5 or 10 for zero-loss rate matching)'
+        required: false
+        default: '0'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  benchmark:
+    name: Benchmark (1 Socket vs ${{ github.event.inputs.sockets || '2' }} Sockets)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+
+      - name: Build test classes and classpath
+        run: |
+          mvn clean test-compile dependency:build-classpath \
+            --batch-mode --no-transfer-progress \
+            -Dmdep.outputFile=target/cp.txt -DskipTests
+
+      - name: Tune Linux UDP Kernel Buffers
+        run: |
+          sudo sysctl -w net.core.rmem_max=134217728 || true
+          sudo sysctl -w net.core.wmem_max=134217728 || true
+          sudo sysctl -w net.core.rmem_default=67108864 || true
+          sudo sysctl -w net.core.wmem_default=67108864 || true
+          sudo sysctl -w net.core.netdev_max_backlog=250000 || true
+          sudo sysctl -w net.core.optmem_max=67108864 || true
+          sudo sysctl -w net.core.netdev_budget=1000 || true
+          sudo sysctl -w net.core.netdev_budget_usecs=8000 || true
+          sudo sysctl -w net.ipv4.udp_mem="262144 524288 1048576" || true
+
+      - name: Run Multi-Socket Benchmark
+        run: |
+          chmod +x ./run_multisocket_benchmark.sh
+          ./run_multisocket_benchmark.sh \
+            "${{ github.event.inputs.target_bytes || '1073741824' }}" \
+            "${{ github.event.inputs.sockets || '2' }}" \
+            1024 \
+            "${{ github.event.inputs.concurrency || '8' }}" \
+            "${{ github.event.inputs.pacing_micros || '0' }}"
+
+      - name: Publish Benchmark Reports to Job Summary
+        if: always()
+        run: |
+          echo "## Datagram Ingestion Benchmark (Ubuntu 24.04: 2 vCPUs, 7 GB RAM)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f docs/benchmarks/DATAGRAM_SINGLE_SOCKET_REPORT.md ]; then
+            echo "### 1 Socket Baseline Report" >> $GITHUB_STEP_SUMMARY
+            cat docs/benchmarks/DATAGRAM_SINGLE_SOCKET_REPORT.md >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          SOCKETS="${{ github.event.inputs.sockets || '2' }}"
+          MULTI_REPORT="docs/benchmarks/DATAGRAM_${SOCKETS}_SOCKET_REPORT.md"
+          if [ -f "$MULTI_REPORT" ]; then
+            echo "### ${SOCKETS} Sockets Sharded Report (SO_REUSEPORT)" >> $GITHUB_STEP_SUMMARY
+            cat "$MULTI_REPORT" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Benchmark Reports Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datagram-benchmark-reports
+          path: docs/benchmarks/*.md
+          if-no-files-found: ignore
