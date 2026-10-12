@@ -83,6 +83,12 @@
             <artifactId>netty-codec-http3</artifactId>
          <version>${netty.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-pkitesting</artifactId>
+            <version>${netty.version}</version>
+            <optional>true</optional>
+        </dependency>
 
         <!-- Use SLF4J API with Log4j2 implementation -->
         <dependency>
@@ -574,6 +580,9 @@
                 <version>3.5.4</version>
                 <configuration>
                     <argLine>-Dio.netty.leakDetection.level=PARANOID</argLine>
+                    <systemPropertyVariables>
+                        <webtransport4j.profile>test</webtransport4j.profile>
+                    </systemPropertyVariables>
                     <excludes>
                         <exclude>**/*_jmhTest*</exclude>
                         <exclude>**/jmh_generated/**</exclude>
