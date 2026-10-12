@@ -6,6 +6,8 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.server.WebTransportConfig;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
@@ -33,6 +35,8 @@ public class WebTransportTestHandler implements WebTransportHandler {
   private final ScheduledExecutorService delayScheduler;
   private final Semaphore delayAdmissionSemaphore;
   private final int maxDelayedTasks;
+  private final ConcurrentHashMap<Long, CompletableFuture<WebTransportStream>> sessionAckStreams =
+      new ConcurrentHashMap<>();
 
   /** Default constructor using shared scheduler and configured max delayed tasks. */
   public WebTransportTestHandler() {
@@ -145,8 +149,48 @@ public class WebTransportTestHandler implements WebTransportHandler {
             });
   }
 
+  private CompletableFuture<WebTransportStream> getOrCreateAckStream(WebTransportSession session) {
+    long sessId = session.getSessionStreamId();
+    return sessionAckStreams.computeIfAbsent(
+        sessId,
+        id -> {
+          CompletableFuture<WebTransportStream> f = new CompletableFuture<>();
+          session
+              .createUniStream()
+              .whenComplete(
+                  (ackStream, err) -> {
+                    if (err != null) {
+                      sessionAckStreams.remove(sessId);
+                      f.completeExceptionally(err);
+                    } else {
+                      f.complete(ackStream);
+                      ackStream.onClose(() -> sessionAckStreams.remove(sessId));
+                      ackStream.onError(e -> sessionAckStreams.remove(sessId));
+                    }
+                  });
+          return f;
+        });
+  }
+
   @Override
   public void onSessionClosed(@NonNull WebTransportSession session) {
+    long sessId = session.getSessionStreamId();
+    CompletableFuture<WebTransportStream> f = sessionAckStreams.remove(sessId);
+    if (f != null) {
+      f.thenAccept(
+              s -> {
+                try {
+                  s.close();
+                } catch (Throwable t) {
+                  logger.debug("Error closing cached ack stream for session {}", sessId, t);
+                }
+              })
+          .exceptionally(
+              e -> {
+                return null;
+              });
+    }
+
     logger.info(
         "🔴 [TEST HANDLER] WebTransport Session Closed. Path: {} | Session Stream ID: {}",
         session.path(),
@@ -202,16 +246,32 @@ public class WebTransportTestHandler implements WebTransportHandler {
                     stream.write(bytes);
                   }
                 } else {
-                  // Echo an ACK back via a NEW Server-to-Client Unidirectional stream
-                  session
-                      .createUniStream()
+                  // Echo an ACK back via a cached Server-to-Client Unidirectional stream to avoid
+                  // creating one ack stream per incoming chunk (prevents exhausting server stream limits).
+                  byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
+                  byte[] outBytes = new byte[prefixBytes.length + bytes.length];
+                  System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
+                  System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
+
+                  getOrCreateAckStream(session)
                       .thenAccept(
                           ackStream -> {
-                            byte[] prefixBytes = "ACK UNI: ".getBytes(StandardCharsets.UTF_8);
-                            byte[] outBytes = new byte[prefixBytes.length + bytes.length];
-                            System.arraycopy(prefixBytes, 0, outBytes, 0, prefixBytes.length);
-                            System.arraycopy(bytes, 0, outBytes, prefixBytes.length, bytes.length);
-                            ackStream.write(outBytes).thenRun(ackStream::close);
+                            try {
+                              ackStream.write(outBytes);
+                            } catch (Throwable t) {
+                              logger.error(
+                                  "❌ Failed to write to cached ack uni stream for session {}",
+                                  session.getSessionStreamId(),
+                                  t);
+                            }
+                          })
+                      .exceptionally(
+                          err -> {
+                            logger.error(
+                                "❌ Failed to create or obtain ack uni stream for session {}",
+                                session.getSessionStreamId(),
+                                err);
+                            return null;
                           });
                 }
               };
