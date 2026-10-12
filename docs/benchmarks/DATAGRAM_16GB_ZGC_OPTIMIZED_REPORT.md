@@ -3,7 +3,7 @@
 Empirical benchmark measuring high-velocity transfer of **16.00 GiB** over WebTransport Datagrams
 running in an isolated dedicated server process with **ZGC** and **Compact Object Headers (JEP 450)**.
 
-### 1. Ingestion & Throughput Metrics
+## 1. Ingestion & Throughput Metrics
 
 | Metric | Value |
 | :--- | :--- |
@@ -11,8 +11,8 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | **Target Payload** | 17,179,869,184 bytes |
 | **Completed On Time (latch)** | true |
 | **Target Reached** | true |
-| **Total Datagrams Received** | 16,777,216 packets |
-| **Total Ingested Payload** | 17,179,869,184 bytes (16384.00 MiB / 16.00 GiB) |
+| **Total Datagrams Received (target-capped)** | 16,777,216 packets |
+| **Total Ingested Payload (target-capped)** | 17,179,869,184 bytes (16384.00 MiB / 16.00 GiB) |
 | **Active Sockets (SO_REUSEPORT)** | 1 socket(s) |
 | **Active Transfer Duration** | 133.184 s |
 | **Data Throughput** | **123.02 MiB/s** |
@@ -20,11 +20,14 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 
 ### 1.1. Per-Socket Datagram Distribution
 
-| Socket ID | Datagrams Received | Share |
-| :--- | :--- | :--- |
-| `520fcdd6` | 16,787,018 packets | 100.1% |
+Counts are capped at the 16,777,216-packet target (1,024 bytes per packet);
+per-socket shares use that same target-capped total and exclude trailing packets.
 
-### 2. Garbage Collection & Heap Performance
+| Socket ID | Datagrams Received (target-capped) | Share of target-capped total |
+| :--- | :--- | :--- |
+| `520fcdd6` | 16,777,216 packets | 100.0% |
+
+## 2. Garbage Collection & Heap Performance
 
 | Metric | Value | Verdict |
 | :--- | :--- | :--- |
@@ -37,7 +40,7 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | **Heap Delta** | 270,532,608 bytes (258.00 MiB) | Net change |
 | **Off-Heap Direct Memory** | 4,194,304 bytes (4.00 MiB) | Netty direct buffer pool |
 
-### 3. Active Garbage Collector Details
+## 3. Active Garbage Collector Details
 
 | Collector Name | Collection Count | Collection Time |
 | :--- | :--- | :--- |
@@ -46,7 +49,7 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | `ZGC Major Cycles` | 47 | 1657 ms |
 | `ZGC Minor Cycles` | 0 | 0 ms |
 
-### 4. Thread-by-Thread Allocations During Flood
+## 4. Thread-by-Thread Allocations During Flood
 
 | Thread Name | Bytes Allocated | MiB Allocated |
 | :--- | :--- | :--- |
@@ -60,7 +63,7 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 | `Finalizer` | 0 bytes | 0.00 MiB |
 | `Notification Thread` | 0 bytes | 0.00 MiB |
 
-### 5. Top Classes In Heap (Post-Flood Histogram)
+## 5. Top Classes In Heap (Post-Flood Histogram)
 
 ```
  num     #instances         #bytes  class name (module)
@@ -102,7 +105,7 @@ running in an isolated dedicated server process with **ZGC** and **Compact Objec
 Total        335657       28214320
 ```
 
-### 6. Memory Pools Usage
+## 6. Memory Pools Usage
 
 | Memory Pool | Used (MiB) | Max (MiB) |
 | :--- | :--- | :--- |

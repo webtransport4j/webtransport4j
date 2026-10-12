@@ -11,8 +11,8 @@ running in an isolated dedicated server process with **ZGC** and **Standard Obje
 | **Target Payload** | 17,179,869,184 bytes |
 | **Completed On Time (latch)** | true |
 | **Target Reached** | true |
-| **Total Datagrams Received** | 16,777,216 packets |
-| **Total Ingested Payload** | 17,179,869,184 bytes (16384.00 MiB / 16.00 GiB) |
+| **Total Datagrams Received (target-capped)** | 16,777,216 packets |
+| **Total Ingested Payload (target-capped)** | 17,179,869,184 bytes (16384.00 MiB / 16.00 GiB) |
 | **Active Sockets (SO_REUSEPORT)** | 1 socket(s) |
 | **Active Transfer Duration** | 135.010 s |
 | **Data Throughput** | **121.35 MiB/s** |
@@ -20,9 +20,12 @@ running in an isolated dedicated server process with **ZGC** and **Standard Obje
 
 ### 1.1. Per-Socket Datagram Distribution
 
-| Socket ID | Datagrams Received | Share |
+Counts are capped at the 16,777,216-packet target (1,024 bytes per packet);
+per-socket shares use that same target-capped total and exclude trailing packets.
+
+| Socket ID | Datagrams Received (target-capped) | Share of target-capped total |
 | :--- | :--- | :--- |
-| `4ad4729a` | 16,787,877 packets | 100.1% |
+| `4ad4729a` | 16,777,216 packets | 100.0% |
 
 ### 2. Garbage Collection & Heap Performance
 
