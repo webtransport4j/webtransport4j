@@ -98,6 +98,10 @@ public final class WebTransportAttributeKeys {
   public static final AttributeKey<Supplier<MessageDispatcher>> MESSAGE_DISPATCHER_SUPPLIER =
       AttributeKey.valueOf("wt.message.dispatcher.supplier");
 
+  // Set once a slow handler callback has been reported for this channel
+  public static final AttributeKey<Boolean> SLOW_HANDLER_WARNED =
+      AttributeKey.valueOf("wt.dispatch.slow_handler_warned");
+
   // Resilience & Overload Protection Attribute Key
   public static final AttributeKey<OverloadProtectionPolicy> OVERLOAD_POLICY =
       AttributeKey.valueOf("wt.overload.policy");
