@@ -63,7 +63,6 @@ public class WebTransportServerBuilder {
   private TrustManager trustManager;
   private OriginValidator originValidator;
   private Boolean strictOriginValidation;
-  private boolean zeroGc;
   private Integer socketCount;
   private ByteBufAllocator byteBufAllocator;
 
@@ -370,32 +369,6 @@ public class WebTransportServerBuilder {
       @NonNull Supplier<MessageDispatcher> supplier) {
     this.messageDispatcherSupplier = supplier;
     return this;
-  }
-
-  /**
-   * Enables experimental reduced-allocation dispatch with normal ownership and executor
-   * semantics.
-   *
-   * @deprecated reduced-allocation dispatch is unconditional: {@link DefaultMessageDispatcher}
-   *     always dispatches callbacks through thread-confined flyweight buffers. This flag is
-   *     retained for API compatibility and only selects the {@link ZeroGcMessageDispatcher}
-   *     alias; it no longer changes dispatch behavior.
-   */
-  @Deprecated
-  public @NonNull WebTransportServerBuilder enableZeroGc(boolean enable) {
-    this.zeroGc = enable;
-    return this;
-  }
-
-  /**
-   * Returns whether zero-GC mode is enabled.
-   *
-   * @return true if enabled
-   * @deprecated see {@link #enableZeroGc(boolean)}; flyweight-based dispatch is unconditional.
-   */
-  @Deprecated
-  public boolean isZeroGc() {
-    return zeroGc;
   }
 
   /**

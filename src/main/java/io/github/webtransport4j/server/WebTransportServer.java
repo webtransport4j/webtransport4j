@@ -273,20 +273,7 @@ public class WebTransportServer implements AutoCloseable {
     return watcher != null && watcher.checkAndReload();
   }
 
-  private final boolean zeroGc;
   private final ByteBufAllocator byteBufAllocator;
-
-  /**
-   * Returns whether this server is running in zero-GC mode.
-   *
-   * @return true if zero-GC mode is enabled
-   * @deprecated flyweight-based dispatch is unconditional in {@link DefaultMessageDispatcher};
-   *     this flag is retained for API compatibility only.
-   */
-  @Deprecated
-  public boolean isZeroGc() {
-    return zeroGc;
-  }
 
   /**
    * Returns the configured {@link ByteBufAllocator} used by the server transport channel.
@@ -298,42 +285,26 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private static @Nullable ByteBufAllocator resolveByteBufAllocator(
-      @Nullable ByteBufAllocator explicitAllocator, boolean zeroGc) {
+      @Nullable ByteBufAllocator explicitAllocator) {
     if (explicitAllocator != null) {
       return explicitAllocator;
     }
     String config = WebTransportConfig.get("webtransport4j.server.allocator", null);
     if ("default".equalsIgnoreCase(config)) {
       return null;
-    } else if ("pooled".equalsIgnoreCase(config)) {
-      return PooledByteBufAllocator.DEFAULT;
     } else if ("unpooled".equalsIgnoreCase(config)) {
       return UnpooledByteBufAllocator.DEFAULT;
     }
-    if (zeroGc) {
-      return PooledByteBufAllocator.DEFAULT;
-    }
-    return null;
+    return PooledByteBufAllocator.DEFAULT;
   }
 
   public static @NonNull WebTransportServerBuilder builder() {
     return new WebTransportServerBuilder();
   }
 
-  @SuppressWarnings("deprecation")
-  private static boolean isZeroGcEnabled(@NonNull WebTransportServerBuilder builder) {
-    return builder.isZeroGc();
-  }
-
-  @SuppressWarnings("deprecation")
-  private static @NonNull Supplier<MessageDispatcher> zeroGcDispatcherSupplier() {
-    return () -> ZeroGcMessageDispatcher.INSTANCE;
-  }
-
   /** Web Transport Server. */
   public WebTransportServer(WebTransportHandler defaultHandler) {
-    this.zeroGc = false;
-    this.byteBufAllocator = resolveByteBufAllocator(null, false);
+    this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
@@ -341,8 +312,7 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
-    this.zeroGc = false;
-    this.byteBufAllocator = resolveByteBufAllocator(null, false);
+    this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
@@ -351,9 +321,8 @@ public class WebTransportServer implements AutoCloseable {
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     Objects.requireNonNull(builder, "builder");
-    this.zeroGc = builder.isZeroGc();
     this.byteBufAllocator =
-        resolveByteBufAllocator(builder.getByteBufAllocator(), builder.isZeroGc());
+        resolveByteBufAllocator(builder.getByteBufAllocator());
     this.configuredSocketCount = builder.getSocketCount();
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
@@ -390,8 +359,6 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
-    } else if (isZeroGcEnabled(builder)) {
-      this.messageDispatcherSupplier = zeroGcDispatcherSupplier();
     }
 
     this.handlers.putAll(builder.getHandlers());

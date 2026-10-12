@@ -1,11 +1,10 @@
-# Reduced-allocation dispatch (experimental)
+# Reduced-Allocation Flyweight Dispatch
 
-`enableZeroGc(true)` retains its historical API name for compatibility. It selects an
-experimental pipeline, not a guarantee of zero allocation or zero collections. It remains off
-by default. Frames, owned callback buffers, retained slices, queues, connections, streams, NIO
-views and application operations can allocate.
+`DefaultMessageDispatcher` dispatches inbound stream and datagram payloads through thread-confined
+flyweight buffers unconditionally by default. Frames, owned callback buffers, retained slices,
+queues, connections, streams, NIO views and application operations can allocate.
 
-Both modes use `DefaultMessageDispatcher` for Session lookup, handler selection, error handling,
+Inbound dispatch uses `DefaultMessageDispatcher` for Session lookup, handler selection, error handling,
 and metrics. Stream admission and byte accounting remain upstream. Dispatch occurs directly
 on Netty's `EventLoop`. Callbacks run on the network event loop and must not block; applications
 requiring heavy or blocking computations offload work in their `WebTransportHandler` by retaining

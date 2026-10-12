@@ -111,14 +111,12 @@ public class WebTransportServerBuilderTest {
     String previous = System.getProperty(key);
     try {
       System.setProperty(key, "DeFaUlT");
-      for (boolean zeroGc : new boolean[] {false, true}) {
-        Assert.assertNull(WebTransportServer.builder().enableZeroGc(zeroGc)
-            .build().getByteBufAllocator());
-        Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
-            WebTransportServer.builder().enableZeroGc(zeroGc)
-                .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
-                .build().getByteBufAllocator());
-      }
+      Assert.assertNull(WebTransportServer.builder()
+          .build().getByteBufAllocator());
+      Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
+          WebTransportServer.builder()
+              .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
+              .build().getByteBufAllocator());
     } finally {
       if (previous == null) {
         System.clearProperty(key);
@@ -129,11 +127,10 @@ public class WebTransportServerBuilderTest {
   }
 
   @Test
-  public void testByteBufAllocatorZeroGcDefaultsToPooled() {
+  public void testByteBufAllocatorDefaultsToPooled() {
     WebTransportServer server =
         WebTransportServer.builder()
             .port(8443)
-            .enableZeroGc(true)
             .build();
 
     Assert.assertSame(

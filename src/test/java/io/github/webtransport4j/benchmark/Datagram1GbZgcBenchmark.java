@@ -230,7 +230,6 @@ public final class Datagram1GbZgcBenchmark {
             .host(HOST)
             .port(port)
             .socketCount(socketCount)
-            .enableZeroGc(true)
             .defaultHandler(handler)
             .build();
 
