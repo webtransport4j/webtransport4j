@@ -148,7 +148,6 @@ public final class ProductionValidationMain {
     WebTransportServer server = new WebTransportServerBuilder()
         .host("127.0.0.1")
         .port(0)
-        .enableZeroGc(reduced)
         .metricsListener(metrics)
         .defaultHandler(handler)
         .messageDispatcherSupplier(() -> new TrackingDispatcher(reduced))
@@ -270,7 +269,7 @@ public final class ProductionValidationMain {
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
       if (reduced) {
-        ZeroGcMessageDispatcher.INSTANCE.channelRead(ctx, msg);
+        DefaultMessageDispatcher.INSTANCE.channelRead(ctx, msg);
       } else {
         super.channelRead(ctx, msg);
       }
