@@ -20,11 +20,26 @@ import org.slf4j.LoggerFactory;
  * blocking or slow handlers: the default inline dispatch in {@link DefaultMessageDispatcher} stays
  * zero-GC and remains the recommended mode for non-blocking handlers.
  *
- * <p>Install it per connection via {@link
- * WebTransportServerBuilder#messageDispatcherSupplier(Supplier)}, e.g. {@code
- * builder.messageDispatcherSupplier(() -> new ExecutorOffloadDispatcher(
- * Executors.newSingleThreadExecutor(), true))}. Each dispatch submits one task carrying the payload
- * buffer; the task runs the user callback and releases the buffer when it completes.
+ * <p>Install it via {@link WebTransportServerBuilder#messageDispatcherSupplier(Supplier)}. Each
+ * dispatch submits one task carrying the payload buffer; the task runs the user callback and
+ * releases the buffer when it completes.
+ *
+ * <p><b>Thread Management and Concurrency Guidance:</b>
+ * <ul>
+ *   <li><b>Shared Bounded Pool (Recommended for high concurrency):</b> Share a bounded {@link
+ *       ExecutorService} across all connections, e.g. {@code ExecutorService pool =
+ *       Executors.newFixedThreadPool(16); builder.messageDispatcherSupplier(() -> new
+ *       ExecutorOffloadDispatcher(pool, false));}. This strictly caps runnable threads and
+ *       prevents thread exhaustion.
+ *   <li><b>Virtual Threads (Java 21+):</b> Use {@code
+ *       Executors.newVirtualThreadPerTaskExecutor()} to handle blocking callbacks without tying
+ *       up OS threads or risking thread pool exhaustion.
+ *   <li><b>Per-Connection Single Thread (Strict FIFO):</b> If using {@code () -> new
+ *       ExecutorOffloadDispatcher(Executors.newSingleThreadExecutor(), true)} to preserve exact
+ *       per-connection FIFO callback order, be aware that each connection allocates a dedicated
+ *       OS thread. For thousands of concurrent connections, this can lead to thread exhaustion
+ *       ({@code OutOfMemoryError: unable to create native thread}) and context-switch thrashing.
+ * </ul>
  *
  * <p>Ordering is preserved per submission executor: callbacks for a channel are submitted from its
  * event loop in receive order, so a single-thread executor executes them in that same order.
@@ -42,8 +57,8 @@ public class ExecutorOffloadDispatcher extends DefaultMessageDispatcher {
    * Creates a dispatcher that runs user callbacks on {@code executor}. The executor is never shut
    * down by this dispatcher.
    *
-   * @param executor executor running the callbacks; a single-thread executor per connection is
-   *     recommended so callbacks keep their receive order
+   * @param executor executor running the callbacks. A shared bounded pool or virtual thread
+   *     executor is recommended for high concurrency to avoid thread exhaustion
    */
   public ExecutorOffloadDispatcher(@NonNull Executor executor) {
     this(executor, false);
@@ -54,8 +69,8 @@ public class ExecutorOffloadDispatcher extends DefaultMessageDispatcher {
    * when the channel closes (only when it is an {@link ExecutorService}).
    *
    * @param executor executor running the callbacks
-   * @param shutdownExecutorOnClose true to shut the executor down when the channel closes; intended
-   *     for per-connection executors, leave false for shared pools
+   * @param shutdownExecutorOnClose true to shut the executor down when the channel closes (intended
+   *     for per-connection executors; pass false when sharing a pool across connections)
    */
   public ExecutorOffloadDispatcher(@NonNull Executor executor, boolean shutdownExecutorOnClose) {
     this.executor = Objects.requireNonNull(executor, "executor");
