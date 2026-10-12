@@ -61,11 +61,6 @@ fi
 # ------------------------------------------------------------------------------
 KEY_HEADER="BEGIN"
 KEY_FOOTER="PRIVATE KEY"
-if git diff --cached -S"${KEY_HEADER} ${KEY_FOOTER}" --name-only | grep -q . || \
-   git diff --cached -S"${KEY_HEADER} RSA ${KEY_FOOTER}" --name-only | grep -q . || \
-   git diff --cached -S"${KEY_HEADER} EC ${KEY_FOOTER}" --name-only | grep -q . || \
-   git diff --cached -S"${KEY_HEADER} OPENSSH ${KEY_FOOTER}" --name-only | grep -q . || \
-   git diff --cached -S"${KEY_HEADER} DSA ${KEY_FOOTER}" --name-only | grep -q .; then
 # Distinguish added lines from diff file headers.
 if git diff --cached --unified=0 --output-indicator-new='>' -- . ':(exclude).githooks/pre-commit' | \
    grep -E "^>.*${KEY_HEADER} (RSA |EC |OPENSSH |DSA )?${KEY_FOOTER}" > /dev/null; then
@@ -76,7 +71,6 @@ fi
 # ------------------------------------------------------------------------------
 # 3. Merge Conflict Markers Check
 # ------------------------------------------------------------------------------
-CONFLICT_FILES=$(git diff --cached -G'^[<>=]{7}( |$)' --name-only || true)
 CONFLICT_FILES=""
 while IFS= read -r file; do
     case "$file" in
@@ -180,12 +174,6 @@ if [ -n "$JAVA_STAGED" ]; then
 
     # Gate 1: Checkstyle Verification (Google Java Style)
     echo -e "  ${BLUE}•${NC} Running Google Checkstyle verification..."
-    CHECKSTYLE_OUTPUT=$(mvn --batch-mode checkstyle:check 2>&1 || true)
-    if echo "$CHECKSTYLE_OUTPUT" | grep -q "You have 0 Checkstyle violations"; then
-        echo -e "  ${GREEN}✓${NC} Checkstyle passed with 0 violations."
-    else
-        echo -e "${RED}[FAIL] Checkstyle violations detected!${NC}"
-        echo "$CHECKSTYLE_OUTPUT" | grep -E "(\[ERROR\]|\[WARN\]|violations)" | head -n 30 || echo "$CHECKSTYLE_OUTPUT"
     if CHECKSTYLE_OUTPUT=$(mvn --batch-mode checkstyle:check 2>&1); then
         echo -e "  ${GREEN}✓${NC} Checkstyle passed with 0 violations."
     else
