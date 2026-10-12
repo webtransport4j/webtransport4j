@@ -42,11 +42,14 @@ public interface NettyWebTransportSession extends WebTransportSession {
   /**
    * Returns the timestamp (in ms) of the last read activity on this session.
    *
-   * @return last read timestamp
+   * @return last read timestamp, coarse-grained to ~1 second
    */
   long getLastReadTime();
 
-  /** Updates the timestamp of the last read activity to the current system time. */
+  /**
+   * Records read activity on this session. Implementations may apply coarse (~1 second)
+   * granularity, so callers must not rely on the timestamp being refreshed on every call.
+   */
   void updateLastReadTime();
 
   /**

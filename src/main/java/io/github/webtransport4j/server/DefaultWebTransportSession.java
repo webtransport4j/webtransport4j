@@ -63,6 +63,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   // ConcurrentHashMap.
   private static final int STREAM_SET_INITIAL_CAPACITY = 4;
 
+  // Minimum interval between lastReadTime refreshes. The timestamp only backs
+  // idle-time diagnostics, so ~1 second granularity is sufficient and avoids a
+  // volatile store on every received data chunk.
+  private static final long LAST_READ_TIME_GRANULARITY_MS = 1_000L;
+
   private static final AtomicLong GLOBAL_SESSION_SEQ = new AtomicLong(1);
 
   private static final LongHandle<DefaultWebTransportSession>
@@ -376,12 +381,31 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     this.activeServerInitiatedUni = ConcurrentHashMap.newKeySet(STREAM_SET_INITIAL_CAPACITY);
   }
 
+  /**
+   * Returns the timestamp of the last read activity on this session.
+   *
+   * @return last read timestamp in milliseconds, coarse-grained to {@link
+   *     #LAST_READ_TIME_GRANULARITY_MS}
+   */
+  @Override
   public long getLastReadTime() {
     return lastReadTime;
   }
 
+  /**
+   * Updates the timestamp of the last read activity with coarse (~1 second) granularity.
+   *
+   * <p>The clock is sampled on each call, but the volatile store is skipped unless more than
+   * {@link #LAST_READ_TIME_GRANULARITY_MS} has elapsed since the previous update. Precision does
+   * not matter for idle-time diagnostics, and eliding the store keeps the per-chunk inbound data
+   * path cheap. No atomic update is needed: a slightly stale or lost sample is acceptable.
+   */
+  @Override
   public void updateLastReadTime() {
-    lastReadTime = System.currentTimeMillis();
+    long now = System.currentTimeMillis();
+    if (now - lastReadTime >= LAST_READ_TIME_GRANULARITY_MS) {
+      lastReadTime = now;
+    }
   }
 
   public Set<QuicStreamChannel> getActiveClientInitiatedUni() {
