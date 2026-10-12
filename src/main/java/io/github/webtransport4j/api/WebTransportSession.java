@@ -367,4 +367,31 @@ public interface WebTransportSession {
   default @NonNull Collection<WebTransportStreamSummary> getActiveStreams() {
     return Collections.emptyList();
   }
+
+  /**
+   * Returns the handler bound to this session when it was admitted, or null when no handler was
+   * bound. Sessions keep the handler resolved at registration time: re-registering a handler for
+   * the same path does not affect existing sessions.
+   *
+   * @return the bound handler, or null
+   * @see #getHandler()
+   */
+  default @Nullable WebTransportHandler getBoundHandler() {
+    return null;
+  }
+
+  /**
+   * Returns the handler bound to this session when it was admitted, or null when no handler was
+   * bound.
+   *
+   * <p>This method is an alias for {@link #getBoundHandler()}. Sessions retain the handler resolved
+   * at registration time; re-registering a handler for the same path does not affect existing active
+   * sessions.
+   *
+   * @return the bound handler, or null
+   * @see #getBoundHandler()
+   */
+  default @Nullable WebTransportHandler getHandler() {
+    return getBoundHandler();
+  }
 }

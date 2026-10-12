@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.OnCloseListener;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportBuffer;
+import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
@@ -278,6 +279,26 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private volatile @Nullable Consumer<ByteBuf> rawDatagramConsumer;
 
+  private volatile @Nullable WebTransportHandler boundHandler;
+
+  /** Returns the handler bound to this session upon admission, or null. */
+  @Override
+  public @Nullable WebTransportHandler getBoundHandler() {
+    return boundHandler;
+  }
+
+  /** Alias for {@link #getBoundHandler()}. */
+  @Override
+  public @Nullable WebTransportHandler getHandler() {
+    return boundHandler;
+  }
+
+  /** Binds the handler resolved for this session's path upon admission. */
+  @Override
+  public void setBoundHandler(@Nullable WebTransportHandler handler) {
+    this.boundHandler = handler;
+  }
+
   /** Returns true if graceful shutdown was signaled locally or by the peer. */
   @Override
   public boolean isDraining() {
@@ -329,17 +350,18 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     if (!DRAINING_HANDLE.compareAndSet(this, 0, 1)) {
       return;
     }
-    io.netty.util.Attribute<WebTransportServer> serverAttribute =
-        connectStream.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
-    WebTransportServer server = serverAttribute == null ? null : serverAttribute.get();
-    io.github.webtransport4j.api.WebTransportHandler handler =
-        server == null ? null : server.getHandler(path());
+    WebTransportHandler handler = boundHandler;
+    if (handler == null) {
+      io.netty.util.Attribute<WebTransportServer> serverAttribute =
+          connectStream.parent().attr(WebTransportAttributeKeys.SERVER_KEY);
+      WebTransportServer server = serverAttribute == null ? null : serverAttribute.get();
+      handler = server == null ? null : server.getHandler(path());
+    }
     if (handler != null) {
       try {
         handler.onSessionDraining(this);
       } catch (RuntimeException failure) {
-        io.github.webtransport4j.api.WebTransportHandler.logger.warn(
-            "Error in onSessionDraining callback", failure);
+        WebTransportHandler.logger.warn("Error in onSessionDraining callback", failure);
       }
     }
   }
