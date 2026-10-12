@@ -6,6 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,6 +26,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
@@ -35,6 +37,7 @@ import io.netty.handler.codec.quic.QuicException;
 import io.netty.handler.codec.quic.QuicPathEvent;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.handler.codec.quic.QuicTransportError;
 import io.netty.util.DefaultAttributeMap;
 import java.net.InetSocketAddress;
@@ -291,16 +294,21 @@ public class WebTransportHandlerLifecycleTest {
 
   @Test
   public void testExceptionCaughtClosePolicy() {
-    // Peer stream reset: stream-scoped — close stream channel to tear down send side and replenish permits,
-    // but never close parent QuicChannel.
+    // Peer stream reset: stream-scoped — reset stream send side via QUIC RESET_STREAM,
+    // never close the channel with FIN or close parent QuicChannel.
     QuicStreamChannel resetStream = mock(QuicStreamChannel.class);
+    when(resetStream.isActive()).thenReturn(true);
+    when(resetStream.type()).thenReturn(QuicStreamType.BIDIRECTIONAL);
+    ChannelPromise shutdownPromise = mock(ChannelPromise.class);
+    when(resetStream.newPromise()).thenReturn(shutdownPromise);
     DefaultAttributeMap resetAttrs = new DefaultAttributeMap();
     when(resetStream.attr(any())).thenAnswer(inv -> resetAttrs.attr(inv.getArgument(0)));
     ChannelHandlerContext resetCtx = mock(ChannelHandlerContext.class);
     when(resetCtx.channel()).thenReturn(resetStream);
     DefaultMessageDispatcher.INSTANCE.exceptionCaught(
         resetCtx, new QuicStreamResetException("reset", 0x52));
-    verify(resetCtx).close();
+    verify(resetStream).shutdown(eq(0x52), eq(shutdownPromise));
+    verify(shutdownPromise).addListener(any());
 
     QuicChannel resetConn = mock(QuicChannel.class);
     ChannelHandlerContext resetConnCtx = mock(ChannelHandlerContext.class);
