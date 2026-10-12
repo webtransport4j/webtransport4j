@@ -165,9 +165,10 @@ public class Draft16Section3SessionEstablishmentTest {
     WebTransportHeadersHandler.INSTANCE.channelRead(
         mockCtx, new DefaultHttp3HeadersFrame(headersWithWrongProtocol));
 
-    // Connect stream should NOT be accepted as WebTransport 200 OK
+    // Connect stream should NOT be accepted as WebTransport 200 OK (rejected with 404 Not Found)
     ArgumentCaptor<Http3HeadersFrame> captor = ArgumentCaptor.forClass(Http3HeadersFrame.class);
-    verify(mockCtx, org.mockito.Mockito.never()).writeAndFlush(captor.capture());
+    verify(mockCtx).writeAndFlush(captor.capture());
+    assertEquals(HttpResponseStatus.NOT_FOUND.codeAsText(), captor.getValue().headers().status());
   }
 
   /**
