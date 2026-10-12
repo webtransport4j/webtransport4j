@@ -199,11 +199,36 @@ public class WebTransportTestHandlerTest {
   }
 
   @Test
+  public void testPendingAckCreationWritesChunksInReceiveOrder() {
+    WebTransportSession session = mock(WebTransportSession.class);
+    final WebTransportStream ackStream = ackStream();
+    CompletableFuture<WebTransportStream> creation = new CompletableFuture<>();
+    when(session.createUniStream()).thenReturn(creation);
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    when(buffer.readBytes())
+        .thenReturn("A".getBytes(StandardCharsets.UTF_8), "B".getBytes(StandardCharsets.UTF_8));
+    Runnable receive = incomingUniData(new WebTransportTestHandler(scheduler, 5), session, buffer);
+
+    receive.run();
+    receive.run();
+    verify(session).createUniStream();
+    verify(ackStream, never()).write(any(byte[].class));
+    creation.complete(ackStream);
+
+    InOrder order = inOrder(ackStream);
+    order.verify(ackStream).write("ACK UNI: A".getBytes(StandardCharsets.UTF_8));
+    order.verify(ackStream).write("ACK UNI: B".getBytes(StandardCharsets.UTF_8));
+  }
+
+  @Test
   public void testReentrantAckCreationSharesFutureAndRegistersHandlersBeforeWriting() {
     WebTransportSession session = mock(WebTransportSession.class);
     final WebTransportStream ackStream = ackStream();
     CompletableFuture<WebTransportStream> creation = new CompletableFuture<>();
-    Runnable receive = incomingUniData(new WebTransportTestHandler(scheduler, 5), session);
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    when(buffer.readBytes())
+        .thenReturn("A".getBytes(StandardCharsets.UTF_8), "B".getBytes(StandardCharsets.UTF_8));
+    Runnable receive = incomingUniData(new WebTransportTestHandler(scheduler, 5), session, buffer);
     when(session.createUniStream())
         .thenAnswer(
             invocation -> {
@@ -219,7 +244,8 @@ public class WebTransportTestHandlerTest {
     InOrder order = inOrder(ackStream);
     order.verify(ackStream).onClose(any());
     order.verify(ackStream).onError(any());
-    order.verify(ackStream, times(2)).write(any(byte[].class));
+    order.verify(ackStream).write("ACK UNI: A".getBytes(StandardCharsets.UTF_8));
+    order.verify(ackStream).write("ACK UNI: B".getBytes(StandardCharsets.UTF_8));
   }
 
   @Test
@@ -348,6 +374,13 @@ public class WebTransportTestHandlerTest {
 
   private Runnable incomingUniData(
       WebTransportTestHandler handler, WebTransportSession session) {
+    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
+    when(buffer.readBytes()).thenReturn("payload".getBytes(StandardCharsets.UTF_8));
+    return incomingUniData(handler, session, buffer);
+  }
+
+  private Runnable incomingUniData(
+      WebTransportTestHandler handler, WebTransportSession session, WebTransportBuffer buffer) {
     WebTransportStream stream = mock(WebTransportStream.class);
     AtomicReference<Consumer<WebTransportBuffer>> consumer = new AtomicReference<>();
     doAnswer(
@@ -358,8 +391,6 @@ public class WebTransportTestHandlerTest {
         .when(stream)
         .onData(any());
     handler.onIncomingStream(session, stream);
-    WebTransportBuffer buffer = mock(WebTransportBuffer.class);
-    when(buffer.readBytes()).thenReturn("payload".getBytes(StandardCharsets.UTF_8));
     return () -> consumer.get().accept(buffer);
   }
 }
