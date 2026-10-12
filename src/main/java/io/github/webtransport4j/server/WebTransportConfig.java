@@ -285,6 +285,9 @@ public class WebTransportConfig {
   }
 
   private static @Nullable Properties loadProfileProperties(String profile) {
+    if ("test".equalsIgnoreCase(profile)) {
+      ensureTestCertificatesIfPresent();
+    }
     String filename = "webtransport-" + profile + ".properties";
     Properties props = new Properties();
     File localFile = new File(filename);
@@ -310,6 +313,15 @@ public class WebTransportConfig {
       logger.error("❌ Failed to load profile properties from classpath: {}", filename, e);
     }
     return null;
+  }
+
+  private static void ensureTestCertificatesIfPresent() {
+    try {
+      Class<?> testCertClass = Class.forName("io.github.webtransport4j.test.TestCertificates");
+      testCertClass.getMethod("ensureTestCertificatesExist").invoke(null);
+    } catch (Throwable ignored) {
+      // TestCertificates is only present on the test classpath
+    }
   }
 
   private static long evaluateExpression(@NonNull String val) {

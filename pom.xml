@@ -583,10 +583,33 @@
                     <systemPropertyVariables>
                         <webtransport4j.profile>test</webtransport4j.profile>
                     </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>io.github.webtransport4j.test.TestCertificateRunListener</value>
+                        </property>
+                    </properties>
                     <excludes>
                         <exclude>**/*_jmhTest*</exclude>
                         <exclude>**/jmh_generated/**</exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>src/test/resources</directory>
+                            <includes>
+                                <include>test-*.pem</include>
+                            </includes>
+                            <followSymlinks>false</followSymlinks>
+                        </fileset>
+                    </filesets>
                 </configuration>
             </plugin>
 
