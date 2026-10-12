@@ -202,7 +202,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         if (evt instanceof SslHandshakeCompletionEvent) {
           SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
           if (event.isSuccess()) {
-            logger.info("Handshake successful");
+            logger.debug("Handshake successful");
           } else {
             logger.warn("Handshake failed", event.cause());
           }

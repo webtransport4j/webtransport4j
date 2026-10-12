@@ -410,7 +410,7 @@ public class WebTransportUtils {
         future.addListener(
             f -> {
               if (f.isSuccess()) {
-                logger.info(
+                logger.debug(
                     "✅ Capsule writeAndFlush SUCCESS (buffered/handed off to QUIC stack) for Type"
                         + " 0x{}",
                     Long.toHexString(capsuleType));
@@ -422,7 +422,7 @@ public class WebTransportUtils {
               }
             });
       } else {
-        logger.info(
+        logger.debug(
             "✅ Capsule writeAndFlush called (no future returned) for Type 0x{}",
             Long.toHexString(capsuleType));
       }
