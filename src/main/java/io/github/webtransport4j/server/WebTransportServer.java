@@ -15,7 +15,10 @@ import io.github.webtransport4j.resilience.UdpSocketTuner;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -25,13 +28,16 @@ import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
+import io.netty.channel.socket.nio.NioChannelOption;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.channel.unix.UnixChannelOption;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.EpollQuicUtils;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicChannelOption;
+import io.netty.handler.codec.quic.QuicCodecDispatcher;
 import io.netty.handler.codec.quic.QuicCongestionControlAlgorithm;
 import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicServerCodecBuilder;
@@ -41,13 +47,16 @@ import io.netty.handler.codec.quic.QuicSslEngine;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.net.SocketOption;
+import java.net.StandardSocketOptions;
+import java.nio.ByteBuffer;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,6 +69,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -79,11 +89,10 @@ import org.slf4j.LoggerFactory;
  * Dispatching occurs directly on Netty's EventLoop for zero-GC high throughput.
  *
  *
- * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, generated
- * certificate, and dynamically created traffic shaper) stay local until {@code
- * publishIfStillStarting}. If {@link #stop()} wins first, it returns {@code STOPPED} before those
- * objects exist; {@code doStart} then discards them itself. The epoch is not enough on its own — it
- * only prevents publishing.
+ * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, and
+ * dynamically created traffic shaper) stay local until {@code publishIfStillStarting}. If
+ * {@link #stop()} wins first, it returns {@code STOPPED} before those objects exist; {@code doStart}
+ * then discards them itself. The epoch is not enough on its own — it only prevents publishing.
  *
  * <p>The QUIC codec does not snapshot {@link QuicSslContext}. New handshakes call {@link
  * #newQuicSslEngine(QuicChannel)}, which reads the live {@link #activeSslContext} so certificate
@@ -149,7 +158,6 @@ public class WebTransportServer implements AutoCloseable {
 
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
-  private final Set<WebTransportSession> activeSessionsSet = ConcurrentHashMap.newKeySet();
   private final Map<Long, WebTransportSession> activeSessionsById = new ConcurrentHashMap<>();
   private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
@@ -235,10 +243,11 @@ public class WebTransportServer implements AutoCloseable {
 
   private EventLoopGroup group;
   private Channel channel;
+  private final List<Channel> channels = new CopyOnWriteArrayList<>();
+  private final Integer configuredSocketCount;
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
-  private SelfSignedCertificate generatedCertificate;
 
   /**
    * Returns the SSL context used for <em>new</em> QUIC handshakes. Existing connections keep the
@@ -260,15 +269,29 @@ public class WebTransportServer implements AutoCloseable {
     return watcher != null && watcher.checkAndReload();
   }
 
-  private final boolean zeroGc;
+  private final ByteBufAllocator byteBufAllocator;
 
   /**
-   * Returns whether this server is running in zero-GC mode.
+   * Returns the configured {@link ByteBufAllocator} used by the server transport channel.
    *
-   * @return true if zero-GC mode is enabled
+   * @return allocator or null if using Netty default
    */
-  public boolean isZeroGc() {
-    return zeroGc;
+  public @Nullable ByteBufAllocator getByteBufAllocator() {
+    return byteBufAllocator;
+  }
+
+  private static @Nullable ByteBufAllocator resolveByteBufAllocator(
+      @Nullable ByteBufAllocator explicitAllocator) {
+    if (explicitAllocator != null) {
+      return explicitAllocator;
+    }
+    String config = WebTransportConfig.get("webtransport4j.server.allocator", null);
+    if ("default".equalsIgnoreCase(config)) {
+      return null;
+    } else if ("unpooled".equalsIgnoreCase(config)) {
+      return UnpooledByteBufAllocator.DEFAULT;
+    }
+    return PooledByteBufAllocator.DEFAULT;
   }
 
   public static @NonNull WebTransportServerBuilder builder() {
@@ -277,23 +300,26 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Web Transport Server. */
   public WebTransportServer(WebTransportHandler defaultHandler) {
-    this.zeroGc = false;
+    this.byteBufAllocator = resolveByteBufAllocator(null);
+    this.configuredSocketCount = null;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
   }
 
   /** Constructs a WebTransportServer with a default no-op handler. */
   public WebTransportServer() {
-    this.zeroGc = false;
+    this.byteBufAllocator = resolveByteBufAllocator(null);
+    this.configuredSocketCount = null;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
 
-
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     Objects.requireNonNull(builder, "builder");
-    this.zeroGc = builder.isZeroGc();
+    this.byteBufAllocator =
+        resolveByteBufAllocator(builder.getByteBufAllocator());
+    this.configuredSocketCount = builder.getSocketCount();
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -329,8 +355,6 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (builder.getMessageDispatcherSupplier() != null) {
       this.messageDispatcherSupplier = builder.getMessageDispatcherSupplier();
-    } else if (builder.isZeroGc()) {
-      this.messageDispatcherSupplier = () -> ZeroGcMessageDispatcher.INSTANCE;
     }
 
     this.handlers.putAll(builder.getHandlers());
@@ -653,6 +677,11 @@ public class WebTransportServer implements AutoCloseable {
     if (ch != null && ch.isActive() && ch.localAddress() instanceof InetSocketAddress) {
       return ((InetSocketAddress) ch.localAddress()).getPort();
     }
+    for (Channel c : this.channels) {
+      if (c != null && c.isActive() && c.localAddress() instanceof InetSocketAddress) {
+        return ((InetSocketAddress) c.localAddress()).getPort();
+      }
+    }
     if (configuredPort != null) {
       return configuredPort;
     }
@@ -665,16 +694,52 @@ public class WebTransportServer implements AutoCloseable {
     if (ch != null && ch.isActive() && ch.localAddress() instanceof InetSocketAddress) {
       return ((InetSocketAddress) ch.localAddress()).getHostString();
     }
+    for (Channel c : this.channels) {
+      if (c != null && c.isActive() && c.localAddress() instanceof InetSocketAddress) {
+        return ((InetSocketAddress) c.localAddress()).getHostString();
+      }
+    }
     if (configuredHost != null) {
       return configuredHost;
     }
     return WebTransportConfig.get("webtransport4j.server.host", DEFAULT_HOST);
   }
 
+  /**
+   * Returns the number of bound UDP sockets, or the configured socket count if not yet started.
+   *
+   * @return active or configured socket count
+   */
+  public int getSocketCount() {
+    int size = channels.size();
+    if (size > 0) {
+      return size;
+    }
+    return resolveSocketCount();
+  }
+
+  /**
+   * Returns an unmodifiable list of currently bound UDP channels.
+   *
+   * @return list of bound channels
+   */
+  public @NonNull List<Channel> getChannels() {
+    return Collections.unmodifiableList(new ArrayList<>(channels));
+  }
+
+  private int resolveSocketCount() {
+    int defaultCount = WebTransportConfig.getInt("webtransport4j.server.socket.count", 1);
+    int count = configuredSocketCount != null ? configuredSocketCount : defaultCount;
+    if (count <= 0) {
+      return Math.max(1, Runtime.getRuntime().availableProcessors());
+    }
+    return count;
+  }
+
 
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionCount() {
-    return activeSessionsSet.size();
+    return activeSessionsById.size();
   }
 
   /**
@@ -684,7 +749,6 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void registerSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
-    activeSessionsSet.add(session);
     activeSessionsById.put(session.getUniqueSessionId(), session);
     activeSessionsMap.put(session.getSessionStreamId(), session);
     if (state.get() == ServerState.DRAINING || state.get() == ServerState.STOPPING) {
@@ -699,7 +763,6 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void unregisterSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
-    activeSessionsSet.remove(session);
     activeSessionsById.remove(session.getUniqueSessionId());
     activeSessionsMap.remove(session.getSessionStreamId(), session);
     sessionClosures.release();
@@ -713,23 +776,20 @@ public class WebTransportServer implements AutoCloseable {
   public void unregisterSession(long sessionId) {
     WebTransportSession removed = activeSessionsById.remove(sessionId);
     if (removed != null) {
-      activeSessionsSet.remove(removed);
       activeSessionsMap.remove(removed.getSessionStreamId(), removed);
       sessionClosures.release();
       return;
     }
     removed = activeSessionsMap.remove(sessionId);
     if (removed != null) {
-      activeSessionsSet.remove(removed);
       activeSessionsById.remove(removed.getUniqueSessionId());
       sessionClosures.release();
       return;
     }
-    for (WebTransportSession s : activeSessionsSet) {
+    for (WebTransportSession s : activeSessionsById.values()) {
       if (s.getUniqueSessionId() == sessionId
           || s.getSessionStreamId() == sessionId
           || Math.abs((long) System.identityHashCode(s)) == sessionId) {
-        activeSessionsSet.remove(s);
         activeSessionsById.remove(s.getUniqueSessionId());
         activeSessionsMap.remove(s.getSessionStreamId(), s);
         sessionClosures.release();
@@ -744,7 +804,7 @@ public class WebTransportServer implements AutoCloseable {
    * @return collection of active sessions
    */
   public @NonNull Collection<WebTransportSession> getActiveSessions() {
-    return Collections.unmodifiableCollection(activeSessionsSet);
+    return Collections.unmodifiableCollection(activeSessionsById.values());
   }
 
   /**
@@ -762,7 +822,7 @@ public class WebTransportServer implements AutoCloseable {
     if (session != null) {
       return session;
     }
-    for (WebTransportSession s : activeSessionsSet) {
+    for (WebTransportSession s : activeSessionsById.values()) {
       if (s.getUniqueSessionId() == sessionId
           || s.getSessionStreamId() == sessionId
           || Math.abs((long) System.identityHashCode(s)) == sessionId) {
@@ -779,10 +839,21 @@ public class WebTransportServer implements AutoCloseable {
 
   /** Returns true if the server is active and listening. */
   public boolean isStarted() {
+    boolean validState =
+        state.get() == ServerState.STARTED || state.get() == ServerState.DRAINING;
+    if (!validState) {
+      return false;
+    }
     Channel ch = this.channel;
-    return (state.get() == ServerState.STARTED || state.get() == ServerState.DRAINING)
-        && ch != null
-        && ch.isActive();
+    if (ch != null && ch.isActive()) {
+      return true;
+    }
+    for (Channel c : this.channels) {
+      if (c != null && c.isActive()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Returns whether the server admits new WebTransport sessions. */
@@ -791,7 +862,7 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   private void drainActiveSessions() {
-    for (WebTransportSession session : activeSessionsSet) {
+    for (WebTransportSession session : activeSessionsById.values()) {
       try {
         if (session.isOpen()) {
           session.drain();
@@ -967,17 +1038,6 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  private static final class SslContextBuildResult {
-    final QuicSslContext context;
-    final @Nullable SelfSignedCertificate generatedCertificate;
-
-    SslContextBuildResult(
-        QuicSslContext context, @Nullable SelfSignedCertificate generatedCertificate) {
-      this.context = context;
-      this.generatedCertificate = generatedCertificate;
-    }
-  }
-
   private void doStart(long epoch) throws Exception {
     if (defaultHandler == null) {
       throw new IllegalStateException(
@@ -1004,16 +1064,18 @@ public class WebTransportServer implements AutoCloseable {
 
     EventLoopGroup newGroup = null;
     Channel newChannel = null;
+    List<Channel> newChannels = null;
     TlsCertificateWatcher newWatcher = null;
     GlobalTrafficShapingHandler createdShaper = null;
-    SelfSignedCertificate generatedCert = null;
     QuicSslContext previousActiveSslContext = this.activeSslContext;
     boolean startupSslContextInstalled = false;
     boolean published = false;
     try {
+      int socketCount = resolveSocketCount();
+      int threadCount = Math.max(Runtime.getRuntime().availableProcessors(), socketCount);
       newGroup =
           new MultiThreadIoEventLoopGroup(
-              Math.max(1, Runtime.getRuntime().availableProcessors()),
+              Math.max(1, threadCount),
               transportConfig.ioHandlerFactory);
 
       abortIfStartInvalidated(epoch);
@@ -1024,9 +1086,7 @@ public class WebTransportServer implements AutoCloseable {
         createdShaper = shaper;
       }
 
-      SslContextBuildResult sslResult = buildSslContext();
-      QuicSslContext sslCtx = sslResult.context;
-      generatedCert = sslResult.generatedCertificate;
+      QuicSslContext sslCtx = buildSslContext();
       this.activeSslContext = sslCtx;
       startupSslContextInstalled = true;
 
@@ -1037,57 +1097,85 @@ public class WebTransportServer implements AutoCloseable {
       Http3Settings settings = buildHttp3Settings();
       ResolvedLimits limits = resolveLimits();
 
-      // sslEngineProvider reads activeSslContext on every new handshake. Do not call
-      // sslContext(sslCtx): that captures the instance and makes hot-reload a no-op.
-      QuicServerCodecBuilder codecBuilder =
-          Http3.newQuicServerCodecBuilder()
-              .sslEngineProvider(this::newQuicSslEngine)
-              .maxIdleTimeout(limits.idleTimeoutSeconds, TimeUnit.SECONDS)
-              .initialMaxData(limits.quicMaxData)
-              .initialMaxStreamDataBidirectionalLocal(limits.streamDataBidiLocal)
-              .initialMaxStreamDataBidirectionalRemote(limits.streamDataBidiRemote)
-              .initialMaxStreamsBidirectional(limits.quicMaxBidi)
-              .datagram(limits.datagramRecvQueue, limits.datagramSendQueue)
-              .initialMaxStreamsUnidirectional(limits.quicMaxUni)
-              .initialMaxStreamDataUnidirectional(limits.streamDataUni)
-              .tokenHandler(resolveTokenHandler())
-              .handler(
-                  new QuicChannelInitializer(
-                      this,
-                      settings,
-                      resolvedOrigins,
-                      globalActiveSessions,
-                      globalSessionSlots));
+      if (socketCount > 1) {
+        QuicConnectionIdGenerator customCidGen = resolveConnectionIdGenerator();
+        QuicCodecDispatcher dispatcher =
+            new QuicCodecDispatcher() {
+              @Override
+              protected void initChannel(
+                  Channel channel,
+                  int localConnectionIdLength,
+                  QuicConnectionIdGenerator idGenerator) {
+                QuicServerCodecBuilder cb =
+                    createQuicServerCodecBuilder(limits, settings, resolvedOrigins, idGenerator);
+                cb.localConnectionIdLength(localConnectionIdLength);
+                channel.pipeline().addLast(cb.build());
+              }
 
-      QuicConnectionIdGenerator cidGen = resolveConnectionIdGenerator();
-      if (cidGen != null) {
-        codecBuilder.connectionIdAddressGenerator(cidGen);
+              @Override
+              protected QuicConnectionIdGenerator newIdGenerator(int idx) {
+                if (customCidGen == null) {
+                  return super.newIdGenerator(idx);
+                }
+                return new IndexAwareQuicConnectionIdGeneratorWrapper(idx, customCidGen);
+              }
+            };
+
+        abortIfStartInvalidated(epoch);
+
+        newChannels =
+            bindServers(
+                bootstrap,
+                transportConfig,
+                null,
+                dispatcher,
+                targetHost,
+                targetPort,
+                newGroup,
+                shaper,
+                socketCount);
+      } else {
+        QuicConnectionIdGenerator cidGen = resolveConnectionIdGenerator();
+        QuicServerCodecBuilder codecBuilder =
+            createQuicServerCodecBuilder(limits, settings, resolvedOrigins, cidGen);
+
+        abortIfStartInvalidated(epoch);
+
+        ChannelHandler serverCodec = codecBuilder.build();
+        newChannels =
+            bindServers(
+                bootstrap,
+                transportConfig,
+                serverCodec,
+                null,
+                targetHost,
+                targetPort,
+                newGroup,
+                shaper,
+                1);
       }
 
-      configureOptionalQuicParams(codecBuilder);
-
-      abortIfStartInvalidated(epoch);
-
-      ChannelHandler serverCodec = codecBuilder.build();
-      newChannel =
-          bindServer(
-              bootstrap, transportConfig, serverCodec, targetHost, targetPort, newGroup, shaper);
+      newChannel = newChannels.get(0);
 
       published =
-          publishIfStillStarting(epoch, newGroup, newChannel, newWatcher, shaper, generatedCert);
+          publishIfStillStarting(
+              epoch, newGroup, newChannel, newChannels, newWatcher, shaper);
       if (!published) {
         throw new IllegalStateException("Server start aborted because shutdown was requested");
       }
       logger.info(
-          "WebTransport server started on {}:{}", getHostFrom(newChannel), getPortFrom(newChannel));
+          "WebTransport server started on {}:{} (sockets: {})",
+          getHostFrom(newChannel),
+          getPortFrom(newChannel),
+          newChannels.size());
     } finally {
       if (!published) {
         discardUnpublishedStart(
             newChannel,
+            newChannels,
             newGroup,
             newWatcher,
             createdShaper,
-            generatedCert,
             previousActiveSslContext,
             startupSslContextInstalled);
       }
@@ -1109,9 +1197,9 @@ public class WebTransportServer implements AutoCloseable {
       long epoch,
       EventLoopGroup newGroup,
       Channel newChannel,
+      @Nullable List<Channel> newChannels,
       TlsCertificateWatcher newWatcher,
-      GlobalTrafficShapingHandler shaper,
-      SelfSignedCertificate generatedCert) {
+      GlobalTrafficShapingHandler shaper) {
     Thread hook =
         new Thread(
             () -> {
@@ -1135,11 +1223,14 @@ public class WebTransportServer implements AutoCloseable {
       this.shutdownHook = hook;
       this.group = newGroup;
       this.channel = newChannel;
+      this.channels.clear();
+      if (newChannels != null && !newChannels.isEmpty()) {
+        this.channels.addAll(newChannels);
+      } else if (newChannel != null) {
+        this.channels.add(newChannel);
+      }
       this.tlsWatcher = newWatcher;
       this.trafficShaper = shaper;
-      if (generatedCert != null) {
-        this.generatedCertificate = generatedCert;
-      }
       state.set(ServerState.STARTED);
       UdpErrorMetricsPoller.register(this, this::getMetricsListener);
       return true;
@@ -1152,13 +1243,19 @@ public class WebTransportServer implements AutoCloseable {
    */
   private void discardUnpublishedStart(
       @Nullable Channel newChannel,
+      @Nullable List<Channel> newChannels,
       @Nullable EventLoopGroup newGroup,
       @Nullable TlsCertificateWatcher newWatcher,
       @Nullable GlobalTrafficShapingHandler createdShaper,
-      @Nullable SelfSignedCertificate generatedCert,
       @Nullable QuicSslContext previousActiveSslContext,
       boolean startupSslContextInstalled) {
-    closeQuietly(newChannel);
+    if (newChannels != null && !newChannels.isEmpty()) {
+      for (Channel ch : newChannels) {
+        closeQuietly(ch);
+      }
+    } else {
+      closeQuietly(newChannel);
+    }
     shutdownGroupQuietly(newGroup);
     stopTlsWatcherSafely(newWatcher);
     if (createdShaper != null) {
@@ -1169,16 +1266,6 @@ public class WebTransportServer implements AutoCloseable {
       }
       if (this.trafficShaper == createdShaper) {
         this.trafficShaper = null;
-      }
-    }
-    if (generatedCert != null) {
-      try {
-        generatedCert.delete();
-      } catch (Exception e) {
-        logger.debug("Failed to delete unpublished generated certificate", e);
-      }
-      if (this.generatedCertificate == generatedCert) {
-        this.generatedCertificate = null;
       }
     }
     if (startupSslContextInstalled) {
@@ -1192,6 +1279,9 @@ public class WebTransportServer implements AutoCloseable {
     }
     if (this.channel == newChannel) {
       this.channel = null;
+    }
+    if (newChannels != null) {
+      this.channels.removeAll(newChannels);
     }
   }
 
@@ -1217,9 +1307,15 @@ public class WebTransportServer implements AutoCloseable {
   /** Blocks the current thread until the server channel is closed. */
   public void awaitShutdown() throws InterruptedException {
     EventLoopSafety.requireBlockingAllowed();
+    List<Channel> channelsToAwait = new ArrayList<>(this.channels);
     Channel ch = this.channel;
-    if (ch != null) {
-      ch.closeFuture().sync();
+    if (channelsToAwait.isEmpty() && ch != null) {
+      channelsToAwait.add(ch);
+    }
+    for (Channel c : channelsToAwait) {
+      if (c != null) {
+        c.closeFuture().sync();
+      }
     }
   }
 
@@ -1714,7 +1810,7 @@ public class WebTransportServer implements AutoCloseable {
     return null;
   }
 
-  private @NonNull SslContextBuildResult buildSslContext() throws Exception {
+  private @NonNull QuicSslContext buildSslContext() throws Exception {
     if (this.sslContext != null) {
       if (clientAuthMode != null
           || resolveClientAuthMode() != ClientAuthMode.NONE
@@ -1727,7 +1823,7 @@ public class WebTransportServer implements AutoCloseable {
             "Configure client authentication and trust on the supplied sslContext; "
                 + "server clientAuth/trustManager settings cannot modify it");
       }
-      return new SslContextBuildResult(this.sslContext, null);
+      return this.sslContext;
     }
     String keyPath =
         this.sslKeyPath != null
@@ -1738,71 +1834,45 @@ public class WebTransportServer implements AutoCloseable {
             ? this.sslCertPath
             : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
 
-    boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
-
-    File keyFile;
-    File certFile;
-    SelfSignedCertificate generated = null;
-
-    if ((keyPath == null) != (certPath == null)) {
+    if (keyPath == null || certPath == null) {
       throw new IllegalStateException(
-          "Both SSL key path and certificate path must be configured together.");
-    }
-
-    if (keyPath != null) {
-      keyFile = new File(keyPath);
-      certFile = new File(certPath);
-
-      if (!keyFile.isFile() || !keyFile.canRead()) {
-        throw new IllegalStateException(
-            "SSL private key does not exist, is not a regular file, or is unreadable: "
-                + keyFile.getAbsolutePath());
-      }
-
-      if (!certFile.isFile() || !certFile.canRead()) {
-        throw new IllegalStateException(
-            "SSL certificate does not exist, is not a regular file, or is unreadable: "
-                + certFile.getAbsolutePath());
-      }
-    } else if (devMode) {
-      logger.warn(
-          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS"
-              + " certificate will be generated. Do not use this configuration in production."
-              + " Configure webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!!"
-              + " WARNING !!!");
-
-      generated = new SelfSignedCertificate("localhost");
-      keyFile = generated.privateKey();
-      certFile = generated.certificate();
-    } else {
-      throw new IllegalStateException(
-          "SSL key path and certificate path must be configured for production. "
+          "SSL private key path and certificate path must be configured. "
               + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path, "
-              + "or enable webtransport4j.dev_mode=true for local development.");
+              + "or supply an explicit QuicSslContext via sslContext(...).");
     }
 
-    try {
-      long sessionTimeout =
-          WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
-      long sessionCacheSize =
-          WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
-      QuicSslContextBuilder sslBuilder =
-          QuicSslContextBuilder.forServer(keyFile, null, certFile)
-              .applicationProtocols(Http3.supportedApplicationProtocols());
-      if (sessionTimeout > 0) {
-        sslBuilder.sessionTimeout(sessionTimeout);
-      }
-      if (sessionCacheSize > 0) {
-        sslBuilder.sessionCacheSize(sessionCacheSize);
-      }
-      applyClientAuthAndTrust(sslBuilder);
-      QuicSslContext resolvedSslCtx = sslBuilder.build();
-      applySessionTicketKeys(resolvedSslCtx);
-      return new SslContextBuildResult(resolvedSslCtx, generated);
-    } catch (Exception | Error e) {
-      deleteGeneratedCertificateQuietly(generated, "failed TLS startup");
-      throw e;
+    File keyFile = new File(keyPath);
+    File certFile = new File(certPath);
+
+    if (!keyFile.isFile() || !keyFile.canRead()) {
+      throw new IllegalStateException(
+          "SSL private key does not exist, is not a regular file, or is unreadable: "
+              + keyFile.getAbsolutePath());
     }
+
+    if (!certFile.isFile() || !certFile.canRead()) {
+      throw new IllegalStateException(
+          "SSL certificate does not exist, is not a regular file, or is unreadable: "
+              + certFile.getAbsolutePath());
+    }
+
+    long sessionTimeout =
+        WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
+    long sessionCacheSize =
+        WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
+    QuicSslContextBuilder sslBuilder =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols());
+    if (sessionTimeout > 0) {
+      sslBuilder.sessionTimeout(sessionTimeout);
+    }
+    if (sessionCacheSize > 0) {
+      sslBuilder.sessionCacheSize(sessionCacheSize);
+    }
+    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContext resolvedSslCtx = sslBuilder.build();
+    applySessionTicketKeys(resolvedSslCtx);
+    return resolvedSslCtx;
   }
 
   private ClientAuthMode resolveClientAuthMode() {
@@ -1925,7 +1995,16 @@ public class WebTransportServer implements AutoCloseable {
     settings.put(SETTING_WT_MAX_STREAMS_UNI, limits.wtMaxUni);
     settings.put(SETTING_WT_MAX_STREAMS_BIDI, limits.wtMaxBidi);
     settings.put(SETTING_WT_INITIAL_MAX_DATA, limits.wtMaxData);
-    settings.put(SETTING_WEBTRANSPORT_MAX_SESSIONS, 1L);
+    // Advertise the same limit enforced in WebTransportHeadersHandler. Per
+    // draft-ietf-webtrans-http3 Section 5.1, a peer without negotiated flow control still sees at
+    // most one session; reserveSession caps the effective limit accordingly. Clamp to 0 because
+    // HTTP/3 setting values are unsigned varints.
+    settings.put(
+        SETTING_WEBTRANSPORT_MAX_SESSIONS,
+        Math.max(
+            0L,
+            WebTransportConfig.getInt(
+                "webtransport4j.webtransport.max_sessions_per_connection", 1)));
     if (logger.isDebugEnabled()) {
       logger.debug("Server side settings : {}", settings);
     }
@@ -2001,6 +2080,39 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
+  private QuicServerCodecBuilder createQuicServerCodecBuilder(
+      ResolvedLimits limits,
+      Http3Settings settings,
+      List<String> resolvedOrigins,
+      @Nullable QuicConnectionIdGenerator cidGen) {
+    QuicServerCodecBuilder codecBuilder =
+        Http3.newQuicServerCodecBuilder()
+            .sslEngineProvider(this::newQuicSslEngine)
+            .maxIdleTimeout(limits.idleTimeoutSeconds, TimeUnit.SECONDS)
+            .initialMaxData(limits.quicMaxData)
+            .initialMaxStreamDataBidirectionalLocal(limits.streamDataBidiLocal)
+            .initialMaxStreamDataBidirectionalRemote(limits.streamDataBidiRemote)
+            .initialMaxStreamsBidirectional(limits.quicMaxBidi)
+            .datagram(limits.datagramRecvQueue, limits.datagramSendQueue)
+            .initialMaxStreamsUnidirectional(limits.quicMaxUni)
+            .initialMaxStreamDataUnidirectional(limits.streamDataUni)
+            .tokenHandler(resolveTokenHandler())
+            .handler(
+                new QuicChannelInitializer(
+                    this,
+                    settings,
+                    resolvedOrigins,
+                    globalActiveSessions,
+                    globalSessionSlots));
+
+    if (cidGen != null) {
+      codecBuilder.connectionIdAddressGenerator(cidGen);
+    }
+
+    configureOptionalQuicParams(codecBuilder);
+    return codecBuilder;
+  }
+
   private Channel bindServer(
       Bootstrap bootstrap,
       @NonNull TransportConfig transportConfig,
@@ -2009,6 +2121,31 @@ public class WebTransportServer implements AutoCloseable {
       int targetPort,
       EventLoopGroup eventLoopGroup,
       @Nullable GlobalTrafficShapingHandler shaper)
+      throws Exception {
+    List<Channel> bound =
+        bindServers(
+            bootstrap,
+            transportConfig,
+            serverCodec,
+            null,
+            targetHost,
+            targetPort,
+            eventLoopGroup,
+            shaper,
+            1);
+    return bound.get(0);
+  }
+
+  private List<Channel> bindServers(
+      Bootstrap bootstrap,
+      @NonNull TransportConfig transportConfig,
+      @Nullable ChannelHandler serverCodec,
+      @Nullable QuicCodecDispatcher dispatcher,
+      String targetHost,
+      int targetPort,
+      EventLoopGroup eventLoopGroup,
+      @Nullable GlobalTrafficShapingHandler shaper,
+      int targetSocketCount)
       throws Exception {
     EventLoopSafety.requireBlockingAllowed();
     int recvBufSize =
@@ -2046,15 +2183,19 @@ public class WebTransportServer implements AutoCloseable {
     }
     bootstrap.option(ChannelOption.SO_REUSEADDR, true);
 
-    InetSocketAddress bindAddress;
+    if (targetSocketCount > 1) {
+      applyReusePortOption(bootstrap, transportConfig.channelClass);
+    }
+
+    InetSocketAddress initialBindAddress;
     if (targetHost == null
         || targetHost.trim().isEmpty()
         || "0.0.0.0".equals(targetHost)
         || "::".equals(targetHost)
         || "*".equals(targetHost)) {
-      bindAddress = new InetSocketAddress(targetPort);
+      initialBindAddress = new InetSocketAddress(targetPort);
     } else {
-      bindAddress = new InetSocketAddress(targetHost, targetPort);
+      initialBindAddress = new InetSocketAddress(targetHost, targetPort);
     }
 
     int bindTimeoutSeconds =
@@ -2065,32 +2206,165 @@ public class WebTransportServer implements AutoCloseable {
           "webtransport4j.server.bind.timeout.seconds must be > 0: " + bindTimeoutSeconds);
     }
 
-    ChannelFuture bindFuture =
-        bootstrap
-            .group(eventLoopGroup)
-            .channel(transportConfig.channelClass)
-            .handler(serverCodec)
-            .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator)
-            .bind(bindAddress);
+    bootstrap
+        .group(eventLoopGroup)
+        .channel(transportConfig.channelClass)
+        .option(ChannelOption.RECVBUF_ALLOCATOR, recvByteBufAllocator);
 
-    if (!bindFuture.await(bindTimeoutSeconds, TimeUnit.SECONDS)) {
-      bindFuture.cancel(true);
-      closeQuietly(bindFuture.channel());
+    if (this.byteBufAllocator != null) {
+      bootstrap.option(ChannelOption.ALLOCATOR, this.byteBufAllocator);
+    }
+
+    if (dispatcher != null) {
+      bootstrap.handler(dispatcher);
+    } else {
+      bootstrap.handler(serverCodec);
+    }
+
+    ChannelFuture bindFuture0 = bootstrap.clone().bind(initialBindAddress);
+    if (!bindFuture0.await(bindTimeoutSeconds, TimeUnit.SECONDS)) {
+      bindFuture0.cancel(true);
+      closeQuietly(bindFuture0.channel());
       throw new IllegalStateException(
-          "Timed out after " + bindTimeoutSeconds + "s binding to " + bindAddress);
+          "Timed out after " + bindTimeoutSeconds + "s binding to " + initialBindAddress);
     }
-    if (!bindFuture.isSuccess()) {
-      closeQuietly(bindFuture.channel());
-      throw new IllegalStateException("Failed to bind to " + bindAddress, bindFuture.cause());
+    if (!bindFuture0.isSuccess()) {
+      closeQuietly(bindFuture0.channel());
+      throw new IllegalStateException(
+          "Failed to bind to " + initialBindAddress, bindFuture0.cause());
     }
 
-    Channel bound = bindFuture.channel();
-    bound.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
-    bound.attr(WebTransportAttributeKeys.SERVER_KEY).set(this);
-    if (shaper != null) {
-      bound.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(shaper);
+    Channel bound0 = bindFuture0.channel();
+    setupChannelAttributes(bound0, shaper);
+    final List<Channel> boundChannels = new ArrayList<>();
+    boundChannels.add(bound0);
+
+    int actualPort = getPortFrom(bound0);
+    InetSocketAddress exactBindAddress;
+    if (targetHost == null
+        || targetHost.trim().isEmpty()
+        || "0.0.0.0".equals(targetHost)
+        || "::".equals(targetHost)
+        || "*".equals(targetHost)) {
+      exactBindAddress = new InetSocketAddress(actualPort);
+    } else {
+      exactBindAddress = new InetSocketAddress(targetHost, actualPort);
     }
-    return bound;
+
+    for (int i = 1; i < targetSocketCount; i++) {
+      try {
+        ChannelFuture bindFutureI = bootstrap.clone().bind(exactBindAddress);
+        if (!bindFutureI.await(bindTimeoutSeconds, TimeUnit.SECONDS) || !bindFutureI.isSuccess()) {
+          Throwable cause = bindFutureI.cause();
+          closeQuietly(bindFutureI.channel());
+          logger.warn(
+              "Could not bind additional SO_REUSEPORT socket {}/{} on port {}: {}. "
+                  + "Continuing with {} active socket(s).",
+              i + 1,
+              targetSocketCount,
+              actualPort,
+              cause != null ? cause.getMessage() : "timeout",
+              boundChannels.size());
+          break;
+        }
+        Channel boundI = bindFutureI.channel();
+        setupChannelAttributes(boundI, shaper);
+        boundChannels.add(boundI);
+      } catch (Exception e) {
+        logger.warn(
+            "Could not bind additional SO_REUSEPORT socket {}/{} on port {}: {}. "
+                + "Continuing with {} active socket(s).",
+            i + 1,
+            targetSocketCount,
+            actualPort,
+            e.getMessage(),
+            boundChannels.size());
+        break;
+      }
+    }
+
+    return boundChannels;
+  }
+
+  private static void applyReusePortOption(
+      Bootstrap bootstrap, Class<? extends Channel> channelClass) {
+    if (NioDatagramChannel.class.isAssignableFrom(channelClass)) {
+      try {
+        Field field = StandardSocketOptions.class.getField("SO_REUSEPORT");
+        @SuppressWarnings("unchecked")
+        SocketOption<Boolean> opt = (SocketOption<Boolean>) field.get(null);
+        bootstrap.option(NioChannelOption.of(opt), true);
+      } catch (Throwable t) {
+        logger.debug(
+            "StandardSocketOptions.SO_REUSEPORT not supported or unavailable: {}", t.getMessage());
+      }
+    } else {
+      try {
+        bootstrap.option(UnixChannelOption.SO_REUSEPORT, true);
+      } catch (Throwable t) {
+        logger.debug("UnixChannelOption.SO_REUSEPORT not supported: {}", t.getMessage());
+      }
+    }
+  }
+
+  private void setupChannelAttributes(
+      Channel boundChannel, @Nullable GlobalTrafficShapingHandler shaper) {
+    boundChannel.attr(WebTransportAttributeKeys.METRICS_LISTENER).set(metricsListener);
+    boundChannel.attr(WebTransportAttributeKeys.SERVER_KEY).set(this);
+    if (shaper != null) {
+      boundChannel.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER).set(shaper);
+    }
+  }
+
+  private static final class IndexAwareQuicConnectionIdGeneratorWrapper
+      implements QuicConnectionIdGenerator {
+    private final int idx;
+    private final QuicConnectionIdGenerator delegate;
+
+    IndexAwareQuicConnectionIdGeneratorWrapper(int idx, QuicConnectionIdGenerator delegate) {
+      this.idx = idx;
+      this.delegate = delegate;
+    }
+
+    @Override
+    public ByteBuffer newId(int length) {
+      if (length > Short.BYTES) {
+        return prefixIdx(delegate.newId(length - Short.BYTES), idx);
+      }
+      return delegate.newId(length);
+    }
+
+    @Override
+    public ByteBuffer newId(ByteBuffer input, int length) {
+      if (length > Short.BYTES) {
+        return prefixIdx(delegate.newId(input, length - Short.BYTES), idx);
+      }
+      return delegate.newId(input, length);
+    }
+
+    @Override
+    public ByteBuffer newId(ByteBuffer scid, ByteBuffer dcid, int length) {
+      if (length > Short.BYTES) {
+        return prefixIdx(delegate.newId(scid, dcid, length - Short.BYTES), idx);
+      }
+      return delegate.newId(scid, dcid, length);
+    }
+
+    @Override
+    public int maxConnectionIdLength() {
+      return delegate.maxConnectionIdLength();
+    }
+
+    @Override
+    public boolean isIdempotent() {
+      return false;
+    }
+
+    private static ByteBuffer prefixIdx(ByteBuffer buffer, int idx) {
+      ByteBuffer b = ByteBuffer.allocate(buffer.remaining() + Short.BYTES);
+      b.putShort((short) idx).put(buffer).flip();
+      return b;
+    }
   }
 
   private static int getPortFrom(Channel ch) {
@@ -2144,7 +2418,6 @@ public class WebTransportServer implements AutoCloseable {
           // close() owns and must release a caller-supplied shaper even if start() never ran.
           releaseTrafficShaperSafely();
           this.activeSslContext = null;
-          deleteGeneratedCertificate();
           state.set(ServerState.CLOSED);
         }
         lifecycleLock.notifyAll();
@@ -2159,7 +2432,6 @@ public class WebTransportServer implements AutoCloseable {
           }
           releaseTrafficShaperSafely();
           this.activeSslContext = null;
-          deleteGeneratedCertificate();
           state.set(ServerState.CLOSED);
           lifecycleLock.notifyAll();
         } else {
@@ -2176,7 +2448,7 @@ public class WebTransportServer implements AutoCloseable {
       }
       drainActiveSessions();
       sessionClosures.drainPermits();
-      while (!activeSessionsSet.isEmpty()) {
+      while (!activeSessionsById.isEmpty()) {
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
           break;
@@ -2190,7 +2462,7 @@ public class WebTransportServer implements AutoCloseable {
           break;
         }
       }
-      for (WebTransportSession session : activeSessionsSet) {
+      for (WebTransportSession session : activeSessionsById.values()) {
         try {
           session.close();
         } catch (RuntimeException failure) {
@@ -2215,18 +2487,26 @@ public class WebTransportServer implements AutoCloseable {
         shutdownHook = null;
       }
       logger.info("Stopping WebTransport server...");
+      List<Channel> channelsToClose = new ArrayList<>(this.channels);
+      this.channels.clear();
       Channel ch = this.channel;
       this.channel = null;
-      if (ch != null) {
-        try {
-          if (!ch.close().await(timeout, unit)) {
-            logger.warn("!!! WARNING !!! Timed out closing server channel. !!! WARNING !!!");
+      if (channelsToClose.isEmpty() && ch != null) {
+        channelsToClose.add(ch);
+      }
+      for (Channel c : channelsToClose) {
+        if (c != null) {
+          try {
+            long remaining = Math.max(0, deadline - System.nanoTime());
+            if (!c.close().await(remaining, TimeUnit.NANOSECONDS)) {
+              logger.warn("!!! WARNING !!! Timed out closing server channel. !!! WARNING !!!");
+            }
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted while closing server channel.", e);
+          } catch (Exception e) {
+            logger.error("Error closing server channel", e);
           }
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          logger.error("Interrupted while closing server channel.", e);
-        } catch (Exception e) {
-          logger.error("Error closing server channel", e);
         }
       }
       EventLoopGroup g = this.group;
@@ -2249,7 +2529,6 @@ public class WebTransportServer implements AutoCloseable {
       }
       this.activeSslContext = null;
       unregisterServerInstanceSafely();
-      deleteGeneratedCertificate();
       logger.info("WebTransport server stopped successfully.");
     } finally {
       EventLoopSafety.requireBlockingAllowed();
@@ -2282,23 +2561,6 @@ public class WebTransportServer implements AutoCloseable {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
-      }
-    }
-  }
-
-  private void deleteGeneratedCertificate() {
-    SelfSignedCertificate ssc = this.generatedCertificate;
-    this.generatedCertificate = null;
-    deleteGeneratedCertificateQuietly(ssc, "server shutdown");
-  }
-
-  private static void deleteGeneratedCertificateQuietly(
-      @Nullable SelfSignedCertificate certificate, String reason) {
-    if (certificate != null) {
-      try {
-        certificate.delete();
-      } catch (Exception e) {
-        logger.debug("Failed to delete generated self-signed certificate during {}", reason, e);
       }
     }
   }

@@ -5,14 +5,12 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.security.OriginValidator;
-import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.Http3DataFrame;
@@ -24,7 +22,6 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -81,27 +78,6 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return;
     }
 
-    // TEST the server GET request
-    if ("GET".contentEquals(method)) {
-      Http3Headers responseHeaders = new DefaultHttp3Headers();
-      responseHeaders.status(HttpResponseStatus.OK.codeAsText());
-      ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-      ByteBuf body = ctx.alloc().buffer();
-      body.writeCharSequence("Hello HTTP/3", StandardCharsets.UTF_8);
-
-      ctx.writeAndFlush(new DefaultHttp3DataFrame(body))
-          .addListener(
-              f -> {
-                if (f.isSuccess()) {
-                  ((QuicStreamChannel) ctx.channel()).shutdownOutput();
-                } else {
-                  logger.error("❌ Failed to send response body", f.cause());
-                  ctx.close();
-                }
-              });
-
-      return;
-    }
     if ("CONNECT".contentEquals(method)
         && (UPGRADE_TOKEN_H3.contentEquals(protocol)
             || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
@@ -149,9 +125,14 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
           if (metricsListener != null) {
             metricsListener.onSessionRejected("server_draining");
           }
-          ctx.writeAndFlush(new DefaultHttp3HeadersFrame(
-              new DefaultHttp3Headers().status(HttpResponseStatus.SERVICE_UNAVAILABLE.codeAsText())))
-              .addListener(ChannelFutureListener.CLOSE);
+          ChannelFuture f =
+              ctx.writeAndFlush(
+                  new DefaultHttp3HeadersFrame(
+                      new DefaultHttp3Headers()
+                          .status(HttpResponseStatus.SERVICE_UNAVAILABLE.codeAsText())));
+          if (f != null) {
+            f.addListener(ChannelFutureListener.CLOSE);
+          }
           return;
         }
         Attribute<Boolean> receivedAttr =
@@ -380,19 +361,21 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               HEADER_WT_PROTOCOL, WebTransportUtils.formatProtocolHeader(selectedProtocol));
         }
 
-        ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders))
-            .addListener(
-                f -> {
-                  if (f.isSuccess() && pending.compareAndSet(true, false)) {
-                    mgr.registerReserved(connectStream);
-                  } else if (!f.isSuccess() && pending.compareAndSet(true, false)) {
-                    mgr.releaseReservation();
-                    if (globalSlots != null) {
-                      globalSlots.decrementAndGet();
-                    }
-                    connectStream.close();
+        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+        if (f != null) {
+          f.addListener(
+              fut -> {
+                if (fut.isSuccess() && pending.compareAndSet(true, false)) {
+                  mgr.registerReserved(connectStream);
+                } else if (!fut.isSuccess() && pending.compareAndSet(true, false)) {
+                  mgr.releaseReservation();
+                  if (globalSlots != null) {
+                    globalSlots.decrementAndGet();
                   }
-                });
+                  connectStream.close();
+                }
+              });
+        }
         if (logger.isDebugEnabled()) {
           logger.debug("🌊 Stream 0 AutoRead: {}", ctx.channel().config().isAutoRead());
         }
@@ -401,6 +384,15 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
       }
       return;
+    }
+
+    // Not a WebTransport extended CONNECT request: this server only serves
+    // WebTransport sessions, so reject anything else with 404.
+    Http3Headers responseHeaders = new DefaultHttp3Headers();
+    responseHeaders.status(HttpResponseStatus.NOT_FOUND.codeAsText());
+    ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+    if (f != null) {
+      f.addListener(ChannelFutureListener.CLOSE);
     }
   }
 

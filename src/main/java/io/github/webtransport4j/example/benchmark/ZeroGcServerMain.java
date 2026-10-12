@@ -177,7 +177,6 @@ public class ZeroGcServerMain {
         new WebTransportServerBuilder()
             .host(HOST)
             .port(port)
-            .enableZeroGc(true)
             .defaultHandler(handler)
             .build();
 

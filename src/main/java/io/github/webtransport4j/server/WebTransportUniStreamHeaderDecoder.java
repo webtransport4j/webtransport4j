@@ -51,20 +51,13 @@ public class WebTransportUniStreamHeaderDecoder extends ByteToMessageDecoder {
       in.skipBytes(in.readableBytes());
       return;
     }
-    WebTransportServer server =
-        (ctx.channel() != null && ctx.channel().parent() != null)
-            ? ctx.channel().parent().attr(WebTransportAttributeKeys.SERVER_KEY).get()
-            : null;
-    boolean zeroGc = server != null && server.isZeroGc();
-    if (zeroGc) {
-      ctx.pipeline().replace(this, "zeroGcUniHandler", ZeroGcUniStreamHandler.INSTANCE);
-    }
+    ctx.pipeline().replace(this, "uniStreamPayloadHandler", ZeroGcUniStreamHandler.INSTANCE);
     out.add(in.readRetainedSlice(in.readableBytes()));
   }
 
   /**
-   * Lightweight zero-GC handler replacing the decoder after the unidirectional stream header
-   * has been consumed.
+   * Lightweight payload handler that unconditionally replaces the decoder once the
+   * unidirectional stream header has been consumed.
    */
   @ChannelHandler.Sharable
   public static final class ZeroGcUniStreamHandler extends ChannelInboundHandlerAdapter {

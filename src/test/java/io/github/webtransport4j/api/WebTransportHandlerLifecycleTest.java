@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,13 +25,17 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.http3.DefaultHttp3Headers;
 import io.netty.handler.codec.http3.DefaultHttp3HeadersFrame;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.quic.QuicChannel;
+import io.netty.handler.codec.quic.QuicException;
 import io.netty.handler.codec.quic.QuicPathEvent;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamResetException;
+import io.netty.handler.codec.quic.QuicTransportError;
 import io.netty.util.DefaultAttributeMap;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -282,6 +287,65 @@ public class WebTransportHandlerLifecycleTest {
     DefaultMessageDispatcher.INSTANCE.exceptionCaught(mockCtx, ex);
 
     assertEquals(ex, observedError.get());
+  }
+
+  @Test
+  public void testExceptionCaughtClosePolicy() {
+    // Peer stream reset: stream-scoped — close stream channel to tear down send side and replenish permits,
+    // but never close parent QuicChannel.
+    QuicStreamChannel resetStream = mock(QuicStreamChannel.class);
+    DefaultAttributeMap resetAttrs = new DefaultAttributeMap();
+    when(resetStream.attr(any())).thenAnswer(inv -> resetAttrs.attr(inv.getArgument(0)));
+    ChannelHandlerContext resetCtx = mock(ChannelHandlerContext.class);
+    when(resetCtx.channel()).thenReturn(resetStream);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        resetCtx, new QuicStreamResetException("reset", 0x52));
+    verify(resetCtx).close();
+
+    QuicChannel resetConn = mock(QuicChannel.class);
+    ChannelHandlerContext resetConnCtx = mock(ChannelHandlerContext.class);
+    when(resetConnCtx.channel()).thenReturn(resetConn);
+    when(resetConn.isActive()).thenReturn(true);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        resetConnCtx, new QuicStreamResetException("reset", 0x52));
+    verify(resetConnCtx, never()).close();
+
+    // Unknown throwable on an active QuicChannel: keep open — close() would kill
+    // every session and stream on the connection.
+    QuicChannel activeQuic = mock(QuicChannel.class);
+    ChannelHandlerContext activeCtx = mock(ChannelHandlerContext.class);
+    when(activeCtx.channel()).thenReturn(activeQuic);
+    when(activeQuic.isActive()).thenReturn(true);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        activeCtx, new RuntimeException("transient handler error"));
+    verify(activeCtx, never()).close();
+
+    // Unknown throwable on an inactive channel: close for cleanup.
+    QuicChannel deadQuic = mock(QuicChannel.class);
+    ChannelHandlerContext deadCtx = mock(ChannelHandlerContext.class);
+    when(deadCtx.channel()).thenReturn(deadQuic);
+    when(deadQuic.isActive()).thenReturn(false);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        deadCtx, new RuntimeException("late error"));
+    verify(deadCtx).close();
+
+    // Decoder corruption on an active channel: close, pipeline is unrecoverable.
+    QuicChannel corruptQuic = mock(QuicChannel.class);
+    ChannelHandlerContext corruptCtx = mock(ChannelHandlerContext.class);
+    when(corruptCtx.channel()).thenReturn(corruptQuic);
+    when(corruptQuic.isActive()).thenReturn(true);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        corruptCtx, new DecoderException("corrupt frame"));
+    verify(corruptCtx).close();
+
+    // QUIC transport failure on an active channel: close.
+    QuicChannel transportQuic = mock(QuicChannel.class);
+    ChannelHandlerContext transportCtx = mock(ChannelHandlerContext.class);
+    when(transportCtx.channel()).thenReturn(transportQuic);
+    when(transportQuic.isActive()).thenReturn(true);
+    DefaultMessageDispatcher.INSTANCE.exceptionCaught(
+        transportCtx, new QuicException("transport", QuicTransportError.INTERNAL_ERROR));
+    verify(transportCtx).close();
   }
 
   @Test

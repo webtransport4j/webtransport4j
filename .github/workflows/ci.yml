@@ -335,6 +335,8 @@ jobs:
 
           mvn $MVN_FLAGS exec:java \
             -Dexec.mainClass=io.github.webtransport4j.example.ServerSample \
+            -Dexec.classpathScope=test \
+            -Dwebtransport4j.profile=test \
             -Dwebtransport4j.dev_mode=true \
             -Dwebtransport4j.quic.idle.timeout.seconds=30 \
             -Dwebtransport4j.quic.max.streams.bidi=100 \
