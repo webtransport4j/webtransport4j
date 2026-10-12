@@ -52,4 +52,91 @@ public class WebTransportServerBuilderTest {
     Assert.assertNotNull(server);
     Assert.assertNull(server.getTrafficShaper()); // not started yet
   }
+
+  @Test
+  public void testBuilderSocketCountConfiguration() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .socketCount(4)
+            .defaultHandler(new WebTransportHandler() {})
+            .build();
+
+    Assert.assertNotNull(server);
+    Assert.assertEquals(4, server.getSocketCount());
+  }
+
+  @Test
+  public void testServerMultiSocketStartAndStop() throws Exception {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(0)
+            .socketCount(2)
+            .defaultHandler(new WebTransportHandler() {})
+            .build();
+
+    Assert.assertFalse(server.isStarted());
+    server.start();
+
+    Assert.assertTrue(server.isStarted());
+    Assert.assertTrue(server.getPort() > 0);
+    Assert.assertTrue(server.getChannels().size() >= 1);
+    Assert.assertEquals(server.getChannels().size(), server.getSocketCount());
+
+    server.stop();
+    Assert.assertFalse(server.isStarted());
+  }
+
+  @Test
+  public void testBuilderByteBufAllocatorConfiguration() {
+    io.netty.buffer.ByteBufAllocator allocator = io.netty.buffer.PooledByteBufAllocator.DEFAULT;
+    WebTransportServerBuilder builder = new WebTransportServerBuilder().byteBufAllocator(allocator);
+    Assert.assertSame(allocator, builder.getByteBufAllocator());
+  }
+
+  @Test
+  public void testByteBufAllocatorExplicitOverride() {
+    io.netty.buffer.ByteBufAllocator customAlloc = io.netty.buffer.UnpooledByteBufAllocator.DEFAULT;
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .byteBufAllocator(customAlloc)
+            .build();
+
+    Assert.assertSame(customAlloc, server.getByteBufAllocator());
+  }
+
+  @Test
+  public void testConfiguredDefaultAllocatorInBothModes() {
+    String key = "webtransport4j.server.allocator";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "DeFaUlT");
+      for (boolean zeroGc : new boolean[] {false, true}) {
+        Assert.assertNull(WebTransportServer.builder().enableZeroGc(zeroGc)
+            .build().getByteBufAllocator());
+        Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
+            WebTransportServer.builder().enableZeroGc(zeroGc)
+                .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
+                .build().getByteBufAllocator());
+      }
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  public void testByteBufAllocatorZeroGcDefaultsToPooled() {
+    WebTransportServer server =
+        WebTransportServer.builder()
+            .port(8443)
+            .enableZeroGc(true)
+            .build();
+
+    Assert.assertSame(
+        io.netty.buffer.PooledByteBufAllocator.DEFAULT, server.getByteBufAllocator());
+  }
 }
