@@ -4,6 +4,22 @@ This guide provides quantitative resource sizing formulas, CPU/memory recommenda
 
 ---
 
+## Architecture Ceiling & Multi-Core Sharding
+
+By default, each `WebTransportServer` instance binds **one UDP socket** (`socketCount = 1`). Netty's QUIC codec reads, decrypts, and demultiplexes inbound packets on that channel's single event loop, so all packet I/O for a single socket crosses one thread.
+
+To scale packet processing across all CPU cores on a single port without an external load balancer, `webtransport4j` provides native multi-socket sharding:
+
+- **In-process Multi-Socket Sharding (`SO_REUSEPORT` + `QuicCodecDispatcher`)**:
+  Configure `builder.socketCount(N)` on `WebTransportServerBuilder` or set `webtransport4j.server.socket.count=0` in `webtransport.properties` (0 auto-detects available CPU cores). The server binds $N$ UDP sockets to the exact same IP and port using `SO_REUSEPORT`, assigns each socket its own EventLoop thread, and fronts them with Netty's `QuicCodecDispatcher`. Incoming packets are automatically routed to the right codec via the channel index encoded into the QUIC Connection ID (or eBPF steering in kernel space).
+- **Multiple Instances (Out-of-Process)**:
+  Alternatively, run $N$ independent `WebTransportServer` instances per node (each on its own port or IP) behind a connection-ID-aware or 4-tuple-consistent UDP load balancer.
+
+> [!NOTE]
+> QUIC connection migration can change a client's 4-tuple mid-session. The built-in `QuicCodecDispatcher` embeds the socket index in the Connection ID, ensuring that migrated packets are safely dispatched to the original socket context even if OS 4-tuple hashing delivers them to another socket.
+
+---
+
 ## 1. Resource Consumption Formulas
 
 ### Memory Sizing Model
@@ -26,6 +42,8 @@ Where:
 | **10,000** (Standard Pod) | 4 to 8 vCPU | 2 GB | 16 GB | 24 GB | Load-test required |
 | **40,000** (current default ceiling) | 16 vCPU | 8 GB | 64 GB | 80 GB | Load-test required |
 | **100,000** (custom limit) | 32+ vCPU | 16 GB | 160 GB | 192 GB | Load-test required |
+
+*Session counts can be scaled vertically per instance by increasing `socketCount(N)` across available CPU cores, or scaled horizontally as described in [Architecture Ceiling](#architecture-ceiling-and-multi-core-sharding).*
 
 ---
 
