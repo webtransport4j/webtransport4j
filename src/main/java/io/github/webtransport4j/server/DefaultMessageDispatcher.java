@@ -143,9 +143,11 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
               Long.toHexString(httpErrorCode));
         }
       }
-      // A peer-initiated stream reset is an expected, stream-scoped condition; the
-      // stream channel is already being torn down by QUIC so an explicit close
-      // only risks tearing down more than intended.
+      // A peer-initiated stream reset is an expected, stream-scoped condition; close
+      // the stream channel so QUIC can finalize stream teardown and replenish stream credit.
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        ctx.close();
+      }
       return;
     }
     // Close policy: this dispatcher also runs on the QuicChannel pipeline, where
