@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
 TARGET_BYTES=${1:-17179869184} # 16 GiB (17,179,869,184 bytes)
 DGRAM_SIZE=${2:-1024}          # 1 KiB per datagram
 REPORT_DIR="docs/benchmarks"
 mkdir -p "$REPORT_DIR" target
 
+if [ ! -f target/cp.txt ]; then
+  mvn dependency:build-classpath -Dmdep.outputFile=target/cp.txt
+fi
+
 CP="target/classes:target/test-classes:$(cat target/cp.txt)"
 
 echo "=========================================================================="
-echo " 16GB WEBTRANSPORT DATAGRAM BENCHMARK (TUNED: 2GB HEAP + RECYCLER + SPIKE TOLERANCE)"
+echo " 16GB WEBTRANSPORT DATAGRAM BENCHMARK (JAVA 25 + ZGC + 8GB HEAP)"
 echo " Target Payload: $TARGET_BYTES bytes (16.00 GiB)"
 echo " Datagram Size:  $DGRAM_SIZE bytes ($(( TARGET_BYTES / DGRAM_SIZE )) packets)"
-echo " Heap Config:    -Xms1024m -Xmx2048m (Tuned Heap with ZAllocationSpikeTolerance=5)"
-echo " Netty Config:   -Dio.netty.recycler.maxCapacityPerThread=8192 -Dio.netty.allocator.type=pooled"
+echo " Heap Config:    -Xms4096m -Xmx8192m (50% of 16GB RAM for safety)"
 echo " JVM:            $(java -version 2>&1 | head -n 1)"
 echo "=========================================================================="
 
@@ -23,6 +29,7 @@ run_benchmark() {
   local GC_LOG="$3"
   local REPORT_FILE="$4"
   local PORT=54330
+  local SERVER_LOG="target/server_benchmark.log"
 
   echo ""
   echo "--------------------------------------------------------------------------"
@@ -30,33 +37,31 @@ run_benchmark() {
   echo "    JVM Flags: $VM_FLAGS"
   echo "--------------------------------------------------------------------------"
 
-  rm -f server_benchmark.log "$GC_LOG"
+  rm -f "$SERVER_LOG" "$GC_LOG"
 
   java --enable-native-access=ALL-UNNAMED \
        $VM_FLAGS \
        "-Xlog:gc*:file=$GC_LOG:time,uptime,level,tags" \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
-       -Dio.netty.recycler.maxCapacityPerThread=8192 \
-       -Dio.netty.allocator.type=pooled \
        -cp "$CP" \
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
-       server "$PORT" "$TARGET_BYTES" "$REPORT_FILE" > server_benchmark.log 2>&1 &
+       server "$PORT" "$TARGET_BYTES" "$REPORT_FILE" > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
   trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
   echo "Waiting for server on port $PORT..."
   for i in {1..30}; do
-    if grep -q "SERVER_READY_PORT=" server_benchmark.log 2>/dev/null; then
+    if grep -q "SERVER_READY_PORT=" "$SERVER_LOG" 2>/dev/null; then
       echo "Server ready (PID: $SERVER_PID). Streaming 16GB datagram flood..."
       break
     fi
     sleep 0.3
   done
 
-  if ! grep -q "SERVER_READY_PORT=" server_benchmark.log 2>/dev/null; then
+  if ! grep -q "SERVER_READY_PORT=" "$SERVER_LOG" 2>/dev/null; then
     echo "❌ Server failed to bind. Log output:"
-    cat server_benchmark.log
+    cat "$SERVER_LOG"
     kill -9 "$SERVER_PID" 2>/dev/null || true
     exit 1
   fi
@@ -65,15 +70,13 @@ run_benchmark() {
   java --enable-native-access=ALL-UNNAMED \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
-       -Dio.netty.recycler.maxCapacityPerThread=8192 \
-       -Dio.netty.allocator.type=pooled \
        -cp "$CP" \
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
        client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE"
 
   local SERVER_STATUS=0
   wait "$SERVER_PID" || SERVER_STATUS=$?
-  cat server_benchmark.log
+  cat "$SERVER_LOG"
   if (( SERVER_STATUS != 0 )); then
     echo "❌ Benchmark server failed with status $SERVER_STATUS." >&2
     exit "$SERVER_STATUS"
@@ -93,14 +96,24 @@ run_benchmark() {
   fi
 }
 
+# Run 1: Java 25 + ZGC + Compact Object Headers (JEP 450) + 8GB Heap
 run_benchmark \
-  "Java 25 + ZGC + Compact Headers + 2GB Heap + SpikeTolerance=5 + Recycler" \
-  "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms1024m -Xmx2048m -XX:ZAllocationSpikeTolerance=5" \
-  "target/server_zgc_optimized_16gb.log" \
-  "$REPORT_DIR/DATAGRAM_16GB_ZGC_OPTIMIZED_REPORT.md"
+  "Java 25 + ZGC + Compact Object Headers (-XX:+UseCompactObjectHeaders) + 8GB Heap" \
+  "-XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC -Xms4096m -Xmx8192m" \
+  "target/server_zgc_compact_16gb.log" \
+  "$REPORT_DIR/DATAGRAM_16GB_ZGC_COMPACT_REPORT.md"
+
+# Run 2: Java 25 + ZGC + Standard Headers (Control Baseline) + 8GB Heap
+run_benchmark \
+  "Java 25 + ZGC + Standard Headers (-XX:-UseCompactObjectHeaders) + 8GB Heap" \
+  "-XX:-UseCompactObjectHeaders -XX:+UseZGC -Xms4096m -Xmx8192m" \
+  "target/server_zgc_standard_16gb.log" \
+  "$REPORT_DIR/DATAGRAM_16GB_ZGC_STANDARD_REPORT.md"
 
 echo ""
 echo "=========================================================================="
-echo " 16GB OPTIMIZED DATAGRAM BENCHMARK COMPLETED!"
-echo " Report generated: $REPORT_DIR/DATAGRAM_16GB_ZGC_OPTIMIZED_REPORT.md"
+echo " 16GB DATAGRAM BENCHMARKS COMPLETED!"
+echo " Reports generated:"
+echo "   - $REPORT_DIR/DATAGRAM_16GB_ZGC_COMPACT_REPORT.md"
+echo "   - $REPORT_DIR/DATAGRAM_16GB_ZGC_STANDARD_REPORT.md"
 echo "=========================================================================="

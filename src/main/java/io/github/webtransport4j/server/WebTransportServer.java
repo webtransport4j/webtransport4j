@@ -1624,7 +1624,12 @@ public class WebTransportServer implements AutoCloseable {
 
     if (auto || requestIoUring) {
       try {
-        Class<?> ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+        Class<?> ioUringClass;
+        try {
+          ioUringClass = Class.forName("io.netty.channel.uring.IoUring");
+        } catch (ClassNotFoundException e) {
+          ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+        }
         Method isAvailableMethod = ioUringClass.getMethod("isAvailable");
         boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
         if (!isAvailable) {
@@ -1633,14 +1638,26 @@ public class WebTransportServer implements AutoCloseable {
                 "IOUring transport was explicitly requested but is not available");
           }
         } else {
-          Class<?> ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+          Class<?> ioHandlerClass;
+          try {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IoUringIoHandler");
+          } catch (ClassNotFoundException e) {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+          }
           Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
 
           @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz =
-              (Class<? extends Channel>)
-                  Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          Class<? extends Channel> clazz;
+          try {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IoUringDatagramChannel");
+          } catch (ClassNotFoundException e) {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          }
           channelClass = clazz;
           logger.info("Using IOUring native transport");
         }

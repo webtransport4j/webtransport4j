@@ -64,8 +64,8 @@ jobs:
 
       - name: Run Multi-Socket Benchmark
         run: |
-          chmod +x ./run_multisocket_benchmark.sh
-          ./run_multisocket_benchmark.sh \
+          chmod +x ./scripts/benchmarks/run_multisocket_benchmark.sh
+          ./scripts/benchmarks/run_multisocket_benchmark.sh \
             "${{ github.event.inputs.target_bytes || '1073741824' }}" \
             "${{ github.event.inputs.sockets || '2' }}" \
             1024 \

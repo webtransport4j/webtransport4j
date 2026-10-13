@@ -135,10 +135,10 @@ sudo sysctl -w net.core.rmem_max=67108864
 sudo sysctl -w net.core.wmem_max=67108864
 
 # 2. Run the 22-core benchmark suite (1 GiB target, 1024-byte dgrams, unthrottled burst)
-./run_22core_benchmark.sh 1073741824 1024 0
+./scripts/benchmarks/run_22core_benchmark.sh 1073741824 1024 0
 
 # 3. Run the zero-loss paced benchmark suite (256 MiB target, 1 µs pacing)
-./run_22core_benchmark.sh 268435456 1024 1
+./scripts/benchmarks/run_22core_benchmark.sh 268435456 1024 1
 ```
 
 Individual reports are automatically updated in:
