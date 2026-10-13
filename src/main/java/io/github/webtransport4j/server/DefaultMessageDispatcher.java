@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -13,6 +14,7 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.quic.QuicException;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -143,10 +145,20 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
               Long.toHexString(httpErrorCode));
         }
       }
-      // A peer-initiated stream reset is an expected, stream-scoped condition; close
-      // the stream channel so QUIC can finalize stream teardown and replenish stream credit.
+      // A peer-initiated stream reset is an expected, stream-scoped condition; reset
+      // the send side via QUIC RESET_STREAM with the peer's error code (never raw ctx.close()
+      // alone, which sends FIN and causes peer H3_FRAME_ERROR 0x106 on in-flight partial writes).
+      // Once the send reset is serialized, close the channel so QUIC can finalize stream teardown
+      // and replenish stream credit.
       if (ctx.channel() instanceof QuicStreamChannel) {
-        ctx.close();
+        QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+        if (streamChannel.isActive() && streamChannel.type() == QuicStreamType.BIDIRECTIONAL) {
+          ChannelFuture shutdownFuture =
+              WebTransportUtils.resetStreamWithHttpCode(streamChannel, httpErrorCode);
+          shutdownFuture.addListener(f -> ctx.close());
+        } else {
+          ctx.close();
+        }
       }
       return;
     }
