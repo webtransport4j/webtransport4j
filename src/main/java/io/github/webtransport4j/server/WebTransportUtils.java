@@ -8,6 +8,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -514,6 +515,22 @@ public class WebTransportUtils {
       code = (appErrorCode >= 0 && appErrorCode <= Integer.MAX_VALUE) ? (int) appErrorCode : 0;
     }
     streamChannel.shutdown(code, streamChannel.newPromise());
+  }
+
+  /** Resets a QUIC stream with the given HTTP/3 error code. */
+  public static @NonNull ChannelFuture resetStreamWithHttpCode(
+      @NonNull QuicStreamChannel streamChannel, long httpErrorCode) {
+    int code = (int) httpErrorCode;
+    if (code < 0) {
+      long appCode =
+          isWebTransportApplicationError(httpErrorCode)
+              ? httpCodeToWebTransportCode(httpErrorCode)
+              : 0L;
+      code = (appCode >= 0 && appCode <= Integer.MAX_VALUE) ? (int) appCode : 0;
+    }
+    ChannelPromise promise = streamChannel.newPromise();
+    streamChannel.shutdown(code, promise);
+    return promise;
   }
 
   /** Formats the readable bytes of a ByteBuf as a hex dump with an ASCII column. */
