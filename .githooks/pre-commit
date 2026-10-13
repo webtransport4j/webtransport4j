@@ -464,6 +464,13 @@ if [ "$FAILED_GATES" -gt 0 ]; then
     exit 1
 fi
 
+# Match the framework hook's trigger.
+SAFETY_STAGED=$(echo "$STAGED_FILES" | grep -E '(\.java$|(^|/)pom\.xml$|^verification/locking/|^\.github/workflows/eventloop-locks\.yml$|^\.githooks/|^\.pre-commit-config\.yaml$)' || true)
+if [ -n "$SAFETY_STAGED" ]; then
+    echo -e "${BLUE}==>${NC} Running event-loop lock safety gate..."
+    bash verification/locking/check.sh
+fi
+
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}${BOLD}✔ All pre-commit integrity gates passed! Proceeding with commit.${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

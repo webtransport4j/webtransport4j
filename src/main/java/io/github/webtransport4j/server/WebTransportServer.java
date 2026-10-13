@@ -1232,6 +1232,7 @@ public class WebTransportServer implements AutoCloseable {
       this.tlsWatcher = newWatcher;
       this.trafficShaper = shaper;
       state.set(ServerState.STARTED);
+      UdpErrorMetricsPoller.register(this, this::getMetricsListener);
       return true;
     }
   }
@@ -2439,6 +2440,7 @@ public class WebTransportServer implements AutoCloseable {
         return;
       }
       state.set(ServerState.STOPPING);
+      UdpErrorMetricsPoller.unregister(this);
     }
     try {
       for (QuicChannel connection : connections) {

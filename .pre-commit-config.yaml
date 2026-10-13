@@ -54,3 +54,12 @@ repos:
         language: system
         pass_filenames: false
         files: '(\.java$|pom\.xml$)'
+
+      # Same static audit, negative controls, and runtime probes as CI.
+      - id: eventloop-safety
+        name: Event-loop lock safety
+        entry: bash verification/locking/check.sh
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: '(\.java$|(^|/)pom\.xml$|^verification/locking/|^\.github/workflows/eventloop-locks\.yml$|^\.githooks/|^\.pre-commit-config\.yaml$)'

@@ -94,6 +94,24 @@ public interface WebTransportMetricsListener {
   default void onDatagramDiscarded(long sessionId, @NonNull String reason) {}
 
   /**
+   * Called when the kernel reports UDP datagrams dropped because a socket receive buffer was
+   * full (Linux {@code Udp: RcvbufErrors} from {@code /proc/net/snmp}). These drops happen below
+   * the Java layer, so no datagram ever reached the process.
+   *
+   * @param delta number of additional buffer-related drops since the previous report
+   */
+  default void onUdpReceiveBufferErrors(long delta) {}
+
+  /**
+   * Called when the kernel reports other UDP receive errors (Linux {@code Udp: InErrors} from
+   * {@code /proc/net/snmp}), e.g. datagrams dropped before delivery for reasons other than a
+   * full receive buffer.
+   *
+   * @param delta number of additional receive errors since the previous report
+   */
+  default void onUdpReceiveErrors(long delta) {}
+
+  /**
    * Called when a client performs connection migration (IP/Port rebinding).
    *
    * @param sessionId The session that migrated.
