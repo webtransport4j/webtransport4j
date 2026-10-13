@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-CHECKSUM = "7beec0f04818732a62fa193731711a99aa4f11279499b2360a7d156c519ea78d"
+CHECKSUM = "c0d2f72abc30e92871bb16c56f6878612eccd936bf7ca5fa7e4e324200a0a5c4"
 
 
 def run(jar, output, label, model, config, expected=None, diagnostic=False):
