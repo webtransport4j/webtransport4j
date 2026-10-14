@@ -83,6 +83,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+      if (connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM) != null) {
+        connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM).set(true);
+      }
       WebTransportMetricsListener metricsListener =
           quic != null && quic.attr(WebTransportAttributeKeys.METRICS_LISTENER) != null
               ? quic.attr(WebTransportAttributeKeys.METRICS_LISTENER).get()

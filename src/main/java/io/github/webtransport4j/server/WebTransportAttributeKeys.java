@@ -53,6 +53,9 @@ public final class WebTransportAttributeKeys {
       AttributeKey.valueOf("wt.global.session.slots");
 
   // Stream-related Attribute Keys
+  public static final AttributeKey<Boolean> CONNECT_STREAM =
+      AttributeKey.valueOf("wt.stream.connect");
+
   public static final AttributeKey<Long> STREAM_TYPE_KEY = AttributeKey.valueOf("wt.stream.type");
 
   public static final AttributeKey<Boolean> SERVER_INITIATED_KEY =
