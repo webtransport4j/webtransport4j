@@ -19,6 +19,7 @@ import io.github.webtransport4j.server.WebTransportCapsuleHandler;
 import io.github.webtransport4j.server.WebTransportDatagramDecoder;
 import io.github.webtransport4j.server.WebTransportDatagramFrame;
 import io.github.webtransport4j.server.WebTransportDetectorHandler;
+import io.github.webtransport4j.server.WebTransportKeyExporter;
 import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.github.webtransport4j.server.WebTransportUniStreamHeaderDecoder;
 import io.github.webtransport4j.server.WebTransportUniStreamInitializer;
@@ -344,23 +345,37 @@ public class Draft16Section4WebTransportFeaturesTest {
    * given WebTransport session with a specified label and context, the resulting exporter MUST be a
    * TLS exporter as defined in Section 7.5 of [RFC8446] with the label set to
    * 'EXPORTER-WebTransport' and the context set to the serialization of the 'WebTransport Exporter
-   * Context' struct." MANDATORY: Test WebTransportUtils.serializeExporterContext formats context
-   * struct correctly.
+   * Context' struct." MANDATORY: Test WebTransportKeyExporter.serializeExporterContext formats context
+   * struct correctly per Figure 6.
    */
   @Test
   public void testSection4_8_KeyingMaterialExporterContextSerializationInApplication() {
     long sessionId = 16L;
+    String appLabel = "test-label";
     byte[] appContext = "MyAppContext".getBytes(StandardCharsets.UTF_8);
 
-    byte[] serialized = WebTransportUtils.serializeExporterContext(sessionId, appContext);
+    byte[] serialized =
+        WebTransportKeyExporter.serializeExporterContext(sessionId, appLabel, appContext);
 
     ByteBuf buf = Unpooled.wrappedBuffer(serialized);
-    long decodedSessionId = WebTransportUtils.readVariableLengthInt(buf);
-    byte[] decodedContext = new byte[buf.readableBytes()];
-    buf.readBytes(decodedContext);
-    buf.release();
+    try {
+      long decodedSessionId = buf.readLong();
+      int labelLen = buf.readUnsignedByte();
+      byte[] decodedLabel = new byte[labelLen];
+      buf.readBytes(decodedLabel);
+      int contextLen = buf.readUnsignedByte();
+      byte[] decodedContext = new byte[contextLen];
+      buf.readBytes(decodedContext);
 
-    assertEquals("Session ID in exporter context MUST match session", sessionId, decodedSessionId);
-    assertArrayEquals("Application context MUST be preserved", appContext, decodedContext);
+      assertEquals(
+          "Session ID in exporter context MUST match session", sessionId, decodedSessionId);
+      assertEquals(
+          "Application label MUST be preserved",
+          appLabel,
+          new String(decodedLabel, StandardCharsets.US_ASCII));
+      assertArrayEquals("Application context MUST be preserved", appContext, decodedContext);
+    } finally {
+      buf.release();
+    }
   }
 }

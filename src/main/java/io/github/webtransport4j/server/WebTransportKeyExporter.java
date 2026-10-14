@@ -85,7 +85,13 @@ public final class WebTransportKeyExporter {
    * @param context the serialized WebTransport Exporter Context
    * @param length the desired length of exported keying material in bytes
    * @return the exported keying material
+   * @throws UnsupportedOperationException if the underlying QUIC TLS engine does not support
+   *     key export (currently pending native binding support in Netty Incubator QUIC / Quiche)
+   * @deprecated Netty Incubator QUIC (netty-incubator-codec-quic / Quiche) does not yet expose
+   *     BoringSSL's {@code SSL_export_keying_material} via JNI. Calling this method throws
+   *     {@link UnsupportedOperationException} on standard QUIC channels.
    */
+  @Deprecated
   public static byte[] exportKeyingMaterial(
       @Nullable QuicChannel quic, @NonNull String label, byte @NonNull [] context, int length) {
     if (length <= 0) {
@@ -99,8 +105,7 @@ public final class WebTransportKeyExporter {
       throw new IllegalStateException("SSLEngine is not available on QUIC channel");
     }
 
-    // Attempt reflection for TLS exporter methods (supported by Conscrypt / BoringSSL / Java 21+
-    // previews)
+    // Attempt reflection for TLS exporter methods (supported by Conscrypt / BoringSSL / Java 21+ previews)
     try {
       Method exportMethod =
           sslEngine
@@ -108,8 +113,7 @@ public final class WebTransportKeyExporter {
               .getMethod("exportKeyingMaterial", String.class, byte[].class, int.class);
       return (byte[]) exportMethod.invoke(sslEngine, label, context, length);
     } catch (NoSuchMethodException ignored) {
-      // Check alternative method signature: exportKeyingMaterial(label, context, contextOffset,
-      // contextLen, length)
+      // Netty's QuicheQuicSslEngine does not expose exportKeyingMaterial
     } catch (Exception e) {
       throw new RuntimeException("Failed to invoke TLS Keying Material Exporter", e);
     }
@@ -117,7 +121,9 @@ public final class WebTransportKeyExporter {
     throw new UnsupportedOperationException(
         "TLS Keying Material Exporter is not supported by the underlying QUIC TLS engine ("
             + sslEngine.getClass().getName()
-            + "). Please configure a TLS engine with exportKeyingMaterial support.");
+            + "). Netty Incubator QUIC / Quiche does not yet expose BoringSSL's "
+            + "SSL_export_keying_material API via JNI. This method is deprecated until Netty QUIC "
+            + "exposes native key exporter bindings.");
   }
 
   /**
