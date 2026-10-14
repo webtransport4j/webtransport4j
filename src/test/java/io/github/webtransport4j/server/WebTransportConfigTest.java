@@ -276,4 +276,46 @@ public class WebTransportConfigTest {
       WebTransportConfig.reload();
     }
   }
+
+  @Test
+  public void testTwoTieredReloadSkipsUntouchedAndCommentOnlyChanges() throws Exception {
+    File dynamicFile = new File("webtransport-dynamic.properties");
+    try {
+      // 1. Initial write
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=9999"));
+      assertTrue(WebTransportConfig.reload());
+      assertEquals(
+          9999,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+
+      // 2. Tier 1 fast-exit: file is completely untouched, reload must return false immediately
+      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+
+      // 3. Tier 2 semantic check: modify file by adding a comment only
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList(
+              "# This is a harmless comment",
+              "webtransport4j.server.ratelimit.max_tracked_ips=9999",
+              "# Another comment"));
+      // Tier 1 sees timestamp/size change, Tier 2 sees parsed properties are identical -> returns false
+      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+
+      // 4. Semantic change: modify value
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=8888"));
+      assertTrue(WebTransportConfig.reload());
+      assertEquals(
+          8888,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+    } finally {
+      if (dynamicFile.exists()) {
+        dynamicFile.delete();
+      }
+      WebTransportConfig.reload();
+    }
+  }
 }

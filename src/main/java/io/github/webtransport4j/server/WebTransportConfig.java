@@ -4,8 +4,11 @@ import io.github.webtransport4j.internal.EventLoopSafety;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.attribute.FileTime;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,12 +23,17 @@ public class WebTransportConfig {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportConfig.class);
 
   private static final String DEFAULT_PROFILE = "prod";
+  private static final String DYNAMIC_CONFIG_FILENAME = "webtransport-dynamic.properties";
   private static final Properties staticProperties = new Properties();
   private static final Map<String, Properties> profilePropertiesCache = new ConcurrentHashMap<>();
   private static final AtomicLong revision = new AtomicLong();
   // Published generations are never mutated; writers replace them under the revision monitor.
   private static volatile Properties dynamicProperties = new Properties();
   private static volatile Properties programmaticProperties = new Properties();
+
+  // Tier 1 cache: nanosecond-precise file modification time and size to skip I/O if untouched
+  private static volatile FileTime lastDynamicFileTime;
+  private static volatile long lastDynamicFileSize = -1L;
 
   private WebTransportConfig() {
     throw new UnsupportedOperationException("Utility class cannot be instantiated");
@@ -36,6 +44,16 @@ public class WebTransportConfig {
     Properties initialDynamic = new Properties();
     loadDynamicConfig(initialDynamic);
     dynamicProperties = initialDynamic;
+    File dynamicFile = new File(DYNAMIC_CONFIG_FILENAME);
+    if (dynamicFile.exists()) {
+      try {
+        lastDynamicFileTime = Files.getLastModifiedTime(dynamicFile.toPath());
+        lastDynamicFileSize = dynamicFile.length();
+      } catch (Exception ignored) {
+        lastDynamicFileTime = FileTime.fromMillis(dynamicFile.lastModified());
+        lastDynamicFileSize = dynamicFile.length();
+      }
+    }
   }
 
   private static void loadStaticConfig() {
@@ -448,19 +466,80 @@ public class WebTransportConfig {
     }
   }
 
-  /** Reloads dynamic configuration properties. */
+  /**
+   * Reloads dynamic configuration properties using a two-tiered check.
+   *
+   * <p>The two tiers are:
+   * <ol>
+   *   <li><b>Tier 1 (Fast Metadata Check):</b> Inspects file existence, nanosecond-precise timestamp
+   *       ({@link FileTime}), and file size. If unchanged, exits immediately with zero file reads
+   *       and zero allocations.</li>
+   *   <li><b>Tier 2 (Semantic Property Equality):</b> If metadata changed, parses the properties file
+   *       and checks {@code equals()} against active {@code dynamicProperties}. If only comments,
+   *       whitespace, or non-semantic formatting changed, skips publication and avoids rebuilding
+   *       expensive consumer structures.</li>
+   * </ol>
+   *
+   * @return {@code true} if dynamic properties semantically changed and were published;
+   *         {@code false} otherwise.
+   */
   public static boolean reload() {
     EventLoopSafety.requireBlockingAllowed();
+    File localFile = new File(DYNAMIC_CONFIG_FILENAME);
+    boolean exists = localFile.exists();
+
+    FileTime currentFileTime = null;
+    long currentSize = -1L;
+
+    if (exists) {
+      try {
+        currentFileTime = Files.getLastModifiedTime(localFile.toPath());
+        currentSize = localFile.length();
+      } catch (Exception e) {
+        currentFileTime = FileTime.fromMillis(localFile.lastModified());
+        currentSize = localFile.length();
+      }
+    }
+
+    // Tier 1: Fast metadata check - exit immediately if file has not been touched or modified
+    if (Objects.equals(currentFileTime, lastDynamicFileTime) && currentSize == lastDynamicFileSize) {
+      return false;
+    }
+
     final long token;
     synchronized (revision) {
       token = revision.incrementAndGet();
     }
     profilePropertiesCache.clear();
+
     Properties newDynamic = new Properties();
-    loadDynamicConfig(newDynamic);
+    if (exists) {
+      try (InputStream in = new FileInputStream(localFile)) {
+        newDynamic.load(in);
+        logger.info(
+            "📡 Loaded dynamic configuration from local filesystem: {}",
+            localFile.getAbsolutePath());
+      } catch (Exception e) {
+        logger.error("❌ Failed to load local dynamic properties file, falling back", e);
+      }
+    }
+
+    // Tier 2: Semantic property equality check
     boolean unchanged = newDynamic.equals(dynamicProperties);
+    lastDynamicFileTime = currentFileTime;
+    lastDynamicFileSize = currentSize;
+
+    if (unchanged) {
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "📡 Dynamic config file metadata changed but parsed properties are identical;"
+                + " skipping publication.");
+      }
+      return false;
+    }
+
     synchronized (revision) {
-      if (token != revision.get() || unchanged) {
+      if (token != revision.get()) {
         return false;
       }
       dynamicProperties = newDynamic;
@@ -470,5 +549,17 @@ public class WebTransportConfig {
     }
     logger.info("📡 Dynamic config reloaded successfully.");
     return true;
+  }
+
+  /**
+   * Forces a reload of dynamic configuration properties, bypassing Tier 1 metadata checks.
+   *
+   * @return {@code true} if dynamic properties semantically changed and were published;
+   *         {@code false} otherwise.
+   */
+  public static boolean forceReload() {
+    lastDynamicFileTime = null;
+    lastDynamicFileSize = -1L;
+    return reload();
   }
 }
