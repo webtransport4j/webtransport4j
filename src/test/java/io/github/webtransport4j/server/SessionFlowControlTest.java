@@ -11,15 +11,21 @@ import static org.mockito.Mockito.when;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoop;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamChannelConfig;
 import io.netty.util.Attribute;
 import io.netty.util.ReferenceCountUtil;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -357,5 +363,44 @@ public class SessionFlowControlTest {
     verify(mockConnectStream).writeAndFlush(captor.capture());
     ReferenceCountUtil.release(captor.getValue());
     assertEquals(0, capsule.refCnt());
+  }
+
+  @Test
+  public void testServerInitiatedStreamInitializersIncludeFlowControl() throws Exception {
+    Method initChannelMethod =
+        ChannelInitializer.class.getDeclaredMethod("initChannel", Channel.class);
+    initChannelMethod.setAccessible(true);
+
+    QuicStreamChannel uniStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+    when(uniStream.parent()).thenReturn(mockParent);
+    QuicStreamChannelConfig uniConfig = mock(QuicStreamChannelConfig.class);
+    when(uniStream.config()).thenReturn(uniConfig);
+    ChannelPipeline uniPipeline = mock(ChannelPipeline.class);
+    when(uniStream.pipeline()).thenReturn(uniPipeline);
+    @SuppressWarnings("rawtypes")
+    Attribute nullAttr = mockAttribute(null);
+    when(mockParent.attr(any())).thenReturn(nullAttr);
+
+    initChannelMethod.invoke(DefaultWebTransportSession.DEFAULT_UNI_INITIALIZER, uniStream);
+
+    verify(uniConfig).setAllowHalfClosure(true);
+    verify(uniConfig).setWriteBufferWaterMark(any(WriteBufferWaterMark.class));
+    verify(uniPipeline).addLast(any(RawWebTransportHandler.class));
+    verify(uniPipeline).addLast(any(WebTransportChunkedWriteHandler.class));
+
+    QuicStreamChannel biStream = mock(QuicStreamChannel.class);
+    when(biStream.parent()).thenReturn(mockParent);
+    QuicStreamChannelConfig biConfig = mock(QuicStreamChannelConfig.class);
+    when(biStream.config()).thenReturn(biConfig);
+    ChannelPipeline biPipeline = mock(ChannelPipeline.class);
+    when(biStream.pipeline()).thenReturn(biPipeline);
+
+    initChannelMethod.invoke(DefaultWebTransportSession.DEFAULT_BI_INITIALIZER, biStream);
+
+    verify(biConfig).setAllowHalfClosure(true);
+    verify(biConfig).setWriteBufferWaterMark(any(WriteBufferWaterMark.class));
+    verify(biPipeline).addLast(any(RawWebTransportHandler.class));
+    verify(biPipeline).addLast(any(WebTransportChunkedWriteHandler.class));
   }
 }
