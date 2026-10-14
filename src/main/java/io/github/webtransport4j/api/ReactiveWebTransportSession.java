@@ -37,6 +37,10 @@ public class ReactiveWebTransportSession {
     return session.getSessionStreamId();
   }
 
+  public long getUniqueSessionId() {
+    return session.getUniqueSessionId();
+  }
+
   public String path() {
     return session.path();
   }

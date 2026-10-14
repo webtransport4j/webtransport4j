@@ -105,7 +105,8 @@ public final class WebTransportDetectorHandler extends ByteToMessageDecoder {
           || h instanceof WebTransportStreamFrameDecoder
           || h instanceof MessageDispatcher
           || h instanceof GlobalTrafficShapingHandler
-          || h instanceof ChannelTrafficShapingHandler) {
+          || h instanceof ChannelTrafficShapingHandler
+          || h instanceof WebTransportChunkedWriteHandler) {
         continue;
       }
       toRemove.add(name);

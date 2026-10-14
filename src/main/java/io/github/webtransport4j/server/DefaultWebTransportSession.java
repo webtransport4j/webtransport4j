@@ -920,11 +920,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private void writeDatagramDirect(@NonNull Channel parentChannel, @NonNull ByteBuf payload) {
     final long quarterSessionId = sessionStreamId >> 2;
     int headerLen = WebTransportUtils.varIntLength(quarterSessionId);
-    if (payload.readerIndex() >= headerLen) {
-      payload.readerIndex(0);
-      parentChannel.writeAndFlush(payload.retain(), parentChannel.voidPromise());
-      return;
-    }
     int payloadLen = payload.readableBytes();
     ByteBuf packet = parentChannel.alloc().directBuffer(headerLen + payloadLen);
     WebTransportUtils.writeVarInt(packet, quarterSessionId);
