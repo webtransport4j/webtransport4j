@@ -136,4 +136,58 @@ public class WebTransportServerBuilderTest {
     Assert.assertSame(
         io.netty.buffer.PooledByteBufAllocator.DEFAULT, server.getByteBufAllocator());
   }
+
+  @Test
+  public void testAllowedOriginsProductionDefault() {
+    String prevProfile = System.getProperty("webtransport4j.profile");
+    String prevOrigins = System.getProperty("webtransport4j.allowed.origins");
+    try {
+      System.setProperty("webtransport4j.profile", "prod");
+      System.setProperty("webtransport4j.allowed.origins", "");
+      WebTransportConfig.clearProfileCache();
+
+      WebTransportServer server = WebTransportServer.builder().port(0).build();
+      java.util.List<String> origins = server.resolveAllowedOrigins();
+      Assert.assertNotNull(origins);
+      Assert.assertTrue("Production default allowed origins must be empty", origins.isEmpty());
+    } finally {
+      if (prevProfile != null) {
+        System.setProperty("webtransport4j.profile", prevProfile);
+      } else {
+        System.clearProperty("webtransport4j.profile");
+      }
+      if (prevOrigins != null) {
+        System.setProperty("webtransport4j.allowed.origins", prevOrigins);
+      } else {
+        System.clearProperty("webtransport4j.allowed.origins");
+      }
+      WebTransportConfig.clearProfileCache();
+    }
+  }
+
+  @Test
+  public void testPackagedPropertiesDoNotContainInsecureDefaults() throws Exception {
+    java.util.Properties props = new java.util.Properties();
+    try (java.io.InputStream in =
+        getClass().getClassLoader().getResourceAsStream("webtransport.properties")) {
+      Assert.assertNotNull("webtransport.properties must exist", in);
+      props.load(in);
+    }
+
+    String allowedOrigins = props.getProperty("webtransport4j.allowed.origins", "");
+    Assert.assertNotEquals(
+        "webtransport4j.allowed.origins must not default to * in production config",
+        "*",
+        allowedOrigins.trim());
+
+    String overrides = props.getProperty("webtransport4j.server.ratelimit.overrides", "");
+    Assert.assertFalse(
+        "Default overrides must not blackhole 10.0.0.1",
+        overrides.contains("10.0.0.1:0"));
+
+    String blocklist = props.getProperty("webtransport4j.server.ratelimit.blocklist", "");
+    Assert.assertFalse(
+        "Default blocklist must not contain public DNS IP 9.9.9.9",
+        blocklist.contains("9.9.9.9"));
+  }
 }
