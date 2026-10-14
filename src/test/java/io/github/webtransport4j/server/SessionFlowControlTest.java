@@ -384,7 +384,6 @@ public class SessionFlowControlTest {
 
     initChannelMethod.invoke(DefaultWebTransportSession.DEFAULT_UNI_INITIALIZER, uniStream);
 
-    verify(uniConfig).setAllowHalfClosure(true);
     verify(uniConfig).setWriteBufferWaterMark(any(WriteBufferWaterMark.class));
     verify(uniPipeline).addLast(any(RawWebTransportHandler.class));
     verify(uniPipeline).addLast(any(WebTransportChunkedWriteHandler.class));

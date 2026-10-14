@@ -951,7 +951,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
-          ch.config().setAllowHalfClosure(true);
           ch.config()
               .setWriteBufferWaterMark(
                   new WriteBufferWaterMark(
