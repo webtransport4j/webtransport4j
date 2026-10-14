@@ -6,57 +6,107 @@ import java.lang.invoke.MethodHandles;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 
 /**
  * Lock-free, high-performance in-memory implementation of {@link RateLimitBackend} using atomic
- * sliding minute buckets.
+ * sliding minute buckets and bounded LRU eviction.
  */
 public class LocalMemoryRateLimitBackend implements RateLimitBackend {
 
-  private static final IntHandle<LocalMemoryRateLimitBackend> CLEARING_HANDLE =
-      Handles.newIntHandle(
-          LocalMemoryRateLimitBackend.class,
-          "clearing",
-          MethodHandles.lookup(),
-          () -> AtomicIntegerFieldUpdater.newUpdater(LocalMemoryRateLimitBackend.class, "clearing"));
+  private static final class MinuteBucket {
+    final long minute;
+    final ConcurrentHashMap<String, ConnectionCount> counts;
 
-  private final Map<String, ConnectionCount> ipCounts = new ConcurrentHashMap<>();
-  private volatile int clearing;
-  private volatile long currentMinute = System.currentTimeMillis() / 60000;
+    MinuteBucket(long minute) {
+      this.minute = minute;
+      this.counts = new ConcurrentHashMap<>();
+    }
+  }
+
+  private final AtomicReference<MinuteBucket> currentBucket =
+      new AtomicReference<>(new MinuteBucket(-1L));
 
   @Override
   public int incrementAndGet(@NonNull String ip, long nowMinute, int maxTrackedIps) {
-    if (nowMinute != currentMinute) {
-      if (CLEARING_HANDLE.compareAndSet(this, 0, 1)) {
-        try {
-          if (nowMinute != currentMinute) {
-            ipCounts.clear();
-            currentMinute = nowMinute;
-          }
-        } finally {
-          clearing = 0;
-        }
-      } else {
-        while (clearing != 0 && nowMinute != currentMinute) {
-          Thread.yield();
-        }
+    MinuteBucket bucket;
+    while (true) {
+      bucket = currentBucket.get();
+      if (nowMinute == bucket.minute) {
+        break;
+      }
+      if (nowMinute < bucket.minute) {
+        break;
+      }
+      MinuteBucket newBucket = new MinuteBucket(nowMinute);
+      if (currentBucket.compareAndSet(bucket, newBucket)) {
+        bucket = newBucket;
+        break;
       }
     }
 
-    ConnectionCount count = ipCounts.get(ip);
+    ConcurrentHashMap<String, ConnectionCount> counts = bucket.counts;
+    ConnectionCount count = counts.get(ip);
+    long nowNanos = System.nanoTime();
     if (count == null) {
-      if (ipCounts.size() >= maxTrackedIps) {
-        return Integer.MAX_VALUE; // State table capacity exceeded signal
+      if (maxTrackedIps > 0 && counts.size() >= maxTrackedIps) {
+        evictLru(counts, maxTrackedIps);
       }
-      count = ipCounts.computeIfAbsent(ip, k -> new ConnectionCount());
+      count = counts.computeIfAbsent(ip, k -> new ConnectionCount(nowNanos));
     }
-    return count.incrementAndGet();
+    return count.incrementAndGet(nowNanos);
+  }
+
+  private void evictLru(ConcurrentHashMap<String, ConnectionCount> counts, int maxTrackedIps) {
+    int excess = counts.size() - maxTrackedIps + 1;
+    if (excess <= 0) {
+      return;
+    }
+    int toEvict = Math.min(excess, 8);
+    for (int i = 0; i < toEvict; i++) {
+      int samples = Math.min(16, counts.size());
+      if (samples == 0) {
+        break;
+      }
+      String oldestKey = null;
+      ConnectionCount oldestCount = null;
+      long oldestTime = Long.MAX_VALUE;
+
+      int examined = 0;
+      for (Map.Entry<String, ConnectionCount> entry : counts.entrySet()) {
+        ConnectionCount cc = entry.getValue();
+        if (cc != null) {
+          long access = cc.getLastAccessTime();
+          if (access < oldestTime) {
+            oldestTime = access;
+            oldestKey = entry.getKey();
+            oldestCount = cc;
+          }
+        }
+        examined++;
+        if (examined >= samples) {
+          break;
+        }
+      }
+
+      if (oldestKey != null && oldestCount != null) {
+        counts.remove(oldestKey, oldestCount);
+      } else {
+        break;
+      }
+    }
   }
 
   @Override
   public void clear() {
-    ipCounts.clear();
+    MinuteBucket old = currentBucket.get();
+    currentBucket.set(new MinuteBucket(old.minute));
+  }
+
+  /** Returns the current number of tracked IP entries. */
+  public int getTrackedIpsCount() {
+    return currentBucket.get().counts.size();
   }
 
   private static final class ConnectionCount {
@@ -67,9 +117,19 @@ public class LocalMemoryRateLimitBackend implements RateLimitBackend {
             MethodHandles.lookup(),
             () -> AtomicIntegerFieldUpdater.newUpdater(ConnectionCount.class, "count"));
     private volatile int count;
+    private volatile long lastAccessTime;
 
-    public int incrementAndGet() {
+    ConnectionCount(long initialAccessTime) {
+      this.lastAccessTime = initialAccessTime;
+    }
+
+    public int incrementAndGet(long nowNanos) {
+      this.lastAccessTime = nowNanos;
       return COUNT_HANDLE.incrementAndGet(this);
+    }
+
+    public long getLastAccessTime() {
+      return lastAccessTime;
     }
   }
 }

@@ -247,6 +247,7 @@ public class WebTransportServer implements AutoCloseable {
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
+  private final IpRateLimitingHandler ipRateLimitingHandler;
 
   /**
    * Returns the SSL context used for <em>new</em> QUIC handshakes. Existing connections keep the
@@ -301,6 +302,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer(WebTransportHandler defaultHandler) {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.ipRateLimitingHandler = new IpRateLimitingHandler();
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
   }
@@ -309,6 +311,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer() {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.ipRateLimitingHandler = new IpRateLimitingHandler();
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
@@ -349,6 +352,14 @@ public class WebTransportServer implements AutoCloseable {
     this.originValidator = builder.getOriginValidator();
     this.strictOriginValidation = builder.getStrictOriginValidation();
 
+    if (builder.getIpRateLimitingHandler() != null) {
+      this.ipRateLimitingHandler = builder.getIpRateLimitingHandler();
+    } else if (builder.getRateLimitBackend() != null) {
+      this.ipRateLimitingHandler = new IpRateLimitingHandler(builder.getRateLimitBackend());
+    } else {
+      this.ipRateLimitingHandler = new IpRateLimitingHandler();
+    }
+
     if (builder.getMetricsListener() != null) {
       this.metricsListener = isolateMetricsListener(builder.getMetricsListener());
     }
@@ -365,6 +376,11 @@ public class WebTransportServer implements AutoCloseable {
       this.defaultHandler = this.handlers.getOrDefault("/", NO_OP_HANDLER);
       this.handlers.putIfAbsent("/", this.defaultHandler);
     }
+  }
+
+  /** Returns the IP rate limiting handler used by this server. */
+  public @NonNull IpRateLimitingHandler getIpRateLimitingHandler() {
+    return ipRateLimitingHandler;
   }
 
   /**

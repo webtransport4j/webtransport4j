@@ -24,11 +24,36 @@ import org.slf4j.LoggerFactory;
 @ChannelHandler.Sharable
 public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static volatile SharedRateLimitRules sharedRules = new SharedRateLimitRules();
-  public static final IpRateLimitingHandler INSTANCE = new IpRateLimitingHandler();
-
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
-
   private static volatile RateLimitBackend backend = createBackend();
+
+  public static final IpRateLimitingHandler INSTANCE =
+      new IpRateLimitingHandler((RateLimitBackend) null);
+
+  private final RateLimitBackend instanceBackend;
+  private volatile SharedRateLimitRules instanceRules;
+
+  public IpRateLimitingHandler() {
+    this(createBackend());
+  }
+
+  public IpRateLimitingHandler(RateLimitBackend backend) {
+    this.instanceBackend = backend;
+    this.instanceRules = null;
+  }
+
+  public IpRateLimitingHandler(RateLimitBackend backend, SharedRateLimitRules rules) {
+    this.instanceBackend = backend;
+    this.instanceRules = rules;
+  }
+
+  public RateLimitBackend getEffectiveBackend() {
+    return this.instanceBackend != null ? this.instanceBackend : backend;
+  }
+
+  public SharedRateLimitRules getEffectiveRules() {
+    return this.instanceRules != null ? this.instanceRules : sharedRules;
+  }
 
   private static RateLimitBackend createBackend() {
     String backendType =
@@ -266,12 +291,12 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   }
 
   public Set<String> getExactBlocklist() {
-    return sharedRules.exactBlocklist;
+    return getEffectiveRules().exactBlocklist;
   }
 
   @Override
   public void channelActive(ChannelHandlerContext ctx) throws Exception {
-    SharedRateLimitRules currentRules = sharedRules;
+    SharedRateLimitRules currentRules = getEffectiveRules();
     if (currentRules.maxConnectionsPerMinute <= 0) {
       super.channelActive(ctx);
       return;
@@ -318,7 +343,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           effectiveMax = overrideMax;
         }
 
-        int current = backend.incrementAndGet(ip, nowMinute, currentRules.maxTrackedIps);
+        int current =
+            getEffectiveBackend().incrementAndGet(ip, nowMinute, currentRules.maxTrackedIps);
         if (current == Integer.MAX_VALUE) {
           logger.warn(
               "❌ Rate Limiter State Table Full ({} entries). Dropping connection from IP: {}.",
