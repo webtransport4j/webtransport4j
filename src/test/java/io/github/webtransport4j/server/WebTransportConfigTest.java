@@ -278,7 +278,7 @@ public class WebTransportConfigTest {
   }
 
   @Test
-  public void testTwoTieredReloadSkipsUntouchedAndCommentOnlyChanges() throws Exception {
+  public void testReloadSkipsUntouchedAndCommentOnlyChanges() throws Exception {
     File dynamicFile = new File("webtransport-dynamic.properties");
     try {
       // 1. Initial write
@@ -290,17 +290,17 @@ public class WebTransportConfigTest {
           9999,
           WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
 
-      // 2. Tier 1 fast-exit: file is completely untouched, reload must return false immediately
+      // 2. Untouched: parsed properties are identical, reload returns false
       org.junit.Assert.assertFalse(WebTransportConfig.reload());
 
-      // 3. Tier 2 semantic check: modify file by adding a comment only
+      // 3. Semantic check: modify file by adding comments only
       Files.write(
           dynamicFile.toPath(),
           Arrays.asList(
               "# This is a harmless comment",
               "webtransport4j.server.ratelimit.max_tracked_ips=9999",
               "# Another comment"));
-      // Tier 1 sees timestamp/size change, Tier 2 sees parsed properties are identical -> returns false
+      // Parsed properties are identical -> returns false without publishing
       org.junit.Assert.assertFalse(WebTransportConfig.reload());
 
       // 4. Semantic change: modify value
