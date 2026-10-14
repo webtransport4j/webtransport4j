@@ -367,6 +367,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               fut -> {
                 if (fut.isSuccess() && pending.compareAndSet(true, false)) {
                   mgr.registerReserved(connectStream);
+                  if (overloadPolicy != null) {
+                    overloadPolicy.recordSuccess();
+                  }
                 } else if (!fut.isSuccess() && pending.compareAndSet(true, false)) {
                   mgr.releaseReservation();
                   if (globalSlots != null) {
