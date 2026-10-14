@@ -159,7 +159,6 @@ public class WebTransportServer implements AutoCloseable {
   private final Map<String, WebTransportHandler> handlers = new ConcurrentHashMap<>();
   private volatile WebTransportHandler defaultHandler;
   private final Map<Long, WebTransportSession> activeSessionsById = new ConcurrentHashMap<>();
-  private final Map<Long, WebTransportSession> activeSessionsMap = new ConcurrentHashMap<>();
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
@@ -750,7 +749,6 @@ public class WebTransportServer implements AutoCloseable {
   public void registerSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
     activeSessionsById.put(session.getUniqueSessionId(), session);
-    activeSessionsMap.put(session.getSessionStreamId(), session);
     if (state.get() == ServerState.DRAINING || state.get() == ServerState.STOPPING) {
       session.drain();
     }
@@ -763,38 +761,20 @@ public class WebTransportServer implements AutoCloseable {
    */
   public void unregisterSession(@NonNull WebTransportSession session) {
     Objects.requireNonNull(session, "session cannot be null");
-    activeSessionsById.remove(session.getUniqueSessionId());
-    activeSessionsMap.remove(session.getSessionStreamId(), session);
-    sessionClosures.release();
+    if (activeSessionsById.remove(session.getUniqueSessionId(), session)) {
+      sessionClosures.release();
+    }
   }
 
   /**
-   * Unregisters an active WebTransport session by its session stream ID or unique session ID.
+   * Unregisters an active WebTransport session by its unique session ID.
    *
-   * @param sessionId the stream ID or unique ID of the session
+   * @param sessionId the unique ID of the session
    */
   public void unregisterSession(long sessionId) {
     WebTransportSession removed = activeSessionsById.remove(sessionId);
     if (removed != null) {
-      activeSessionsMap.remove(removed.getSessionStreamId(), removed);
       sessionClosures.release();
-      return;
-    }
-    removed = activeSessionsMap.remove(sessionId);
-    if (removed != null) {
-      activeSessionsById.remove(removed.getUniqueSessionId());
-      sessionClosures.release();
-      return;
-    }
-    for (WebTransportSession s : activeSessionsById.values()) {
-      if (s.getUniqueSessionId() == sessionId
-          || s.getSessionStreamId() == sessionId
-          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
-        activeSessionsById.remove(s.getUniqueSessionId());
-        activeSessionsMap.remove(s.getSessionStreamId(), s);
-        sessionClosures.release();
-        break;
-      }
     }
   }
 
@@ -808,28 +788,13 @@ public class WebTransportServer implements AutoCloseable {
   }
 
   /**
-   * Retrieves an active WebTransport session by its unique session ID or session stream ID.
+   * Retrieves an active WebTransport session by its unique session ID.
    *
-   * @param sessionId the stream ID or unique session ID of the session
+   * @param sessionId the unique session ID of the session
    * @return the session, or null if not found
    */
   public @Nullable WebTransportSession getSession(long sessionId) {
-    WebTransportSession session = activeSessionsById.get(sessionId);
-    if (session != null) {
-      return session;
-    }
-    session = activeSessionsMap.get(sessionId);
-    if (session != null) {
-      return session;
-    }
-    for (WebTransportSession s : activeSessionsById.values()) {
-      if (s.getUniqueSessionId() == sessionId
-          || s.getSessionStreamId() == sessionId
-          || Math.abs((long) System.identityHashCode(s)) == sessionId) {
-        return s;
-      }
-    }
-    return null;
+    return activeSessionsById.get(sessionId);
   }
 
   /** Returns the current lifecycle state of the server. */

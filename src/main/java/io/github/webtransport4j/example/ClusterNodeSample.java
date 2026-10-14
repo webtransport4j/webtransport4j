@@ -582,16 +582,6 @@ public class ClusterNodeSample {
               }
             } else if (targetSessionId >= 0) {
               WebTransportSession sess = server.getSession(targetSessionId);
-              if (sess == null) {
-                for (WebTransportSession s : server.getActiveSessions()) {
-                  if (s.getUniqueSessionId() == targetSessionId
-                      || Math.abs(System.identityHashCode(s)) == targetSessionId
-                      || s.getSessionStreamId() == targetSessionId) {
-                    sess = s;
-                    break;
-                  }
-                }
-              }
               if (sess != null) {
                 sess.drain();
                 drained = true;
@@ -662,16 +652,6 @@ public class ClusterNodeSample {
               closed = true;
             } else if (targetSessionId >= 0) {
               WebTransportSession sess = server.getSession(targetSessionId);
-              if (sess == null) {
-                for (WebTransportSession s : server.getActiveSessions()) {
-                  if (s.getUniqueSessionId() == targetSessionId
-                      || Math.abs(System.identityHashCode(s)) == targetSessionId
-                      || s.getSessionStreamId() == targetSessionId) {
-                    sess = s;
-                    break;
-                  }
-                }
-              }
               if (sess != null) {
                 try {
                   sess.close();
