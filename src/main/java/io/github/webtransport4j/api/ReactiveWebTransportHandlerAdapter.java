@@ -29,7 +29,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   @Override
   public void onSessionReady(@NonNull WebTransportSession session) {
     ReactiveWebTransportSession reactiveSession = new ReactiveWebTransportSession(session);
-    sessions.put(session.getSessionStreamId(), reactiveSession);
+    sessions.put(session.getUniqueSessionId(), reactiveSession);
     delegate
         .onSessionReady(reactiveSession)
         .subscribe(
@@ -62,7 +62,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   @Override
   public void onSessionClosed(
       @NonNull WebTransportSession session, int closeCode, @Nullable String reason) {
-    ReactiveWebTransportSession reactiveSession = sessions.remove(session.getSessionStreamId());
+    ReactiveWebTransportSession reactiveSession = sessions.remove(session.getUniqueSessionId());
     if (reactiveSession != null) {
       delegate
           .onSessionClosed(reactiveSession, closeCode, reason)
@@ -89,7 +89,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
 
   @Override
   public void onError(@NonNull WebTransportSession session, @NonNull Throwable cause) {
-    ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
+    ReactiveWebTransportSession reactiveSession = sessions.get(session.getUniqueSessionId());
     if (reactiveSession != null) {
       reactiveSession.emitError(cause);
       subscribeAndIgnore(delegate.onError(reactiveSession, cause));
@@ -101,7 +101,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
       @NonNull WebTransportSession session,
       @NonNull SocketAddress oldAddress,
       @NonNull SocketAddress newAddress) {
-    ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
+    ReactiveWebTransportSession reactiveSession = sessions.get(session.getUniqueSessionId());
     if (reactiveSession != null) {
       subscribeAndIgnore(delegate.onConnectionMigration(reactiveSession, oldAddress, newAddress));
     }
@@ -110,7 +110,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   @Override
   public void onIncomingStream(
       @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
-    ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
+    ReactiveWebTransportSession reactiveSession = sessions.get(session.getUniqueSessionId());
     if (reactiveSession != null) {
       ReactiveWebTransportStream reactiveStream = new ReactiveWebTransportStream(stream);
       reactiveSession.emitIncomingStream(reactiveStream);
@@ -121,7 +121,7 @@ public class ReactiveWebTransportHandlerAdapter implements WebTransportHandler {
   @Override
   public void onDatagramReceived(
       @NonNull WebTransportSession session, @NonNull WebTransportBuffer data) {
-    ReactiveWebTransportSession reactiveSession = sessions.get(session.getSessionStreamId());
+    ReactiveWebTransportSession reactiveSession = sessions.get(session.getUniqueSessionId());
     if (reactiveSession != null) {
       // This retained reference belongs to the receiveDatagrams() subscriber, which must close it.
       // The delegate borrows the transport reference and must retain separately for asynchronous
