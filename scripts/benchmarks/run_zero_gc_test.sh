@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
 PORT=54321
 OPS=${1:-20000}
-CP="target/classes:$(mvn dependency:build-classpath | grep -v '\[INFO\]' | tr '\n' ':')"
+mkdir -p target docs/benchmarks
+
+if [ ! -f target/cp.txt ]; then
+  mvn dependency:build-classpath -Dmdep.outputFile=target/cp.txt
+fi
+
+CP="target/classes:target/test-classes:$(cat target/cp.txt)"
 
 echo "=========================================================================="
 echo " MULTI-PRIMITIVE GC OBSERVATION (ISOLATED DEDICATED SERVER JVM)"
@@ -21,31 +30,29 @@ else
   EPSILON_HEAP_ARGS="-Xms1024m -Xmx1024m"
 fi
 
-mkdir -p docs/benchmarks
-
 # Finite GC observation only: neither run proves zero allocation or production readiness.
 echo ""
 echo "--> [TEST 1/2] Standard Production HotSpot GC ($HOTSPOT_HEAP_ARGS)..."
-rm -f server_output.log server_gc_hotspot.log
+rm -f target/server_output.log target/server_gc_hotspot.log
 java $HOTSPOT_HEAP_ARGS \
-     "-Xlog:gc*:file=server_gc_hotspot.log:time,uptime,level,tags" \
+     "-Xlog:gc*:file=target/server_gc_hotspot.log:time,uptime,level,tags" \
      -cp "$CP" \
-     io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_HOTSPOT_REPORT.md" > server_output.log 2>&1 &
+     io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_HOTSPOT_REPORT.md" > target/server_output.log 2>&1 &
 SERVER_PID=$!
 trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
 echo "Waiting for server to bind on port $PORT..."
 for i in {1..30}; do
-  if grep -q "SERVER_READY_PORT=" server_output.log 2>/dev/null; then
+  if grep -q "SERVER_READY_PORT=" target/server_output.log 2>/dev/null; then
     echo "Server is ready! (PID: $SERVER_PID)"
     break
   fi
   sleep 0.5
 done
 
-if ! grep -q "SERVER_READY_PORT=" server_output.log 2>/dev/null; then
+if ! grep -q "SERVER_READY_PORT=" target/server_output.log 2>/dev/null; then
   echo "Server failed to start. Logs:"
-  cat server_output.log
+  cat target/server_output.log
   kill -9 $SERVER_PID 2>/dev/null || true
   exit 1
 fi
@@ -56,13 +63,13 @@ java -cp "$CP" \
 
 wait "$SERVER_PID"
 trap - EXIT
-cat server_output.log
+cat target/server_output.log
 
 echo ""
-echo "--- Native JVM GC Log Verification (server_gc_hotspot.log) ---"
-if grep -E "Pause|Garbage Collection" server_gc_hotspot.log 2>/dev/null; then
+echo "--- Native JVM GC Log Verification (target/server_gc_hotspot.log) ---"
+if grep -E "Pause|Garbage Collection" target/server_gc_hotspot.log 2>/dev/null; then
   echo "⚠️ GC pauses recorded in log:"
-  grep -E "Pause|Garbage Collection" server_gc_hotspot.log
+  grep -E "Pause|Garbage Collection" target/server_gc_hotspot.log
 else
   echo "✅ Verified: EXACTLY 0 GC pause events recorded in native JVM GC log!"
 fi
@@ -71,28 +78,28 @@ fi
 echo ""
 echo "--> [TEST 2/2] Epsilon GC Proof Engine (-XX:+UseEpsilonGC $EPSILON_HEAP_ARGS)..."
 PORT=54322
-rm -f server_output.log server_gc_epsilon.log
+rm -f target/server_output.log target/server_gc_epsilon.log
 java -XX:+UnlockExperimentalVMOptions \
      -XX:+UseEpsilonGC \
      $EPSILON_HEAP_ARGS \
-     "-Xlog:gc*:file=server_gc_epsilon.log:time,uptime,level,tags" \
+     "-Xlog:gc*:file=target/server_gc_epsilon.log:time,uptime,level,tags" \
      -cp "$CP" \
-     io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_EPSILON_REPORT.md" > server_output.log 2>&1 &
+     io.github.webtransport4j.example.benchmark.ZeroGcServerMain "$PORT" "docs/benchmarks/SERVER_ZERO_GC_EPSILON_REPORT.md" > target/server_output.log 2>&1 &
 SERVER_PID=$!
 trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
 echo "Waiting for server to bind on port $PORT..."
 for i in {1..30}; do
-  if grep -q "SERVER_READY_PORT=" server_output.log 2>/dev/null; then
+  if grep -q "SERVER_READY_PORT=" target/server_output.log 2>/dev/null; then
     echo "Server is ready! (PID: $SERVER_PID)"
     break
   fi
   sleep 0.5
 done
 
-if ! grep -q "SERVER_READY_PORT=" server_output.log 2>/dev/null; then
+if ! grep -q "SERVER_READY_PORT=" target/server_output.log 2>/dev/null; then
   echo "Server failed to start. Logs:"
-  cat server_output.log
+  cat target/server_output.log
   kill -9 $SERVER_PID 2>/dev/null || true
   exit 1
 fi
@@ -103,13 +110,13 @@ java -cp "$CP" \
 
 wait "$SERVER_PID"
 trap - EXIT
-cat server_output.log
+cat target/server_output.log
 
 echo ""
-echo "--- Native JVM GC Log Verification (server_gc_epsilon.log) ---"
-if grep -E "OutOfMemoryError|Out of memory" server_gc_epsilon.log server_output.log 2>/dev/null; then
+echo "--- Native JVM GC Log Verification (target/server_gc_epsilon.log) ---"
+if grep -E "OutOfMemoryError|Out of memory" target/server_gc_epsilon.log target/server_output.log 2>/dev/null; then
   echo "❌ OOM detected in Epsilon GC log!"
-  cat server_gc_epsilon.log
+  cat target/server_gc_epsilon.log
   exit 1
 else
   echo "Epsilon completed this finite workload without reported memory exhaustion. Allocation was not measured."
