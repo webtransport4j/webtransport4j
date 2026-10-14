@@ -244,6 +244,7 @@ public class WebTransportServer implements AutoCloseable {
   private Channel channel;
   private final List<Channel> channels = new CopyOnWriteArrayList<>();
   private final Integer configuredSocketCount;
+  private final Integer configuredCapsuleMaxLength;
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
@@ -301,6 +302,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer(WebTransportHandler defaultHandler) {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.configuredCapsuleMaxLength = null;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
   }
@@ -309,6 +311,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer() {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.configuredCapsuleMaxLength = null;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
@@ -319,6 +322,7 @@ public class WebTransportServer implements AutoCloseable {
     this.byteBufAllocator =
         resolveByteBufAllocator(builder.getByteBufAllocator());
     this.configuredSocketCount = builder.getSocketCount();
+    this.configuredCapsuleMaxLength = builder.getCapsuleMaxLength();
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -365,6 +369,11 @@ public class WebTransportServer implements AutoCloseable {
       this.defaultHandler = this.handlers.getOrDefault("/", NO_OP_HANDLER);
       this.handlers.putIfAbsent("/", this.defaultHandler);
     }
+  }
+
+  /** Returns the configured maximum capsule length in bytes, or null if using default. */
+  public @Nullable Integer getCapsuleMaxLength() {
+    return configuredCapsuleMaxLength;
   }
 
   /**
