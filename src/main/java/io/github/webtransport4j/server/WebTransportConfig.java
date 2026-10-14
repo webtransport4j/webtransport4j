@@ -437,11 +437,21 @@ public class WebTransportConfig {
     }
   }
 
+  /**
+   * Programmatically clears all configuration properties set via {@link #setProperty(String, String)}.
+   */
+  public static void clearProgrammaticProperties() {
+    EventLoopSafety.requireBlockingAllowed();
+    synchronized (revision) {
+      programmaticProperties = new Properties();
+      revision.incrementAndGet();
+    }
+  }
+
   /** Reloads dynamic configuration properties. */
   public static boolean reload() {
     EventLoopSafety.requireBlockingAllowed();
     final long token;
-    EventLoopSafety.requireBlockingAllowed();
     synchronized (revision) {
       token = revision.incrementAndGet();
     }
@@ -449,12 +459,14 @@ public class WebTransportConfig {
     Properties newDynamic = new Properties();
     loadDynamicConfig(newDynamic);
     boolean unchanged = newDynamic.equals(dynamicProperties);
-    EventLoopSafety.requireBlockingAllowed();
     synchronized (revision) {
       if (token != revision.get() || unchanged) {
         return false;
       }
       dynamicProperties = newDynamic;
+    }
+    if (logger.isDebugEnabled()) {
+      logger.debug("📡 Dynamic config reloaded: {} dynamic properties active.", newDynamic.size());
     }
     logger.info("📡 Dynamic config reloaded successfully.");
     return true;

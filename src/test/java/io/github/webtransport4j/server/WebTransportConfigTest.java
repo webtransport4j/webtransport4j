@@ -19,6 +19,7 @@ public class WebTransportConfigTest {
   @Before
   @After
   public void cleanup() {
+    WebTransportConfig.clearProgrammaticProperties();
     System.clearProperty("test.math.key");
     System.clearProperty("test.string.key");
     System.clearProperty("webtransport4j.quic.token.handler.hmac.key");
@@ -254,6 +255,25 @@ public class WebTransportConfigTest {
     } finally {
       WebTransportConfig.removeProperty(
           "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
+    }
+  }
+
+  @Test
+  public void testDynamicOverridesProfile() throws Exception {
+    File dynamicFile = new File("webtransport-dynamic.properties");
+    Files.write(
+        dynamicFile.toPath(),
+        Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=12345"));
+    try {
+      WebTransportConfig.reload();
+      assertEquals(
+          12345,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+    } finally {
+      if (dynamicFile.exists()) {
+        dynamicFile.delete();
+      }
+      WebTransportConfig.reload();
     }
   }
 }
