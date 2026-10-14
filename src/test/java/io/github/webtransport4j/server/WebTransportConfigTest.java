@@ -234,4 +234,26 @@ public class WebTransportConfigTest {
         "FALLBACK_VALUE",
         WebTransportConfig.get("test.sample.custom.key", "FALLBACK_VALUE"));
   }
+
+  @Test
+  public void testProgrammaticPropertiesIsolationFromReload() {
+    WebTransportConfig.setProperty(
+        "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "555");
+    try {
+      assertEquals(
+          555,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+      // Reload must NOT wipe out programmatic properties
+      boolean reloaded = WebTransportConfig.reload();
+      org.junit.Assert.assertFalse(reloaded);
+      assertEquals(
+          555,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+    } finally {
+      WebTransportConfig.removeProperty(
+          "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
+    }
+  }
 }

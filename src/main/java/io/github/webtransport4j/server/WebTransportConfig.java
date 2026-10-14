@@ -25,6 +25,7 @@ public class WebTransportConfig {
   private static final AtomicLong revision = new AtomicLong();
   // Published generations are never mutated; writers replace them under the revision monitor.
   private static volatile Properties dynamicProperties = new Properties();
+  private static volatile Properties programmaticProperties = new Properties();
 
   private WebTransportConfig() {
     throw new UnsupportedOperationException("Utility class cannot be instantiated");
@@ -71,38 +72,10 @@ public class WebTransportConfig {
         logger.info(
             "📡 Loaded dynamic configuration from local filesystem: {}",
             localFile.getAbsolutePath());
-        return;
       } catch (Exception e) {
         logger.error("❌ Failed to load local dynamic properties file, falling back", e);
       }
     }
-    try (InputStream in =
-        WebTransportConfig.class
-            .getClassLoader()
-            .getResourceAsStream("webtransport-dynamic.properties")) {
-      if (in != null) {
-        target.load(in);
-        logger.debug("📡 Loaded default dynamic configuration from classpath resources");
-        return;
-      }
-    } catch (Exception e) {
-      logger.error("❌ Failed to load dynamic properties from classpath", e);
-    }
-
-    // Fallback: Copy dynamic keys from the static properties
-    logger.debug(
-        "ℹ️ webtransport-dynamic.properties not found. "
-            + "Dynamic reloads will default to static/default properties.");
-    for (String key : staticProperties.stringPropertyNames()) {
-      if (isDynamicKey(key)) {
-        target.setProperty(key, staticProperties.getProperty(key));
-      }
-    }
-  }
-
-  private static boolean isDynamicKey(String key) {
-    return key.startsWith("webtransport4j.server.ratelimit.")
-        || key.startsWith("webtransport4j.webtransport.flowcontrol.");
   }
 
   /**
@@ -119,35 +92,37 @@ public class WebTransportConfig {
 
   /** Captures one dynamic configuration generation for related reads. */
   public static @NonNull Snapshot snapshot() {
-    return new Snapshot(dynamicProperties);
+    return new Snapshot(dynamicProperties, programmaticProperties);
   }
 
   /** A stable dynamic generation; system properties and environment retain their precedence. */
   public static final class Snapshot {
     private final Properties properties;
+    private final Properties programmatic;
 
-    private Snapshot(Properties properties) {
+    private Snapshot(Properties properties, Properties programmatic) {
       this.properties = properties;
+      this.programmatic = programmatic;
     }
 
     /** Resolves a key against the captured dynamic generation. */
     public @Nullable String get(@NonNull String key, @Nullable String defaultValue) {
-      return getVal(properties, key, defaultValue);
+      return getVal(properties, programmatic, key, defaultValue);
     }
 
     /** Resolves a non-null value against the captured dynamic generation. */
     public @NonNull String getNonNull(@NonNull String key, @NonNull String defaultValue) {
-      return getVal(properties, key, defaultValue);
+      return getVal(properties, programmatic, key, defaultValue);
     }
 
     /** Resolves an integer using the same parsing and fallback as the ordinary getter. */
     public int getInt(@NonNull String key, int defaultValue) {
-      return WebTransportConfig.getInt(properties, key, defaultValue);
+      return WebTransportConfig.getInt(properties, programmatic, key, defaultValue);
     }
 
     /** Resolves a long using the same parsing and fallback as the ordinary getter. */
     public long getLong(@NonNull String key, long defaultValue) {
-      return WebTransportConfig.getLong(properties, key, defaultValue);
+      return WebTransportConfig.getLong(properties, programmatic, key, defaultValue);
     }
 
     /** Resolves a boolean against the captured dynamic generation. */
@@ -157,10 +132,11 @@ public class WebTransportConfig {
   }
 
   private static String getVal(String key, String defaultVal) {
-    return getVal(dynamicProperties, key, defaultVal);
+    return getVal(dynamicProperties, programmaticProperties, key, defaultVal);
   }
 
-  private static String getVal(Properties properties, String key, String defaultVal) {
+  private static String getVal(
+      Properties properties, Properties programmatic, String key, String defaultVal) {
     // 1. Check System Properties (-Dserver.port=...)
     String value = System.getProperty(key);
     if (value != null) {
@@ -172,14 +148,23 @@ public class WebTransportConfig {
     if (value != null) {
       return value;
     }
-    // 3. Check dynamic properties
-    value = properties.getProperty(key);
-    if (value != null) {
-      return value;
+    // 3. Check programmatic properties
+    if (programmatic != null) {
+      value = programmatic.getProperty(key);
+      if (value != null) {
+        return value;
+      }
     }
-    // 4. Check active profile properties (if not querying the profile property itself)
+    // 4. Check dynamic properties
+    if (properties != null) {
+      value = properties.getProperty(key);
+      if (value != null) {
+        return value;
+      }
+    }
+    // 5. Check active profile properties (if not querying the profile property itself)
     if (!"webtransport4j.profile".equals(key)) {
-      String profile = getActiveProfile();
+      String profile = getActiveProfile(properties, programmatic);
       if (!DEFAULT_PROFILE.equals(profile)) {
         Properties profileProps = getProfileProperties(profile);
         if (profileProps != null) {
@@ -190,7 +175,7 @@ public class WebTransportConfig {
         }
       }
     }
-    // 5. Fallback to static properties file
+    // 6. Fallback to static properties file
     return staticProperties.getProperty(key, defaultVal);
   }
 
@@ -203,6 +188,7 @@ public class WebTransportConfig {
    *   <li>Java System Property ({@code -Dwebtransport4j.profile=...})</li>
    *   <li>Environment Variable ({@code WEBTRANSPORT4J_PROFILE=...})</li>
    *   <li>Framework active profiles (Spring {@code spring.profiles.active}, Quarkus {@code quarkus.profile})</li>
+   *   <li>Programmatic properties ({@code setProperty("webtransport4j.profile", ...)})</li>
    *   <li>Dynamic properties ({@code webtransport4j.profile})</li>
    *   <li>Static properties in {@code webtransport.properties} ({@code webtransport4j.profile})</li>
    *   <li>Default: {@code "prod"}</li>
@@ -211,6 +197,11 @@ public class WebTransportConfig {
    * @return active profile name normalized to lowercase
    */
   public static @NonNull String getActiveProfile() {
+    return getActiveProfile(dynamicProperties, programmaticProperties);
+  }
+
+  private static @NonNull String getActiveProfile(
+      Properties dynamicProps, Properties progProps) {
     String profile = System.getProperty("webtransport4j.profile");
     if (profile != null && !profile.trim().isEmpty()) {
       return normalizeProfile(profile);
@@ -227,11 +218,19 @@ public class WebTransportConfig {
     if (quarkusProfile != null && !quarkusProfile.trim().isEmpty()) {
       return normalizeProfile(quarkusProfile);
     }
-    String configured = dynamicProperties.getProperty("webtransport4j.profile");
-    if (configured != null && !configured.trim().isEmpty()) {
-      return normalizeProfile(configured);
+    if (progProps != null) {
+      String configured = progProps.getProperty("webtransport4j.profile");
+      if (configured != null && !configured.trim().isEmpty()) {
+        return normalizeProfile(configured);
+      }
     }
-    configured = staticProperties.getProperty("webtransport4j.profile");
+    if (dynamicProps != null) {
+      String configured = dynamicProps.getProperty("webtransport4j.profile");
+      if (configured != null && !configured.trim().isEmpty()) {
+        return normalizeProfile(configured);
+      }
+    }
+    String configured = staticProperties.getProperty("webtransport4j.profile");
     if (configured != null && !configured.trim().isEmpty()) {
       return normalizeProfile(configured);
     }
@@ -346,11 +345,16 @@ public class WebTransportConfig {
 
   /** Returns the int. */
   public static int getInt(@NonNull String key, int defaultValue) {
-    return getInt(dynamicProperties, key, defaultValue);
+    return getInt(dynamicProperties, programmaticProperties, key, defaultValue);
   }
 
   private static int getInt(Properties properties, String key, int defaultValue) {
-    String val = getVal(properties, key, null);
+    return getInt(properties, programmaticProperties, key, defaultValue);
+  }
+
+  private static int getInt(
+      Properties properties, Properties programmatic, String key, int defaultValue) {
+    String val = getVal(properties, programmatic, key, null);
     if (val == null) {
       return defaultValue;
     }
@@ -369,11 +373,16 @@ public class WebTransportConfig {
 
   /** Returns the long. */
   public static long getLong(@NonNull String key, long defaultValue) {
-    return getLong(dynamicProperties, key, defaultValue);
+    return getLong(dynamicProperties, programmaticProperties, key, defaultValue);
   }
 
   private static long getLong(Properties properties, String key, long defaultValue) {
-    String val = getVal(properties, key, null);
+    return getLong(properties, programmaticProperties, key, defaultValue);
+  }
+
+  private static long getLong(
+      Properties properties, Properties programmatic, String key, long defaultValue) {
+    String val = getVal(properties, programmatic, key, null);
     if (val == null) {
       return defaultValue;
     }
@@ -405,10 +414,10 @@ public class WebTransportConfig {
     EventLoopSafety.requireBlockingAllowed();
     synchronized (revision) {
       Properties updated = new Properties();
-      updated.putAll(dynamicProperties);
+      updated.putAll(programmaticProperties);
       updated.setProperty(key, value);
       revision.incrementAndGet();
-      dynamicProperties = updated;
+      programmaticProperties = updated;
     }
   }
 
@@ -421,10 +430,10 @@ public class WebTransportConfig {
     EventLoopSafety.requireBlockingAllowed();
     synchronized (revision) {
       Properties updated = new Properties();
-      updated.putAll(dynamicProperties);
+      updated.putAll(programmaticProperties);
       updated.remove(key);
       revision.incrementAndGet();
-      dynamicProperties = updated;
+      programmaticProperties = updated;
     }
   }
 
