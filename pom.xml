@@ -83,6 +83,12 @@
             <artifactId>netty-codec-http3</artifactId>
          <version>${netty.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-pkitesting</artifactId>
+            <version>${netty.version}</version>
+            <optional>true</optional>
+        </dependency>
 
         <!-- Use SLF4J API with Log4j2 implementation -->
         <dependency>
@@ -215,6 +221,9 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-Dio.netty.leakDetection.level=PARANOID -javaagent:${wt4j.lockagent}=${wt4j.lockreport}</argLine>
+                    <!-- MR compiler executions change the artifact directory; retain
+                         the base classes on the probed test runtime classpath. -->
+                    <classesDirectory>${project.build.directory}/classes</classesDirectory>
                     <forkCount>1</forkCount><reuseForks>true</reuseForks>
                 </configuration>
             </plugin></plugins></build>
@@ -574,10 +583,36 @@
                 <version>3.5.4</version>
                 <configuration>
                     <argLine>-Dio.netty.leakDetection.level=PARANOID</argLine>
+                    <systemPropertyVariables>
+                        <webtransport4j.profile>test</webtransport4j.profile>
+                    </systemPropertyVariables>
+                    <properties>
+                        <property>
+                            <name>listener</name>
+                            <value>io.github.webtransport4j.test.TestCertificateRunListener</value>
+                        </property>
+                    </properties>
                     <excludes>
                         <exclude>**/*_jmhTest*</exclude>
                         <exclude>**/jmh_generated/**</exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>src/test/resources</directory>
+                            <includes>
+                                <include>test-*.pem</include>
+                            </includes>
+                            <followSymlinks>false</followSymlinks>
+                        </fileset>
+                    </filesets>
                 </configuration>
             </plugin>
 

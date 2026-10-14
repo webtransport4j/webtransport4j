@@ -120,6 +120,10 @@ public final class Datagram1GbZgcBenchmark {
     if (new File("localhost-key.pem").exists() && new File("localhost.pem").exists()) {
       System.setProperty("webtransport4j.ssl.key.path", "localhost-key.pem");
       System.setProperty("webtransport4j.ssl.cert.path", "localhost.pem");
+    } else if (new File("src/test/resources/test-key.pem").exists()
+        && new File("src/test/resources/test-cert.pem").exists()) {
+      System.setProperty("webtransport4j.ssl.key.path", "src/test/resources/test-key.pem");
+      System.setProperty("webtransport4j.ssl.cert.path", "src/test/resources/test-cert.pem");
     } else {
       System.setProperty("webtransport4j.dev_mode", "true");
     }
@@ -449,7 +453,7 @@ public final class Datagram1GbZgcBenchmark {
             .trustManager(InsecureTrustManagerFactory.INSTANCE)
             .applicationProtocols(Http3.supportedApplicationProtocols())
             .build();
-    int clientIoThreads = Math.min(16, Math.max(4, Runtime.getRuntime().availableProcessors()));
+    int clientIoThreads = Math.max(Runtime.getRuntime().availableProcessors(), concurrency);
     EventLoopGroup sharedGroup = new NioEventLoopGroup(clientIoThreads);
     try {
       ExecutorService executor = Executors.newFixedThreadPool(concurrency);

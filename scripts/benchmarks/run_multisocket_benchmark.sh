@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$PROJECT_ROOT"
+
 TARGET_BYTES=${1:-1073741824} # 1 GiB (1,073,741,824 bytes)
 SOCKETS=${2:-8}               # 8 sockets for multi-socket run
 DGRAM_SIZE=${3:-1024}         # 1 KiB per datagram
@@ -34,13 +37,14 @@ run_benchmark() {
   local GC_LOG="$3"
   local REPORT_FILE="$4"
   local PORT="$5"
+  local SERVER_LOG="target/server_benchmark.log"
 
   echo ""
   echo "--------------------------------------------------------------------------"
   echo ">>> [BENCHMARK RUN] $NAME (socketCount=$SOCKET_COUNT, concurrency=$CONCURRENCY)"
   echo "--------------------------------------------------------------------------"
 
-  rm -f server_benchmark.log "$GC_LOG"
+  rm -f "$SERVER_LOG" "$GC_LOG"
 
   java --enable-native-access=ALL-UNNAMED \
        -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC \
@@ -53,22 +57,22 @@ run_benchmark() {
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \
        io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
-       server "$PORT" "$TARGET_BYTES" "$REPORT_FILE" "$SOCKET_COUNT" > server_benchmark.log 2>&1 &
+       server "$PORT" "$TARGET_BYTES" "$REPORT_FILE" "$SOCKET_COUNT" > "$SERVER_LOG" 2>&1 &
   SERVER_PID=$!
   trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
   echo "Waiting for server on port $PORT..."
   for i in {1..30}; do
-    if grep -q "SERVER_READY_PORT=" server_benchmark.log 2>/dev/null; then
+    if grep -q "SERVER_READY_PORT=" "$SERVER_LOG" 2>/dev/null; then
       echo "Server ready (PID: $SERVER_PID). Streaming datagram flood..."
       break
     fi
     sleep 0.3
   done
 
-  if ! grep -q "SERVER_READY_PORT=" server_benchmark.log 2>/dev/null; then
+  if ! grep -q "SERVER_READY_PORT=" "$SERVER_LOG" 2>/dev/null; then
     echo "❌ Server failed to bind. Log output:"
-    cat server_benchmark.log
+    cat "$SERVER_LOG"
     kill -9 "$SERVER_PID" 2>/dev/null || true
     exit 1
   fi
@@ -86,7 +90,7 @@ run_benchmark() {
 
   wait "$SERVER_PID" || true
   trap - EXIT
-  cat server_benchmark.log
+  cat "$SERVER_LOG"
 
   echo ""
   echo "--- Native JVM GC Log Verification ($GC_LOG) ---"

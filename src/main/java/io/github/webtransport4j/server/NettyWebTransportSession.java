@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.StreamPriority;
+import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.buffer.ByteBuf;
@@ -425,6 +426,25 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   @NonNull CompletableFuture<WebTransportStream> createBiStream(
       @NonNull ChannelHandler streamHandler, @NonNull StreamPriority priority);
+
+  /**
+   * Returns the handler bound to this session when it was admitted, or null when no handler was
+   * bound. Sessions keep the handler resolved at registration time: re-registering a handler for
+   * the same path does not affect existing sessions.
+   *
+   * @return the bound handler, or null
+   */
+  @Override
+  default @Nullable WebTransportHandler getBoundHandler() {
+    return null;
+  }
+
+  /**
+   * Binds the handler resolved for this session's path at registration time.
+   *
+   * @param handler the resolved handler, or null
+   */
+  default void setBoundHandler(@Nullable WebTransportHandler handler) {}
 
   /**
    * Power-user escape hatch: registers a direct consumer for incoming raw Netty {@link ByteBuf} datagrams.

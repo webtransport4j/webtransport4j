@@ -825,6 +825,20 @@ Additional tooling lives under:
 interop/go/throughput/
 ```
 
+### Datagram & Multi-Socket Benchmarks
+
+Automated throughput, ZGC, and multi-socket sharding runner scripts are located in [`scripts/benchmarks/`](scripts/benchmarks/):
+
+```bash
+# Multi-socket sharding benchmark (SO_REUSEPORT)
+./scripts/benchmarks/run_multisocket_benchmark.sh
+
+# 22-core hardware socket mapping benchmark suite
+./scripts/benchmarks/run_22core_benchmark.sh
+```
+
+Generated markdown reports are recorded in [`docs/benchmarks/`](docs/benchmarks/).
+
 Performance numbers should always be published together with enough information to reproduce them:
 
 ```text

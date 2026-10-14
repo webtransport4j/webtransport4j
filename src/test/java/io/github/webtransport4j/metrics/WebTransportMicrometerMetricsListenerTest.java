@@ -169,6 +169,24 @@ public class WebTransportMicrometerMetricsListenerTest {
   }
 
   @Test
+  public void testUdpErrorMetrics() {
+    listener.onUdpReceiveBufferErrors(3);
+    Counter bufferErrors = registry.find("test.wt.udp.receive.buffer.errors").counter();
+    assertNotNull(bufferErrors);
+    assertEquals(3.0, bufferErrors.count(), 0.001);
+
+    listener.onUdpReceiveErrors(2);
+    Counter receiveErrors = registry.find("test.wt.udp.receive.errors").counter();
+    assertNotNull(receiveErrors);
+    assertEquals(2.0, receiveErrors.count(), 0.001);
+
+    listener.onUdpReceiveBufferErrors(0);
+    listener.onUdpReceiveErrors(-1);
+    assertEquals(3.0, bufferErrors.count(), 0.001);
+    assertEquals(2.0, receiveErrors.count(), 0.001);
+  }
+
+  @Test
   public void testSanitizePathBoundedCardinality() {
     StringBuilder sb = new StringBuilder("/");
     for (int i = 0; i < 100; i++) {

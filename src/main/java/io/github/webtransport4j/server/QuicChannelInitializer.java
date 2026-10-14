@@ -2,7 +2,6 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
@@ -177,13 +176,16 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
               ctx.channel().attr(WebTransportAttributeKeys.SERVER_KEY).get();
 
           if (mgr != null) {
-            for (WebTransportSession session : mgr.getSessions()) {
+            for (NettyWebTransportSession session : mgr.getSessions()) {
               if (metrics != null) {
                 metrics.onConnectionMigration(
                     session.getSessionStreamId(), currentRemoteAddress, newRemoteAddress);
               }
-              if (server != null && oldSocketAddress != null && newSocketAddress != null) {
-                WebTransportHandler handler = server.getHandler(session.path());
+              if (oldSocketAddress != null && newSocketAddress != null) {
+                WebTransportHandler handler = session.getBoundHandler();
+                if (handler == null && server != null) {
+                  handler = server.getHandler(session.path());
+                }
                 if (handler != null) {
                   try {
                     handler.onConnectionMigration(session, oldSocketAddress, newSocketAddress);

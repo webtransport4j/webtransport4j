@@ -8,7 +8,8 @@ import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientTestSuite;
 import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.spring.WebTransportAutoConfiguration;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.pkitesting.CertificateBuilder;
+import io.netty.pkitesting.X509Bundle;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
@@ -144,9 +145,15 @@ public class SpringBootWebTransportSampleApp {
       System.setProperty("webtransport4j.ssl-key-path", keyFile.getAbsolutePath());
       System.setProperty("webtransport4j.ssl-cert-path", certFile.getAbsolutePath());
     } else {
-      SelfSignedCertificate cert = new SelfSignedCertificate();
-      System.setProperty("webtransport4j.ssl-key-path", cert.privateKey().getAbsolutePath());
-      System.setProperty("webtransport4j.ssl-cert-path", cert.certificate().getAbsolutePath());
+      X509Bundle cert =
+          new CertificateBuilder()
+              .subject("CN=localhost")
+              .setIsCertificateAuthority(true)
+              .addSanDnsName("localhost")
+              .rsa2048()
+              .buildSelfSigned();
+      System.setProperty("webtransport4j.ssl-key-path", cert.toTempPrivateKeyPem().getAbsolutePath());
+      System.setProperty("webtransport4j.ssl-cert-path", cert.toTempCertChainPem().getAbsolutePath());
     }
 
     System.setProperty("webtransport4j.port", "8443");

@@ -159,7 +159,12 @@ public class WebTransportServerTransportTest {
 
   private static boolean isIouringAvailable() {
     try {
-      Class<?> clazz = Class.forName("io.netty.channel.uring.IOUring");
+      Class<?> clazz;
+      try {
+        clazz = Class.forName("io.netty.channel.uring.IoUring");
+      } catch (ClassNotFoundException e) {
+        clazz = Class.forName("io.netty.channel.uring.IOUring");
+      }
       return (boolean) clazz.getMethod("isAvailable").invoke(null);
     } catch (Throwable t) {
       return false;

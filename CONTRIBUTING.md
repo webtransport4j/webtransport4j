@@ -57,6 +57,7 @@ These hooks automatically validate:
 * **Zero-Committed-Certificate Policy**: Prevents committing TLS certificates or private keys (`*.pem`, `*.key`, `*.p12`, etc.).
 * **Google Java Style Checkstyle**: Verifies 0 violations with `mvn checkstyle:check`.
 * **Multi-Release Build Gate**: Validates multi-release Java compilation (`mvn test-compile -DskipTests`).
+* **Event-loop Safety Gate**: Runs the same bytecode audit, unsafe negative controls, and agent-probed concurrency tests as CI for Java, Maven, or safety-gate configuration changes. Run it manually with `bash verification/locking/check.sh`. This requires the project's build JDK and Maven dependencies and adds test-suite time to commits; evidence is retained in the printed temporary directory. CI still checks both JDK 17 and 25.
 * **Hygiene & Safety**: Guards against merge conflict markers, trailing whitespace, invalid JSON/YAML syntax, and oversized files.
 
 ### 1. Build the project

@@ -37,6 +37,8 @@ public class WebTransportMicrometerMetricsListener
   private Counter datagramsSentCounter;
   private Counter datagramsReceivedCounter;
   private Counter datagramsDroppedCounter;
+  private Counter udpReceiveBufferErrorsCounter;
+  private Counter udpReceiveErrorsCounter;
   private DistributionSummary datagramSentBytesSummary;
   private DistributionSummary datagramReceivedBytesSummary;
   private Timer sessionDurationTimer;
@@ -111,6 +113,20 @@ public class WebTransportMicrometerMetricsListener
     datagramsDroppedCounter =
         Counter.builder(prefix + ".datagrams.dropped")
             .description("Total number of WebTransport datagrams dropped due to queue saturation")
+            .register(registry);
+
+    udpReceiveBufferErrorsCounter =
+        Counter.builder(prefix + ".udp.receive.buffer.errors")
+            .description(
+                "UDP datagrams dropped by the kernel because a socket receive buffer was full "
+                    + "(Linux Udp RcvbufErrors)")
+            .register(registry);
+
+    udpReceiveErrorsCounter =
+        Counter.builder(prefix + ".udp.receive.errors")
+            .description(
+                "UDP datagrams dropped by the kernel for other receive errors "
+                    + "(Linux Udp InErrors)")
             .register(registry);
 
     datagramSentBytesSummary =
@@ -260,6 +276,30 @@ public class WebTransportMicrometerMetricsListener
     }
     if (registry != null) {
       registry.counter(prefix + ".datagrams.discarded", "reason", reason).increment();
+    }
+  }
+
+  /**
+   * Invoked with deltas of kernel-level UDP receive-buffer drops.
+   *
+   * @param delta additional dropped datagrams since the previous report
+   */
+  @Override
+  public void onUdpReceiveBufferErrors(long delta) {
+    if (udpReceiveBufferErrorsCounter != null && delta > 0) {
+      udpReceiveBufferErrorsCounter.increment(delta);
+    }
+  }
+
+  /**
+   * Invoked with deltas of kernel-level UDP receive errors.
+   *
+   * @param delta additional receive errors since the previous report
+   */
+  @Override
+  public void onUdpReceiveErrors(long delta) {
+    if (udpReceiveErrorsCounter != null && delta > 0) {
+      udpReceiveErrorsCounter.increment(delta);
     }
   }
 

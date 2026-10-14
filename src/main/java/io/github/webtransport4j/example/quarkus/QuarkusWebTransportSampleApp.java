@@ -9,7 +9,8 @@ import io.github.webtransport4j.client.WebTransportClientTestSuite;
 import io.github.webtransport4j.quarkus.QuarkusWebTransportManager;
 import io.github.webtransport4j.server.WebTransportServer;
 import io.github.webtransport4j.server.WebTransportServerBuilder;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.pkitesting.CertificateBuilder;
+import io.netty.pkitesting.X509Bundle;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -140,9 +141,15 @@ public class QuarkusWebTransportSampleApp {
       keyPath = keyFile.getAbsolutePath();
       certPath = certFile.getAbsolutePath();
     } else {
-      SelfSignedCertificate cert = new SelfSignedCertificate();
-      keyPath = cert.privateKey().getAbsolutePath();
-      certPath = cert.certificate().getAbsolutePath();
+      X509Bundle cert =
+          new CertificateBuilder()
+              .subject("CN=localhost")
+              .setIsCertificateAuthority(true)
+              .addSanDnsName("localhost")
+              .rsa2048()
+              .buildSelfSigned();
+      keyPath = cert.toTempPrivateKeyPem().getAbsolutePath();
+      certPath = cert.toTempCertChainPem().getAbsolutePath();
     }
 
     // Simulate CDI discovery of @WebTransportEndpoint annotated beans

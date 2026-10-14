@@ -47,7 +47,6 @@ import io.netty.handler.codec.quic.QuicSslEngine;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
-import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -90,11 +89,10 @@ import org.slf4j.LoggerFactory;
  * Dispatching occurs directly on Netty's EventLoop for zero-GC high throughput.
  *
  *
- * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, generated
- * certificate, and dynamically created traffic shaper) stay local until {@code
- * publishIfStillStarting}. If {@link #stop()} wins first, it returns {@code STOPPED} before those
- * objects exist; {@code doStart} then discards them itself. The epoch is not enough on its own — it
- * only prevents publishing.
+ * <p>Startup resources (event-loop group, bound channel, TLS watcher, shutdown hook, and
+ * dynamically created traffic shaper) stay local until {@code publishIfStillStarting}. If
+ * {@link #stop()} wins first, it returns {@code STOPPED} before those objects exist; {@code doStart}
+ * then discards them itself. The epoch is not enough on its own — it only prevents publishing.
  *
  * <p>The QUIC codec does not snapshot {@link QuicSslContext}. New handshakes call {@link
  * #newQuicSslEngine(QuicChannel)}, which reads the live {@link #activeSslContext} so certificate
@@ -250,7 +248,6 @@ public class WebTransportServer implements AutoCloseable {
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
-  private SelfSignedCertificate generatedCertificate;
 
   /**
    * Returns the SSL context used for <em>new</em> QUIC handshakes. Existing connections keep the
@@ -1041,17 +1038,6 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  private static final class SslContextBuildResult {
-    final QuicSslContext context;
-    final @Nullable SelfSignedCertificate generatedCertificate;
-
-    SslContextBuildResult(
-        QuicSslContext context, @Nullable SelfSignedCertificate generatedCertificate) {
-      this.context = context;
-      this.generatedCertificate = generatedCertificate;
-    }
-  }
-
   private void doStart(long epoch) throws Exception {
     if (defaultHandler == null) {
       throw new IllegalStateException(
@@ -1081,7 +1067,6 @@ public class WebTransportServer implements AutoCloseable {
     List<Channel> newChannels = null;
     TlsCertificateWatcher newWatcher = null;
     GlobalTrafficShapingHandler createdShaper = null;
-    SelfSignedCertificate generatedCert = null;
     QuicSslContext previousActiveSslContext = this.activeSslContext;
     boolean startupSslContextInstalled = false;
     boolean published = false;
@@ -1101,9 +1086,7 @@ public class WebTransportServer implements AutoCloseable {
         createdShaper = shaper;
       }
 
-      SslContextBuildResult sslResult = buildSslContext();
-      QuicSslContext sslCtx = sslResult.context;
-      generatedCert = sslResult.generatedCertificate;
+      QuicSslContext sslCtx = buildSslContext();
       this.activeSslContext = sslCtx;
       startupSslContextInstalled = true;
 
@@ -1176,7 +1159,7 @@ public class WebTransportServer implements AutoCloseable {
 
       published =
           publishIfStillStarting(
-              epoch, newGroup, newChannel, newChannels, newWatcher, shaper, generatedCert);
+              epoch, newGroup, newChannel, newChannels, newWatcher, shaper);
       if (!published) {
         throw new IllegalStateException("Server start aborted because shutdown was requested");
       }
@@ -1193,7 +1176,6 @@ public class WebTransportServer implements AutoCloseable {
             newGroup,
             newWatcher,
             createdShaper,
-            generatedCert,
             previousActiveSslContext,
             startupSslContextInstalled);
       }
@@ -1217,8 +1199,7 @@ public class WebTransportServer implements AutoCloseable {
       Channel newChannel,
       @Nullable List<Channel> newChannels,
       TlsCertificateWatcher newWatcher,
-      GlobalTrafficShapingHandler shaper,
-      SelfSignedCertificate generatedCert) {
+      GlobalTrafficShapingHandler shaper) {
     Thread hook =
         new Thread(
             () -> {
@@ -1250,10 +1231,8 @@ public class WebTransportServer implements AutoCloseable {
       }
       this.tlsWatcher = newWatcher;
       this.trafficShaper = shaper;
-      if (generatedCert != null) {
-        this.generatedCertificate = generatedCert;
-      }
       state.set(ServerState.STARTED);
+      UdpErrorMetricsPoller.register(this, this::getMetricsListener);
       return true;
     }
   }
@@ -1268,7 +1247,6 @@ public class WebTransportServer implements AutoCloseable {
       @Nullable EventLoopGroup newGroup,
       @Nullable TlsCertificateWatcher newWatcher,
       @Nullable GlobalTrafficShapingHandler createdShaper,
-      @Nullable SelfSignedCertificate generatedCert,
       @Nullable QuicSslContext previousActiveSslContext,
       boolean startupSslContextInstalled) {
     if (newChannels != null && !newChannels.isEmpty()) {
@@ -1288,16 +1266,6 @@ public class WebTransportServer implements AutoCloseable {
       }
       if (this.trafficShaper == createdShaper) {
         this.trafficShaper = null;
-      }
-    }
-    if (generatedCert != null) {
-      try {
-        generatedCert.delete();
-      } catch (Exception e) {
-        logger.debug("Failed to delete unpublished generated certificate", e);
-      }
-      if (this.generatedCertificate == generatedCert) {
-        this.generatedCertificate = null;
       }
     }
     if (startupSslContextInstalled) {
@@ -1656,7 +1624,12 @@ public class WebTransportServer implements AutoCloseable {
 
     if (auto || requestIoUring) {
       try {
-        Class<?> ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+        Class<?> ioUringClass;
+        try {
+          ioUringClass = Class.forName("io.netty.channel.uring.IoUring");
+        } catch (ClassNotFoundException e) {
+          ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+        }
         Method isAvailableMethod = ioUringClass.getMethod("isAvailable");
         boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
         if (!isAvailable) {
@@ -1665,14 +1638,26 @@ public class WebTransportServer implements AutoCloseable {
                 "IOUring transport was explicitly requested but is not available");
           }
         } else {
-          Class<?> ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+          Class<?> ioHandlerClass;
+          try {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IoUringIoHandler");
+          } catch (ClassNotFoundException e) {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+          }
           Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
           ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
 
           @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz =
-              (Class<? extends Channel>)
-                  Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          Class<? extends Channel> clazz;
+          try {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IoUringDatagramChannel");
+          } catch (ClassNotFoundException e) {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          }
           channelClass = clazz;
           logger.info("Using IOUring native transport");
         }
@@ -1842,7 +1827,7 @@ public class WebTransportServer implements AutoCloseable {
     return null;
   }
 
-  private @NonNull SslContextBuildResult buildSslContext() throws Exception {
+  private @NonNull QuicSslContext buildSslContext() throws Exception {
     if (this.sslContext != null) {
       if (clientAuthMode != null
           || resolveClientAuthMode() != ClientAuthMode.NONE
@@ -1855,7 +1840,7 @@ public class WebTransportServer implements AutoCloseable {
             "Configure client authentication and trust on the supplied sslContext; "
                 + "server clientAuth/trustManager settings cannot modify it");
       }
-      return new SslContextBuildResult(this.sslContext, null);
+      return this.sslContext;
     }
     String keyPath =
         this.sslKeyPath != null
@@ -1866,71 +1851,45 @@ public class WebTransportServer implements AutoCloseable {
             ? this.sslCertPath
             : WebTransportConfig.get("webtransport4j.ssl.cert.path", null);
 
-    boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
-
-    File keyFile;
-    File certFile;
-    SelfSignedCertificate generated = null;
-
-    if ((keyPath == null) != (certPath == null)) {
+    if (keyPath == null || certPath == null) {
       throw new IllegalStateException(
-          "Both SSL key path and certificate path must be configured together.");
-    }
-
-    if (keyPath != null) {
-      keyFile = new File(keyPath);
-      certFile = new File(certPath);
-
-      if (!keyFile.isFile() || !keyFile.canRead()) {
-        throw new IllegalStateException(
-            "SSL private key does not exist, is not a regular file, or is unreadable: "
-                + keyFile.getAbsolutePath());
-      }
-
-      if (!certFile.isFile() || !certFile.canRead()) {
-        throw new IllegalStateException(
-            "SSL certificate does not exist, is not a regular file, or is unreadable: "
-                + certFile.getAbsolutePath());
-      }
-    } else if (devMode) {
-      logger.warn(
-          "!!! WARNING !!! WEBTRANSPORT4J DEVELOPMENT MODE IS ENABLED. A self-signed TLS"
-              + " certificate will be generated. Do not use this configuration in production."
-              + " Configure webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path. !!!"
-              + " WARNING !!!");
-
-      generated = new SelfSignedCertificate("localhost");
-      keyFile = generated.privateKey();
-      certFile = generated.certificate();
-    } else {
-      throw new IllegalStateException(
-          "SSL key path and certificate path must be configured for production. "
+          "SSL private key path and certificate path must be configured. "
               + "Set webtransport4j.ssl.key.path and webtransport4j.ssl.cert.path, "
-              + "or enable webtransport4j.dev_mode=true for local development.");
+              + "or supply an explicit QuicSslContext via sslContext(...).");
     }
 
-    try {
-      long sessionTimeout =
-          WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
-      long sessionCacheSize =
-          WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
-      QuicSslContextBuilder sslBuilder =
-          QuicSslContextBuilder.forServer(keyFile, null, certFile)
-              .applicationProtocols(Http3.supportedApplicationProtocols());
-      if (sessionTimeout > 0) {
-        sslBuilder.sessionTimeout(sessionTimeout);
-      }
-      if (sessionCacheSize > 0) {
-        sslBuilder.sessionCacheSize(sessionCacheSize);
-      }
-      applyClientAuthAndTrust(sslBuilder);
-      QuicSslContext resolvedSslCtx = sslBuilder.build();
-      applySessionTicketKeys(resolvedSslCtx);
-      return new SslContextBuildResult(resolvedSslCtx, generated);
-    } catch (Exception | Error e) {
-      deleteGeneratedCertificateQuietly(generated, "failed TLS startup");
-      throw e;
+    File keyFile = new File(keyPath);
+    File certFile = new File(certPath);
+
+    if (!keyFile.isFile() || !keyFile.canRead()) {
+      throw new IllegalStateException(
+          "SSL private key does not exist, is not a regular file, or is unreadable: "
+              + keyFile.getAbsolutePath());
     }
+
+    if (!certFile.isFile() || !certFile.canRead()) {
+      throw new IllegalStateException(
+          "SSL certificate does not exist, is not a regular file, or is unreadable: "
+              + certFile.getAbsolutePath());
+    }
+
+    long sessionTimeout =
+        WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
+    long sessionCacheSize =
+        WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
+    QuicSslContextBuilder sslBuilder =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols());
+    if (sessionTimeout > 0) {
+      sslBuilder.sessionTimeout(sessionTimeout);
+    }
+    if (sessionCacheSize > 0) {
+      sslBuilder.sessionCacheSize(sessionCacheSize);
+    }
+    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContext resolvedSslCtx = sslBuilder.build();
+    applySessionTicketKeys(resolvedSslCtx);
+    return resolvedSslCtx;
   }
 
   private ClientAuthMode resolveClientAuthMode() {
@@ -2476,7 +2435,6 @@ public class WebTransportServer implements AutoCloseable {
           // close() owns and must release a caller-supplied shaper even if start() never ran.
           releaseTrafficShaperSafely();
           this.activeSslContext = null;
-          deleteGeneratedCertificate();
           state.set(ServerState.CLOSED);
         }
         lifecycleLock.notifyAll();
@@ -2491,7 +2449,6 @@ public class WebTransportServer implements AutoCloseable {
           }
           releaseTrafficShaperSafely();
           this.activeSslContext = null;
-          deleteGeneratedCertificate();
           state.set(ServerState.CLOSED);
           lifecycleLock.notifyAll();
         } else {
@@ -2500,6 +2457,7 @@ public class WebTransportServer implements AutoCloseable {
         return;
       }
       state.set(ServerState.STOPPING);
+      UdpErrorMetricsPoller.unregister(this);
     }
     try {
       for (QuicChannel connection : connections) {
@@ -2588,7 +2546,6 @@ public class WebTransportServer implements AutoCloseable {
       }
       this.activeSslContext = null;
       unregisterServerInstanceSafely();
-      deleteGeneratedCertificate();
       logger.info("WebTransport server stopped successfully.");
     } finally {
       EventLoopSafety.requireBlockingAllowed();
@@ -2621,23 +2578,6 @@ public class WebTransportServer implements AutoCloseable {
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         return;
-      }
-    }
-  }
-
-  private void deleteGeneratedCertificate() {
-    SelfSignedCertificate ssc = this.generatedCertificate;
-    this.generatedCertificate = null;
-    deleteGeneratedCertificateQuietly(ssc, "server shutdown");
-  }
-
-  private static void deleteGeneratedCertificateQuietly(
-      @Nullable SelfSignedCertificate certificate, String reason) {
-    if (certificate != null) {
-      try {
-        certificate.delete();
-      } catch (Exception e) {
-        logger.debug("Failed to delete generated self-signed certificate during {}", reason, e);
       }
     }
   }
