@@ -19,6 +19,7 @@ public class WebTransportConfigTest {
   @Before
   @After
   public void cleanup() {
+    WebTransportConfig.clearProgrammaticProperties();
     System.clearProperty("test.math.key");
     System.clearProperty("test.string.key");
     System.clearProperty("webtransport4j.quic.token.handler.hmac.key");
@@ -233,5 +234,88 @@ public class WebTransportConfigTest {
     assertEquals(
         "FALLBACK_VALUE",
         WebTransportConfig.get("test.sample.custom.key", "FALLBACK_VALUE"));
+  }
+
+  @Test
+  public void testProgrammaticPropertiesIsolationFromReload() {
+    WebTransportConfig.setProperty(
+        "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "555");
+    try {
+      assertEquals(
+          555,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+      // Reload must NOT wipe out programmatic properties
+      boolean reloaded = WebTransportConfig.reload();
+      org.junit.Assert.assertFalse(reloaded);
+      assertEquals(
+          555,
+          WebTransportConfig.getInt(
+              "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
+    } finally {
+      WebTransportConfig.removeProperty(
+          "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
+    }
+  }
+
+  @Test
+  public void testDynamicOverridesProfile() throws Exception {
+    File dynamicFile = new File("webtransport-dynamic.properties");
+    Files.write(
+        dynamicFile.toPath(),
+        Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=12345"));
+    try {
+      WebTransportConfig.reload();
+      assertEquals(
+          12345,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+    } finally {
+      if (dynamicFile.exists()) {
+        dynamicFile.delete();
+      }
+      WebTransportConfig.reload();
+    }
+  }
+
+  @Test
+  public void testReloadSkipsUntouchedAndCommentOnlyChanges() throws Exception {
+    File dynamicFile = new File("webtransport-dynamic.properties");
+    try {
+      // 1. Initial write
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=9999"));
+      assertTrue(WebTransportConfig.reload());
+      assertEquals(
+          9999,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+
+      // 2. Untouched: parsed properties are identical, reload returns false
+      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+
+      // 3. Semantic check: modify file by adding comments only
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList(
+              "# This is a harmless comment",
+              "webtransport4j.server.ratelimit.max_tracked_ips=9999",
+              "# Another comment"));
+      // Parsed properties are identical -> returns false without publishing
+      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+
+      // 4. Semantic change: modify value
+      Files.write(
+          dynamicFile.toPath(),
+          Arrays.asList("webtransport4j.server.ratelimit.max_tracked_ips=8888"));
+      assertTrue(WebTransportConfig.reload());
+      assertEquals(
+          8888,
+          WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
+    } finally {
+      if (dynamicFile.exists()) {
+        dynamicFile.delete();
+      }
+      WebTransportConfig.reload();
+    }
   }
 }
