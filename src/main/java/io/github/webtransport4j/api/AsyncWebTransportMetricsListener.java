@@ -190,6 +190,11 @@ public final class AsyncWebTransportMetricsListener
   }
 
   @Override
+  public void onSessionRejected(@NonNull String reason) {
+    dispatch(() -> delegate.onSessionRejected(reason));
+  }
+
+  @Override
   public void close() {
     EventLoopSafety.requireBlockingAllowed();
     closed = 1;
