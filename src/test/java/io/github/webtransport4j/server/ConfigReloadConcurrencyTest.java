@@ -47,8 +47,14 @@ public class ConfigReloadConcurrencyTest {
       assertEquals("20", WebTransportConfig.get(prefix + "max_tracked_ips", null));
     } finally {
       dynamic.set(null, original);
+      WebTransportConfig.removeProperty(prefix + "max_tracked_ips");
       IpRateLimitingHandler.resetForTest();
     }
+  }
+
+  @org.junit.After
+  public void tearDown() {
+    WebTransportConfig.clearProgrammaticProperties();
   }
 
   @Test
