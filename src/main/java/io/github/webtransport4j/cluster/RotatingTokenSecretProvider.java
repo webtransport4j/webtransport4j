@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -15,10 +16,25 @@ import org.jspecify.annotations.NonNull;
  */
 public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider {
 
+  private static final class SecretSnapshot {
+    final byte[] activeSecret;
+    final List<byte[]> validationSecrets;
+
+    SecretSnapshot(byte[] activeSecret, Deque<byte[]> historicalSecrets) {
+      this.activeSecret = Arrays.copyOf(activeSecret, activeSecret.length);
+      final List<byte[]> list = new ArrayList<>(1 + historicalSecrets.size());
+      list.add(Arrays.copyOf(activeSecret, activeSecret.length));
+      for (byte[] hist : historicalSecrets) {
+        list.add(Arrays.copyOf(hist, hist.length));
+      }
+      this.validationSecrets = Collections.unmodifiableList(list);
+    }
+  }
+
   private final Object lock = new Object();
   private final int maxHistoricalSecrets;
-  private byte[] activeSecret;
   private final Deque<byte[]> historicalSecrets = new ArrayDeque<>();
+  private final AtomicReference<SecretSnapshot> snapshot;
 
   /**
    * Constructs a rotating secret provider with an initial secret and default history limit (3).
@@ -43,8 +59,9 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
     if (maxHistoricalSecrets < 0) {
       throw new IllegalArgumentException("maxHistoricalSecrets must be >= 0: " + maxHistoricalSecrets);
     }
-    this.activeSecret = Arrays.copyOf(initialSecret, initialSecret.length);
     this.maxHistoricalSecrets = maxHistoricalSecrets;
+    this.snapshot =
+        new AtomicReference<>(new SecretSnapshot(initialSecret, historicalSecrets));
   }
 
   /**
@@ -59,34 +76,30 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
     }
     EventLoopSafety.requireBlockingAllowed();
     synchronized (lock) {
+      byte[] currentActive = snapshot.get().activeSecret;
       if (maxHistoricalSecrets > 0) {
-        historicalSecrets.addFirst(this.activeSecret);
+        historicalSecrets.addFirst(currentActive);
         while (historicalSecrets.size() > maxHistoricalSecrets) {
           historicalSecrets.removeLast();
         }
       }
-      this.activeSecret = Arrays.copyOf(newSecret, newSecret.length);
+      this.snapshot.set(new SecretSnapshot(newSecret, historicalSecrets));
     }
   }
 
   @Override
   public byte @NonNull [] getActiveSecret() {
-    EventLoopSafety.requireBlockingAllowed();
-    synchronized (lock) {
-      return Arrays.copyOf(activeSecret, activeSecret.length);
-    }
+    byte[] active = snapshot.get().activeSecret;
+    return Arrays.copyOf(active, active.length);
   }
 
   @Override
   public @NonNull List<byte[]> getValidationSecrets() {
-    EventLoopSafety.requireBlockingAllowed();
-    synchronized (lock) {
-      final List<byte[]> list = new ArrayList<>(1 + historicalSecrets.size());
-      list.add(Arrays.copyOf(activeSecret, activeSecret.length));
-      for (byte[] hist : historicalSecrets) {
-        list.add(Arrays.copyOf(hist, hist.length));
-      }
-      return Collections.unmodifiableList(list);
+    List<byte[]> source = snapshot.get().validationSecrets;
+    List<byte[]> copy = new ArrayList<>(source.size());
+    for (byte[] secret : source) {
+      copy.add(Arrays.copyOf(secret, secret.length));
     }
+    return Collections.unmodifiableList(copy);
   }
 }
