@@ -65,6 +65,7 @@ public class WebTransportServerBuilder {
   private Boolean strictOriginValidation;
   private Integer socketCount;
   private ByteBufAllocator byteBufAllocator;
+  private Integer capsuleMaxLength;
 
   public WebTransportServerBuilder() {}
 
@@ -246,6 +247,13 @@ public class WebTransportServerBuilder {
   public @NonNull WebTransportServerBuilder metricsListener(
       @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
+    return this;
+  }
+
+  /** Sets the maximum allowed capsule length in bytes. */
+  public @NonNull WebTransportServerBuilder capsuleMaxLength(
+      @Nullable Integer capsuleMaxLength) {
+    this.capsuleMaxLength = capsuleMaxLength;
     return this;
   }
 
@@ -581,6 +589,10 @@ public class WebTransportServerBuilder {
 
   Boolean getStrictOriginValidation() {
     return strictOriginValidation;
+  }
+
+  Integer getCapsuleMaxLength() {
+    return capsuleMaxLength;
   }
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */
