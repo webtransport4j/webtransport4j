@@ -276,6 +276,9 @@ public class ClusterNodeSample {
     healthHttpServer.createContext(
         "/api/node/info",
         exchange -> {
+          if (!isAuthorized(exchange, managementToken)) {
+            return;
+          }
           Runtime rt = Runtime.getRuntime();
           long totalMem = rt.totalMemory();
           long freeMem = rt.freeMemory();
@@ -405,6 +408,9 @@ public class ClusterNodeSample {
     healthHttpServer.createContext(
         "/api/node/sessions",
         exchange -> {
+          if (!isAuthorized(exchange, managementToken)) {
+            return;
+          }
           StringBuilder sb = new StringBuilder();
           sb.append("{\"sessions\":[");
           boolean firstSess = true;

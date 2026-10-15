@@ -80,10 +80,18 @@ spec:
                 secretKeyRef:
                   name: webtransport4j-cluster-secret
                   key: CLUSTER_HMAC_KEY
+            - name: SSL_KEY_PATH
+              value: "/etc/webtransport/certs/tls.key"
+            - name: SSL_CERT_PATH
+              value: "/etc/webtransport/certs/tls.crt"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://otel-collector.webtransport-prod.svc.cluster.local:4318/v1/metrics"
             - name: JAVA_OPTS
               value: "-XX:+UseZGC -XX:MaxRAMPercentage=75.0 -XX:+ExitOnOutOfMemoryError -Dio.netty.leakDetection.level=SIMPLE -Dio.netty.allocator.type=pooled"
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/webtransport/certs
+              readOnly: true
           resources:
             requests:
               cpu: 500m
@@ -108,6 +116,10 @@ spec:
             timeoutSeconds: 2
             successThreshold: 1
             failureThreshold: 2
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: webtransport4j-tls-secret
 ---
 apiVersion: v1
 kind: Service

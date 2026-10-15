@@ -70,4 +70,43 @@ public class NodeManagementSecurityTest {
   public void missingSecretFailsClosed() {
     ClusterNodeSample.requireSecret("WT4J_TEST_SECRET_THAT_IS_NOT_CONFIGURED");
   }
+
+  @Test
+  public void requiresTokenForNodeInfoAndSessions() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    for (String path : new String[] {"/api/node/info", "/api/node/sessions"}) {
+      server.createContext(path, exchange -> {
+        if (!ClusterNodeSample.isAuthorized(exchange, "test-secret")) {
+          return;
+        }
+        byte[] resp = "{\"status\":\"ok\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(200, resp.length);
+        try (java.io.OutputStream os = exchange.getResponseBody()) {
+          os.write(resp);
+        }
+      });
+    }
+    server.start();
+    try {
+      for (String path : new String[] {"/api/node/info", "/api/node/sessions"}) {
+        HttpURLConnection connection = open(server, path);
+        assertEquals(401, connection.getResponseCode());
+        assertEquals("Bearer", connection.getHeaderField("WWW-Authenticate"));
+        connection.disconnect();
+
+        connection = open(server, path);
+        connection.setRequestProperty("Authorization", "Bearer invalid-token");
+        assertEquals(401, connection.getResponseCode());
+        connection.disconnect();
+
+        connection = open(server, path);
+        connection.setRequestProperty("Authorization", "Bearer test-secret");
+        assertEquals(200, connection.getResponseCode());
+        connection.disconnect();
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
 }
