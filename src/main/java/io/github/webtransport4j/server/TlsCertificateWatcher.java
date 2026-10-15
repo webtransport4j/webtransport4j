@@ -164,6 +164,21 @@ public class TlsCertificateWatcher {
         QuicSslContextBuilder sslBuilder =
             QuicSslContextBuilder.forServer(keyFile, null, certFile)
                 .applicationProtocols(Http3.supportedApplicationProtocols());
+        long sessionTimeout =
+            WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
+        long sessionCacheSize =
+            WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
+        boolean earlyData =
+            WebTransportConfig.getBoolean("webtransport4j.quic.early.data.enabled", false);
+        if (earlyData) {
+          sslBuilder.earlyData(true);
+        }
+        if (sessionTimeout > 0) {
+          sslBuilder.sessionTimeout(sessionTimeout);
+        }
+        if (sessionCacheSize > 0) {
+          sslBuilder.sessionCacheSize(sessionCacheSize);
+        }
         if (sslCustomizer != null) {
           sslCustomizer.accept(sslBuilder);
         }
