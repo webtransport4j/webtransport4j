@@ -2,6 +2,7 @@ package io.github.webtransport4j.api;
 
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.await;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import io.github.webtransport4j.concurrency.ConcurrencySupport;
 import java.util.concurrent.CountDownLatch;
@@ -75,6 +76,30 @@ public class MetricsConcurrencyTest {
     } finally {
       release.countDown();
       caller.shutdownNow();
+      listener.close();
+    }
+  }
+
+  @Test(timeout = 10000)
+  public void onSessionRejectedDelegatesAsync() throws Exception {
+    CountDownLatch latch = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicReference<String> receivedReason =
+        new java.util.concurrent.atomic.AtomicReference<>();
+    AsyncWebTransportMetricsListener listener =
+        new AsyncWebTransportMetricsListener(
+            new io.github.webtransport4j.concurrency.MetricsAdapter() {
+              @Override
+              public void onSessionRejected(String reason) {
+                receivedReason.set(reason);
+                latch.countDown();
+              }
+            },
+            10);
+    try {
+      listener.onSessionRejected("rate_limited");
+      assertTrue(latch.await(5, TimeUnit.SECONDS));
+      assertEquals("rate_limited", receivedReason.get());
+    } finally {
       listener.close();
     }
   }
