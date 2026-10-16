@@ -23,7 +23,7 @@ public class AdaptiveCircuitBreaker {
     CLOSED,
     /** Tripped open; requests are shed immediately. */
     OPEN,
-    /** Testing recovery; only the caller that transitions from OPEN runs a probe. */
+    /** Testing recovery; a probe may be replaced after the reset timeout if still incomplete. */
     HALF_OPEN
   }
 
@@ -61,7 +61,8 @@ public class AdaptiveCircuitBreaker {
    * Constructs a circuit breaker with specified failure threshold and cool-off timeout.
    *
    * @param failureThreshold consecutive failures before tripping open
-   * @param resetTimeoutMillis milliseconds to wait in OPEN state before transitioning to HALF_OPEN
+   * @param resetTimeoutMillis milliseconds before an OPEN circuit or an incomplete HALF_OPEN probe
+   *     permits a new recovery probe
    */
   public AdaptiveCircuitBreaker(int failureThreshold, long resetTimeoutMillis) {
     if (failureThreshold <= 0) {
@@ -78,7 +79,8 @@ public class AdaptiveCircuitBreaker {
    * Evaluates if a request is permitted to proceed according to the breaker state.
    *
    * <p>After the cool-off period, only the caller that transitions OPEN to HALF_OPEN is
-   * permitted. That caller must record success or failure before another probe can run.
+   * permitted. In HALF_OPEN, an atomic timestamp update permits a replacement probe after the
+   * reset timeout if the earlier probe has not recorded success or failure.
    *
    * @return true if execution is permitted
    */

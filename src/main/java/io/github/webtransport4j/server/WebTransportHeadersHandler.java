@@ -48,6 +48,15 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public WebTransportHeadersHandler() {}
 
+  /**
+   * Validates request headers and handles admission for WebTransport CONNECT sessions.
+   *
+   * <p>Reports handshake success after the response is written, or failure when a pending session
+   * closes, the application rejects it, or writing the response fails.
+   *
+   * @param ctx context of the HTTP/3 request stream
+   * @param frame incoming request headers
+   */
   @Override
   protected void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Http3HeadersFrame frame) {
     if (logger.isDebugEnabled()) {

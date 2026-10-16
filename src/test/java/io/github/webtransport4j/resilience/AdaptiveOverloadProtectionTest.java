@@ -213,6 +213,9 @@ public class AdaptiveOverloadProtectionTest {
     assertTrue(policy.tryAcquire(5).isAdmitted());
   }
 
+  /**
+   * Verifies that heap utilization stays within the supported admission threshold range.
+   */
   @Test
   public void testCalculateHeapUsageRatioValidRange() {
     double ratio = AdaptiveOverloadProtectionPolicy.calculateHeapUsageRatio();
@@ -220,6 +223,11 @@ public class AdaptiveOverloadProtectionTest {
     assertTrue("Heap ratio must be <= 1.0", ratio <= 1.0);
   }
 
+  /**
+   * Verifies that a failed handshake reopens a half-open circuit and a later probe can recover.
+   *
+   * @throws Exception if the test cannot expire the circuit breaker's cool-off timestamp
+   */
   @Test
   public void testHalfOpenProbeFailureReturnsToOpenAndRecovers() throws Exception {
     final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 20L);
@@ -245,6 +253,11 @@ public class AdaptiveOverloadProtectionTest {
     assertEquals(AdaptiveCircuitBreaker.State.CLOSED, breaker.getState());
   }
 
+  /**
+   * Verifies that an incomplete probe permits a replacement after the reset timeout, then recovers.
+   *
+   * @throws Exception if the test cannot expire the circuit breaker's cool-off timestamp
+   */
   @Test
   public void testHalfOpenStalledProbeTimeoutAllowsNewProbe() throws Exception {
     final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 50L);
