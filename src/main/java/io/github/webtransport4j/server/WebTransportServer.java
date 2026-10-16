@@ -164,7 +164,6 @@ public class WebTransportServer implements AutoCloseable {
 
   private final AtomicInteger globalActiveSessions = new AtomicInteger(0);
   private final AtomicInteger globalSessionSlots = new AtomicInteger(0);
-  private final Set<QuicChannel> activeQuicChannels = ConcurrentHashMap.newKeySet();
 
   private volatile WebTransportMetricsListener metricsListener =
       NoOpWebTransportMetricsListener.INSTANCE;
@@ -895,18 +894,6 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns the number of active WebTransport sessions across all QUIC connections. */
   public int getActiveSessionsCount() {
     return getActiveSessionCount();
-  }
-
-  void registerQuicChannel(@Nullable QuicChannel ch) {
-    if (ch != null) {
-      activeQuicChannels.add(ch);
-    }
-  }
-
-  void unregisterQuicChannel(@Nullable QuicChannel ch) {
-    if (ch != null) {
-      activeQuicChannels.remove(ch);
-    }
   }
 
   /**
