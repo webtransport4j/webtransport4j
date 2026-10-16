@@ -141,6 +141,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
     when(mockStream.isActive()).thenReturn(true);
     when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
@@ -181,6 +182,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
     when(mockStream.isActive()).thenReturn(true);
     when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
@@ -217,6 +219,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
     when(mockStream.isActive()).thenReturn(true);
     when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 
@@ -244,6 +247,10 @@ public class CloseSessionCapsuleTest {
     frameCaptor.getValue().release();
   }
 
+  /**
+   * Tests that invalid out-of-range close error codes throw an exception
+   * without altering the session state or closing the session.
+   */
   @Test
   public void testSessionCloseRejectsOutOfRangeCodesWithoutModifyingState() {
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -283,6 +290,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
     when(mockStream.newPromise()).thenReturn(mock(ChannelPromise.class));
 
     DefaultWebTransportSession session =
@@ -309,6 +317,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
 
     DefaultWebTransportSession session =
         new DefaultWebTransportSession(
@@ -344,6 +353,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
     when(mockStream.isActive()).thenReturn(true);
     when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
 

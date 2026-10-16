@@ -114,6 +114,7 @@ public class Draft16Section3SessionEstablishmentTest {
     when(mockConnectStream.streamId()).thenReturn(0L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
     when(mockConnectStream.attr(any())).thenAnswer(inv -> streamAttrMap.attr(inv.getArgument(0)));
