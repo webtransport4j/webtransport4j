@@ -142,4 +142,23 @@ public class SpringWebTransportIntegrationTest {
       context.close();
     }
   }
+
+  /** Sample explicit default endpoint for testing precedence. */
+  @WebTransportEndpoint(path = "/default", isDefault = true)
+  @Component
+  public static class ExplicitDefaultEndpoint implements WebTransportHandler {}
+
+  @Test
+  public void testExplicitDefaultEndpointNotOverwrittenByUnannotatedHandler() {
+    AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+    WebTransportHandler fallback = new WebTransportHandler() {};
+    context.getBeanFactory().registerSingleton("fallbackHandler", fallback);
+    context.register(WebTransportAutoConfiguration.class, ExplicitDefaultEndpoint.class);
+    context.refresh();
+
+    WebTransportServer server = context.getBean(WebTransportServer.class);
+    WebTransportHandler resolved = server.getHandler("/unmatched");
+    Assert.assertTrue(resolved instanceof ExplicitDefaultEndpoint);
+    context.close();
+  }
 }
