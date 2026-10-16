@@ -11,6 +11,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -82,6 +83,24 @@ public class IpRateLimitingHandlerTest {
     simulateConnection("1.1.1.1");
     verify(ctx, times(2)).fireChannelActive();
     verify(ctx, times(1)).close(); // Connection is closed
+  }
+
+  @Test
+  public void testDefaultHandlerEnforcesConfiguredBackendAfterReplacement() throws Exception {
+    RateLimitBackend original = IpRateLimitingHandler.getBackend();
+    RateLimitBackend custom = mock(RateLimitBackend.class);
+    try {
+      IpRateLimitingHandler.setBackend(custom);
+      when(custom.incrementAndGet(
+          org.mockito.ArgumentMatchers.eq("1.1.1.1"),
+          org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.anyInt())).thenReturn(3);
+      simulateConnection("1.1.1.1");
+      verify(ctx).close();
+      verify(ctx, never()).fireChannelActive();
+    } finally {
+      IpRateLimitingHandler.setBackend(original);
+    }
   }
 
   @Test

@@ -14,6 +14,7 @@ import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.resilience.UdpSocketTuner;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
+import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
@@ -62,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -182,6 +184,9 @@ public class WebTransportServer implements AutoCloseable {
       new WeakHashMap<>();
   private static final Object SERVER_INSTANCES_LOCK = new Object();
   private static final AtomicInteger ACTIVE_SERVER_INSTANCES = new AtomicInteger(0);
+  /** Guarded by {@link #SERVER_INSTANCES_LOCK}; ownership is per server, even for shared handlers. */
+  private static final Map<WebTransportServer, IpRateLimitingHandler> ACTIVE_RATE_LIMIT_HANDLERS =
+      new IdentityHashMap<>();
 
   /** Guarded by {@link #SERVER_INSTANCES_LOCK}. */
   private boolean instanceCounted;
@@ -248,6 +253,7 @@ public class WebTransportServer implements AutoCloseable {
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
+  private final IpRateLimitingHandler ipRateLimitingHandler;
 
   /**
    * Returns the SSL context used for <em>new</em> QUIC handshakes. Existing connections keep the
@@ -302,6 +308,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer(WebTransportHandler defaultHandler) {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.ipRateLimitingHandler = new IpRateLimitingHandler();
     this.configuredCapsuleMaxLength = null;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
@@ -311,6 +318,7 @@ public class WebTransportServer implements AutoCloseable {
   public WebTransportServer() {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
+    this.ipRateLimitingHandler = new IpRateLimitingHandler();
     this.configuredCapsuleMaxLength = null;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
@@ -319,6 +327,10 @@ public class WebTransportServer implements AutoCloseable {
   /** Constructs a WebTransportServer using a {@link WebTransportServerBuilder}. */
   public WebTransportServer(@NonNull WebTransportServerBuilder builder) {
     Objects.requireNonNull(builder, "builder");
+    if (builder.getIpRateLimitingHandler() != null && builder.getRateLimitBackend() != null) {
+      throw new IllegalArgumentException(
+          "Configure either ipRateLimitingHandler or rateLimitBackend, not both");
+    }
     this.byteBufAllocator =
         resolveByteBufAllocator(builder.getByteBufAllocator());
     this.configuredSocketCount = builder.getSocketCount();
@@ -353,6 +365,14 @@ public class WebTransportServer implements AutoCloseable {
     this.originValidator = builder.getOriginValidator();
     this.strictOriginValidation = builder.getStrictOriginValidation();
 
+    if (builder.getIpRateLimitingHandler() != null) {
+      this.ipRateLimitingHandler = builder.getIpRateLimitingHandler();
+    } else if (builder.getRateLimitBackend() != null) {
+      this.ipRateLimitingHandler = new IpRateLimitingHandler(builder.getRateLimitBackend());
+    } else {
+      this.ipRateLimitingHandler = new IpRateLimitingHandler();
+    }
+
     if (builder.getMetricsListener() != null) {
       this.metricsListener = isolateMetricsListener(builder.getMetricsListener());
     }
@@ -369,6 +389,11 @@ public class WebTransportServer implements AutoCloseable {
       this.defaultHandler = this.handlers.getOrDefault("/", NO_OP_HANDLER);
       this.handlers.putIfAbsent("/", this.defaultHandler);
     }
+  }
+
+  /** Returns the IP rate limiting handler used by this server. */
+  public @NonNull IpRateLimitingHandler getIpRateLimitingHandler() {
+    return ipRateLimitingHandler;
   }
 
   /** Returns the configured maximum capsule length in bytes, or null if using default. */
@@ -636,6 +661,7 @@ public class WebTransportServer implements AutoCloseable {
     synchronized (SERVER_INSTANCES_LOCK) {
       if (!instanceCounted) {
         ACTIVE_SERVER_INSTANCES.incrementAndGet();
+        ACTIVE_RATE_LIMIT_HANDLERS.put(this, ipRateLimitingHandler);
         instanceCounted = true;
       }
     }
@@ -648,9 +674,18 @@ public class WebTransportServer implements AutoCloseable {
         return;
       }
       instanceCounted = false;
+      ACTIVE_RATE_LIMIT_HANDLERS.remove(this);
       if (ACTIVE_SERVER_INSTANCES.decrementAndGet() == 0) {
         IpRateLimitingHandler.stopReloader();
       }
+      RateLimitBackend backend = ipRateLimitingHandler.getEffectiveBackend();
+      for (IpRateLimitingHandler handler : ACTIVE_RATE_LIMIT_HANDLERS.values()) {
+        if (handler.getEffectiveBackend() == backend) {
+          // A shared backend can only be cleared when its last running owner stops.
+          return;
+        }
+      }
+      backend.clear();
     }
   }
 
@@ -2396,7 +2431,10 @@ public class WebTransportServer implements AutoCloseable {
     return "unknown";
   }
 
-  /** Stops the server gracefully. The instance remains restartable via {@link #start()}. */
+  /**
+   * Stops the server gracefully. The instance remains restartable via {@link #start()}.
+   * Rate limit state is cleared when the last running server using its backend stops.
+   */
   public void stop() {
     stop(5, TimeUnit.SECONDS);
   }

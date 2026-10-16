@@ -9,6 +9,7 @@ import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
 import io.github.webtransport4j.resilience.OverloadProtectionPolicy;
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
+import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.handler.codec.quic.QuicConnectionIdGenerator;
 import io.netty.handler.codec.quic.QuicSslContext;
@@ -65,6 +66,8 @@ public class WebTransportServerBuilder {
   private Boolean strictOriginValidation;
   private Integer socketCount;
   private ByteBufAllocator byteBufAllocator;
+  private IpRateLimitingHandler ipRateLimitingHandler;
+  private RateLimitBackend rateLimitBackend;
   private Integer capsuleMaxLength;
 
   public WebTransportServerBuilder() {}
@@ -587,11 +590,33 @@ public class WebTransportServerBuilder {
     return originValidator;
   }
 
+  /** Sets a custom {@link IpRateLimitingHandler}. */
+  public @NonNull WebTransportServerBuilder ipRateLimitingHandler(
+      @Nullable IpRateLimitingHandler ipRateLimitingHandler) {
+    this.ipRateLimitingHandler = ipRateLimitingHandler;
+    return this;
+  }
+
+  /** Sets a custom {@link RateLimitBackend}. */
+  public @NonNull WebTransportServerBuilder rateLimitBackend(
+      @Nullable RateLimitBackend rateLimitBackend) {
+    this.rateLimitBackend = rateLimitBackend;
+    return this;
+  }
+
   Boolean getStrictOriginValidation() {
     return strictOriginValidation;
   }
 
-  Integer getCapsuleMaxLength() {
+  @Nullable IpRateLimitingHandler getIpRateLimitingHandler() {
+    return ipRateLimitingHandler;
+  }
+
+  @Nullable RateLimitBackend getRateLimitBackend() {
+    return rateLimitBackend;
+  }
+
+  @Nullable Integer getCapsuleMaxLength() {
     return capsuleMaxLength;
   }
 

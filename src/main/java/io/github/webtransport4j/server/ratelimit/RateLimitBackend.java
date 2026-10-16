@@ -12,7 +12,8 @@ public interface RateLimitBackend {
    * @param ip the remote IP address
    * @param currentMinute current minute timestamp (System.currentTimeMillis() / 60000)
    * @param maxTrackedIps maximum number of tracked IP entries allowed in memory/backend
-   * @return the updated connection count for the IP in the current window
+   * @return the updated connection count for the IP in the current window, or {@link
+   *     Integer#MAX_VALUE} when a new IP cannot be admitted at capacity
    */
   int incrementAndGet(@NonNull String ip, long currentMinute, int maxTrackedIps);
 

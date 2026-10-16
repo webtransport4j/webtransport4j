@@ -79,7 +79,11 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
       ch.closeFuture().addListener(f -> connShaper.release());
     }
 
-    ch.pipeline().addFirst(IpRateLimitingHandler.INSTANCE);
+    IpRateLimitingHandler rateLimiter =
+        this.server != null && this.server.getIpRateLimitingHandler() != null
+            ? this.server.getIpRateLimitingHandler()
+            : IpRateLimitingHandler.INSTANCE;
+    ch.pipeline().addFirst(rateLimiter);
     if (logger.isDebugEnabled() || logger.isTraceEnabled()) {
       ch.pipeline().addFirst(QuicGlobalSniffer.GLOBAL);
     }
