@@ -1374,16 +1374,29 @@ public class WebTransportServer implements AutoCloseable {
     return host.trim();
   }
 
-  private @NonNull List<String> resolveAllowedOrigins() {
+  @NonNull List<String> resolveAllowedOrigins() {
     List<String> resolvedOrigins = this.allowedOrigins;
     if (resolvedOrigins == null) {
       String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", null);
-      if (originsProp == null || originsProp.trim().isEmpty()) {
-        originsProp = WebTransportConfig.get("webtransport4j.server.allowed_origins", "*");
+      if (originsProp == null) {
+        originsProp = WebTransportConfig.get("webtransport4j.server.allowed_origins", null);
       }
-      resolvedOrigins = copyOrigins(Arrays.asList(originsProp.split(",")));
-      if (resolvedOrigins == null || resolvedOrigins.isEmpty()) {
-        resolvedOrigins = Collections.singletonList("*");
+      if (originsProp != null) {
+        String trimmed = originsProp.trim();
+        if (trimmed.isEmpty()) {
+          resolvedOrigins = Collections.emptyList();
+        } else {
+          resolvedOrigins = copyOrigins(Arrays.asList(trimmed.split(",")));
+        }
+      } else {
+        if (WebTransportConfig.isDevOrTestProfile()) {
+          resolvedOrigins = Collections.singletonList("*");
+        } else {
+          resolvedOrigins = Collections.emptyList();
+        }
+      }
+      if (resolvedOrigins == null) {
+        resolvedOrigins = Collections.emptyList();
       }
     }
     boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);

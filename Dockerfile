@@ -33,6 +33,7 @@ WORKDIR /app
 # Copy application artifacts from builder
 COPY --from=builder /build/target/application.jar /app/webtransport4j.jar
 COPY --from=builder /build/target/lib /app/lib
+COPY src/main/resources/webtransport-dynamic.properties /app/webtransport-dynamic.properties
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
