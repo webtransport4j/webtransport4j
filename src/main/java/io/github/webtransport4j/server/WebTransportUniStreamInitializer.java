@@ -20,8 +20,8 @@ public final class WebTransportUniStreamInitializer extends ChannelInitializer<Q
 
   @Override
   protected void initChannel(@NonNull QuicStreamChannel ch) {
+    WebTransportUtils.addTrafficShapers(ch);
     ch.pipeline().addLast(new WebTransportUniStreamHeaderDecoder(this.streamType));
-    ch.pipeline().addLast(WebTransportCapsuleHandler.INSTANCE);
     Supplier<MessageDispatcher> supplier =
         ch.parent().attr(WebTransportAttributeKeys.MESSAGE_DISPATCHER_SUPPLIER).get();
     if (supplier != null) {
