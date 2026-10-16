@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import java.util.concurrent.TimeUnit;
 import org.junit.Assert;
@@ -10,6 +11,23 @@ import org.junit.Test;
 
 /** Test for WebTransportServerBuilder functionality. */
 public class WebTransportServerBuilderTest {
+
+  @Test
+  public void testConflictingRateLimitConfigurationRejected() {
+    Assert.assertThrows(IllegalArgumentException.class,
+        () -> WebTransportServer.builder()
+            .ipRateLimitingHandler(new IpRateLimitingHandler())
+            .rateLimitBackend(new LocalMemoryRateLimitBackend())
+            .build());
+  }
+
+  @Test
+  public void testCustomRateLimitHandlerRetained() {
+    IpRateLimitingHandler handler = new IpRateLimitingHandler(new LocalMemoryRateLimitBackend());
+    try (WebTransportServer server = WebTransportServer.builder().ipRateLimitingHandler(handler).build()) {
+      Assert.assertSame(handler, server.getIpRateLimitingHandler());
+    }
+  }
 
   @Test
   public void testBuilderConfigurationDefaultsAndOverrides() {

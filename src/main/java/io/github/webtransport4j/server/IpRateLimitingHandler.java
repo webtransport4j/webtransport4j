@@ -7,10 +7,14 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.codec.quic.QuicChannel;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import java.lang.ref.WeakReference;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -25,6 +29,8 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private static volatile SharedRateLimitRules sharedRules = new SharedRateLimitRules();
   private static final Logger logger = LoggerFactory.getLogger(IpRateLimitingHandler.class);
   private static volatile RateLimitBackend backend = createBackend();
+  private static final ConcurrentLinkedQueue<WeakReference<IpRateLimitingHandler>> instances =
+      new ConcurrentLinkedQueue<>();
 
   public static final IpRateLimitingHandler INSTANCE =
       new IpRateLimitingHandler((RateLimitBackend) null);
@@ -32,18 +38,21 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   private final RateLimitBackend instanceBackend;
   private volatile SharedRateLimitRules instanceRules;
 
+  /** Uses the shared backend, including subsequent replacements through {@link #setBackend}. */
   public IpRateLimitingHandler() {
-    this(createBackend());
+    this((RateLimitBackend) null);
   }
 
   public IpRateLimitingHandler(RateLimitBackend backend) {
-    this.instanceBackend = backend;
-    this.instanceRules = null;
+    this(backend, null);
   }
 
+  /** Uses the supplied backend and rules, falling back to shared values when either is null. */
   public IpRateLimitingHandler(RateLimitBackend backend, SharedRateLimitRules rules) {
     this.instanceBackend = backend;
     this.instanceRules = rules;
+    instances.removeIf(reference -> reference.get() == null);
+    instances.add(new WeakReference<>(this));
   }
 
   public RateLimitBackend getEffectiveBackend() {
@@ -217,9 +226,21 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       new AtomicReference<>();
   private static volatile int currentIntervalSecs = -1;
 
-  /** Clears backend rate limiting state. */
+  /** Clears the shared backend and every live handler instance's backend once by identity. */
   public static void clearState() {
-    backend.clear();
+    Set<RateLimitBackend> backends = Collections.newSetFromMap(new IdentityHashMap<>());
+    backends.add(backend);
+    for (WeakReference<IpRateLimitingHandler> reference : instances) {
+      IpRateLimitingHandler handler = reference.get();
+      if (handler != null) {
+        backends.add(handler.getEffectiveBackend());
+      } else {
+        instances.remove(reference);
+      }
+    }
+    for (RateLimitBackend activeBackend : backends) {
+      activeBackend.clear();
+    }
   }
 
   /** Stops the background dynamic configuration reloader. */
@@ -229,7 +250,6 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
       executor.shutdownNow();
     }
     currentIntervalSecs = -1;
-    clearState();
   }
 
   /** Updates the dynamic configuration reloader state based on configuration settings. */
