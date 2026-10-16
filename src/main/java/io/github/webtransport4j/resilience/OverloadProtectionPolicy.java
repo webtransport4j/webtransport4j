@@ -84,6 +84,12 @@ public interface OverloadProtectionPolicy {
   @NonNull AdmissionResult tryAcquire(int currentActiveSessions);
 
   /**
+   * Notifies the policy that an active session has successfully completed handshake.
+   */
+  default void recordSuccess() {
+  }
+
+  /**
    * Notifies the policy that an active session has terminated.
    */
   void release();

@@ -198,6 +198,9 @@ public class WebTransportSessionManager {
     if (connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY) != null) {
       connectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(sessionStreamId);
     }
+    if (connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM) != null) {
+      connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM).set(true);
+    }
     QuicChannel quic = connectStream.parent();
     Long uniMax =
         quic != null && quic.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI) != null

@@ -125,6 +125,7 @@ public class AdaptiveCircuitBreaker {
    * Explicitly forces the circuit breaker into the OPEN state.
    */
   public void trip() {
+    this.failureCount = 0;
     this.state = State.OPEN;
     this.lastStateChangeTimestamp = System.currentTimeMillis();
   }
@@ -163,5 +164,14 @@ public class AdaptiveCircuitBreaker {
    */
   public long getResetTimeoutMillis() {
     return resetTimeoutMillis;
+  }
+
+  /**
+   * Returns the current consecutive failure count.
+   *
+   * @return failure count
+   */
+  public int getFailureCount() {
+    return this.failureCount;
   }
 }

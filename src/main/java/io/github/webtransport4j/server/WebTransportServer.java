@@ -244,6 +244,7 @@ public class WebTransportServer implements AutoCloseable {
   private Channel channel;
   private final List<Channel> channels = new CopyOnWriteArrayList<>();
   private final Integer configuredSocketCount;
+  private final Integer configuredCapsuleMaxLength;
   private Thread shutdownHook;
   private volatile QuicSslContext activeSslContext;
   private volatile TlsCertificateWatcher tlsWatcher;
@@ -303,6 +304,7 @@ public class WebTransportServer implements AutoCloseable {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
     this.ipRateLimitingHandler = new IpRateLimitingHandler();
+    this.configuredCapsuleMaxLength = null;
     this.defaultHandler = requireHandler(defaultHandler);
     handlers.put("/", this.defaultHandler);
   }
@@ -312,6 +314,7 @@ public class WebTransportServer implements AutoCloseable {
     this.byteBufAllocator = resolveByteBufAllocator(null);
     this.configuredSocketCount = null;
     this.ipRateLimitingHandler = new IpRateLimitingHandler();
+    this.configuredCapsuleMaxLength = null;
     this.defaultHandler = NO_OP_HANDLER;
     handlers.put("/", this.defaultHandler);
   }
@@ -322,6 +325,7 @@ public class WebTransportServer implements AutoCloseable {
     this.byteBufAllocator =
         resolveByteBufAllocator(builder.getByteBufAllocator());
     this.configuredSocketCount = builder.getSocketCount();
+    this.configuredCapsuleMaxLength = builder.getCapsuleMaxLength();
     this.configuredPort = builder.getPort();
     this.configuredHost = builder.getHost();
     this.sslKeyPath = builder.getSslKeyPath();
@@ -381,6 +385,11 @@ public class WebTransportServer implements AutoCloseable {
   /** Returns the IP rate limiting handler used by this server. */
   public @NonNull IpRateLimitingHandler getIpRateLimitingHandler() {
     return ipRateLimitingHandler;
+  }
+
+  /** Returns the configured maximum capsule length in bytes, or null if using default. */
+  public @Nullable Integer getCapsuleMaxLength() {
+    return configuredCapsuleMaxLength;
   }
 
   /**
@@ -923,11 +932,7 @@ public class WebTransportServer implements AutoCloseable {
     Objects.requireNonNull(certFile, "certFile");
     Objects.requireNonNull(keyFile, "keyFile");
     EventLoopSafety.requireBlockingAllowed();
-    QuicSslContextBuilder sslBuilder =
-        QuicSslContextBuilder.forServer(keyFile, null, certFile)
-            .applicationProtocols(Http3.supportedApplicationProtocols())
-            .earlyData(true);
-    applyClientAuthAndTrust(sslBuilder);
+    QuicSslContextBuilder sslBuilder = newQuicSslContextBuilder(keyFile, certFile);
     QuicSslContext newContext = sslBuilder.build();
     installReloadedSslContext(newContext);
   }
@@ -1385,16 +1390,29 @@ public class WebTransportServer implements AutoCloseable {
     return host.trim();
   }
 
-  private @NonNull List<String> resolveAllowedOrigins() {
+  @NonNull List<String> resolveAllowedOrigins() {
     List<String> resolvedOrigins = this.allowedOrigins;
     if (resolvedOrigins == null) {
       String originsProp = WebTransportConfig.get("webtransport4j.allowed.origins", null);
-      if (originsProp == null || originsProp.trim().isEmpty()) {
-        originsProp = WebTransportConfig.get("webtransport4j.server.allowed_origins", "*");
+      if (originsProp == null) {
+        originsProp = WebTransportConfig.get("webtransport4j.server.allowed_origins", null);
       }
-      resolvedOrigins = copyOrigins(Arrays.asList(originsProp.split(",")));
-      if (resolvedOrigins == null || resolvedOrigins.isEmpty()) {
-        resolvedOrigins = Collections.singletonList("*");
+      if (originsProp != null) {
+        String trimmed = originsProp.trim();
+        if (trimmed.isEmpty()) {
+          resolvedOrigins = Collections.emptyList();
+        } else {
+          resolvedOrigins = copyOrigins(Arrays.asList(trimmed.split(",")));
+        }
+      } else {
+        if (WebTransportConfig.isDevOrTestProfile()) {
+          resolvedOrigins = Collections.singletonList("*");
+        } else {
+          resolvedOrigins = Collections.emptyList();
+        }
+      }
+      if (resolvedOrigins == null) {
+        resolvedOrigins = Collections.emptyList();
       }
     }
     boolean devMode = WebTransportConfig.getBoolean("webtransport4j.dev_mode", false);
@@ -1438,7 +1456,7 @@ public class WebTransportServer implements AutoCloseable {
                   }
                 }
               },
-              this::applyClientAuthAndTrust,
+              this::configureSslContextBuilder,
               WebTransportConfig.getInt("webtransport4j.ssl.hot_reload.interval_secs", 5));
       watcher.start();
       return watcher;
@@ -1854,13 +1872,31 @@ public class WebTransportServer implements AutoCloseable {
               + certFile.getAbsolutePath());
     }
 
+    QuicSslContextBuilder sslBuilder = newQuicSslContextBuilder(keyFile, certFile);
+    QuicSslContext resolvedSslCtx = sslBuilder.build();
+    applySessionTicketKeys(resolvedSslCtx);
+    return resolvedSslCtx;
+  }
+
+  @NonNull QuicSslContextBuilder newQuicSslContextBuilder(
+      @NonNull File keyFile, @NonNull File certFile) {
+    QuicSslContextBuilder sslBuilder =
+        QuicSslContextBuilder.forServer(keyFile, null, certFile)
+            .applicationProtocols(Http3.supportedApplicationProtocols());
+    configureSslContextBuilder(sslBuilder);
+    return sslBuilder;
+  }
+
+  void configureSslContextBuilder(@NonNull QuicSslContextBuilder sslBuilder) {
     long sessionTimeout =
         WebTransportConfig.getLong("webtransport4j.ssl.session.timeout.seconds", -1L);
     long sessionCacheSize =
         WebTransportConfig.getLong("webtransport4j.ssl.session.cache.size", -1L);
-    QuicSslContextBuilder sslBuilder =
-        QuicSslContextBuilder.forServer(keyFile, null, certFile)
-            .applicationProtocols(Http3.supportedApplicationProtocols());
+    boolean earlyData =
+        WebTransportConfig.getBoolean("webtransport4j.quic.early.data.enabled", false);
+    if (earlyData) {
+      sslBuilder.earlyData(true);
+    }
     if (sessionTimeout > 0) {
       sslBuilder.sessionTimeout(sessionTimeout);
     }
@@ -1868,9 +1904,6 @@ public class WebTransportServer implements AutoCloseable {
       sslBuilder.sessionCacheSize(sessionCacheSize);
     }
     applyClientAuthAndTrust(sslBuilder);
-    QuicSslContext resolvedSslCtx = sslBuilder.build();
-    applySessionTicketKeys(resolvedSslCtx);
-    return resolvedSslCtx;
   }
 
   private ClientAuthMode resolveClientAuthMode() {

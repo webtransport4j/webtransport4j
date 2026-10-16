@@ -57,8 +57,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     }
     ByteBuf data = (ByteBuf) msg;
     if (ctx.channel() instanceof QuicStreamChannel) {
-      long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
-      if (streamId == 0) {
+      Attribute<Boolean> connectStreamAttr =
+          ctx.channel().attr(WebTransportAttributeKeys.CONNECT_STREAM);
+      if (connectStreamAttr != null && Boolean.TRUE.equals(connectStreamAttr.get())) {
         ctx.fireChannelRead(msg);
         return;
       }

@@ -68,6 +68,7 @@ public class WebTransportServerBuilder {
   private ByteBufAllocator byteBufAllocator;
   private IpRateLimitingHandler ipRateLimitingHandler;
   private RateLimitBackend rateLimitBackend;
+  private Integer capsuleMaxLength;
 
   public WebTransportServerBuilder() {}
 
@@ -249,6 +250,13 @@ public class WebTransportServerBuilder {
   public @NonNull WebTransportServerBuilder metricsListener(
       @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
+    return this;
+  }
+
+  /** Sets the maximum allowed capsule length in bytes. */
+  public @NonNull WebTransportServerBuilder capsuleMaxLength(
+      @Nullable Integer capsuleMaxLength) {
+    this.capsuleMaxLength = capsuleMaxLength;
     return this;
   }
 
@@ -606,6 +614,10 @@ public class WebTransportServerBuilder {
 
   @Nullable RateLimitBackend getRateLimitBackend() {
     return rateLimitBackend;
+  }
+
+  @Nullable Integer getCapsuleMaxLength() {
+    return capsuleMaxLength;
   }
 
   /** Constructs and returns a configured {@link WebTransportServer} instance. */

@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build & Dependency Resolution
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
+FROM maven:3-eclipse-temurin-25 AS builder
 WORKDIR /build
 
 COPY pom.xml ./
@@ -33,6 +33,7 @@ WORKDIR /app
 # Copy application artifacts from builder
 COPY --from=builder /build/target/application.jar /app/webtransport4j.jar
 COPY --from=builder /build/target/lib /app/lib
+COPY src/main/resources/webtransport-dynamic.properties /app/webtransport-dynamic.properties
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 

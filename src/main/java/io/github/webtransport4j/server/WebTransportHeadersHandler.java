@@ -83,6 +83,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
             || UPGRADE_TOKEN_LEGACY.contentEquals(protocol))) {
       QuicChannel quic = (QuicChannel) ctx.channel().parent();
       QuicStreamChannel connectStream = (QuicStreamChannel) ctx.channel();
+      if (connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM) != null) {
+        connectStream.attr(WebTransportAttributeKeys.CONNECT_STREAM).set(true);
+      }
       WebTransportMetricsListener metricsListener =
           quic != null && quic.attr(WebTransportAttributeKeys.METRICS_LISTENER) != null
               ? quic.attr(WebTransportAttributeKeys.METRICS_LISTENER).get()
@@ -367,6 +370,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               fut -> {
                 if (fut.isSuccess() && pending.compareAndSet(true, false)) {
                   mgr.registerReserved(connectStream);
+                  if (overloadPolicy != null) {
+                    overloadPolicy.recordSuccess();
+                  }
                 } else if (!fut.isSuccess() && pending.compareAndSet(true, false)) {
                   mgr.releaseReservation();
                   if (globalSlots != null) {
@@ -431,8 +437,20 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return originValidator.validate(originStr, authorityStr);
     }
 
-    if (allowedOrigins == null || allowedOrigins.isEmpty() || allowedOrigins.contains("*")) {
+    if (allowedOrigins == null || allowedOrigins.contains("*")) {
       return true;
+    }
+
+    if (originStr == null || originStr.trim().isEmpty()) {
+      return true;
+    }
+
+    if (allowedOrigins.isEmpty()) {
+      logger.warn(
+          "Origin validation failed: cross-origin browser session from '{}' rejected because"
+              + " allowed origins is empty",
+          originStr);
+      return false;
     }
 
     if (originStr != null) {

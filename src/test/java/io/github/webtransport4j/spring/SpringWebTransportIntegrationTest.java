@@ -71,6 +71,75 @@ public class SpringWebTransportIntegrationTest {
     Assert.assertTrue(properties.getAllowedOrigins().contains("https://app1.internal"));
     Assert.assertTrue(properties.getAllowedOrigins().contains("https://app2.internal"));
 
+    WebTransportServer server = context.getBean(WebTransportServer.class);
+    Assert.assertNotNull(server);
+    Assert.assertEquals(Integer.valueOf(32768), server.getCapsuleMaxLength());
+
     context.close();
+  }
+
+  @Test
+  public void testAutoConfigurationImportsFilePresent() throws Exception {
+    java.net.URL resource =
+        getClass()
+            .getClassLoader()
+            .getResource(
+                "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
+    Assert.assertNotNull(resource);
+    String content;
+    try (java.io.InputStream in = resource.openStream();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+      byte[] buf = new byte[1024];
+      int n;
+      while ((n = in.read(buf)) != -1) {
+        out.write(buf, 0, n);
+      }
+      content = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
+    }
+    Assert.assertTrue(
+        content.contains("io.github.webtransport4j.spring.WebTransportAutoConfiguration"));
+  }
+
+  @Test
+  public void testConditionalOnMissingBeanOverrides() {
+    AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+    WebTransportProperties customProps = new WebTransportProperties();
+    customProps.setPort(9999);
+    context
+        .getBeanFactory()
+        .registerSingleton("customWebTransportProperties", customProps);
+    context.register(WebTransportAutoConfiguration.class);
+    context.refresh();
+
+    WebTransportProperties resolved = context.getBean(WebTransportProperties.class);
+    Assert.assertSame(customProps, resolved);
+    Assert.assertEquals(9999, resolved.getPort());
+    context.close();
+  }
+
+  @Test
+  public void testMultipleUnannotatedHandlersFailFast() {
+    AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+    WebTransportHandler handler1 = new WebTransportHandler() {};
+    WebTransportHandler handler2 = new WebTransportHandler() {};
+    context.getBeanFactory().registerSingleton("handlerOne", handler1);
+    context.getBeanFactory().registerSingleton("handlerTwo", handler2);
+    context.register(WebTransportAutoConfiguration.class);
+
+    try {
+      context.refresh();
+      Assert.fail("Expected exception when multiple unannotated WebTransportHandler beans exist");
+    } catch (Exception e) {
+      Throwable root = e;
+      while (root.getCause() != null && root.getCause() != root) {
+        root = root.getCause();
+      }
+      Assert.assertTrue(
+          "Root cause should mention multiple unannotated handlers: " + root.getMessage(),
+          root.getMessage() != null
+              && root.getMessage().contains("Multiple unannotated WebTransportHandler beans found"));
+    } finally {
+      context.close();
+    }
   }
 }

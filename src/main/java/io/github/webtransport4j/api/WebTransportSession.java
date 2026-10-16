@@ -184,7 +184,13 @@ public interface WebTransportSession {
    * @param context optional application-supplied exporter context (can be null)
    * @param length the desired length of exported keying material in bytes
    * @return the exported keying material bytes
+   * @throws UnsupportedOperationException if the underlying QUIC TLS engine does not support
+   *     key export (currently pending native binding support in Netty Incubator QUIC / Quiche)
+   * @deprecated Netty Incubator QUIC (netty-incubator-codec-quic / Quiche) does not yet expose
+   *     BoringSSL's {@code SSL_export_keying_material} via JNI. Calling this method throws
+   *     {@link UnsupportedOperationException} on standard QUIC channels.
    */
+  @Deprecated
   byte[] exportKeyingMaterial(@NonNull String label, byte @Nullable [] context, int length);
 
   /**
