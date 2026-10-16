@@ -318,4 +318,24 @@ public class WebTransportConfigTest {
       WebTransportConfig.reload();
     }
   }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkSingleBoundOverrides() {
+    try {
+      WebTransportConfig.setProperty("webtransport4j.netty.write_buffer.low_water_mark", "8388608");
+      io.netty.channel.WriteBufferWaterMark wmHighAdjusted =
+          WebTransportUtils.resolveWriteBufferWaterMark();
+      assertEquals(8388608, wmHighAdjusted.low());
+      assertEquals(8388608, wmHighAdjusted.high());
+
+      WebTransportConfig.clearProgrammaticProperties();
+      WebTransportConfig.setProperty("webtransport4j.netty.write_buffer.high_water_mark", "1048576");
+      io.netty.channel.WriteBufferWaterMark wmLowAdjusted =
+          WebTransportUtils.resolveWriteBufferWaterMark();
+      assertTrue(wmLowAdjusted.low() <= wmLowAdjusted.high());
+      assertEquals(1048576, wmLowAdjusted.high());
+    } finally {
+      WebTransportConfig.clearProgrammaticProperties();
+    }
+  }
 }

@@ -9,6 +9,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -583,6 +584,30 @@ public class WebTransportUtils {
       return (QuicChannel) ctx.channel();
     }
     return null;
+  }
+
+  /**
+   * Resolves a validated {@link WriteBufferWaterMark} from a single configuration snapshot,
+   * clamping bounds so partial overrides of low or high watermark never violate {@code low <= high}.
+   *
+   * @return validated write buffer water mark
+   */
+  public static @NonNull WriteBufferWaterMark resolveWriteBufferWaterMark() {
+    WebTransportConfig.Snapshot snapshot = WebTransportConfig.snapshot();
+    int defaultLow = 2 * 1024 * 1024;
+    int defaultHigh = 4 * 1024 * 1024;
+    String rawLow = snapshot.get("webtransport4j.netty.write_buffer.low_water_mark", null);
+    String rawHigh = snapshot.get("webtransport4j.netty.write_buffer.high_water_mark", null);
+    int low = Math.max(1, snapshot.getInt("webtransport4j.netty.write_buffer.low_water_mark", defaultLow));
+    int high = Math.max(1, snapshot.getInt("webtransport4j.netty.write_buffer.high_water_mark", defaultHigh));
+    if (low > high) {
+      if (rawHigh != null && rawLow == null) {
+        low = Math.max(1, high / 2);
+      } else {
+        high = low;
+      }
+    }
+    return new WriteBufferWaterMark(low, high);
   }
 
   /** Adds traffic shaping handlers to the stream pipeline. */
