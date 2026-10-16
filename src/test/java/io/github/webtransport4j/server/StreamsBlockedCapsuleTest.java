@@ -61,6 +61,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
@@ -133,6 +134,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(200L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
@@ -208,6 +210,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(300L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
@@ -278,6 +281,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(400L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
@@ -348,6 +352,7 @@ public class StreamsBlockedCapsuleTest {
     QuicChannel mockParent = mock(QuicChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
     when(mockEventLoop.inEventLoop()).thenReturn(true);
@@ -403,6 +408,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(500L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 
@@ -470,6 +476,7 @@ public class StreamsBlockedCapsuleTest {
     when(mockConnectStream.streamId()).thenReturn(200L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
 

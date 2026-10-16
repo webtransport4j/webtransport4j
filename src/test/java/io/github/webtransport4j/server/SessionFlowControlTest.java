@@ -60,6 +60,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -118,6 +119,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -174,6 +176,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -250,6 +253,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
@@ -321,6 +325,7 @@ public class SessionFlowControlTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> sessIdAttr = mockAttribute(100L);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);

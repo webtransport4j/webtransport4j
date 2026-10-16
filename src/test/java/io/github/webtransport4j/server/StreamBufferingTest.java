@@ -103,6 +103,7 @@ public class StreamBufferingTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -194,6 +195,7 @@ public class StreamBufferingTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -258,6 +260,7 @@ public class StreamBufferingTest {
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -353,6 +356,7 @@ public class StreamBufferingTest {
     when(mockConnectStream.streamId()).thenReturn(50L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);
@@ -458,6 +462,7 @@ public class StreamBufferingTest {
     when(mockConnectStream.streamId()).thenReturn(100000L); // Session ID requires 4 bytes
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     mgr.register(mockConnectStream);

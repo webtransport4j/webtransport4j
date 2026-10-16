@@ -178,11 +178,25 @@ public class AdaptiveOverloadProtectionPolicy implements OverloadProtectionPolic
     return AdmissionResult.allowed();
   }
 
+  /**
+   * Records a completed handshake with the circuit breaker, closing it if it is half-open.
+   */
   @Override
   public void recordSuccess() {
     circuitBreaker.recordSuccess();
   }
 
+  /**
+   * Reports an incomplete handshake to the circuit breaker, reopening it if it is half-open.
+   */
+  @Override
+  public void recordFailure() {
+    circuitBreaker.recordFailure();
+  }
+
+  /**
+   * Performs no cleanup because this policy does not track per-session admission resources.
+   */
   @Override
   public void release() {
     // No-op for stateless admission, but hook available for token bucket or lease tracking
