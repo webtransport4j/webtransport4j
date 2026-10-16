@@ -155,4 +155,68 @@ public class AdaptiveOverloadProtectionTest {
     assertFalse(result.isAdmitted());
     assertTrue(result.getReason().contains("Circuit breaker is OPEN"));
   }
+
+  @Test
+  public void testTripResetsFailureCount() {
+    final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(5, 500L);
+    breaker.recordFailure();
+    breaker.recordFailure();
+    assertEquals(2, breaker.getFailureCount());
+
+    breaker.trip();
+    assertEquals(AdaptiveCircuitBreaker.State.OPEN, breaker.getState());
+    assertEquals(0, breaker.getFailureCount());
+  }
+
+  @Test
+  public void testHeapOverloadSheddingAndCustomSupplier() {
+    final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(3, 500L);
+    final AdaptiveOverloadProtectionPolicy policy =
+        new AdaptiveOverloadProtectionPolicy(0.80, 100, 5, breaker, () -> 0.85);
+
+    OverloadProtectionPolicy.AdmissionResult result = policy.tryAcquire(10);
+    assertFalse(result.isAdmitted());
+    assertEquals(5, result.getRetryAfterSeconds());
+    assertNotNull(result.getReason());
+    assertTrue(result.getReason().contains("JVM heap memory pressure"));
+
+    final AdaptiveOverloadProtectionPolicy healthyPolicy =
+        new AdaptiveOverloadProtectionPolicy(0.80, 100, 5, breaker, () -> 0.40);
+    result = healthyPolicy.tryAcquire(10);
+    assertTrue(result.isAdmitted());
+  }
+
+  @Test
+  public void testTryAcquireDoesNotPrematurelyCloseHalfOpenCircuitBreaker() throws Exception {
+    final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 20L);
+    breaker.trip();
+    assertEquals(AdaptiveCircuitBreaker.State.OPEN, breaker.getState());
+
+    expireCoolOff(breaker);
+
+    final AdaptiveOverloadProtectionPolicy policy =
+        new AdaptiveOverloadProtectionPolicy(0.99, 100, 5, breaker, () -> 0.10);
+
+    // Admission check probe transitions OPEN to HALF_OPEN and is admitted,
+    // but MUST NOT prematurely close the circuit breaker to CLOSED
+    OverloadProtectionPolicy.AdmissionResult result = policy.tryAcquire(5);
+    assertTrue(result.isAdmitted());
+    assertEquals(AdaptiveCircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+    // Subsequent acquire before probe completes must be rejected
+    OverloadProtectionPolicy.AdmissionResult secondResult = policy.tryAcquire(5);
+    assertFalse(secondResult.isAdmitted());
+
+    // Successful handshake completion closes the circuit
+    policy.recordSuccess();
+    assertEquals(AdaptiveCircuitBreaker.State.CLOSED, breaker.getState());
+    assertTrue(policy.tryAcquire(5).isAdmitted());
+  }
+
+  @Test
+  public void testCalculateHeapUsageRatioValidRange() {
+    double ratio = AdaptiveOverloadProtectionPolicy.calculateHeapUsageRatio();
+    assertTrue("Heap ratio must be >= 0.0", ratio >= 0.0);
+    assertTrue("Heap ratio must be <= 1.0", ratio <= 1.0);
+  }
 }
