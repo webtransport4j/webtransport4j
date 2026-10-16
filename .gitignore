@@ -119,3 +119,7 @@ __pycache__/
 
 # Isolated portal integration-test credentials, certificates, and reports
 dashboard/testing/.runtime/
+
+# Go compiled binaries
+interop/go/client_go
+interop/go/throughput/go_throughput

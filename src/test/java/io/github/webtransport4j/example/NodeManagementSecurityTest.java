@@ -1,6 +1,7 @@
 package io.github.webtransport4j.example;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
@@ -104,6 +105,88 @@ public class NodeManagementSecurityTest {
         connection.setRequestProperty("Authorization", "Bearer test-secret");
         assertEquals(200, connection.getResponseCode());
         connection.disconnect();
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  @Test
+  public void jolokiaOptionsPreflightDoesNotRequireAuth() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    JolokiaHttpHandler handler = new JolokiaHttpHandler("test");
+    for (String path : new String[] {"/jolokia", "/api/node/jmx"}) {
+      server.createContext(path, exchange -> {
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+          handler.handle(exchange);
+          return;
+        }
+        if (ClusterNodeSample.isAuthorized(exchange, "test-secret")) {
+          handler.handle(exchange);
+        }
+        exchange.close();
+      });
+    }
+    server.start();
+    try {
+      for (String path : new String[] {"/jolokia", "/api/node/jmx"}) {
+        HttpURLConnection connection = open(server, path + "/version");
+        connection.setRequestMethod("OPTIONS");
+        assertEquals(204, connection.getResponseCode());
+        assertEquals("GET, POST, OPTIONS", connection.getHeaderField("Access-Control-Allow-Methods"));
+        assertNotNull(connection.getHeaderField("Access-Control-Allow-Headers"));
+        connection.disconnect();
+      }
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  @Test
+  public void drainAndCloseEndpointsIncludeCorsAllowOrigin() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    for (String path : new String[] {"/api/node/sessions/drain", "/api/node/sessions/close"}) {
+      server.createContext(path, exchange -> {
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
+          exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+          exchange.sendResponseHeaders(204, -1);
+          return;
+        }
+        if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+          exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+          if (!ClusterNodeSample.isAuthorized(exchange, "test-secret")) {
+            return;
+          }
+          byte[] resp = "{\"success\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, resp.length);
+          try (java.io.OutputStream os = exchange.getResponseBody()) {
+            os.write(resp);
+          }
+        }
+      });
+    }
+    server.start();
+    try {
+      for (String path : new String[] {"/api/node/sessions/drain", "/api/node/sessions/close"}) {
+        HttpURLConnection optionsConn = open(server, path);
+        optionsConn.setRequestMethod("OPTIONS");
+        assertEquals(204, optionsConn.getResponseCode());
+        assertEquals("*", optionsConn.getHeaderField("Access-Control-Allow-Origin"));
+        optionsConn.disconnect();
+
+        HttpURLConnection postConn = open(server, path);
+        postConn.setRequestMethod("POST");
+        postConn.setRequestProperty("Authorization", "Bearer test-secret");
+        postConn.setDoOutput(true);
+        try (java.io.OutputStream os = postConn.getOutputStream()) {
+          os.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        assertEquals(200, postConn.getResponseCode());
+        assertEquals("*", postConn.getHeaderField("Access-Control-Allow-Origin"));
+        postConn.disconnect();
       }
     } finally {
       server.stop(0);
