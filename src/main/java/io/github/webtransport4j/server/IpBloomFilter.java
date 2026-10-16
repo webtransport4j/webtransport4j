@@ -20,7 +20,7 @@ public class IpBloomFilter {
 
   /** Creates a Bloom filter for the expected number of elements and false positive rate. */
   public IpBloomFilter(int expectedElements, double falsePositiveRate) {
-    if (expectedElements <= 0) {
+    if (expectedElements <= 0 || falsePositiveRate <= 0.0 || falsePositiveRate >= 1.0) {
       this.size = 1;
       this.numHashes = 1;
       this.bitSet = new BitSet(1);
@@ -28,11 +28,25 @@ public class IpBloomFilter {
     }
 
     // Optimal size (m) and number of hash functions (k) for a Bloom filter
-    this.size =
-        (int)
-            Math.ceil(
-                -(expectedElements * Math.log(falsePositiveRate)) / (Math.log(2) * Math.log(2)));
-    this.numHashes = (int) Math.ceil((this.size / (double) expectedElements) * Math.log(2));
+    double optimalSize =
+        Math.ceil(-(expectedElements * Math.log(falsePositiveRate)) / (Math.log(2) * Math.log(2)));
+    if (optimalSize > (Integer.MAX_VALUE - 64)
+        || optimalSize <= 0
+        || Double.isNaN(optimalSize)
+        || Double.isInfinite(optimalSize)) {
+      this.size = Integer.MAX_VALUE - 64;
+    } else {
+      this.size = (int) optimalSize;
+    }
+    double optimalHashes = Math.ceil((this.size / (double) expectedElements) * Math.log(2));
+    if (optimalHashes < 1
+        || optimalHashes > 255
+        || Double.isNaN(optimalHashes)
+        || Double.isInfinite(optimalHashes)) {
+      this.numHashes = (optimalHashes < 1) ? 1 : 255;
+    } else {
+      this.numHashes = (int) optimalHashes;
+    }
     this.bitSet = new BitSet(this.size);
   }
 
@@ -44,7 +58,7 @@ public class IpBloomFilter {
     this.enabled = true;
     for (int i = 0; i < numHashes; i++) {
       int hash = getHash(ip, i);
-      bitSet.set(Math.abs(hash % size));
+      bitSet.set((hash & Integer.MAX_VALUE) % size);
     }
   }
 
@@ -56,7 +70,7 @@ public class IpBloomFilter {
 
     for (int i = 0; i < numHashes; i++) {
       int hash = getHash(ip, i);
-      if (!bitSet.get(Math.abs(hash % size))) {
+      if (!bitSet.get((hash & Integer.MAX_VALUE) % size)) {
         return false; // Definitely not in the blocklist
       }
     }
