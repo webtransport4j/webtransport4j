@@ -78,6 +78,7 @@ public class Http3ControlStreamAndAccountingTest {
     when(mockConnectStream.streamId()).thenReturn(0L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     DefaultChannelPromise writePromise =
         new DefaultChannelPromise(mockConnectStream, ImmediateEventExecutor.INSTANCE);
@@ -141,6 +142,7 @@ public class Http3ControlStreamAndAccountingTest {
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(0L);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     DefaultChannelPromise writePromise =
         new DefaultChannelPromise(mockConnectStream, ImmediateEventExecutor.INSTANCE);

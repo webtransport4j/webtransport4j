@@ -558,6 +558,7 @@ public class FramingLayerTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     EventLoop mockEventLoop = mock(EventLoop.class);
     when(mockParent.eventLoop()).thenReturn(mockEventLoop);
@@ -823,6 +824,7 @@ public class FramingLayerTest {
       QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
       when(existingStream.streamId()).thenReturn(40L);
       when(existingStream.parent()).thenReturn(mockParent);
+      when(existingStream.isOpen()).thenReturn(true);
       when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
           .thenReturn(mock(Attribute.class));
       WebTransportSessionManager mgr = new WebTransportSessionManager();
@@ -915,6 +917,7 @@ public class FramingLayerTest {
       QuicStreamChannel existingStream = mock(QuicStreamChannel.class);
       when(existingStream.streamId()).thenReturn(40L);
       when(existingStream.parent()).thenReturn(mockParent);
+      when(existingStream.isOpen()).thenReturn(true);
       when(existingStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
           .thenReturn(mock(Attribute.class));
       WebTransportSessionManager mgr = new WebTransportSessionManager();

@@ -37,6 +37,7 @@ public class DatagramDirectWriteSafetyTest {
     QuicStreamChannel connectStream = mock(QuicStreamChannel.class);
     when(connectStream.parent()).thenReturn(parentChannel);
     when(connectStream.isActive()).thenReturn(true);
+    when(connectStream.isOpen()).thenReturn(true);
 
     // sessionStreamId == 4 => quarterSessionId == 1
     DefaultWebTransportSession session =
