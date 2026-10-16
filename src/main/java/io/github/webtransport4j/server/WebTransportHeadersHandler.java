@@ -459,11 +459,11 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return true;
     }
 
-    if (originStr == null || originStr.trim().isEmpty()) {
-      return true;
-    }
-
+    boolean hasOrigin = originStr != null && !originStr.trim().isEmpty();
     if (allowedOrigins.isEmpty()) {
+      if (!hasOrigin) {
+        return true;
+      }
       logger.warn(
           "Origin validation failed: cross-origin browser session from '{}' rejected because"
               + " allowed origins is empty",
@@ -471,7 +471,7 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return false;
     }
 
-    if (originStr != null) {
+    if (hasOrigin) {
       if (allowedOrigins.contains(originStr)) {
         return true;
       }
