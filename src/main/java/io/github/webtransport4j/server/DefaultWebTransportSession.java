@@ -720,6 +720,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * @return the exported keying material bytes
    */
   @Override
+  @Deprecated
   public byte[] exportKeyingMaterial(@NonNull String label, byte @Nullable [] context, int length) {
     if (length <= 0) {
       throw new IllegalArgumentException("Key length must be positive: " + length);

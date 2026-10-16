@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -61,6 +62,44 @@ public class TlsCertificateReloaderProgrammaticTest {
       rotated.delete();
       trusted.delete();
       untrusted.delete();
+    }
+  }
+
+  @Test(timeout = 30000)
+  public void pemReloadPreservesSessionTimeoutAndCacheSize() throws Exception {
+    String prevTimeout = System.getProperty("webtransport4j.ssl.session.timeout.seconds");
+    String prevCache = System.getProperty("webtransport4j.ssl.session.cache.size");
+    System.setProperty("webtransport4j.ssl.session.timeout.seconds", "7200");
+    System.setProperty("webtransport4j.ssl.session.cache.size", "1024");
+    SelfSignedCertificate initial = new SelfSignedCertificate("localhost");
+    SelfSignedCertificate rotated = new SelfSignedCertificate("localhost");
+    try (WebTransportServer server =
+        new WebTransportServerBuilder()
+            .port(0)
+            .ssl(initial.privateKey().getAbsolutePath(), initial.certificate().getAbsolutePath())
+            .build()) {
+      server.start();
+      assertNotNull(server.getActiveSslContext());
+      assertEquals(7200, server.getActiveSslContext().sessionContext().getSessionTimeout());
+      assertEquals(1024, server.getActiveSslContext().sessionContext().getSessionCacheSize());
+
+      server.reloadTlsCertificate(rotated.certificate(), rotated.privateKey());
+      assertNotNull(server.getActiveSslContext());
+      assertEquals(7200, server.getActiveSslContext().sessionContext().getSessionTimeout());
+      assertEquals(1024, server.getActiveSslContext().sessionContext().getSessionCacheSize());
+    } finally {
+      if (prevTimeout != null) {
+        System.setProperty("webtransport4j.ssl.session.timeout.seconds", prevTimeout);
+      } else {
+        System.clearProperty("webtransport4j.ssl.session.timeout.seconds");
+      }
+      if (prevCache != null) {
+        System.setProperty("webtransport4j.ssl.session.cache.size", prevCache);
+      } else {
+        System.clearProperty("webtransport4j.ssl.session.cache.size");
+      }
+      initial.delete();
+      rotated.delete();
     }
   }
 

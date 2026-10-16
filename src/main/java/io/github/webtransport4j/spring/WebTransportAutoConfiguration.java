@@ -12,10 +12,11 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.env.Environment;
 
@@ -23,7 +24,7 @@ import org.springframework.core.env.Environment;
  * Spring Auto-Configuration for WebTransport4J. Discovers handlers, endpoints annotated with {@link
  * WebTransportEndpoint}, custom metric listeners, and bootstraps {@link WebTransportServer}.
  */
-@Configuration
+@AutoConfiguration
 public class WebTransportAutoConfiguration implements ApplicationContextAware {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportAutoConfiguration.class);
@@ -41,6 +42,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
    * @return initialized {@link WebTransportProperties} instance
    */
   @Bean
+  @ConditionalOnMissingBean
   public WebTransportProperties webTransportProperties() {
     WebTransportProperties properties = new WebTransportProperties();
     if (applicationContext != null && applicationContext.getEnvironment() != null) {
@@ -201,6 +203,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
    * @return initialized WebTransportServer instance
    */
   @Bean
+  @ConditionalOnMissingBean
   public WebTransportServer webTransportServer(
       WebTransportProperties properties,
       ObjectProvider<WebTransportMetricsListener> metricsListenerProvider,
@@ -215,7 +218,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
         .transportType(properties.getTransport())
         .idleTimeout(properties.getIdleTimeoutSeconds(), TimeUnit.SECONDS)
         .maxStreams(properties.getMaxStreamsBidi(), properties.getMaxStreamsUni())
-        .maxData(properties.getMaxData());
+        .maxData(properties.getMaxData())
+        .capsuleMaxLength(properties.getCapsuleMaxLength());
 
     if (!properties.getAllowedOrigins().isEmpty()) {
       builder.allowedOrigins(properties.getAllowedOrigins());
@@ -270,15 +274,31 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     // annotation present
     Map<String, WebTransportHandler> handlers =
         applicationContext.getBeansOfType(WebTransportHandler.class);
+    it.unimi.dsi.fastutil.objects.ObjectArrayList<Map.Entry<String, WebTransportHandler>>
+        unannotatedHandlers = new it.unimi.dsi.fastutil.objects.ObjectArrayList<>();
     for (Map.Entry<String, WebTransportHandler> entry : handlers.entrySet()) {
-      WebTransportHandler handler = entry.getValue();
       if (!endpointBeans.containsKey(entry.getKey())) {
-        logger.info(
-            "📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path"
-                + " '/'",
-            entry.getKey());
-        builder.defaultHandler(handler);
+        unannotatedHandlers.add(entry);
       }
+    }
+    if (unannotatedHandlers.size() == 1) {
+      Map.Entry<String, WebTransportHandler> single = unannotatedHandlers.get(0);
+      logger.info(
+          "📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path"
+              + " '/'",
+          single.getKey());
+      builder.defaultHandler(single.getValue());
+    } else if (unannotatedHandlers.size() > 1) {
+      it.unimi.dsi.fastutil.objects.ObjectArrayList<String> names =
+          new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(unannotatedHandlers.size());
+      for (Map.Entry<String, WebTransportHandler> entry : unannotatedHandlers) {
+        names.add(entry.getKey());
+      }
+      throw new IllegalStateException(
+          "Multiple unannotated WebTransportHandler beans found: "
+              + String.join(", ", names)
+              + ". Annotate each handler bean with @WebTransportEndpoint(path = ...) or configure"
+              + " an explicit default handler.");
     }
 
     return builder.build();
@@ -291,6 +311,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
    * @return lifecycle manager
    */
   @Bean
+  @ConditionalOnMissingBean
   public SpringWebTransportServerLifecycle springWebTransportServerLifecycle(
       WebTransportServer server) {
     return new SpringWebTransportServerLifecycle(server);

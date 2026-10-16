@@ -132,10 +132,15 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
     if (logger.isDebugEnabled()) {
       logger.debug("🔧 Added MessageDispatcher. Pipeline now: {}", ch.pipeline().names());
     }
+    Integer capsuleMax = this.server.getCapsuleMaxLength();
+    WebTransportStreamChannelInitializer streamInitializer =
+        capsuleMax != null && capsuleMax > 0
+            ? new WebTransportStreamChannelInitializer(capsuleMax)
+            : new WebTransportStreamChannelInitializer();
     ch.pipeline()
         .addLast(
             new Http3ServerConnectionHandler(
-                new WebTransportStreamChannelInitializer(),
+                streamInitializer,
                 new Http3InboundControlStreamHandler(),
                 new UnknownStreamHandlerFactory(),
                 new DefaultHttp3SettingsFrame(settings),

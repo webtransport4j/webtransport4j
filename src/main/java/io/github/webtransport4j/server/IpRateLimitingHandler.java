@@ -2,7 +2,6 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
 import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
-import io.github.webtransport4j.server.ratelimit.RedisRateLimitBackend;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -34,8 +33,10 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     String backendType =
         WebTransportConfig.get("webtransport4j.server.ratelimit.backend", "local").toLowerCase();
     if ("redis".equals(backendType)) {
-      logger.info("⚡ Configured RedisRateLimitBackend for distributed IP rate limiting.");
-      return new RedisRateLimitBackend();
+      throw new IllegalArgumentException(
+          "The built-in 'redis' rate limit backend stub has been removed. Distributed rate"
+              + " limiting requires a non-blocking RateLimitBackend implementation; configure a"
+              + " custom RateLimitBackend class name or pass an instance to WebTransportServerBuilder.");
     } else if (!"local".equals(backendType)) {
       try {
         Class<?> clazz = Class.forName(backendType);

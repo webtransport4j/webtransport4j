@@ -68,6 +68,8 @@ kubectl create namespace webtransport-prod
 # cluster.env must contain independently generated CLUSTER_HMAC_KEY (32+ bytes)
 # and MANAGEMENT_AUTH_TOKEN. Keep this file private and out of version control.
 kubectl create secret generic webtransport4j-cluster-secret -n webtransport-prod --from-env-file=cluster.env
+# TLS Secret containing tls.crt and tls.key for QUIC/WebTransport endpoints
+kubectl create secret tls webtransport4j-tls-secret -n webtransport-prod --cert=path/to/tls.crt --key=path/to/tls.key
 kubectl apply -f k8s/webtransport4j-deployment.yaml
 kubectl apply -f k8s/webtransport4j-hpa.yaml
 kubectl apply -f k8s/dashboard-deployment.yaml

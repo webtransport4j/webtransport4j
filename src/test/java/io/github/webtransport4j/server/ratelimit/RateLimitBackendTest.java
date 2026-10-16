@@ -3,6 +3,7 @@ package io.github.webtransport4j.server.ratelimit;
 import static org.junit.Assert.assertEquals;
 
 import io.github.webtransport4j.server.IpRateLimitingHandler;
+import io.github.webtransport4j.server.WebTransportConfig;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -37,20 +38,25 @@ public class RateLimitBackendTest {
     assertEquals(Integer.MAX_VALUE, backend.incrementAndGet("10.0.0.2", minute, 1));
   }
 
-  @Test
-  public void testRedisRateLimitBackendWithCustomFunction() {
-    RedisRateLimitBackend redisBackend =
-        new RedisRateLimitBackend(
-            (key, min) -> {
-              if (key.contains("1.1.1.1")) {
-                return 42;
-              }
-              return null; // trigger fallback
-            },
-            "test:ratelimit:");
-
-    assertEquals(42, redisBackend.incrementAndGet("1.1.1.1", 2000L, 100));
-    assertEquals(1, redisBackend.incrementAndGet("2.2.2.2", 2000L, 100)); // Fell back to local
+  @Test(expected = IllegalArgumentException.class)
+  public void testRedisBackendConfigRejection() throws Exception {
+    System.setProperty("webtransport4j.server.ratelimit.backend", "redis");
+    try {
+      WebTransportConfig.reload();
+      java.lang.reflect.Method m = IpRateLimitingHandler.class.getDeclaredMethod("createBackend");
+      m.setAccessible(true);
+      try {
+        m.invoke(null);
+      } catch (java.lang.reflect.InvocationTargetException ite) {
+        if (ite.getCause() instanceof RuntimeException) {
+          throw (RuntimeException) ite.getCause();
+        }
+        throw new RuntimeException(ite.getCause());
+      }
+    } finally {
+      System.clearProperty("webtransport4j.server.ratelimit.backend");
+      WebTransportConfig.reload();
+    }
   }
 
   @Test

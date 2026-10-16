@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # Stage 1: Build & Dependency Resolution
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS builder
+FROM maven:3-eclipse-temurin-25 AS builder
 WORKDIR /build
 
 COPY pom.xml ./

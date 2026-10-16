@@ -6,6 +6,7 @@ import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.traffic.ChannelTrafficShapingHandler;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -54,6 +55,16 @@ public final class WebTransportDetectorHandler extends ByteToMessageDecoder {
       return;
     }
     if (marker == WebTransportUtils.BI_STREAM_TYPE) {
+      if (ctx.channel() instanceof QuicStreamChannel) {
+        long streamId = ((QuicStreamChannel) ctx.channel()).streamId();
+        if (streamId == 0) {
+          logger.warn(
+              "❌ Malicious WT_STREAM (0x41) on streamId == 0: stream 0 cannot reference an"
+                  + " established WebTransport session");
+          WebTransportUtils.rejectClientStream(ctx, WebTransportUtils.WT_BUFFERED_STREAM_REJECTED);
+          return;
+        }
+      }
       if (logger.isDebugEnabled()) {
         logger.debug(
             "🚀 Decision: WebTransport WT_STREAM detected (0x{})", Long.toHexString(marker));

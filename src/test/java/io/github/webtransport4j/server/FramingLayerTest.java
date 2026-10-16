@@ -1075,4 +1075,52 @@ public class FramingLayerTest {
 
     assertEquals(0, frame.refCnt());
   }
+
+  @Test
+  public void testReject0x41OnStreamIdZeroInWebTransportDetectorHandler() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mockQuicChannel();
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.streamId()).thenReturn(0L);
+    ChannelPromise mockPromise = mock(ChannelPromise.class);
+    when(mockCtx.newPromise()).thenReturn(mockPromise);
+
+    ByteBuf in = Unpooled.buffer();
+    WebTransportUtils.writeVarInt(in, WebTransportUtils.BI_STREAM_TYPE); // 0x41
+    WebTransportUtils.writeVarInt(in, 100L); // session ID
+
+    WebTransportDetectorHandler detector = new WebTransportDetectorHandler();
+    List<Object> out = new ArrayList<>();
+    detector.decode(mockCtx, in, out);
+
+    // Verify stream is shut down / closed immediately
+    verify(mockStream).shutdown(eq(WebTransportUtils.WT_BUFFERED_STREAM_REJECTED), eq(mockPromise));
+    verify(mockStream).close();
+    assertTrue(out.isEmpty());
+    in.release();
+  }
+
+  @Test
+  public void testConnectStreamBypassesRawHeaderParsingViaAttribute() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.streamId()).thenReturn(4L); // Non-zero stream ID!
+
+    Attribute<Boolean> connectStreamAttr = mock(Attribute.class);
+    when(connectStreamAttr.get()).thenReturn(true);
+    when(mockStream.attr(WebTransportAttributeKeys.CONNECT_STREAM)).thenReturn(connectStreamAttr);
+
+    RawWebTransportHandler rawHandler = new RawWebTransportHandler();
+    ByteBuf data = Unpooled.copiedBuffer(new byte[] {0x00, 0x05, 0x01, 0x02}); // Arbitrary capsule data
+
+    rawHandler.channelRead(mockCtx, data);
+
+    // Verify data was passed through without attempting WT_STREAM header parsing
+    verify(mockCtx).fireChannelRead(eq(data));
+    data.release();
+  }
 }
