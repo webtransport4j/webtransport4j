@@ -109,6 +109,7 @@ public class Draft16Section5FlowControlTest {
   public void testSection5_3_ConnectStreamExcludedFromStreamCountInApplication() {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(0L);
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     DefaultWebTransportSession session =
         new DefaultWebTransportSession(
@@ -136,6 +137,7 @@ public class Draft16Section5FlowControlTest {
     DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
     when(mockCtx.channel()).thenReturn(mockConnectStream);
     when(mockConnectStream.parent()).thenReturn(mockQuic);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
     when(mockQuic.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
 
@@ -189,6 +191,7 @@ public class Draft16Section5FlowControlTest {
     QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
     when(mockConnectStream.streamId()).thenReturn(0L);
     when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     DefaultAttributeMap streamAttrMap = new DefaultAttributeMap();
     when(mockConnectStream.attr(any())).thenAnswer(inv -> streamAttrMap.attr(inv.getArgument(0)));
     when(mockConnectStream.hasAttr(any()))
@@ -227,6 +230,7 @@ public class Draft16Section5FlowControlTest {
     DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
     when(mockCtx.channel()).thenReturn(mockConnectStream);
     when(mockConnectStream.parent()).thenReturn(mockQuic);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
     when(mockQuic.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
 
@@ -269,6 +273,7 @@ public class Draft16Section5FlowControlTest {
     DefaultAttributeMap parentAttrMap = new DefaultAttributeMap();
     when(mockCtx.channel()).thenReturn(mockConnectStream);
     when(mockConnectStream.parent()).thenReturn(mockQuic);
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
     when(mockQuic.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
 
