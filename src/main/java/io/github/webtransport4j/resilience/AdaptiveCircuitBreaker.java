@@ -87,15 +87,21 @@ public class AdaptiveCircuitBreaker {
     if (current == State.CLOSED) {
       return true;
     }
+    final long now = System.currentTimeMillis();
+    final long lastChange = this.lastStateChangeTimestamp;
     if (current == State.OPEN) {
-      final long now = System.currentTimeMillis();
-      if (now - this.lastStateChangeTimestamp >= resetTimeoutMillis) {
+      if (now - lastChange >= resetTimeoutMillis) {
         if (STATE_HANDLE.compareAndSet(this, State.OPEN, State.HALF_OPEN)) {
-          this.lastStateChangeTimestamp = now;
+          LAST_STATE_CHANGE_HANDLE.set(this, now);
           return true;
         }
       }
       return false;
+    }
+    if (current == State.HALF_OPEN && now - lastChange >= resetTimeoutMillis) {
+      if (LAST_STATE_CHANGE_HANDLE.compareAndSet(this, lastChange, now)) {
+        return true;
+      }
     }
     return false; // The OPEN-to-HALF_OPEN CAS winner owns the outstanding probe.
   }
@@ -105,8 +111,7 @@ public class AdaptiveCircuitBreaker {
    */
   public void recordSuccess() {
     this.failureCount = 0;
-    if (this.state == State.HALF_OPEN) {
-      this.state = State.CLOSED;
+    if (STATE_HANDLE.compareAndSet(this, State.HALF_OPEN, State.CLOSED)) {
       this.lastStateChangeTimestamp = System.currentTimeMillis();
     }
   }

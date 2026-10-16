@@ -274,6 +274,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                     if (globalSlots != null) {
                       globalSlots.decrementAndGet();
                     }
+                    if (overloadPolicy != null) {
+                      overloadPolicy.recordFailure();
+                    }
                   } else {
                     mgr.unregister(connectStream);
                   }
@@ -330,6 +333,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               if (globalSlots != null) {
                 globalSlots.decrementAndGet();
               }
+              if (overloadPolicy != null) {
+                overloadPolicy.recordFailure();
+              }
             }
             if (metricsListener != null) {
               metricsListener.onSessionRejected("handler_rejected");
@@ -377,6 +383,9 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
                   mgr.releaseReservation();
                   if (globalSlots != null) {
                     globalSlots.decrementAndGet();
+                  }
+                  if (overloadPolicy != null) {
+                    overloadPolicy.recordFailure();
                   }
                   connectStream.close();
                 }

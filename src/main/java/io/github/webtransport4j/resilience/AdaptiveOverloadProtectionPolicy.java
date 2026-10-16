@@ -184,6 +184,11 @@ public class AdaptiveOverloadProtectionPolicy implements OverloadProtectionPolic
   }
 
   @Override
+  public void recordFailure() {
+    circuitBreaker.recordFailure();
+  }
+
+  @Override
   public void release() {
     // No-op for stateless admission, but hook available for token bucket or lease tracking
   }

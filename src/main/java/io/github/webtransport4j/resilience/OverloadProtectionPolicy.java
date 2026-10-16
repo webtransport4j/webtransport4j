@@ -90,6 +90,12 @@ public interface OverloadProtectionPolicy {
   }
 
   /**
+   * Notifies the policy that a provisionally admitted session failed to complete its handshake.
+   */
+  default void recordFailure() {
+  }
+
+  /**
    * Notifies the policy that an active session has terminated.
    */
   void release();

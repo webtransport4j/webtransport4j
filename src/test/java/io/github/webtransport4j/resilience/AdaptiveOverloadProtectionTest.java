@@ -219,4 +219,49 @@ public class AdaptiveOverloadProtectionTest {
     assertTrue("Heap ratio must be >= 0.0", ratio >= 0.0);
     assertTrue("Heap ratio must be <= 1.0", ratio <= 1.0);
   }
+
+  @Test
+  public void testHalfOpenProbeFailureReturnsToOpenAndRecovers() throws Exception {
+    final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 20L);
+    breaker.trip();
+    expireCoolOff(breaker);
+
+    final AdaptiveOverloadProtectionPolicy policy =
+        new AdaptiveOverloadProtectionPolicy(0.99, 100, 5, breaker, () -> 0.10);
+
+    // Probe transitions OPEN -> HALF_OPEN
+    assertTrue(policy.tryAcquire(5).isAdmitted());
+    assertEquals(AdaptiveCircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+    // Handshake failure or rejection notifies recordFailure() -> transitions back to OPEN
+    policy.recordFailure();
+    assertEquals(AdaptiveCircuitBreaker.State.OPEN, breaker.getState());
+    assertFalse(policy.tryAcquire(5).isAdmitted());
+
+    // After cool-off expires again, a new probe can succeed and close the circuit
+    expireCoolOff(breaker);
+    assertTrue(policy.tryAcquire(5).isAdmitted());
+    policy.recordSuccess();
+    assertEquals(AdaptiveCircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  public void testHalfOpenStalledProbeTimeoutAllowsNewProbe() throws Exception {
+    final AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 50L);
+    breaker.trip();
+    expireCoolOff(breaker);
+
+    assertTrue(breaker.allowExecution());
+    assertEquals(AdaptiveCircuitBreaker.State.HALF_OPEN, breaker.getState());
+    assertFalse(breaker.allowExecution());
+
+    // If the probe stalls beyond resetTimeoutMillis without recording completion,
+    // allowExecution permits a single replacement probe instead of deadlocking forever
+    expireCoolOff(breaker);
+    assertTrue(breaker.allowExecution());
+    assertFalse(breaker.allowExecution());
+
+    breaker.recordSuccess();
+    assertEquals(AdaptiveCircuitBreaker.State.CLOSED, breaker.getState());
+  }
 }
