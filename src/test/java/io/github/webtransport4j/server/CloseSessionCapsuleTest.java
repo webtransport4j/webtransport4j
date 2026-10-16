@@ -250,6 +250,7 @@ public class CloseSessionCapsuleTest {
     QuicChannel mockQuic = mock(QuicChannel.class);
     when(mockStream.parent()).thenReturn(mockQuic);
     when(mockStream.streamId()).thenReturn(0L);
+    when(mockStream.isOpen()).thenReturn(true);
 
     DefaultWebTransportSession session =
         new DefaultWebTransportSession(
