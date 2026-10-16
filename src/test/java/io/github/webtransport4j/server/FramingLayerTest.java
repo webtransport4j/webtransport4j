@@ -782,6 +782,26 @@ public class FramingLayerTest {
       assertEquals("200", respFrame.headers().status().toString());
       mgr.closeAll();
     }
+
+    // Case 4: Origin absent, Authority "evil.com:4433" -> Should be FORBIDDEN
+    {
+      Http3Headers mockHeaders = new DefaultHttp3Headers();
+      mockHeaders.method("CONNECT");
+      mockHeaders.scheme("https");
+      mockHeaders.authority("evil.com:4433");
+      mockHeaders.path("/webtransport-test");
+      mockHeaders.set(":protocol", "webtransport-h3");
+      Http3HeadersFrame mockHeadersFrame = mock(Http3HeadersFrame.class);
+      when(mockHeadersFrame.headers()).thenReturn(mockHeaders);
+
+      handler.channelRead(mockCtx, mockHeadersFrame);
+
+      ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+      verify(mockCtx, atLeastOnce()).writeAndFlush(captor.capture());
+      Http3HeadersFrame respFrame =
+          (Http3HeadersFrame) captor.getAllValues().get(captor.getAllValues().size() - 1);
+      assertEquals("403", respFrame.headers().status().toString());
+    }
   }
 
   @Test
