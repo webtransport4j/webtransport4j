@@ -23,7 +23,7 @@ public class AdaptiveCircuitBreaker {
     CLOSED,
     /** Tripped open; requests are shed immediately. */
     OPEN,
-    /** Testing recovery; only the caller that transitions from OPEN runs a probe. */
+    /** Testing recovery; a probe may be replaced after the reset timeout if still incomplete. */
     HALF_OPEN
   }
 
@@ -61,7 +61,8 @@ public class AdaptiveCircuitBreaker {
    * Constructs a circuit breaker with specified failure threshold and cool-off timeout.
    *
    * @param failureThreshold consecutive failures before tripping open
-   * @param resetTimeoutMillis milliseconds to wait in OPEN state before transitioning to HALF_OPEN
+   * @param resetTimeoutMillis milliseconds before an OPEN circuit or an incomplete HALF_OPEN probe
+   *     permits a new recovery probe
    */
   public AdaptiveCircuitBreaker(int failureThreshold, long resetTimeoutMillis) {
     if (failureThreshold <= 0) {
@@ -78,7 +79,8 @@ public class AdaptiveCircuitBreaker {
    * Evaluates if a request is permitted to proceed according to the breaker state.
    *
    * <p>After the cool-off period, only the caller that transitions OPEN to HALF_OPEN is
-   * permitted. That caller must record success or failure before another probe can run.
+   * permitted. In HALF_OPEN, an atomic timestamp update permits a replacement probe after the
+   * reset timeout if the earlier probe has not recorded success or failure.
    *
    * @return true if execution is permitted
    */
@@ -87,15 +89,21 @@ public class AdaptiveCircuitBreaker {
     if (current == State.CLOSED) {
       return true;
     }
+    final long now = System.currentTimeMillis();
+    final long lastChange = this.lastStateChangeTimestamp;
     if (current == State.OPEN) {
-      final long now = System.currentTimeMillis();
-      if (now - this.lastStateChangeTimestamp >= resetTimeoutMillis) {
+      if (now - lastChange >= resetTimeoutMillis) {
         if (STATE_HANDLE.compareAndSet(this, State.OPEN, State.HALF_OPEN)) {
-          this.lastStateChangeTimestamp = now;
+          LAST_STATE_CHANGE_HANDLE.set(this, now);
           return true;
         }
       }
       return false;
+    }
+    if (current == State.HALF_OPEN && now - lastChange >= resetTimeoutMillis) {
+      if (LAST_STATE_CHANGE_HANDLE.compareAndSet(this, lastChange, now)) {
+        return true;
+      }
     }
     return false; // The OPEN-to-HALF_OPEN CAS winner owns the outstanding probe.
   }
@@ -105,8 +113,7 @@ public class AdaptiveCircuitBreaker {
    */
   public void recordSuccess() {
     this.failureCount = 0;
-    if (this.state == State.HALF_OPEN) {
-      this.state = State.CLOSED;
+    if (STATE_HANDLE.compareAndSet(this, State.HALF_OPEN, State.CLOSED)) {
       this.lastStateChangeTimestamp = System.currentTimeMillis();
     }
   }
