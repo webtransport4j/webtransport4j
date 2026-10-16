@@ -101,15 +101,12 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     final int maxTrackedIps;
     final IpFilterEngine<Boolean> whitelistEngine;
     final IpFilterEngine<Integer> overridesEngine;
-    final IpBloomFilter blocklistFilter;
     final Set<String> exactBlocklist;
 
     // Fields to detect changes
     final String rawBlocklistConfig;
     final String rawWhitelistConfig;
     final String rawOverridesConfig;
-    final int bloomCapacity;
-    final double bloomFpp;
     final String engineType;
 
     SharedRateLimitRules() {
@@ -173,34 +170,16 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         }
       }
 
-      this.bloomCapacity =
-          config.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1_000_000);
-      double fpp = 0.000000001;
-      String fppStr =
-          config.getNonNull("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001");
-      try {
-        fpp = Double.parseDouble(fppStr);
-      } catch (NumberFormatException e) {
-        logger.warn("Invalid bloom_fpp config: {}, using default 0.000000001", fppStr);
-      }
-      this.bloomFpp = fpp;
-
       this.rawBlocklistConfig = config.getNonNull("webtransport4j.server.ratelimit.blocklist", "");
 
-      if (previous != null
-          && this.bloomCapacity == previous.bloomCapacity
-          && Double.compare(this.bloomFpp, previous.bloomFpp) == 0
-          && this.rawBlocklistConfig.equals(previous.rawBlocklistConfig)) {
-        this.blocklistFilter = previous.blocklistFilter;
+      if (previous != null && this.rawBlocklistConfig.equals(previous.rawBlocklistConfig)) {
         this.exactBlocklist = previous.exactBlocklist;
       } else {
-        this.blocklistFilter = new IpBloomFilter(this.bloomCapacity, this.bloomFpp);
         this.exactBlocklist = new ObjectOpenHashSet<>();
         if (!this.rawBlocklistConfig.isEmpty()) {
           for (String blocked : this.rawBlocklistConfig.split(",")) {
             blocked = blocked.trim();
             if (!blocked.isEmpty()) {
-              this.blocklistFilter.add(blocked);
               this.exactBlocklist.add(blocked);
             }
           }
@@ -346,14 +325,12 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           return;
         }
 
-        if (currentRules.blocklistFilter.isEnabled()
-            && currentRules.blocklistFilter.mightContain(ip)) {
-          if (currentRules.exactBlocklist.contains(ip)) {
-            logger.warn(
-                "❌ IP {} is in the BloomFilter Blocklist. Dropping connection immediately.", ip);
-            ctx.close();
-            return;
-          }
+        if (!currentRules.exactBlocklist.isEmpty()
+            && currentRules.exactBlocklist.contains(ip)) {
+          logger.warn(
+              "❌ IP {} is in the Blocklist. Dropping connection immediately.", ip);
+          ctx.close();
+          return;
         }
 
         long nowMinute = System.currentTimeMillis() / 60000;
