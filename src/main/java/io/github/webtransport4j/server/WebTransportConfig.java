@@ -121,6 +121,16 @@ public class WebTransportConfig {
       return WebTransportConfig.getInt(properties, programmatic, key, defaultValue);
     }
 
+    /** Returns whether a value is supplied above the static configuration layer, even if invalid. */
+    public boolean hasNonStaticValue(@NonNull String key) {
+      return getNonStaticVal(properties, programmatic, key) != null;
+    }
+
+    /** Resolves an integer, returning null when the value is absent or cannot be parsed. */
+    @Nullable Integer getIntOrNull(@NonNull String key) {
+      return WebTransportConfig.getInt(properties, programmatic, key, null);
+    }
+
     /** Resolves a long using the same parsing and fallback as the ordinary getter. */
     public long getLong(@NonNull String key, long defaultValue) {
       return WebTransportConfig.getLong(properties, programmatic, key, defaultValue);
@@ -138,6 +148,12 @@ public class WebTransportConfig {
 
   private static String getVal(
       Properties properties, Properties programmatic, String key, String defaultVal) {
+    String value = getNonStaticVal(properties, programmatic, key);
+    return value != null ? value : staticProperties.getProperty(key, defaultVal);
+  }
+
+  private static @Nullable String getNonStaticVal(
+      Properties properties, Properties programmatic, String key) {
     // 1. Check System Properties (-Dserver.port=...)
     String value = System.getProperty(key);
     if (value != null) {
@@ -176,8 +192,7 @@ public class WebTransportConfig {
         }
       }
     }
-    // 6. Fallback to static properties file
-    return staticProperties.getProperty(key, defaultVal);
+    return null;
   }
 
   /**
@@ -353,8 +368,8 @@ public class WebTransportConfig {
     return getInt(properties, programmaticProperties, key, defaultValue);
   }
 
-  private static int getInt(
-      Properties properties, Properties programmatic, String key, int defaultValue) {
+  private static @Nullable Integer getInt(
+      Properties properties, Properties programmatic, String key, @Nullable Integer defaultValue) {
     String val = getVal(properties, programmatic, key, null);
     if (val == null) {
       return defaultValue;

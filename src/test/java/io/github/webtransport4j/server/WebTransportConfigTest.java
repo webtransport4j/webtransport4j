@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -337,5 +338,73 @@ public class WebTransportConfigTest {
     } finally {
       WebTransportConfig.clearProgrammaticProperties();
     }
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkMalformedBounds() {
+    assertWriteBufferWaterMark("invalid", "1 * 1024 * 1024", 524288, 1048576);
+    assertWriteBufferWaterMark("8388608", "invalid", 8388608, 8388608);
+    assertWriteBufferWaterMark("invalid", "invalid", 2097152, 4194304);
+    assertWriteBufferWaterMark("invalid", null, 2097152, 4194304);
+    assertWriteBufferWaterMark(null, "invalid", 2097152, 4194304);
+    assertWriteBufferWaterMark("3145728", "1048576", 3145728, 3145728);
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkClampsParsedNonPositiveBounds() {
+    for (String value : Arrays.asList("0", "-1", "-2147483648")) {
+      assertWriteBufferWaterMark(value, null, 1, 4194304);
+      assertWriteBufferWaterMark(null, value, 1, 1);
+      assertWriteBufferWaterMark("invalid", value, 1, 1);
+      assertWriteBufferWaterMark(value, "invalid", 1, 4194304);
+    }
+  }
+
+  @Test
+  public void testWriteBufferOverrideOriginAndSnapshot() {
+    String lowKey = "webtransport4j.netty.write_buffer.low_water_mark";
+    String highKey = "webtransport4j.netty.write_buffer.high_water_mark";
+    WebTransportConfig.Snapshot before = WebTransportConfig.snapshot();
+    assertNotNull(before.get(lowKey, null));
+    assertFalse(before.hasNonStaticValue(lowKey));
+    assertFalse(before.hasNonStaticValue(highKey));
+
+    WebTransportConfig.setProperty(lowKey, "invalid");
+    WebTransportConfig.Snapshot overridden = WebTransportConfig.snapshot();
+    WebTransportConfig.removeProperty(lowKey);
+    assertTrue(overridden.hasNonStaticValue(lowKey));
+    assertNull(overridden.getIntOrNull(lowKey));
+    assertFalse(before.hasNonStaticValue(lowKey));
+    assertFalse(WebTransportConfig.snapshot().hasNonStaticValue(lowKey));
+
+    String originalHigh = System.getProperty(highKey);
+    try {
+      System.setProperty(highKey, "1048576");
+      assertTrue(WebTransportConfig.snapshot().hasNonStaticValue(highKey));
+      io.netty.channel.WriteBufferWaterMark waterMark =
+          WebTransportUtils.resolveWriteBufferWaterMark();
+      assertEquals(524288, waterMark.low());
+      assertEquals(1048576, waterMark.high());
+    } finally {
+      if (originalHigh == null) {
+        System.clearProperty(highKey);
+      } else {
+        System.setProperty(highKey, originalHigh);
+      }
+    }
+  }
+
+  private static void assertWriteBufferWaterMark(
+      String low, String high, int expectedLow, int expectedHigh) {
+    WebTransportConfig.clearProgrammaticProperties();
+    if (low != null) {
+      WebTransportConfig.setProperty("webtransport4j.netty.write_buffer.low_water_mark", low);
+    }
+    if (high != null) {
+      WebTransportConfig.setProperty("webtransport4j.netty.write_buffer.high_water_mark", high);
+    }
+    io.netty.channel.WriteBufferWaterMark waterMark = WebTransportUtils.resolveWriteBufferWaterMark();
+    assertEquals(expectedLow, waterMark.low());
+    assertEquals(expectedHigh, waterMark.high());
   }
 }

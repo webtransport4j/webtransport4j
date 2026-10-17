@@ -607,12 +607,16 @@ public class WebTransportUtils {
     WebTransportConfig.Snapshot snapshot = WebTransportConfig.snapshot();
     int defaultLow = 2 * 1024 * 1024;
     int defaultHigh = 4 * 1024 * 1024;
-    String rawLow = snapshot.get("webtransport4j.netty.write_buffer.low_water_mark", null);
-    String rawHigh = snapshot.get("webtransport4j.netty.write_buffer.high_water_mark", null);
-    int low = Math.max(1, snapshot.getInt("webtransport4j.netty.write_buffer.low_water_mark", defaultLow));
-    int high = Math.max(1, snapshot.getInt("webtransport4j.netty.write_buffer.high_water_mark", defaultHigh));
+    String lowKey = "webtransport4j.netty.write_buffer.low_water_mark";
+    String highKey = "webtransport4j.netty.write_buffer.high_water_mark";
+    Integer parsedLow = snapshot.getIntOrNull(lowKey);
+    Integer parsedHigh = snapshot.getIntOrNull(highKey);
+    int low = Math.max(1, parsedLow != null ? parsedLow : defaultLow);
+    int high = Math.max(1, parsedHigh != null ? parsedHigh : defaultHigh);
+    boolean lowOverridden = snapshot.hasNonStaticValue(lowKey) && parsedLow != null;
+    boolean highOverridden = snapshot.hasNonStaticValue(highKey) && parsedHigh != null;
     if (low > high) {
-      if (rawHigh != null && rawLow == null) {
+      if (highOverridden && !lowOverridden) {
         low = Math.max(1, high / 2);
       } else {
         high = low;
