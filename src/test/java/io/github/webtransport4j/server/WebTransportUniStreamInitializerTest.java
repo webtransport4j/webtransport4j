@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.netty.channel.Channel;
 import io.netty.channel.DefaultChannelPipeline;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -41,12 +42,14 @@ public class WebTransportUniStreamInitializerTest {
 
       QuicStreamChannel stream = mock(QuicStreamChannel.class);
       QuicChannel parent = mock(QuicChannel.class);
+      Channel grandparent = mock(Channel.class);
       when(stream.parent()).thenReturn(parent);
+      when(parent.parent()).thenReturn(grandparent);
       when(stream.pipeline()).thenReturn(pipeline);
 
       Attribute<GlobalTrafficShapingHandler> globalAttr = mock(Attribute.class);
       when(globalAttr.get()).thenReturn(globalShaper);
-      when(parent.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER)).thenReturn(globalAttr);
+      when(grandparent.attr(WebTransportAttributeKeys.GLOBAL_TRAFFIC_SHAPER)).thenReturn(globalAttr);
 
       Attribute<GlobalTrafficShapingHandler> connAttr = mock(Attribute.class);
       when(parent.attr(WebTransportAttributeKeys.CONN_TRAFFIC_SHAPER)).thenReturn(connAttr);
