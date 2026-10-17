@@ -186,6 +186,7 @@ jobs:
             -name 'webtransport4j-*.jar' \
             ! -name '*-sources.jar' \
             ! -name '*-javadoc.jar' \
+            ! -name '*-examples.jar' \
             -print)
           [[ "${#artifacts[@]}" -eq 1 ]]
           artifact="${artifacts[0]}"
@@ -248,6 +249,7 @@ jobs:
             -name 'webtransport4j-*.jar' \
             ! -name '*-sources.jar' \
             ! -name '*-javadoc.jar' \
+            ! -name '*-examples.jar' \
             -print)
           [[ "${#artifacts[@]}" -eq 1 ]]
           artifact="${artifacts[0]}"
