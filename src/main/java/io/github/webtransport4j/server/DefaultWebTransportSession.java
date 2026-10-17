@@ -949,13 +949,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
-          ch.config()
-              .setWriteBufferWaterMark(
-                  new WriteBufferWaterMark(
-                      WebTransportConfig.getInt(
-                          "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024),
-                      WebTransportConfig.getInt(
-                          "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024)));
+          ch.config().setWriteBufferWaterMark(WebTransportUtils.resolveWriteBufferWaterMark());
           WebTransportUtils.addTrafficShapers(ch);
           ch.pipeline().addLast(new RawWebTransportHandler());
           ch.pipeline().addLast(new WebTransportChunkedWriteHandler());
@@ -968,13 +962,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         @Override
         protected void initChannel(@NonNull QuicStreamChannel ch) {
           ch.config().setAllowHalfClosure(true);
-          ch.config()
-              .setWriteBufferWaterMark(
-                  new WriteBufferWaterMark(
-                      WebTransportConfig.getInt(
-                          "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024),
-                      WebTransportConfig.getInt(
-                          "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024)));
+          ch.config().setWriteBufferWaterMark(WebTransportUtils.resolveWriteBufferWaterMark());
           WebTransportUtils.addTrafficShapers(ch);
           ch.pipeline().addLast(new RawWebTransportHandler());
           ch.pipeline().addLast(new WebTransportChunkedWriteHandler());

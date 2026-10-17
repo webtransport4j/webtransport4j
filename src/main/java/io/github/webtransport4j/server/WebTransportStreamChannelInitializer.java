@@ -30,14 +30,7 @@ public final class WebTransportStreamChannelInitializer
   @Override
   protected void initChannel(@NonNull QuicStreamChannel stream) {
     stream.config().setAllowHalfClosure(true);
-    stream
-        .config()
-        .setWriteBufferWaterMark(
-            new WriteBufferWaterMark(
-                WebTransportConfig.getInt(
-                    "webtransport4j.netty.write_buffer.low_water_mark", 2 * 1024 * 1024),
-                WebTransportConfig.getInt(
-                    "webtransport4j.netty.write_buffer.high_water_mark", 4 * 1024 * 1024)));
+    stream.config().setWriteBufferWaterMark(WebTransportUtils.resolveWriteBufferWaterMark());
 
     WebTransportUtils.addTrafficShapers(stream);
     stream.pipeline().addFirst(new WebTransportDetectorHandler());
