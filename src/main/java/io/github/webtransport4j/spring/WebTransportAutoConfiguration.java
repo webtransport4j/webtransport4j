@@ -229,6 +229,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     tokenHandlerProvider.ifAvailable(builder::quicTokenHandler);
 
     // Auto-discover @WebTransportEndpoint annotated beans or WebTransportHandler beans
+    boolean hasExplicitDefault = false;
     Map<String, Object> endpointBeans =
         applicationContext.getBeansWithAnnotation(WebTransportEndpoint.class);
     for (Map.Entry<String, Object> entry : endpointBeans.entrySet()) {
@@ -250,6 +251,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
         if (bean instanceof WebTransportHandler) {
           WebTransportHandler handler = (WebTransportHandler) bean;
           if (isDefault) {
+            if (hasExplicitDefault) {
+              throw new IllegalStateException(
+                  "Multiple @WebTransportEndpoint(isDefault = true) beans found");
+            }
+            hasExplicitDefault = true;
             builder.defaultHandler(handler);
           } else {
             builder.handler(path, handler);
@@ -257,6 +263,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
         } else if (bean instanceof ReactiveWebTransportHandler) {
           ReactiveWebTransportHandler reactiveHandler = (ReactiveWebTransportHandler) bean;
           if (isDefault) {
+            if (hasExplicitDefault) {
+              throw new IllegalStateException(
+                  "Multiple @WebTransportEndpoint(isDefault = true) beans found");
+            }
+            hasExplicitDefault = true;
             builder.defaultReactiveHandler(reactiveHandler);
           } else {
             builder.reactiveHandler(path, reactiveHandler);
@@ -270,8 +281,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
       }
     }
 
-    // Also discover plain WebTransportHandler beans that are not annotated if no endpoint
-    // annotation present
+    // Also discover plain WebTransportHandler / ReactiveWebTransportHandler beans that are not
+    // annotated if no explicit default endpoint annotation is present
     Map<String, WebTransportHandler> handlers =
         applicationContext.getBeansOfType(WebTransportHandler.class);
     it.unimi.dsi.fastutil.objects.ObjectArrayList<Map.Entry<String, WebTransportHandler>>
@@ -281,17 +292,25 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
         unannotatedHandlers.add(entry);
       }
     }
-    if (unannotatedHandlers.size() == 1) {
-      Map.Entry<String, WebTransportHandler> single = unannotatedHandlers.get(0);
-      logger.info(
-          "📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path"
-              + " '/'",
-          single.getKey());
-      builder.defaultHandler(single.getValue());
-    } else if (unannotatedHandlers.size() > 1) {
+
+    Map<String, ReactiveWebTransportHandler> reactiveHandlers =
+        applicationContext.getBeansOfType(ReactiveWebTransportHandler.class);
+    it.unimi.dsi.fastutil.objects.ObjectArrayList<Map.Entry<String, ReactiveWebTransportHandler>>
+        unannotatedReactiveHandlers = new it.unimi.dsi.fastutil.objects.ObjectArrayList<>();
+    for (Map.Entry<String, ReactiveWebTransportHandler> entry : reactiveHandlers.entrySet()) {
+      if (!endpointBeans.containsKey(entry.getKey())) {
+        unannotatedReactiveHandlers.add(entry);
+      }
+    }
+
+    int totalUnannotated = unannotatedHandlers.size() + unannotatedReactiveHandlers.size();
+    if (totalUnannotated > 1) {
       it.unimi.dsi.fastutil.objects.ObjectArrayList<String> names =
-          new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(unannotatedHandlers.size());
+          new it.unimi.dsi.fastutil.objects.ObjectArrayList<>(totalUnannotated);
       for (Map.Entry<String, WebTransportHandler> entry : unannotatedHandlers) {
+        names.add(entry.getKey());
+      }
+      for (Map.Entry<String, ReactiveWebTransportHandler> entry : unannotatedReactiveHandlers) {
         names.add(entry.getKey());
       }
       throw new IllegalStateException(
@@ -299,6 +318,23 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
               + String.join(", ", names)
               + ". Annotate each handler bean with @WebTransportEndpoint(path = ...) or configure"
               + " an explicit default handler.");
+    } else if (!hasExplicitDefault && totalUnannotated == 1) {
+      if (unannotatedHandlers.size() == 1) {
+        Map.Entry<String, WebTransportHandler> single = unannotatedHandlers.get(0);
+        logger.info(
+            "📡 Discovered unannotated WebTransportHandler bean '{}', registering at default path"
+                + " '/'",
+            single.getKey());
+        builder.defaultHandler(single.getValue());
+      } else {
+        Map.Entry<String, ReactiveWebTransportHandler> single =
+            unannotatedReactiveHandlers.get(0);
+        logger.info(
+            "📡 Discovered unannotated ReactiveWebTransportHandler bean '{}', registering at"
+                + " default path '/'",
+            single.getKey());
+        builder.defaultReactiveHandler(single.getValue());
+      }
     }
 
     return builder.build();

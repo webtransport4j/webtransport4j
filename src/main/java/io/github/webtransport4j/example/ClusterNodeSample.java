@@ -239,27 +239,15 @@ public class ClusterNodeSample {
           }
         });
 
-    // JVM graceful shutdown hook
-    Runtime.getRuntime()
-        .addShutdownHook(
-            new Thread(
-                () -> {
-                  log.info(
-                      "🛑 JVM shutdown hook triggered for node '{}': draining and stopping server",
-                      nodeName);
-                  try {
-                    server.close();
-                    healthHttpServer.stop(1);
-                  } catch (Exception ignored) {
-                    // Continue best-effort diagnostics or cleanup if this operation is unavailable.
-                  }
-                }));
-
     // Jolokia / Hawtio JMX management HTTP handlers
     JolokiaHttpHandler jolokiaHandler = new JolokiaHttpHandler(nodeName);
     healthHttpServer.createContext(
         "/jolokia",
         exchange -> {
+          if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            jolokiaHandler.handle(exchange);
+            return;
+          }
           if (isAuthorized(exchange, managementToken)) {
             jolokiaHandler.handle(exchange);
           }
@@ -267,6 +255,10 @@ public class ClusterNodeSample {
     healthHttpServer.createContext(
         "/api/node/jmx",
         exchange -> {
+          if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            jolokiaHandler.handle(exchange);
+            return;
+          }
           if (isAuthorized(exchange, managementToken)) {
             jolokiaHandler.handle(exchange);
           }
@@ -539,6 +531,7 @@ public class ClusterNodeSample {
         "/api/node/sessions/drain",
         exchange -> {
           if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
             exchange
                 .getResponseHeaders()
@@ -547,6 +540,7 @@ public class ClusterNodeSample {
             return;
           }
           if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             if (!isAuthorized(exchange, managementToken)) {
               return;
             }
@@ -607,6 +601,7 @@ public class ClusterNodeSample {
         "/api/node/sessions/close",
         exchange -> {
           if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "POST, OPTIONS");
             exchange
                 .getResponseHeaders()
@@ -615,6 +610,7 @@ public class ClusterNodeSample {
             return;
           }
           if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             if (!isAuthorized(exchange, managementToken)) {
               return;
             }

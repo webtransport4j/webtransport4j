@@ -77,6 +77,7 @@ public class WebTransportApiTest {
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
     when(serverAttr.get()).thenReturn(server);
@@ -160,6 +161,7 @@ public class WebTransportApiTest {
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.streamId()).thenReturn(100L);
     when(mockConnectStream.closeFuture()).thenReturn(mock(ChannelFuture.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<WebTransportServer> serverAttr = mock(Attribute.class);
     when(serverAttr.get()).thenReturn(server);

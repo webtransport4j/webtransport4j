@@ -245,15 +245,12 @@ public class IpRateLimitingHandlerTest {
     whitelistField.setAccessible(true);
     Field overridesField = rulesClass.getDeclaredField("overridesEngine");
     overridesField.setAccessible(true);
-    Field blocklistField = rulesClass.getDeclaredField("blocklistFilter");
-    blocklistField.setAccessible(true);
     Field exactBlocklistField = rulesClass.getDeclaredField("exactBlocklist");
     exactBlocklistField.setAccessible(true);
 
     // Assert same references are reused
     assertSame(whitelistField.get(rules1), whitelistField.get(rules2));
     assertSame(overridesField.get(rules1), overridesField.get(rules2));
-    assertSame(blocklistField.get(rules1), blocklistField.get(rules2));
     assertSame(exactBlocklistField.get(rules1), exactBlocklistField.get(rules2));
 
     // 2. Change blocklist configuration
@@ -273,7 +270,6 @@ public class IpRateLimitingHandlerTest {
     assertSame(overridesField.get(rules2), overridesField.get(rules3));
 
     // Blocklist should be recreated
-    assertNotSame(blocklistField.get(rules2), blocklistField.get(rules3));
     assertNotSame(exactBlocklistField.get(rules2), exactBlocklistField.get(rules3));
   }
 }
