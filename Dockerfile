@@ -15,7 +15,8 @@ COPY scripts ./scripts
 
 # Package Multi-Release JAR and gather runtime dependencies
 RUN mvn clean package -DskipTests dependency:copy-dependencies -DincludeScope=runtime -DoutputDirectory=target/lib \
-    && cp "target/$(mvn -q help:evaluate -Dexpression=project.build.finalName -DforceStdout).jar" target/application.jar
+    && cp "target/$(mvn -q help:evaluate -Dexpression=project.build.finalName -DforceStdout).jar" target/application.jar \
+    && cp "target/$(mvn -q help:evaluate -Dexpression=project.build.finalName -DforceStdout)-examples.jar" target/lib/webtransport4j-examples.jar
 
 # Stage 2: Hardened Production Runtime
 FROM eclipse-temurin:25-jre AS runtime

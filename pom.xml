@@ -694,7 +694,29 @@
                             <Multi-Release>true</Multi-Release>
                         </manifestEntries>
                     </archive>
+                    <excludes>
+                        <exclude>io/github/webtransport4j/example/**</exclude>
+                        <exclude>io/github/webtransport4j/client/*Benchmark*</exclude>
+                        <exclude>io/github/webtransport4j/client/WebTransportClientTestSuite*</exclude>
+                        <exclude>io/github/webtransport4j/client/Http3GetClient*</exclude>
+                        <exclude>webtransport-dynamic.properties</exclude>
+                    </excludes>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>package-examples-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>examples</classifier>
+                            <includes>
+                                <include>io/github/webtransport4j/example/**</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

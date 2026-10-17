@@ -92,6 +92,19 @@ def validate_jar(path: Path) -> None:
             elif major > BASELINE_CLASS_VERSION:
                 fail(f"{name} has class version {major}, expected at most 52")
 
+        forbidden_entries = [
+            name
+            for name in names
+            if name.startswith("io/github/webtransport4j/example/")
+            or name == "webtransport-dynamic.properties"
+            or name == "log4j2.xml"
+        ]
+        if forbidden_entries:
+            fail(
+                "release library JAR contains non-library entries: "
+                + ", ".join(forbidden_entries)
+            )
+
 
 def validate_pom(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
