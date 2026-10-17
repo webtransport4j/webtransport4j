@@ -46,6 +46,7 @@ public class ProhibitedCapsulesTest {
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(10L);
@@ -95,6 +96,7 @@ public class ProhibitedCapsulesTest {
     when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
         .thenReturn(mock(Attribute.class));
     when(mockConnectStream.newPromise()).thenReturn(mock(ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
 
     Attribute<Long> limitAttr = mock(Attribute.class);
     when(limitAttr.get()).thenReturn(10L);

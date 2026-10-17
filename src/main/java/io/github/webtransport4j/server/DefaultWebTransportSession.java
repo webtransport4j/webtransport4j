@@ -325,10 +325,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     if (connectStream == null) {
       return false;
     }
-    if (connectStream.isOpen()) {
-      return true;
-    }
-    return connectStream.getClass().getName().contains("Mockito");
+    return connectStream.isOpen();
   }
 
   /** Sends a WT_DRAIN_SESSION capsule without closing existing streams. */

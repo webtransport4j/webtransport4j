@@ -301,6 +301,7 @@ public class Draft16Section4WebTransportFeaturesTest {
     when(mockCtx.channel()).thenReturn(mockConnectStream);
     when(mockConnectStream.parent()).thenReturn(mockQuic);
     when(mockConnectStream.newPromise()).thenReturn(mock(io.netty.channel.ChannelPromise.class));
+    when(mockConnectStream.isOpen()).thenReturn(true);
     when(mockQuic.attr(any())).thenAnswer(inv -> parentAttrMap.attr(inv.getArgument(0)));
 
     WebTransportSessionManager mgr = new WebTransportSessionManager();
