@@ -375,7 +375,11 @@ public class WebTransportConfig {
       return defaultValue;
     }
     try {
-      return (int) evaluateExpression(val);
+      long evaluated = evaluateExpression(val);
+      if (evaluated < Integer.MIN_VALUE || evaluated > Integer.MAX_VALUE) {
+        return defaultValue;
+      }
+      return (int) evaluated;
     } catch (Exception e) {
       logger.warn(
           "⚠️ Failed to parse int value for key '{}': {}. Using default: {}",

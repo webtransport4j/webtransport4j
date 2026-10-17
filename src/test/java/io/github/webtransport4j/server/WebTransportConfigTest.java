@@ -70,6 +70,28 @@ public class WebTransportConfigTest {
   }
 
   @Test
+  public void testGetIntAcceptsRangeBoundaries() {
+    for (int value : new int[] {Integer.MIN_VALUE, Integer.MAX_VALUE}) {
+      System.setProperty("test.math.key", String.valueOf(value));
+      assertEquals(value, WebTransportConfig.getInt("test.math.key", 999));
+      assertEquals(
+          Integer.valueOf(value), WebTransportConfig.snapshot().getIntOrNull("test.math.key"));
+    }
+  }
+
+  @Test
+  public void testGetIntFallsBackOnOutOfRangeValues() {
+    for (String value :
+        Arrays.asList(
+            "2147483648", "-2147483649", "4294967297", "-4294967295", "4096 * 1024 * 1024")) {
+      System.setProperty("test.math.key", value);
+      assertEquals(999, WebTransportConfig.getInt("test.math.key", 999));
+      assertEquals(999, WebTransportConfig.snapshot().getInt("test.math.key", 999));
+      assertNull(WebTransportConfig.snapshot().getIntOrNull("test.math.key"));
+    }
+  }
+
+  @Test
   public void testGetLongDefaultValue() {
     assertEquals(555L, WebTransportConfig.getLong("nonexistent.key.for.test", 555L));
   }
@@ -341,34 +363,69 @@ public class WebTransportConfigTest {
   }
 
   @Test
-  public void testResolveWriteBufferWaterMarkMalformedBounds() {
+  public void testResolveWriteBufferWaterMarkMalformedLowBound() {
     assertWriteBufferWaterMark("invalid", "1 * 1024 * 1024", 524288, 1048576);
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkMalformedHighBound() {
     assertWriteBufferWaterMark("8388608", "invalid", 8388608, 8388608);
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkBothBoundsMalformed() {
     assertWriteBufferWaterMark("invalid", "invalid", 2097152, 4194304);
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkSingleMalformedBound() {
     assertWriteBufferWaterMark("invalid", null, 2097152, 4194304);
     assertWriteBufferWaterMark(null, "invalid", 2097152, 4194304);
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkReversedBounds() {
     assertWriteBufferWaterMark("3145728", "1048576", 3145728, 3145728);
   }
 
   @Test
-  public void testResolveWriteBufferWaterMarkClampsParsedNonPositiveBounds() {
+  public void testResolveWriteBufferWaterMarkOutOfRangeBounds() {
+    for (String value : Arrays.asList("2147483648", "-2147483649", "4096 * 1024 * 1024")) {
+      assertWriteBufferWaterMark(value, "1048576", 524288, 1048576);
+      assertWriteBufferWaterMark("8388608", value, 8388608, 8388608);
+    }
+  }
+
+  @Test
+  public void testResolveWriteBufferWaterMarkClampsParsedNonPositiveLowBound() {
     for (String value : Arrays.asList("0", "-1", "-2147483648")) {
       assertWriteBufferWaterMark(value, null, 1, 4194304);
-      assertWriteBufferWaterMark(null, value, 1, 1);
-      assertWriteBufferWaterMark("invalid", value, 1, 1);
       assertWriteBufferWaterMark(value, "invalid", 1, 4194304);
     }
   }
 
   @Test
-  public void testWriteBufferOverrideOriginAndSnapshot() {
+  public void testResolveWriteBufferWaterMarkClampsParsedNonPositiveHighBound() {
+    for (String value : Arrays.asList("0", "-1", "-2147483648")) {
+      assertWriteBufferWaterMark(null, value, 1, 1);
+      assertWriteBufferWaterMark("invalid", value, 1, 1);
+    }
+  }
+
+  @Test
+  public void testWriteBufferStaticDefaultsAreNotOverrides() {
     String lowKey = "webtransport4j.netty.write_buffer.low_water_mark";
     String highKey = "webtransport4j.netty.write_buffer.high_water_mark";
     WebTransportConfig.Snapshot before = WebTransportConfig.snapshot();
     assertNotNull(before.get(lowKey, null));
     assertFalse(before.hasNonStaticValue(lowKey));
     assertFalse(before.hasNonStaticValue(highKey));
+  }
 
+  @Test
+  public void testWriteBufferProgrammaticOverrideSnapshot() {
+    String lowKey = "webtransport4j.netty.write_buffer.low_water_mark";
+    WebTransportConfig.Snapshot before = WebTransportConfig.snapshot();
     WebTransportConfig.setProperty(lowKey, "invalid");
     WebTransportConfig.Snapshot overridden = WebTransportConfig.snapshot();
     WebTransportConfig.removeProperty(lowKey);
@@ -376,7 +433,11 @@ public class WebTransportConfigTest {
     assertNull(overridden.getIntOrNull(lowKey));
     assertFalse(before.hasNonStaticValue(lowKey));
     assertFalse(WebTransportConfig.snapshot().hasNonStaticValue(lowKey));
+  }
 
+  @Test
+  public void testWriteBufferSystemPropertyOverride() {
+    String highKey = "webtransport4j.netty.write_buffer.high_water_mark";
     String originalHigh = System.getProperty(highKey);
     try {
       System.setProperty(highKey, "1048576");
