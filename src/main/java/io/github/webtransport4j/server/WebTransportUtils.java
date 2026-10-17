@@ -258,19 +258,30 @@ public class WebTransportUtils {
                         : UNI_STREAM_TYPE);
                 writeVarInt(header, connectStreamChannel.streamId());
                 stream.writeAndFlush(header, stream.voidPromise());
-                if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
+                boolean isBidi = stream.type() == QuicStreamType.BIDIRECTIONAL;
+                if (isBidi) {
                   session.getActiveServerInitiatedBi().add(stream);
                 } else {
                   session.getActiveServerInitiatedUni().add(stream);
+                }
+                final long metricSessionId = connectStreamChannel.streamId();
+                final long metricStreamId = stream.streamId();
+                final WebTransportMetricsListener metrics =
+                    getMetrics(connectStreamChannel.parent());
+                if (metrics != null) {
+                  metrics.onStreamOpened(metricSessionId, metricStreamId, isBidi);
                 }
                 stream
                     .closeFuture()
                     .addListener(
                         f -> {
-                          if (stream.type() == QuicStreamType.BIDIRECTIONAL) {
+                          if (isBidi) {
                             session.getActiveServerInitiatedBi().remove(stream);
                           } else {
                             session.getActiveServerInitiatedUni().remove(stream);
+                          }
+                          if (metrics != null) {
+                            metrics.onStreamClosed(metricSessionId, metricStreamId);
                           }
                         });
                 promise.setSuccess(stream);
