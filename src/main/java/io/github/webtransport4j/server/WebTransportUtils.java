@@ -712,9 +712,8 @@ public class WebTransportUtils {
                   || "tx_udp_segmentation".equals(featureName)) {
                 if (featureStatus.startsWith("off") || featureStatus.contains("off")) {
                   logger.warn(
-                      "⚠️ Epoll UDP GSO requested (webtransport4j.epoll.udpgso=true), but active"
-                          + " network interface '{}' has 'tx-udp-segmentation: off'. Disabling GSO"
-                          + " to prevent kernel packet drops.",
+                      "⚠️ UDP GSO requested, but active network interface '{}' has"
+                          + " 'tx-udp-segmentation: off'. Disabling GSO to prevent kernel packet drops.",
                       name);
                   return false;
                 }

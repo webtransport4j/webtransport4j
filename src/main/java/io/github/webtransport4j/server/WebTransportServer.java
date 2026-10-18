@@ -16,6 +16,7 @@ import io.github.webtransport4j.security.ClientAuthMode;
 import io.github.webtransport4j.security.OriginValidator;
 import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.PooledByteBufAllocator;
@@ -29,8 +30,10 @@ import io.netty.channel.FixedRecvByteBufAllocator;
 import io.netty.channel.IoHandlerFactory;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.nio.NioIoHandler;
+import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioChannelOption;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.channel.unix.SegmentedDatagramPacket;
 import io.netty.channel.unix.UnixChannelOption;
 import io.netty.handler.codec.http3.Http3;
 import io.netty.handler.codec.http3.Http3Settings;
@@ -47,6 +50,7 @@ import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicSslEngine;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicTokenHandler;
+import io.netty.handler.codec.quic.SegmentedDatagramPacketAllocator;
 import io.netty.handler.codec.quic.SslSessionTicketKey;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -1627,60 +1631,7 @@ public class WebTransportServer implements AutoCloseable {
     Class<? extends Channel> channelClass = null;
     boolean epollGroEnabled = false;
 
-    if (auto || requestIoUring) {
-      try {
-        Class<?> ioUringClass;
-        try {
-          ioUringClass = Class.forName("io.netty.channel.uring.IoUring");
-        } catch (ClassNotFoundException e) {
-          ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
-        }
-        Method isAvailableMethod = ioUringClass.getMethod("isAvailable");
-        boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
-        if (!isAvailable) {
-          if (requestIoUring) {
-            throw new IllegalStateException(
-                "IOUring transport was explicitly requested but is not available");
-          }
-        } else {
-          Class<?> ioHandlerClass;
-          try {
-            ioHandlerClass = Class.forName("io.netty.channel.uring.IoUringIoHandler");
-          } catch (ClassNotFoundException e) {
-            ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
-          }
-          Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
-          ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
-
-          @SuppressWarnings("unchecked")
-          Class<? extends Channel> clazz;
-          try {
-            clazz =
-                (Class<? extends Channel>)
-                    Class.forName("io.netty.channel.uring.IoUringDatagramChannel");
-          } catch (ClassNotFoundException e) {
-            clazz =
-                (Class<? extends Channel>)
-                    Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
-          }
-          channelClass = clazz;
-          logger.info("Using IOUring native transport");
-        }
-      } catch (ReflectiveOperationException e) {
-        rethrowFatalInvocationTarget(e);
-        if (requestIoUring) {
-          throw unavailableTransport("IOUring", e);
-        }
-        logger.debug("IOUring is not available (not on classpath or not supported by OS).", e);
-      } catch (LinkageError | SecurityException e) {
-        if (requestIoUring) {
-          throw unavailableTransport("IOUring", e);
-        }
-        logger.debug("IOUring is not available (not on classpath or not supported by OS).", e);
-      }
-    }
-
-    if (ioHandlerFactory == null && (auto || requestEpoll)) {
+    if (auto || requestEpoll) {
       try {
         Class<?> epollClass = Class.forName("io.netty.channel.epoll.Epoll");
         Class<?> epollOptionClass = Class.forName("io.netty.channel.epoll.EpollChannelOption");
@@ -1741,6 +1692,77 @@ public class WebTransportServer implements AutoCloseable {
           throw unavailableTransport("Epoll", e);
         }
         logger.debug("Epoll is not available.", e);
+      }
+    }
+
+    if (ioHandlerFactory == null && (auto || requestIoUring)) {
+      try {
+        Class<?> ioUringClass;
+        try {
+          ioUringClass = Class.forName("io.netty.channel.uring.IoUring");
+        } catch (ClassNotFoundException e) {
+          ioUringClass = Class.forName("io.netty.channel.uring.IOUring");
+        }
+        Method isAvailableMethod = ioUringClass.getMethod("isAvailable");
+        boolean isAvailable = (boolean) isAvailableMethod.invoke(null);
+        if (!isAvailable) {
+          if (requestIoUring) {
+            throw new IllegalStateException(
+                "IOUring transport was explicitly requested but is not available");
+          }
+        } else {
+          Class<?> ioHandlerClass;
+          try {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IoUringIoHandler");
+          } catch (ClassNotFoundException e) {
+            ioHandlerClass = Class.forName("io.netty.channel.uring.IOUringIoHandler");
+          }
+          Method newFactoryMethod = ioHandlerClass.getMethod("newFactory");
+          ioHandlerFactory = (IoHandlerFactory) newFactoryMethod.invoke(null);
+
+          @SuppressWarnings("unchecked")
+          Class<? extends Channel> clazz;
+          try {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IoUringDatagramChannel");
+          } catch (ClassNotFoundException e) {
+            clazz =
+                (Class<? extends Channel>)
+                    Class.forName("io.netty.channel.uring.IOUringDatagramChannel");
+          }
+          channelClass = clazz;
+
+          boolean udpGso =
+              WebTransportConfig.getBoolean(
+                  "webtransport4j.iouring.udpgso",
+                  WebTransportConfig.getBoolean("webtransport4j.epoll.udpgso", true));
+          if (udpGso && !WebTransportUtils.isLinuxUdpGsoSupported()) {
+            udpGso = false;
+          }
+          if (udpGso) {
+            int gsoSize =
+                WebTransportConfig.getInt(
+                    "webtransport4j.iouring.gso.size",
+                    WebTransportConfig.getInt("webtransport4j.epoll.gso.size", DEFAULT_GSO_SIZE));
+            validateGsoSize(gsoSize, "webtransport4j.iouring.gso.size");
+            bootstrap.option(
+                QuicChannelOption.SEGMENTED_DATAGRAM_PACKET_ALLOCATOR,
+                newIoUringSegmentedAllocator(gsoSize));
+          }
+          logger.info("Using IOUring native transport (GSO: {})", udpGso);
+        }
+      } catch (ReflectiveOperationException e) {
+        rethrowFatalInvocationTarget(e);
+        if (requestIoUring) {
+          throw unavailableTransport("IOUring", e);
+        }
+        logger.debug("IOUring is not available (not on classpath or not supported by OS).", e);
+      } catch (LinkageError | SecurityException e) {
+        if (requestIoUring) {
+          throw unavailableTransport("IOUring", e);
+        }
+        logger.debug("IOUring is not available (not on classpath or not supported by OS).", e);
       }
     }
 
@@ -2806,11 +2828,41 @@ public class WebTransportServer implements AutoCloseable {
     }
   }
 
-  /** Validate Epoll UDP GSO size. */
+  /** Validate UDP GSO size. */
   public static void validateGsoSize(int gsoSize) {
+    validateGsoSize(gsoSize, "webtransport4j.epoll.gso.size");
+  }
+
+  /** Validate UDP GSO size for a specific property name. */
+  public static void validateGsoSize(int gsoSize, String propertyName) {
     if (gsoSize < 1 || gsoSize > 64) {
-      throw new IllegalArgumentException("webtransport4j.epoll.gso.size must be in range 1 - 64");
+      throw new IllegalArgumentException(propertyName + " must be in range 1 - 64");
     }
+  }
+
+  private static SegmentedDatagramPacketAllocator newIoUringSegmentedAllocator(
+      int maxNumSegments) {
+    try {
+      SegmentedDatagramPacketAllocator allocator =
+          EpollQuicUtils.newSegmentedAllocator(maxNumSegments);
+      if (allocator != null && allocator != SegmentedDatagramPacketAllocator.NONE) {
+        return allocator;
+      }
+    } catch (LinkageError e) {
+      // Epoll may be unavailable even when io_uring is supported.
+    }
+    return new SegmentedDatagramPacketAllocator() {
+      @Override
+      public int maxNumSegments() {
+        return maxNumSegments;
+      }
+
+      @Override
+      public DatagramPacket newPacket(
+          ByteBuf buffer, int segmentSize, InetSocketAddress recipient) {
+        return new SegmentedDatagramPacket(buffer, segmentSize, recipient);
+      }
+    };
   }
 
   /**

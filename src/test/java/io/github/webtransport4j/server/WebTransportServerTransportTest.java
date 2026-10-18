@@ -3,6 +3,7 @@ package io.github.webtransport4j.server;
 import static org.junit.Assert.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
+import io.netty.channel.Channel;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -28,7 +29,7 @@ public class WebTransportServerTransportTest {
     }
   }
 
-  private void startServerAsyncAndVerify() throws Exception {
+  private Channel startServerAsyncAndVerify() throws Exception {
     Thread t =
         new Thread(
             () -> {
@@ -41,12 +42,14 @@ public class WebTransportServerTransportTest {
     t.start();
 
     long timeout = System.currentTimeMillis() + 15000;
-    while (server.getPort() == 0 && System.currentTimeMillis() < timeout) {
+    while (server.getChannels().isEmpty() && System.currentTimeMillis() < timeout) {
       Thread.sleep(50);
     }
-    assertTrue("Server should start successfully", server.getPort() > 0);
+    assertTrue("Server should start successfully", !server.getChannels().isEmpty());
+    Channel channel = server.getChannels().isEmpty() ? null : server.getChannels().get(0);
     server.stop();
     t.join(2000);
+    return channel;
   }
 
   @Test
@@ -54,7 +57,12 @@ public class WebTransportServerTransportTest {
     System.setProperty("webtransport4j.server.transport", "auto");
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
-      startServerAsyncAndVerify();
+      Channel channel = startServerAsyncAndVerify();
+      if (isEpollAvailable()) {
+        assertTrue(
+            "Auto should prefer Epoll when available on Linux",
+            channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"));
+      }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
@@ -66,7 +74,10 @@ public class WebTransportServerTransportTest {
     System.setProperty("webtransport4j.server.transport", "nio");
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
-      startServerAsyncAndVerify();
+      Channel channel = startServerAsyncAndVerify();
+      assertTrue(
+          "Explicit nio should use NioDatagramChannel",
+          channel != null && channel.getClass().getSimpleName().contains("NioDatagramChannel"));
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
@@ -79,7 +90,10 @@ public class WebTransportServerTransportTest {
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
       if (isEpollAvailable()) {
-        startServerAsyncAndVerify();
+        Channel channel = startServerAsyncAndVerify();
+        assertTrue(
+            "Explicit epoll should use EpollDatagramChannel",
+            channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"));
       } else {
         IllegalStateException ex =
             org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
@@ -123,7 +137,11 @@ public class WebTransportServerTransportTest {
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
       if (isIouringAvailable()) {
-        startServerAsyncAndVerify();
+        Channel channel = startServerAsyncAndVerify();
+        assertTrue(
+            "Explicit iouring should use IoUringDatagramChannel",
+            channel != null
+                && channel.getClass().getSimpleName().contains("IoUringDatagramChannel"));
       } else {
         IllegalStateException ex =
             org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
