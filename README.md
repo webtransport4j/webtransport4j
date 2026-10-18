@@ -512,7 +512,7 @@ Supported transport values:
 | `kqueue`  | macOS/BSD native kqueue                     |
 | `nio`     | Java NIO                                    |
 
-> **Note:** On Linux where both `io_uring` and `epoll` are available, `auto` picks `io_uring` first, but the UDP GRO/GSO socket options are epoll-only in the current Netty integration — benchmark `epoll` (with GRO/GSO) against `iouring` explicitly for QUIC receive-heavy workloads. See the `webtransport4j.server.transport` comment in `webtransport.properties` and [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md).
+> **Note:** On Linux where both `epoll` and `io_uring` are available, `auto` picks `epoll` first. Epoll supports both UDP GRO (Generic Receive Offload) and GSO (Generic Segmentation Offload) in Netty, enabling maximum bidirectional throughput (~600 MB/s) out of the box. While `io_uring` supports UDP GSO, Netty's `io_uring` datagram channel currently lacks UDP GRO packet slicing on receive. To explicitly benchmark or use `io_uring`, set `webtransport4j.server.transport=iouring`. See the `webtransport4j.server.transport` comment in `webtransport.properties` and [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md).
 
 ---
 

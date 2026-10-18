@@ -59,6 +59,7 @@ run_tier() {
        -Dwebtransport4j.server.transport="$TRANSPORT" \
        -Dwebtransport4j.epoll.udpgro=true \
        -Dwebtransport4j.epoll.udpgso=true \
+       -Dwebtransport4j.iouring.udpgso=true \
        -Dwebtransport4j.server.socket.rcvbuf=67108864 \
        -Dwebtransport4j.server.recv.max_messages_per_read=128 \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \

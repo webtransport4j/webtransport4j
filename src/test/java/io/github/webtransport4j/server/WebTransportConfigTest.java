@@ -30,6 +30,8 @@ public class WebTransportConfigTest {
     System.clearProperty("webtransport4j.epoll.udpgro");
     System.clearProperty("webtransport4j.epoll.udpgso");
     System.clearProperty("webtransport4j.epoll.gso.size");
+    System.clearProperty("webtransport4j.iouring.udpgso");
+    System.clearProperty("webtransport4j.iouring.gso.size");
     System.clearProperty("webtransport4j.server.recv.buffer.size");
   }
 
@@ -162,6 +164,37 @@ public class WebTransportConfigTest {
     // Valid bounds must succeed
     WebTransportServer.validateGsoSize(1);
     WebTransportServer.validateGsoSize(64);
+  }
+
+  @Test
+  public void testIoUringConfigOptions() {
+    // Test defaults
+    assertTrue(WebTransportConfig.getBoolean("webtransport4j.iouring.udpgso", true));
+    assertEquals(64, WebTransportConfig.getInt("webtransport4j.iouring.gso.size", 64));
+
+    // Test system property override
+    System.setProperty("webtransport4j.iouring.udpgso", "false");
+    System.setProperty("webtransport4j.iouring.gso.size", "16");
+
+    assertTrue(!WebTransportConfig.getBoolean("webtransport4j.iouring.udpgso", true));
+    assertEquals(16, WebTransportConfig.getInt("webtransport4j.iouring.gso.size", 64));
+
+    // Test invalid GSO size range validation via WebTransportServer.validateGsoSize
+    System.setProperty("webtransport4j.iouring.gso.size", "0");
+    int sizeInvalidLow = WebTransportConfig.getInt("webtransport4j.iouring.gso.size", 64);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WebTransportServer.validateGsoSize(sizeInvalidLow, "webtransport4j.iouring.gso.size"));
+
+    System.setProperty("webtransport4j.iouring.gso.size", "65");
+    int sizeInvalidHigh = WebTransportConfig.getInt("webtransport4j.iouring.gso.size", 64);
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> WebTransportServer.validateGsoSize(sizeInvalidHigh, "webtransport4j.iouring.gso.size"));
+
+    // Valid bounds must succeed
+    WebTransportServer.validateGsoSize(1, "webtransport4j.iouring.gso.size");
+    WebTransportServer.validateGsoSize(64, "webtransport4j.iouring.gso.size");
   }
 
   @Test
@@ -425,7 +458,7 @@ public class WebTransportConfigTest {
   @Test
   public void testWriteBufferProgrammaticOverrideSnapshot() {
     String lowKey = "webtransport4j.netty.write_buffer.low_water_mark";
-    WebTransportConfig.Snapshot before = WebTransportConfig.snapshot();
+    final WebTransportConfig.Snapshot before = WebTransportConfig.snapshot();
     WebTransportConfig.setProperty(lowKey, "invalid");
     WebTransportConfig.Snapshot overridden = WebTransportConfig.snapshot();
     WebTransportConfig.removeProperty(lowKey);
