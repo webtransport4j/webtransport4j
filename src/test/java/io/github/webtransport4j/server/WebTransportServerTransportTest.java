@@ -42,10 +42,10 @@ public class WebTransportServerTransportTest {
     t.start();
 
     long timeout = System.currentTimeMillis() + 15000;
-    while (server.getPort() == 0 && System.currentTimeMillis() < timeout) {
+    while (server.getChannels().isEmpty() && System.currentTimeMillis() < timeout) {
       Thread.sleep(50);
     }
-    assertTrue("Server should start successfully", server.getPort() > 0);
+    assertTrue("Server should start successfully", !server.getChannels().isEmpty());
     Channel channel = server.getChannels().isEmpty() ? null : server.getChannels().get(0);
     server.stop();
     t.join(2000);

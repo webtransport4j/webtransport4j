@@ -2842,10 +2842,14 @@ public class WebTransportServer implements AutoCloseable {
 
   private static SegmentedDatagramPacketAllocator newIoUringSegmentedAllocator(
       int maxNumSegments) {
-    SegmentedDatagramPacketAllocator allocator =
-        EpollQuicUtils.newSegmentedAllocator(maxNumSegments);
-    if (allocator != null && allocator != SegmentedDatagramPacketAllocator.NONE) {
-      return allocator;
+    try {
+      SegmentedDatagramPacketAllocator allocator =
+          EpollQuicUtils.newSegmentedAllocator(maxNumSegments);
+      if (allocator != null && allocator != SegmentedDatagramPacketAllocator.NONE) {
+        return allocator;
+      }
+    } catch (LinkageError e) {
+      // Epoll may be unavailable even when io_uring is supported.
     }
     return new SegmentedDatagramPacketAllocator() {
       @Override
