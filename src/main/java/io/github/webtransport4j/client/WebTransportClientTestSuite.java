@@ -394,7 +394,7 @@ public class WebTransportClientTestSuite {
 
     try {
       ByteBuf dgData = session.quicChannel.alloc().directBuffer();
-      WebTransportUtils.writeVarInt(dgData, session.sessionId);
+      WebTransportUtils.writeVarInt(dgData, session.sessionId >>> 2);
       dgData.writeBytes(payloadId.getBytes(StandardCharsets.UTF_8));
       session.quicChannel.writeAndFlush(dgData);
       logger.info("✅ Datagram {} Sent (Waiting for ACK on Uni Stream...)", payloadId);
