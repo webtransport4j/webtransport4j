@@ -356,6 +356,17 @@ public interface NettyWebTransportSession extends WebTransportSession {
   boolean tryRecordDataBlockedLimit(long peerLimit);
 
   /**
+   * Atomically attempts to reserve {@code bytesToWrite} against the session-level flow control
+   * limit. If {@code cumulativeBytesSent + bytesToWrite <= peerLimit}, the reservation succeeds
+   * and cumulativeBytesSent is incremented atomically. Otherwise, no state is modified.
+   *
+   * @param bytesToWrite the number of bytes to reserve
+   * @param peerLimit the peer's advertised max data limit
+   * @return {@code true} if the reservation succeeded, {@code false} if it would exceed the limit
+   */
+  boolean tryReserveOutboundBytes(long bytesToWrite, long peerLimit);
+
+  /**
    * Resets a WebTransport data stream with an application error code mapped per Section 4.4.
    *
    * @param dataStream the stream channel

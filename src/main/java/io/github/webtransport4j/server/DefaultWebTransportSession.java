@@ -699,6 +699,19 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   }
 
   @Override
+  public boolean tryReserveOutboundBytes(long bytesToWrite, long peerLimit) {
+    for (;;) {
+      long current = cumulativeBytesSent;
+      if (current + bytesToWrite > peerLimit) {
+        return false;
+      }
+      if (CUMULATIVE_BYTES_SENT_HANDLE.compareAndSet(this, current, current + bytesToWrite)) {
+        return true;
+      }
+    }
+  }
+
+  @Override
   public boolean tryRecordDataBlockedLimit(long peerLimit) {
     long lastLimit;
     while ((lastLimit = this.lastSentDataBlockedLimit) < peerLimit) {
