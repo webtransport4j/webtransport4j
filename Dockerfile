@@ -28,7 +28,7 @@ LABEL org.opencontainers.image.title="WebTransport4J Cluster Node" \
 # Create unprivileged application user
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN groupadd -r wtgroup && useradd -r -g wtgroup wtuser
+RUN groupadd -r -g 10001 wtgroup && useradd -r -u 10001 -g wtgroup wtuser
 WORKDIR /app
 
 # Copy application artifacts from builder
@@ -39,7 +39,7 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
 RUN chown -R wtuser:wtgroup /app
-USER wtuser
+USER 10001:10001
 
 # Expose QUIC/WebTransport (UDP) and Health/Metrics (TCP)
 EXPOSE 4433/udp
