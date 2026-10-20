@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -368,6 +369,87 @@ public class SessionFlowControlTest {
     verify(mockConnectStream).writeAndFlush(captor.capture());
     ReferenceCountUtil.release(captor.getValue());
     assertEquals(0, capsule.refCnt());
+  }
+
+  @Test
+  public void testDataBlockedIgnoredWhenPeerMaxDataLessThanLocalLimit() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.streamId()).thenReturn(100L);
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.streamId()).thenReturn(100L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
+
+    Attribute<Long> sessIdAttr = mockAttribute(100L);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+    Attribute<Long> bidiLimitAttr = mockAttribute(5L);
+    Attribute<Long> uniLimitAttr = mockAttribute(5L);
+    Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
+    Attribute<Long> peerDataLimitAttr = mockAttribute(1000L);
+
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(bidiLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(uniLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(localDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
+
+    mgr.register(mockConnectStream);
+
+    NettyWebTransportSession session = mgr.get(100L);
+    assertNotNull(session);
+    assertEquals(1000L, session.getSettingsMaxData());
+
+    // Peer reports maxData = 500 which is less than local settingsMaxData (1000)
+    ByteBuf payload = Unpooled.buffer();
+    WebTransportUtils.writeVarInt(payload, 500);
+    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D41L, payload);
+
+    WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
+    dispatcher.channelRead(mockCtx, capsule);
+
+    // Assert: settingsMaxData was NOT extended
+    assertEquals(1000L, session.getSettingsMaxData());
+    verify(mockConnectStream, never()).writeAndFlush(any());
+  }
+
+  @Test
+  public void testMaxStreamsExceeding2Power60ClosesSessionWithFlowControlError() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.streamId()).thenReturn(100L);
+
+    WebTransportSessionManager mgr = mock(WebTransportSessionManager.class);
+    Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    NettyWebTransportSession session = mock(NettyWebTransportSession.class);
+    when(mgr.get(100L)).thenReturn(session);
+
+    ByteBuf content = Unpooled.buffer();
+    WebTransportUtils.writeVarInt(content, (1L << 60) + 1L);
+    WebTransportCapsule exceedingCapsule = new WebTransportCapsule(100L, 0x190b4d3fL, content);
+
+    WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, exceedingCapsule);
+    verify(mgr).closeSessionWithFlowControlError(session);
   }
 
   @Test

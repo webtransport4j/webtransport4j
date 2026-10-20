@@ -20,6 +20,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.EventLoop;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
 import io.netty.handler.codec.quic.QuicChannel;
@@ -42,6 +43,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
@@ -752,40 +754,59 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     this.closeCode = error;
     this.closeReason = reason;
     STREAM_EPOCH_HANDLE.incrementAndGet(this);
-    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
-      activeStream.close();
-    }
-    if (onClosedCallback != null) {
-      onClosedCallback.onClose();
-    }
-    if (connectStream.isActive()) {
-      byte[] reasonBytes =
-          (reason != null && !reason.isEmpty())
-              ? reason.getBytes(StandardCharsets.UTF_8)
-              : new byte[0];
-      if (reasonBytes.length > 1024) {
-        int cut = 1024;
-        while (cut > 0 && (reasonBytes[cut] & 0xC0) == 0x80) {
-          cut--;
-        }
-        reasonBytes = Arrays.copyOf(reasonBytes, cut);
-      }
-      ByteBufAllocator alloc = connectStream.alloc();
-      ByteBuf capsule = (alloc != null) ? alloc.buffer() : Unpooled.buffer();
-      WebTransportUtils.writeVarInt(capsule, 0x2843L);
-      WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
-      capsule.writeInt((int) error);
-      if (reasonBytes.length > 0) {
-        capsule.writeBytes(reasonBytes);
-      }
-      ChannelFuture f = connectStream.writeAndFlush(new DefaultHttp3DataFrame(capsule));
-      if (f != null) {
-        f.addListener(ChannelFutureListener.CLOSE);
-      } else {
-        connectStream.close();
+
+    Runnable task =
+        () -> {
+          for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
+            activeStream.close();
+          }
+          if (onClosedCallback != null) {
+            onClosedCallback.onClose();
+          }
+          if (connectStream.isActive()) {
+            byte[] reasonBytes =
+                (reason != null && !reason.isEmpty())
+                    ? reason.getBytes(StandardCharsets.UTF_8)
+                    : new byte[0];
+            if (reasonBytes.length > 1024) {
+              int cut = 1024;
+              while (cut > 0 && (reasonBytes[cut] & 0xC0) == 0x80) {
+                cut--;
+              }
+              reasonBytes = Arrays.copyOf(reasonBytes, cut);
+            }
+            ByteBufAllocator alloc = connectStream.alloc();
+            ByteBuf capsule = (alloc != null) ? alloc.buffer() : Unpooled.buffer();
+            WebTransportUtils.writeVarInt(capsule, 0x2843L);
+            WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
+            capsule.writeInt((int) error);
+            if (reasonBytes.length > 0) {
+              capsule.writeBytes(reasonBytes);
+            }
+            ChannelFuture f = connectStream.writeAndFlush(new DefaultHttp3DataFrame(capsule));
+            if (f != null) {
+              f.addListener(ChannelFutureListener.CLOSE);
+            } else {
+              connectStream.close();
+            }
+          } else {
+            connectStream.close();
+          }
+        };
+
+    EventLoop loop =
+        (connectStream.parent() != null)
+            ? connectStream.parent().eventLoop()
+            : connectStream.eventLoop();
+    if (loop != null && !loop.inEventLoop()) {
+      try {
+        loop.execute(task);
+      } catch (RejectedExecutionException e) {
+        // EventLoop is shutting down or terminated; execute cleanup synchronously
+        task.run();
       }
     } else {
-      connectStream.close();
+      task.run();
     }
   }
 
@@ -810,14 +831,33 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     this.closeCode = httpErrorCode;
     STREAM_EPOCH_HANDLE.incrementAndGet(this);
 
-    // Reset all associated data streams
-    for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
-      activeStream.shutdown(code, activeStream.newPromise());
+    final int finalCode = code;
+    Runnable task =
+        () -> {
+          // Reset all associated data streams
+          for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
+            activeStream.shutdown(finalCode, activeStream.newPromise());
+          }
+          if (onClosedCallback != null) {
+            onClosedCallback.onClose();
+          }
+          connectStream.shutdown(finalCode, connectStream.newPromise());
+        };
+
+    EventLoop loop =
+        (connectStream.parent() != null)
+            ? connectStream.parent().eventLoop()
+            : connectStream.eventLoop();
+    if (loop != null && !loop.inEventLoop()) {
+      try {
+        loop.execute(task);
+      } catch (RejectedExecutionException e) {
+        // EventLoop is shutting down or terminated; execute cleanup synchronously
+        task.run();
+      }
+    } else {
+      task.run();
     }
-    if (onClosedCallback != null) {
-      onClosedCallback.onClose();
-    }
-    connectStream.shutdown(code, connectStream.newPromise());
   }
 
   /**
@@ -1115,28 +1155,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
               cf.completeExceptionally(new IllegalStateException("Session is closed"));
               return;
             }
-            boolean isBidi = ch.type() == QuicStreamType.BIDIRECTIONAL;
-            Set<QuicStreamChannel> set =
-                isBidi ? activeServerInitiatedBi : activeServerInitiatedUni;
-            set.add(ch);
-            STREAM_EPOCH_HANDLE.incrementAndGet(this);
-            if (!isOpen()) {
-              set.remove(ch);
-              ch.close();
-              cf.completeExceptionally(new IllegalStateException("Session is closed"));
-              return;
-            }
-            ch.closeFuture().addListener(cf2 -> set.remove(ch));
             WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId);
             ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
-            // Fire metrics: server-initiated stream opened
-            WebTransportMetricsListener metrics =
-                WebTransportUtils.getMetrics(connectStream.parent());
-            if (metrics != null) {
-              metrics.onStreamOpened(sessionStreamId, ch.streamId(), isBidi);
-              ch.closeFuture()
-                  .addListener(cf2 -> metrics.onStreamClosed(sessionStreamId, ch.streamId()));
-            }
             if (priority != null) {
               stream
                   .setPriority(priority)

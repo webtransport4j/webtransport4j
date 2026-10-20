@@ -141,19 +141,24 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       ByteBuf content = capsule.content();
       long maxStreams = WebTransportUtils.readVariableLengthInt(content);
       if (maxStreams != -1) {
+        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
+        WebTransportSessionManager mgr =
+            (quic != null) ? quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get() : null;
+        NettyWebTransportSession session = (mgr != null) ? mgr.get(capsule.sessionId()) : null;
+
         // RFC: "This value cannot exceed 2^60"
         if (maxStreams > (1L << 60)) {
-          logger.warn("Received WT_MAX_STREAMS exceeding 2^60 limit. Closing session.");
-          // Depending on your API, close with a protocol error here
-          ctx.close();
+          logger.warn(
+              "Received WT_MAX_STREAMS exceeding 2^60 limit. Closing session with WT_FLOW_CONTROL_ERROR.");
+          if (mgr != null && session != null) {
+            mgr.closeSessionWithFlowControlError(session);
+          } else {
+            ctx.close();
+          }
           return;
         }
-        QuicChannel quic = WebTransportUtils.getQuicChannel(ctx);
         if (quic != null) {
-          WebTransportSessionManager mgr =
-              quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
           if (mgr != null) {
-            NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
               // Note: Assuming you have getters/setters for the *current* limit,
               // not just the "initial" limit. The current limit tracks the highest
@@ -291,19 +296,35 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               long extendAmount =
                   WebTransportConfig.getLong(
                       "webtransport4j.webtransport.flowcontrol.extend.data", 2097152L);
-              if (extendAmount > 0) {
-                long newLimit = session.getSettingsMaxData() + extendAmount;
-                session.setSettingsMaxData(newLimit);
-                logger.debug(
-                    "📈 Received WT_DATA_BLOCKED. Extending local settings max data to {}"
-                        + " (extended by {}) for session {}",
-                    newLimit,
-                    extendAmount,
-                    capsule.sessionId());
-                WebTransportUtils.sendMaxDataCapsule(session.getConnectStream(), newLimit);
+              long currentSettingsMaxData = session.getSettingsMaxData();
+              long unconsumedCredit = currentSettingsMaxData - session.getCumulativeBytesReceived();
+              if (extendAmount > 0
+                  && maxData >= currentSettingsMaxData
+                  && unconsumedCredit < extendAmount) {
+                long newLimit = currentSettingsMaxData + extendAmount;
+                if (newLimit > 0x3FFFFFFFFFFFFFFFL || newLimit < currentSettingsMaxData) {
+                  newLimit = 0x3FFFFFFFFFFFFFFFL;
+                }
+                if (newLimit > currentSettingsMaxData) {
+                  session.setSettingsMaxData(newLimit);
+                  logger.debug(
+                      "📈 Received WT_DATA_BLOCKED. Extending local settings max data to {}"
+                          + " (extended by {}) for session {}",
+                      newLimit,
+                      extendAmount,
+                      capsule.sessionId());
+                  WebTransportUtils.sendMaxDataCapsule(session.getConnectStream(), newLimit);
+                }
               } else {
                 logger.debug(
-                    "ℹ️ Received WT_DATA_BLOCKED but extend.data is 0 or negative. No extension.");
+                    "ℹ️ Received WT_DATA_BLOCKED but not extending local settings max data"
+                        + " (maxData={}, currentSettingsMaxData={}, unconsumedCredit={},"
+                        + " extendAmount={}) for session {}",
+                    maxData,
+                    currentSettingsMaxData,
+                    unconsumedCredit,
+                    extendAmount,
+                    capsule.sessionId());
               }
             }
           }

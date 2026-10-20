@@ -1,6 +1,9 @@
 package io.github.webtransport4j.cluster;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import javax.crypto.spec.SecretKeySpec;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -30,4 +33,27 @@ public interface StatelessTokenSecretProvider {
    * @return unmodifiable list of valid secret byte arrays
    */
   @NonNull List<byte[]> getValidationSecrets();
+
+  /**
+   * Returns the pre-built {@link SecretKeySpec} for the active secret.
+   *
+   * @return active secret key spec
+   */
+  default @NonNull SecretKeySpec getActiveSecretKeySpec() {
+    return new SecretKeySpec(getActiveSecret(), "HmacSHA256");
+  }
+
+  /**
+   * Returns pre-built {@link SecretKeySpec} instances for all valid secrets.
+   *
+   * @return unmodifiable list of valid secret key specs
+   */
+  default @NonNull List<SecretKeySpec> getValidationSecretKeySpecs() {
+    List<byte[]> secrets = getValidationSecrets();
+    List<SecretKeySpec> list = new ArrayList<>(secrets.size());
+    for (byte[] secret : secrets) {
+      list.add(new SecretKeySpec(secret, "HmacSHA256"));
+    }
+    return Collections.unmodifiableList(list);
+  }
 }

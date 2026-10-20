@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -193,6 +194,13 @@ public class IpRateLimitingHandlerTest {
     assertTrue(exactBlocklist.contains("9.9.9.9"));
     assertTrue(exactBlocklist.contains("1.2.3.4"));
     assertFalse(exactBlocklist.contains("1.1.1.1"));
+
+    IpBloomFilter bloom = handler.getBloomFilter();
+    assertNotNull(bloom);
+    assertTrue(bloom.isEnabled());
+    assertTrue(bloom.mightContain("9.9.9.9"));
+    assertTrue(bloom.mightContain("1.2.3.4"));
+    assertFalse(bloom.mightContain("1.1.1.1"));
   }
 
   @Test

@@ -5,9 +5,10 @@ import io.github.webtransport4j.cluster.StaticTokenSecretProvider;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.quic.QuicTokenHandler;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import javax.crypto.Mac;
@@ -40,6 +41,25 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
   private static final long DEFAULT_EXPIRATION_MS = 60_000L;
 
   private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
+  private static final class ThreadLocalState {
+    final Mac mac;
+    final byte[] timestampBytes = new byte[TIMESTAMP_LEN];
+    final byte[] signatureBytes = new byte[SIGNATURE_LEN];
+    final byte[] expectedSignatureBytes = new byte[SIGNATURE_LEN];
+    final byte[] scratch = new byte[256];
+
+    ThreadLocalState() {
+      try {
+        this.mac = Mac.getInstance(HMAC_ALGO);
+      } catch (NoSuchAlgorithmException e) {
+        throw new IllegalStateException("Algorithm unavailable: " + HMAC_ALGO, e);
+      }
+    }
+  }
+
+  private static final ThreadLocal<ThreadLocalState> THREAD_LOCAL_STATE =
+      ThreadLocal.withInitial(ThreadLocalState::new);
 
   private final StatelessTokenSecretProvider secretProvider;
 
@@ -89,27 +109,45 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
   public boolean writeToken(
       @NonNull ByteBuf out, @NonNull ByteBuf dcid, @NonNull InetSocketAddress address) {
     final long timestamp = System.currentTimeMillis();
-    final byte[] ipBytes = address.getAddress().getAddress();
+    final ThreadLocalState state = THREAD_LOCAL_STATE.get();
     try {
-      final byte[] activeSecret = secretProvider.getActiveSecret();
-      final Mac mac = Mac.getInstance(HMAC_ALGO);
-      mac.init(new SecretKeySpec(activeSecret, HMAC_ALGO));
+      final SecretKeySpec keySpec = secretProvider.getActiveSecretKeySpec();
+      final Mac mac = state.mac;
+      mac.init(keySpec);
+
       // Update with timestamp (big-endian)
-      final byte[] timestampBytes = new byte[8];
       for (int i = 0; i < 8; i++) {
-        timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
+        state.timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
       }
-      mac.update(timestampBytes);
+      mac.update(state.timestampBytes, 0, 8);
+
       // Update with IP bytes
-      mac.update(ipBytes);
+      if (address.getAddress() != null) {
+        mac.update(address.getAddress().getAddress());
+      } else {
+        mac.update(address.getHostString().getBytes(StandardCharsets.UTF_8));
+      }
+
       // Update with the connection ID bytes
-      mac.update(dcid.nioBuffer(dcid.readerIndex(), dcid.readableBytes()));
-      final byte[] signature = mac.doFinal();
+      int dcidLen = dcid.readableBytes();
+      if (dcidLen > 0) {
+        if (dcidLen <= state.scratch.length) {
+          dcid.getBytes(dcid.readerIndex(), state.scratch, 0, dcidLen);
+          mac.update(state.scratch, 0, dcidLen);
+        } else {
+          byte[] temp = new byte[dcidLen];
+          dcid.getBytes(dcid.readerIndex(), temp);
+          mac.update(temp);
+        }
+      }
+
+      mac.doFinal(state.signatureBytes, 0);
+
       // Write token header
       out.writeLong(timestamp);
-      out.writeBytes(signature);
+      out.writeBytes(state.signatureBytes, 0, SIGNATURE_LEN);
       // Append the original connection ID to the token so the server can recover it on validation
-      out.writeBytes(dcid, dcid.readerIndex(), dcid.readableBytes());
+      out.writeBytes(dcid, dcid.readerIndex(), dcidLen);
       return true;
     } catch (Exception e) {
       logger.error("Failed to generate HMAC token", e);
@@ -123,29 +161,41 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
       return -1;
     }
     final long timestamp = token.readLong();
-    final byte[] signature = new byte[SIGNATURE_LEN];
-    token.readBytes(signature);
+    final ThreadLocalState state = THREAD_LOCAL_STATE.get();
+    token.readBytes(state.signatureBytes, 0, SIGNATURE_LEN);
     final long now = System.currentTimeMillis();
     // Validate timestamp (prevent replay and future timestamp anomalies)
     if (now - timestamp > expirationMs || timestamp - now > expirationMs) {
       return -1;
     }
-    final byte[] ipBytes = address.getAddress().getAddress();
     try {
-      final List<byte[]> validSecrets = secretProvider.getValidationSecrets();
-      for (byte[] secret : validSecrets) {
-        final Mac mac = Mac.getInstance(HMAC_ALGO);
-        mac.init(new SecretKeySpec(secret, HMAC_ALGO));
-        final byte[] timestampBytes = new byte[8];
-        for (int i = 0; i < 8; i++) {
-          timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
-        }
-        mac.update(timestampBytes);
+      final List<SecretKeySpec> validSpecs = secretProvider.getValidationSecretKeySpecs();
+      for (int i = 0; i < 8; i++) {
+        state.timestampBytes[i] = (byte) (timestamp >>> (56 - i * 8));
+      }
+      byte[] ipBytes =
+          (address.getAddress() != null)
+              ? address.getAddress().getAddress()
+              : address.getHostString().getBytes(StandardCharsets.UTF_8);
+      int dcidLen = token.readableBytes();
+      if (dcidLen <= state.scratch.length) {
+        token.getBytes(token.readerIndex(), state.scratch, 0, dcidLen);
+      }
+      for (SecretKeySpec keySpec : validSpecs) {
+        Mac mac = state.mac;
+        mac.init(keySpec);
+        mac.update(state.timestampBytes, 0, 8);
         mac.update(ipBytes);
         // The remaining bytes in the token represent the destination connection ID
-        mac.update(token.nioBuffer(token.readerIndex(), token.readableBytes()));
-        final byte[] expectedSignature = mac.doFinal();
-        if (MessageDigest.isEqual(signature, expectedSignature)) {
+        if (dcidLen <= state.scratch.length) {
+          mac.update(state.scratch, 0, dcidLen);
+        } else {
+          byte[] temp = new byte[dcidLen];
+          token.getBytes(token.readerIndex(), temp);
+          mac.update(temp);
+        }
+        mac.doFinal(state.expectedSignatureBytes, 0);
+        if (MessageDigest.isEqual(state.signatureBytes, state.expectedSignatureBytes)) {
           // Return the start offset of the destination connection ID (dcid) in the token buffer
           return token.readerIndex();
         }
@@ -162,4 +212,3 @@ public class HmacQuicTokenHandler implements QuicTokenHandler {
     return 256;
   }
 }
-

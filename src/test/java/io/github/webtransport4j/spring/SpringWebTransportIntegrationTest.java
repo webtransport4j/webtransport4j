@@ -60,13 +60,13 @@ public class SpringWebTransportIntegrationTest {
 
     WebTransportProperties properties = context.getBean(WebTransportProperties.class);
     Assert.assertNotNull(properties);
-    Assert.assertEquals(0, properties.getPort());
+    Assert.assertEquals(Integer.valueOf(0), properties.getPort());
     Assert.assertEquals("nio", properties.getTransport());
-    Assert.assertEquals(120, properties.getIdleTimeoutSeconds());
-    Assert.assertEquals(250, properties.getMaxStreamsBidi());
-    Assert.assertEquals(350, properties.getMaxStreamsUni());
-    Assert.assertEquals(52428800L, properties.getMaxData());
-    Assert.assertEquals(32768, properties.getCapsuleMaxLength());
+    Assert.assertEquals(Long.valueOf(120), properties.getIdleTimeoutSeconds());
+    Assert.assertEquals(Long.valueOf(250), properties.getMaxStreamsBidi());
+    Assert.assertEquals(Long.valueOf(350), properties.getMaxStreamsUni());
+    Assert.assertEquals(Long.valueOf(52428800L), properties.getMaxData());
+    Assert.assertEquals(Integer.valueOf(32768), properties.getCapsuleMaxLength());
     Assert.assertEquals(2, properties.getAllowedOrigins().size());
     Assert.assertTrue(properties.getAllowedOrigins().contains("https://app1.internal"));
     Assert.assertTrue(properties.getAllowedOrigins().contains("https://app2.internal"));
@@ -113,7 +113,7 @@ public class SpringWebTransportIntegrationTest {
 
     WebTransportProperties resolved = context.getBean(WebTransportProperties.class);
     Assert.assertSame(customProps, resolved);
-    Assert.assertEquals(9999, resolved.getPort());
+    Assert.assertEquals(Integer.valueOf(9999), resolved.getPort());
     context.close();
   }
 
@@ -160,5 +160,15 @@ public class SpringWebTransportIntegrationTest {
     WebTransportHandler resolved = server.getHandler("/unmatched");
     Assert.assertTrue(resolved instanceof ExplicitDefaultEndpoint);
     context.close();
+  }
+
+  /** Subclass proxy representing a CDI/Quarkus generated proxy. */
+  public static class SubclassEndpointProxy extends ChatEndpoint {}
+
+  @Test
+  public void testEndpointAnnotationInheritedBySubclassProxy() {
+    WebTransportEndpoint ann = SubclassEndpointProxy.class.getAnnotation(WebTransportEndpoint.class);
+    Assert.assertNotNull("@WebTransportEndpoint must be inherited by subclasses", ann);
+    Assert.assertEquals("/spring-chat", ann.path());
   }
 }

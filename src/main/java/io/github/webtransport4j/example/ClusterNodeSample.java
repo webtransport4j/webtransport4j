@@ -17,6 +17,10 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.NonNull;
@@ -678,7 +682,20 @@ public class ClusterNodeSample {
           }
         });
 
-    healthHttpServer.setExecutor(null);
+    ExecutorService healthExecutor =
+        new ThreadPoolExecutor(
+            2,
+            8,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(128),
+            r -> {
+              Thread t = new Thread(r, "health-http-pool");
+              t.setDaemon(true);
+              return t;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy());
+    healthHttpServer.setExecutor(healthExecutor);
     healthHttpServer.start();
     log.info(
         "✅ Kubernetes liveness/readiness probes & management API listening on port {}", healthPort);
@@ -691,6 +708,7 @@ public class ClusterNodeSample {
                 () -> {
                   log.info("🛑 Shutting down WebTransport node '{}'...", nodeName);
                   healthHttpServer.stop(1);
+                  healthExecutor.shutdown();
                   server.stop();
                   if (finalOtlp != null) {
                     finalOtlp.close();

@@ -116,6 +116,19 @@ spec:
             timeoutSeconds: 2
             successThreshold: 1
             failureThreshold: 2
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "curl -s -X POST -H \"Authorization: Bearer $MANAGEMENT_AUTH_TOKEN\" http://127.0.0.1:8080/prestop || true"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       volumes:
         - name: tls-certs
           secret:
