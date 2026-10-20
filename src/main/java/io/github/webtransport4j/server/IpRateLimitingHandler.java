@@ -239,7 +239,6 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
   /** Reloads shared rate limiting rules from configuration. */
   public static void reloadSharedConfig() {
     sharedRules = new SharedRateLimitRules(sharedRules);
-    clearState();
     updateReloaderState();
   }
 
@@ -332,10 +331,6 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     } else {
       executor.shutdownNow();
     }
-  }
-
-  static {
-    ensureReloaderStarted();
   }
 
   /** Returns a read-only snapshot; use {@link #setBlocklist(Set)} to replace the effective list. */
