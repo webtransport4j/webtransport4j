@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,8 @@ import io.netty.handler.codec.quic.QuicChannel;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
@@ -61,6 +64,7 @@ public class IpRateLimitingHandlerTest {
     System.clearProperty("webtransport4j.server.ratelimit.whitelist");
     System.clearProperty("webtransport4j.server.ratelimit.overrides");
     System.clearProperty("webtransport4j.server.ratelimit.blocklist");
+    System.clearProperty("webtransport4j.server.ratelimit.blocklist.bloom_fpp");
     WebTransportConfig.reload();
     IpRateLimitingHandler.resetForTest();
   }
@@ -201,6 +205,70 @@ public class IpRateLimitingHandlerTest {
     assertTrue(bloom.mightContain("9.9.9.9"));
     assertTrue(bloom.mightContain("1.2.3.4"));
     assertFalse(bloom.mightContain("1.1.1.1"));
+  }
+
+  @Test
+  public void testBlocklistSnapshotCannotBeMutated() {
+    Set<String> blocklist = handler.getExactBlocklist();
+    assertThrows(UnsupportedOperationException.class, () -> blocklist.add("8.8.8.8"));
+    assertThrows(UnsupportedOperationException.class, () -> blocklist.remove("9.9.9.9"));
+    assertThrows(UnsupportedOperationException.class, blocklist::clear);
+  }
+
+  @Test
+  public void testBlocklistReplacementUpdatesBloomAndSharedRules() throws Exception {
+    Set<String> previous = handler.getExactBlocklist();
+    Set<String> replacement = new HashSet<>(Arrays.asList("8.8.8.8", " 1.2.3.4 ", ""));
+    handler.setBlocklist(replacement);
+    replacement.add("5.5.5.5");
+    assertTrue(previous.contains("9.9.9.9"));
+    assertFalse(handler.getExactBlocklist().contains("9.9.9.9"));
+    assertFalse(handler.getExactBlocklist().contains("5.5.5.5"));
+    assertTrue(handler.getExactBlocklist().contains("1.2.3.4"));
+    assertTrue(handler.getBloomFilter().mightContain("8.8.8.8"));
+    assertSame(handler.getExactBlocklist(), new IpRateLimitingHandler().getExactBlocklist());
+    Set<String> updated = handler.getExactBlocklist();
+    IpBloomFilter updatedBloom = handler.getBloomFilter();
+    IpRateLimitingHandler.reloadSharedConfig();
+    assertSame(updated, handler.getExactBlocklist());
+    assertSame(updatedBloom, handler.getBloomFilter());
+    simulateConnection("8.8.8.8");
+    verify(ctx).close();
+    verify(ctx, never()).fireChannelActive();
+    simulateConnection("9.9.9.9");
+    verify(ctx).fireChannelActive();
+    verify(ctx, times(1)).close();
+  }
+
+  @Test
+  public void testInvalidBloomFppRetainsDefaultAndReusesFilter() throws Exception {
+    IpBloomFilter original = handler.getBloomFilter();
+    for (String value : Arrays.asList("NaN", "Infinity", "-Infinity", "-0.1", "1.1", "invalid")) {
+      System.setProperty("webtransport4j.server.ratelimit.blocklist.bloom_fpp", value);
+      WebTransportConfig.reload();
+      IpRateLimitingHandler.reloadSharedConfig();
+      assertEquals(0.000000001, bloomFpp(), 0.0);
+      assertSame("Invalid setting should reuse the default filter: " + value,
+          original, handler.getBloomFilter());
+    }
+  }
+
+  @Test
+  public void testBloomFppAcceptsInclusiveRange() throws Exception {
+    for (String value : Arrays.asList("0", "1", "0.25")) {
+      System.setProperty("webtransport4j.server.ratelimit.blocklist.bloom_fpp", value);
+      WebTransportConfig.reload();
+      IpRateLimitingHandler.reloadSharedConfig();
+      assertEquals(Double.parseDouble(value), bloomFpp(), 0.0);
+      assertTrue(handler.getBloomFilter().mightContain("9.9.9.9"));
+    }
+  }
+
+  private double bloomFpp() throws Exception {
+    Object rules = handler.getEffectiveRules();
+    Field field = rules.getClass().getDeclaredField("bloomFpp");
+    field.setAccessible(true);
+    return field.getDouble(rules);
   }
 
   @Test

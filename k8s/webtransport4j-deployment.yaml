@@ -31,6 +31,8 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      # Budget for the 20s drain, bounded preStop request, and JVM cleanup.
+      terminationGracePeriodSeconds: 60
       # Spread replicas across distinct physical K8s nodes for high availability
       affinity:
         podAntiAffinity:
@@ -122,7 +124,7 @@ spec:
                 command:
                   - /bin/sh
                   - -c
-                  - "curl -s -X POST -H \"Authorization: Bearer $MANAGEMENT_AUTH_TOKEN\" http://127.0.0.1:8080/prestop || true"
+                  - "curl -fsS --connect-timeout 2 --max-time 25 -X POST -H \"Authorization: Bearer $MANAGEMENT_AUTH_TOKEN\" http://127.0.0.1:8080/prestop || true"
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false

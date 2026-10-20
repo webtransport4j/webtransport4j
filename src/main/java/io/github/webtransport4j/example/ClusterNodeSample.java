@@ -96,6 +96,16 @@ public class ClusterNodeSample {
     return value;
   }
 
+  static Runnable createDrainTask(WebTransportServer server) {
+    // Serialize preStop and JVM shutdown so both wait for the same bounded drain.
+    return new Runnable() {
+      @Override
+      public synchronized void run() {
+        server.drain(20, TimeUnit.SECONDS);
+      }
+    };
+  }
+
   /**
    * Main entry point for the clustered container node.
    *
@@ -190,6 +200,7 @@ public class ClusterNodeSample {
     }
 
     final WebTransportServer server = serverBuilder.build();
+    final Runnable drainServer = createDrainTask(server);
 
     // 3. Start auxiliary HTTP server for Kubernetes probes and live management API
     HttpServer healthHttpServer =
@@ -233,9 +244,9 @@ public class ClusterNodeSample {
           log.info(
               "🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'",
               nodeName);
-          server.drain();
+          drainServer.run();
           byte[] resp =
-              "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
+              "{\"status\":\"DRAINED\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
@@ -694,7 +705,7 @@ public class ClusterNodeSample {
               t.setDaemon(true);
               return t;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            new ThreadPoolExecutor.AbortPolicy());
     healthHttpServer.setExecutor(healthExecutor);
     healthHttpServer.start();
     log.info(
@@ -707,9 +718,9 @@ public class ClusterNodeSample {
             new Thread(
                 () -> {
                   log.info("🛑 Shutting down WebTransport node '{}'...", nodeName);
+                  drainServer.run();
                   healthHttpServer.stop(1);
                   healthExecutor.shutdown();
-                  server.stop();
                   if (finalOtlp != null) {
                     finalOtlp.close();
                   }

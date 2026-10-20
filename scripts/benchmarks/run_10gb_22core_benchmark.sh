@@ -20,8 +20,11 @@ REPORT_DIR="docs/benchmarks"
 REPORT_FILE="$REPORT_DIR/DATAGRAM_10GB_22_CHANNEL_REPORT.md"
 SERVER_LOG="target/server_10gb_benchmark.log"
 GC_LOG="target/server_10gb_gc.log"
+SERVER_READY_TIMEOUT_SECONDS=${SERVER_READY_TIMEOUT_SECONDS:-120}
 
 mkdir -p "$REPORT_DIR" target
+
+mvn test-compile -DskipTests
 
 if [ ! -f target/cp.txt ]; then
   mvn dependency:build-classpath -Dmdep.outputFile=target/cp.txt
@@ -62,7 +65,13 @@ SERVER_PID=$!
 trap 'kill -9 "$SERVER_PID" 2>/dev/null || true' EXIT
 
 echo "Waiting for server on port $PORT..."
-for i in {1..30}; do
+READY_DEADLINE=$((SECONDS + SERVER_READY_TIMEOUT_SECONDS))
+while (( SECONDS < READY_DEADLINE )); do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "❌ Server exited before becoming ready. Log output:"
+    cat "$SERVER_LOG"
+    exit 1
+  fi
   if grep -q "SERVER_READY_PORT=" "$SERVER_LOG" 2>/dev/null; then
     echo "Server ready (PID: $SERVER_PID). Streaming 10 GB datagram flood across 22 channels..."
     break
@@ -88,10 +97,23 @@ java --enable-native-access=ALL-UNNAMED \
      io.github.webtransport4j.benchmark.Datagram1GbZgcBenchmark \
      client "$PORT" "$TARGET_BYTES" "$DGRAM_SIZE" "$CONCURRENCY" "$PACING_MICROS"
 
-wait "$SERVER_PID" || true
+SERVER_STATUS=0
+wait "$SERVER_PID" || SERVER_STATUS=$?
 trap - EXIT
 
 cat "$SERVER_LOG"
+
+if (( SERVER_STATUS != 0 )); then
+  echo "❌ Benchmark server failed (exit status $SERVER_STATUS)."
+  exit "$SERVER_STATUS"
+fi
+
+if ! grep -Fxq '| **Run Status** | **COMPLETE** |' "$REPORT_FILE" \
+    || ! grep -Fxq '| **Completed On Time (latch)** | true |' "$REPORT_FILE" \
+    || ! grep -Fxq '| **Target Reached** | true |' "$REPORT_FILE"; then
+  echo "❌ Benchmark report does not confirm the target payload was ingested on time."
+  exit 1
+fi
 
 echo ""
 echo "--- Native JVM GC Log Verification ($GC_LOG) ---"
