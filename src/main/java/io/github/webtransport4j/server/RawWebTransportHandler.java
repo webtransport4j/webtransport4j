@@ -251,19 +251,15 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       super.write(ctx, msg, promise);
       return;
     }
-    long currentSent = session.getCumulativeBytesSent();
     long peerLimit = session.getPeerSettingsMaxData();
-    // Enforce the session-level flow control limit.
-    // If the current write would exceed the peer's total allowed sent bytes limit:
-    if (currentSent + bytesToWrite > peerLimit) {
+    // Atomically reserve outbound bytes using CAS to prevent the check-then-act race
+    // that could allow concurrent streams to exceed the peer's flow control limit.
+    if (!session.tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
       // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
-      // We use CAS on lastSentDataBlockedLimit to avoid sending duplicate capsules for the same
-      // peer limit value. This implements RFC 9000 flow control with WebTransport optimizations.
       if (session.tryRecordDataBlockedLimit(peerLimit)) {
         logger.warn(
-            "❌ Flow control: Write blocked. Cumulative sent ({}) + write ({}) exceeds peer limit"
+            "❌ Flow control: Write blocked. Write ({}) would exceed peer limit"
                 + " ({}). Sending WT_DATA_BLOCKED.",
-            currentSent,
             bytesToWrite,
             peerLimit);
         WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
@@ -275,18 +271,16 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       }
       promise.setFailure(
           new IOException(
-              "Flow control limit exceeded: cumulative sent ("
-                  + currentSent
-                  + ") + write ("
+              "Flow control limit exceeded for session "
+                  + session.getSessionStreamId()
+                  + ": write ("
                   + bytesToWrite
                   + ") exceeds peer limit ("
                   + peerLimit
                   + ")"));
       return;
     }
-    // If the write fits within limits, update the session's cumulative sent bytes count
-    // and forward the write downstream toward the QUIC network.
-    session.incrementCumulativeBytesSent(bytesToWrite);
+    // Reservation succeeded; forward the write downstream toward the QUIC network.
     super.write(ctx, msg, promise);
   }
 }
