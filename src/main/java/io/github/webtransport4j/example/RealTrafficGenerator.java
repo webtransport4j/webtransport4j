@@ -259,7 +259,7 @@ public final class RealTrafficGenerator {
 
     for (int i = 0; i < count; i++) {
       final ByteBuf dgBuf = session.getQuicChannel().alloc().directBuffer();
-      WebTransportUtils.writeVarInt(dgBuf, session.getSessionId());
+      WebTransportUtils.writeVarInt(dgBuf, session.getSessionId() >>> 2);
       dgBuf.writeBytes(payload);
 
       session.getQuicChannel().writeAndFlush(dgBuf);

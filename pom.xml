@@ -700,6 +700,7 @@
                         <exclude>io/github/webtransport4j/client/WebTransportClientTestSuite*</exclude>
                         <exclude>io/github/webtransport4j/client/Http3GetClient*</exclude>
                         <exclude>webtransport-dynamic.properties</exclude>
+                        <exclude>webtransport-dev.properties</exclude>
                     </excludes>
                 </configuration>
                 <executions>
