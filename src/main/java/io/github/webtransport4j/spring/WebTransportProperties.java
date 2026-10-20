@@ -1,8 +1,8 @@
 package io.github.webtransport4j.spring;
 
-import io.github.webtransport4j.server.WebTransportConfig;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Configuration properties for WebTransport4J in Spring Boot. Binds to properties prefixed with
@@ -10,66 +10,38 @@ import java.util.List;
  */
 public class WebTransportProperties {
 
-  private int port =
-      Integer.parseInt(
-          System.getProperty(
-              "webtransport4j.port",
-              WebTransportConfig.get("webtransport4j.server.port", "4433")));
-  private String sslKeyPath =
-      System.getProperty(
-          "webtransport4j.ssl_key_path",
-          WebTransportConfig.get("webtransport4j.server.ssl_key_path", null));
-  private String sslCertPath =
-      System.getProperty(
-          "webtransport4j.ssl_cert_path",
-          WebTransportConfig.get("webtransport4j.server.ssl_cert_path", null));
+  private @Nullable Integer port;
+  private @Nullable String sslKeyPath;
+  private @Nullable String sslCertPath;
   private List<String> allowedOrigins = new ObjectArrayList<>();
-  private String transport =
-      System.getProperty(
-          "webtransport4j.transport",
-          WebTransportConfig.get("webtransport4j.server.transport", "auto"));
-  private long idleTimeoutSeconds =
-      Long.parseLong(
-          System.getProperty(
-              "webtransport4j.idle_timeout_seconds",
-              WebTransportConfig.get("webtransport4j.quic.max_idle_timeout_seconds", "60")));
-  private long maxStreamsBidi =
-      Long.parseLong(
-          System.getProperty(
-              "webtransport4j.max_streams_bidi",
-              WebTransportConfig.get("webtransport4j.quic.initial_max_streams_bidi", "100")));
-  private long maxStreamsUni =
-      Long.parseLong(
-          System.getProperty(
-              "webtransport4j.max_streams_uni",
-              WebTransportConfig.get("webtransport4j.quic.initial_max_streams_uni", "100")));
-  private long maxData =
-      Long.parseLong(
-          System.getProperty(
-              "webtransport4j.max_data",
-              WebTransportConfig.get("webtransport4j.quic.initial_max_data", "10485760"))); // 10MB default
+  private @Nullable String transport;
+  private @Nullable Long idleTimeoutSeconds;
+  private @Nullable Long maxStreamsBidi;
+  private @Nullable Long maxStreamsUni;
+  private @Nullable Long maxData;
+  private @Nullable Integer capsuleMaxLength;
 
-  public int getPort() {
+  public @Nullable Integer getPort() {
     return port;
   }
 
-  public void setPort(int port) {
+  public void setPort(@Nullable Integer port) {
     this.port = port;
   }
 
-  public String getSslKeyPath() {
+  public @Nullable String getSslKeyPath() {
     return sslKeyPath;
   }
 
-  public void setSslKeyPath(String sslKeyPath) {
+  public void setSslKeyPath(@Nullable String sslKeyPath) {
     this.sslKeyPath = sslKeyPath;
   }
 
-  public String getSslCertPath() {
+  public @Nullable String getSslCertPath() {
     return sslCertPath;
   }
 
-  public void setSslCertPath(String sslCertPath) {
+  public void setSslCertPath(@Nullable String sslCertPath) {
     this.sslCertPath = sslCertPath;
   }
 
@@ -81,57 +53,51 @@ public class WebTransportProperties {
     this.allowedOrigins = allowedOrigins;
   }
 
-  public String getTransport() {
+  public @Nullable String getTransport() {
     return transport;
   }
 
-  public void setTransport(String transport) {
+  public void setTransport(@Nullable String transport) {
     this.transport = transport;
   }
 
-  public long getIdleTimeoutSeconds() {
+  public @Nullable Long getIdleTimeoutSeconds() {
     return idleTimeoutSeconds;
   }
 
-  public void setIdleTimeoutSeconds(long idleTimeoutSeconds) {
+  public void setIdleTimeoutSeconds(@Nullable Long idleTimeoutSeconds) {
     this.idleTimeoutSeconds = idleTimeoutSeconds;
   }
 
-  public long getMaxStreamsBidi() {
+  public @Nullable Long getMaxStreamsBidi() {
     return maxStreamsBidi;
   }
 
-  public void setMaxStreamsBidi(long maxStreamsBidi) {
+  public void setMaxStreamsBidi(@Nullable Long maxStreamsBidi) {
     this.maxStreamsBidi = maxStreamsBidi;
   }
 
-  public long getMaxStreamsUni() {
+  public @Nullable Long getMaxStreamsUni() {
     return maxStreamsUni;
   }
 
-  public void setMaxStreamsUni(long maxStreamsUni) {
+  public void setMaxStreamsUni(@Nullable Long maxStreamsUni) {
     this.maxStreamsUni = maxStreamsUni;
   }
 
-  private int capsuleMaxLength =
-      Integer.parseInt(
-          System.getProperty(
-              "webtransport4j.capsule.max_length",
-              WebTransportConfig.get("webtransport4j.capsule.max_length", "65536")));
-
-  public long getMaxData() {
+  public @Nullable Long getMaxData() {
     return maxData;
   }
 
-  public void setMaxData(long maxData) {
+  public void setMaxData(@Nullable Long maxData) {
     this.maxData = maxData;
   }
 
-  public int getCapsuleMaxLength() {
+  public @Nullable Integer getCapsuleMaxLength() {
     return capsuleMaxLength;
   }
 
-  public void setCapsuleMaxLength(int capsuleMaxLength) {
+  public void setCapsuleMaxLength(@Nullable Integer capsuleMaxLength) {
     this.capsuleMaxLength = capsuleMaxLength;
   }
 }

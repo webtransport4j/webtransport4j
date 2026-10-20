@@ -52,7 +52,8 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
   }
 
   private static void bindEnvironment(WebTransportProperties props, Environment env) {
-    String portVal = getFirstProperty(env, "webtransport4j.port", "webtransport4j.server.port");
+    String portVal =
+        getFirstProperty(env, "webtransport4j.server.port", "webtransport4j.port");
     if (portVal != null) {
       try {
         props.setPort(Integer.parseInt(portVal.trim()));
@@ -64,6 +65,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String sslKey =
         getFirstProperty(
             env,
+            "webtransport4j.ssl.key.path",
             "webtransport4j.ssl-key-path",
             "webtransport4j.ssl_key_path",
             "webtransport4j.sslKeyPath",
@@ -75,6 +77,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String sslCert =
         getFirstProperty(
             env,
+            "webtransport4j.ssl.cert.path",
             "webtransport4j.ssl-cert-path",
             "webtransport4j.ssl_cert_path",
             "webtransport4j.sslCertPath",
@@ -86,9 +89,9 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String transport =
         getFirstProperty(
             env,
+            "webtransport4j.server.transport",
             "webtransport4j.transport",
-            "webtransport4j.transport-type",
-            "webtransport4j.server.transport");
+            "webtransport4j.transport-type");
     if (transport != null) {
       props.setTransport(transport.trim());
     }
@@ -96,9 +99,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String idleTimeout =
         getFirstProperty(
             env,
+            "webtransport4j.quic.idle.timeout.seconds",
             "webtransport4j.idle-timeout-seconds",
             "webtransport4j.idle_timeout_seconds",
-            "webtransport4j.idleTimeoutSeconds");
+            "webtransport4j.idleTimeoutSeconds",
+            "webtransport4j.quic.max_idle_timeout_seconds");
     if (idleTimeout != null) {
       try {
         props.setIdleTimeoutSeconds(Long.parseLong(idleTimeout.trim()));
@@ -110,9 +115,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String bidi =
         getFirstProperty(
             env,
+            "webtransport4j.quic.max.streams.bidi",
             "webtransport4j.max-streams-bidi",
             "webtransport4j.max_streams_bidi",
-            "webtransport4j.maxStreamsBidi");
+            "webtransport4j.maxStreamsBidi",
+            "webtransport4j.quic.initial_max_streams_bidi");
     if (bidi != null) {
       try {
         props.setMaxStreamsBidi(Long.parseLong(bidi.trim()));
@@ -124,9 +131,11 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String uni =
         getFirstProperty(
             env,
+            "webtransport4j.quic.max.streams.uni",
             "webtransport4j.max-streams-uni",
             "webtransport4j.max_streams_uni",
-            "webtransport4j.maxStreamsUni");
+            "webtransport4j.maxStreamsUni",
+            "webtransport4j.quic.initial_max_streams_uni");
     if (uni != null) {
       try {
         props.setMaxStreamsUni(Long.parseLong(uni.trim()));
@@ -138,6 +147,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String maxData =
         getFirstProperty(
             env,
+            "webtransport4j.quic.initial.max.data",
             "webtransport4j.max-data",
             "webtransport4j.max_data",
             "webtransport4j.maxData");
@@ -152,9 +162,9 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String capsuleMax =
         getFirstProperty(
             env,
-            "webtransport4j.capsule-max-length",
             "webtransport4j.capsule.max_length",
-            "webtransport4j.capsule.max-length",
+            "webtransport4j.capsule-max-length",
+            "webtransport4j.capsule.max.length",
             "webtransport4j.capsuleMaxLength");
     if (capsuleMax != null) {
       try {
@@ -167,6 +177,7 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
     String origins =
         getFirstProperty(
             env,
+            "webtransport4j.allowed.origins",
             "webtransport4j.allowed-origins",
             "webtransport4j.allowed_origins",
             "webtransport4j.allowedOrigins");
@@ -211,16 +222,33 @@ public class WebTransportAutoConfiguration implements ApplicationContextAware {
 
     WebTransportServerBuilder builder = WebTransportServer.builder();
 
-    builder
-        .port(properties.getPort())
-        .sslKeyPath(properties.getSslKeyPath())
-        .sslCertPath(properties.getSslCertPath())
-        .transportType(properties.getTransport())
-        .idleTimeout(properties.getIdleTimeoutSeconds(), TimeUnit.SECONDS)
-        .maxStreams(properties.getMaxStreamsBidi(), properties.getMaxStreamsUni())
-        .maxData(properties.getMaxData())
-        .capsuleMaxLength(properties.getCapsuleMaxLength());
-
+    if (properties.getPort() != null) {
+      builder.port(properties.getPort());
+    }
+    if (properties.getSslKeyPath() != null) {
+      builder.sslKeyPath(properties.getSslKeyPath());
+    }
+    if (properties.getSslCertPath() != null) {
+      builder.sslCertPath(properties.getSslCertPath());
+    }
+    if (properties.getTransport() != null) {
+      builder.transportType(properties.getTransport());
+    }
+    if (properties.getIdleTimeoutSeconds() != null) {
+      builder.idleTimeout(properties.getIdleTimeoutSeconds(), TimeUnit.SECONDS);
+    }
+    if (properties.getMaxStreamsBidi() != null) {
+      builder.maxStreamsBidi(properties.getMaxStreamsBidi());
+    }
+    if (properties.getMaxStreamsUni() != null) {
+      builder.maxStreamsUni(properties.getMaxStreamsUni());
+    }
+    if (properties.getMaxData() != null) {
+      builder.maxData(properties.getMaxData());
+    }
+    if (properties.getCapsuleMaxLength() != null) {
+      builder.capsuleMaxLength(properties.getCapsuleMaxLength());
+    }
     if (!properties.getAllowedOrigins().isEmpty()) {
       builder.allowedOrigins(properties.getAllowedOrigins());
     }

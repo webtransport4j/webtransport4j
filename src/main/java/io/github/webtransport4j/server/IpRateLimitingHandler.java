@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.lang.ref.WeakReference;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
@@ -102,6 +103,9 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     final IpFilterEngine<Boolean> whitelistEngine;
     final IpFilterEngine<Integer> overridesEngine;
     final Set<String> exactBlocklist;
+    final IpBloomFilter bloomFilter;
+    final int bloomCapacity;
+    final double bloomFpp;
 
     // Fields to detect changes
     final String rawBlocklistConfig;
@@ -170,21 +174,65 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
         }
       }
 
+      this.bloomCapacity =
+          config.getInt("webtransport4j.server.ratelimit.blocklist.bloom_capacity", 1000000);
+      this.bloomFpp = parseBloomFpp(config);
+
       this.rawBlocklistConfig = config.getNonNull("webtransport4j.server.ratelimit.blocklist", "");
 
-      if (previous != null && this.rawBlocklistConfig.equals(previous.rawBlocklistConfig)) {
+      if (previous != null
+          && this.rawBlocklistConfig.equals(previous.rawBlocklistConfig)
+          && this.bloomCapacity == previous.bloomCapacity
+          && Double.compare(this.bloomFpp, previous.bloomFpp) == 0) {
         this.exactBlocklist = previous.exactBlocklist;
+        this.bloomFilter = previous.bloomFilter;
       } else {
-        this.exactBlocklist = new ObjectOpenHashSet<>();
-        if (!this.rawBlocklistConfig.isEmpty()) {
-          for (String blocked : this.rawBlocklistConfig.split(",")) {
-            blocked = blocked.trim();
-            if (!blocked.isEmpty()) {
-              this.exactBlocklist.add(blocked);
-            }
-          }
+        this.bloomFilter = new IpBloomFilter(this.bloomCapacity, this.bloomFpp);
+        this.exactBlocklist =
+            buildBlocklist(Arrays.asList(this.rawBlocklistConfig.split(",")), this.bloomFilter);
+      }
+    }
+
+    private SharedRateLimitRules(SharedRateLimitRules previous, Set<String> blocklist) {
+      this.maxConnectionsPerMinute = previous.maxConnectionsPerMinute;
+      this.maxTrackedIps = previous.maxTrackedIps;
+      this.whitelistEngine = previous.whitelistEngine;
+      this.overridesEngine = previous.overridesEngine;
+      this.engineType = previous.engineType;
+      this.rawWhitelistConfig = previous.rawWhitelistConfig;
+      this.rawOverridesConfig = previous.rawOverridesConfig;
+      this.rawBlocklistConfig = previous.rawBlocklistConfig;
+      this.bloomCapacity = previous.bloomCapacity;
+      this.bloomFpp = previous.bloomFpp;
+      this.bloomFilter = new IpBloomFilter(this.bloomCapacity, this.bloomFpp);
+      this.exactBlocklist = buildBlocklist(blocklist, this.bloomFilter);
+    }
+
+    private static double parseBloomFpp(WebTransportConfig.Snapshot config) {
+      final double defaultFpp = 0.000000001;
+      try {
+        double parsed =
+            Double.parseDouble(
+                config.getNonNull("webtransport4j.server.ratelimit.blocklist.bloom_fpp", "0.000000001"));
+        if (Double.isFinite(parsed) && parsed >= 0.0 && parsed <= 1.0) {
+          return parsed;
+        }
+      } catch (NumberFormatException ignored) {
+        // Use default bloom false positive rate.
+      }
+      return defaultFpp;
+    }
+
+    private static Set<String> buildBlocklist(Iterable<String> addresses, IpBloomFilter bloom) {
+      Set<String> exact = new ObjectOpenHashSet<>();
+      for (String address : addresses) {
+        String blocked = Objects.requireNonNull(address, "blocklist address").trim();
+        if (!blocked.isEmpty()) {
+          exact.add(blocked);
+          bloom.add(blocked);
         }
       }
+      return Collections.unmodifiableSet(exact);
     }
   }
 
@@ -290,8 +338,31 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
     ensureReloaderStarted();
   }
 
+  /** Returns a read-only snapshot; use {@link #setBlocklist(Set)} to replace the effective list. */
   public Set<String> getExactBlocklist() {
     return getEffectiveRules().exactBlocklist;
+  }
+
+  /**
+   * Replaces the effective blocklist, publishing the exact set and Bloom filter together.
+   * Handlers using shared rules also share this update; instance rules remain isolated.
+   * Configuration reloads retain the update until the configured blocklist or Bloom settings change.
+   * Construct updates on a management thread because rebuilding the filter may be expensive.
+   *
+   * @param addresses IP addresses to block; copied so later caller mutations have no effect
+   */
+  public void setBlocklist(Set<String> addresses) {
+    SharedRateLimitRules updated =
+        new SharedRateLimitRules(getEffectiveRules(), Objects.requireNonNull(addresses, "addresses"));
+    if (this.instanceRules != null) {
+      this.instanceRules = updated;
+    } else {
+      sharedRules = updated;
+    }
+  }
+
+  public IpBloomFilter getBloomFilter() {
+    return getEffectiveRules().bloomFilter;
   }
 
   @Override
@@ -325,12 +396,17 @@ public class IpRateLimitingHandler extends ChannelInboundHandlerAdapter {
           return;
         }
 
-        if (!currentRules.exactBlocklist.isEmpty()
-            && currentRules.exactBlocklist.contains(ip)) {
-          logger.warn(
-              "❌ IP {} is in the Blocklist. Dropping connection immediately.", ip);
-          ctx.close();
-          return;
+        if (!currentRules.exactBlocklist.isEmpty()) {
+          boolean blocked =
+              currentRules.bloomFilter.isEnabled()
+                  ? (currentRules.bloomFilter.mightContain(ip) && currentRules.exactBlocklist.contains(ip))
+                  : currentRules.exactBlocklist.contains(ip);
+          if (blocked) {
+            logger.warn(
+                "❌ IP {} is in the Blocklist. Dropping connection immediately.", ip);
+            ctx.close();
+            return;
+          }
         }
 
         long nowMinute = System.currentTimeMillis() / 60000;

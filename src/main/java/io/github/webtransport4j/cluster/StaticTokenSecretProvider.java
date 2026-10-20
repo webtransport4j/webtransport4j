@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import javax.crypto.spec.SecretKeySpec;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -14,6 +15,8 @@ public class StaticTokenSecretProvider implements StatelessTokenSecretProvider {
 
   private final byte[] activeSecret;
   private final List<byte[]> validationSecrets;
+  private final SecretKeySpec activeSecretKeySpec;
+  private final List<SecretKeySpec> validationSecretKeySpecs;
 
   /**
    * Constructs a provider with a single active secret.
@@ -37,15 +40,21 @@ public class StaticTokenSecretProvider implements StatelessTokenSecretProvider {
       throw new IllegalArgumentException("Secret must be at least 16 bytes, was: " + activeSecret.length);
     }
     this.activeSecret = Arrays.copyOf(activeSecret, activeSecret.length);
+    this.activeSecretKeySpec = new SecretKeySpec(this.activeSecret, "HmacSHA256");
 
     final List<byte[]> list = new ArrayList<>(1 + fallbackSecrets.size());
+    final List<SecretKeySpec> specList = new ArrayList<>(1 + fallbackSecrets.size());
     list.add(this.activeSecret);
+    specList.add(this.activeSecretKeySpec);
     for (byte[] fb : fallbackSecrets) {
       if (fb != null && fb.length >= 16) {
-        list.add(Arrays.copyOf(fb, fb.length));
+        byte[] copy = Arrays.copyOf(fb, fb.length);
+        list.add(copy);
+        specList.add(new SecretKeySpec(copy, "HmacSHA256"));
       }
     }
     this.validationSecrets = Collections.unmodifiableList(list);
+    this.validationSecretKeySpecs = Collections.unmodifiableList(specList);
   }
 
   @Override
@@ -60,5 +69,15 @@ public class StaticTokenSecretProvider implements StatelessTokenSecretProvider {
       copies.add(Arrays.copyOf(secret, secret.length));
     }
     return Collections.unmodifiableList(copies);
+  }
+
+  @Override
+  public @NonNull SecretKeySpec getActiveSecretKeySpec() {
+    return activeSecretKeySpec;
+  }
+
+  @Override
+  public @NonNull List<SecretKeySpec> getValidationSecretKeySpecs() {
+    return validationSecretKeySpecs;
   }
 }

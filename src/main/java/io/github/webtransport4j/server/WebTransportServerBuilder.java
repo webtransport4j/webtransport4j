@@ -311,6 +311,18 @@ public class WebTransportServerBuilder {
     return this;
   }
 
+  /** Sets the max bidirectional streams per connection. */
+  public @NonNull WebTransportServerBuilder maxStreamsBidi(long maxBidi) {
+    this.initialMaxStreamsBidi = maxBidi;
+    return this;
+  }
+
+  /** Sets the max unidirectional streams per connection. */
+  public @NonNull WebTransportServerBuilder maxStreamsUni(long maxUni) {
+    this.initialMaxStreamsUni = maxUni;
+    return this;
+  }
+
   /** Sets the initial connection max data payload limit. */
   public @NonNull WebTransportServerBuilder maxData(long maxData) {
     this.initialMaxData = maxData;

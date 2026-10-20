@@ -17,6 +17,10 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.NonNull;
@@ -90,6 +94,16 @@ public class ClusterNodeSample {
           name + " must be provisioned explicitly (HMAC: at least 32 bytes)");
     }
     return value;
+  }
+
+  static Runnable createDrainTask(WebTransportServer server) {
+    // Serialize preStop and JVM shutdown so both wait for the same bounded drain.
+    return new Runnable() {
+      @Override
+      public synchronized void run() {
+        server.drain(20, TimeUnit.SECONDS);
+      }
+    };
   }
 
   /**
@@ -186,6 +200,7 @@ public class ClusterNodeSample {
     }
 
     final WebTransportServer server = serverBuilder.build();
+    final Runnable drainServer = createDrainTask(server);
 
     // 3. Start auxiliary HTTP server for Kubernetes probes and live management API
     HttpServer healthHttpServer =
@@ -229,9 +244,9 @@ public class ClusterNodeSample {
           log.info(
               "🛑 Received Kubernetes preStop hook: draining all active sessions on node '{}'",
               nodeName);
-          server.drain();
+          drainServer.run();
           byte[] resp =
-              "{\"status\":\"DRAINING\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
+              "{\"status\":\"DRAINED\",\"ready\":false}".getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, resp.length);
           try (OutputStream os = exchange.getResponseBody()) {
@@ -678,7 +693,20 @@ public class ClusterNodeSample {
           }
         });
 
-    healthHttpServer.setExecutor(null);
+    ExecutorService healthExecutor =
+        new ThreadPoolExecutor(
+            2,
+            8,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(128),
+            r -> {
+              Thread t = new Thread(r, "health-http-pool");
+              t.setDaemon(true);
+              return t;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+    healthHttpServer.setExecutor(healthExecutor);
     healthHttpServer.start();
     log.info(
         "✅ Kubernetes liveness/readiness probes & management API listening on port {}", healthPort);
@@ -690,8 +718,9 @@ public class ClusterNodeSample {
             new Thread(
                 () -> {
                   log.info("🛑 Shutting down WebTransport node '{}'...", nodeName);
+                  drainServer.run();
                   healthHttpServer.stop(1);
-                  server.stop();
+                  healthExecutor.shutdown();
                   if (finalOtlp != null) {
                     finalOtlp.close();
                   }

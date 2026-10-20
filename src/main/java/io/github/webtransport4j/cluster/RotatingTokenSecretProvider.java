@@ -9,6 +9,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.crypto.spec.SecretKeySpec;
 import org.jspecify.annotations.NonNull;
 
 /**
@@ -19,15 +20,23 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
   private static final class SecretSnapshot {
     final byte[] activeSecret;
     final List<byte[]> validationSecrets;
+    final SecretKeySpec activeSecretKeySpec;
+    final List<SecretKeySpec> validationSecretKeySpecs;
 
     SecretSnapshot(byte[] activeSecret, Deque<byte[]> historicalSecrets) {
       this.activeSecret = Arrays.copyOf(activeSecret, activeSecret.length);
+      this.activeSecretKeySpec = new SecretKeySpec(this.activeSecret, "HmacSHA256");
       final List<byte[]> list = new ArrayList<>(1 + historicalSecrets.size());
-      list.add(Arrays.copyOf(activeSecret, activeSecret.length));
+      final List<SecretKeySpec> specList = new ArrayList<>(1 + historicalSecrets.size());
+      list.add(this.activeSecret);
+      specList.add(this.activeSecretKeySpec);
       for (byte[] hist : historicalSecrets) {
-        list.add(Arrays.copyOf(hist, hist.length));
+        byte[] copy = Arrays.copyOf(hist, hist.length);
+        list.add(copy);
+        specList.add(new SecretKeySpec(copy, "HmacSHA256"));
       }
       this.validationSecrets = Collections.unmodifiableList(list);
+      this.validationSecretKeySpecs = Collections.unmodifiableList(specList);
     }
   }
 
@@ -101,5 +110,15 @@ public class RotatingTokenSecretProvider implements StatelessTokenSecretProvider
       copy.add(Arrays.copyOf(secret, secret.length));
     }
     return Collections.unmodifiableList(copy);
+  }
+
+  @Override
+  public @NonNull SecretKeySpec getActiveSecretKeySpec() {
+    return snapshot.get().activeSecretKeySpec;
+  }
+
+  @Override
+  public @NonNull List<SecretKeySpec> getValidationSecretKeySpecs() {
+    return snapshot.get().validationSecretKeySpecs;
   }
 }
