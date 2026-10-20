@@ -4,6 +4,7 @@ import io.github.webtransport4j.internal.handles.Handles;
 import io.github.webtransport4j.internal.handles.IntHandle;
 import io.github.webtransport4j.internal.handles.LongHandle;
 import java.lang.invoke.MethodHandles;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -66,6 +67,7 @@ public class ReactiveWebTransportStream
 
   @Override
   public void subscribe(Subscriber<? super WebTransportBuffer> subscriber) {
+    Objects.requireNonNull(subscriber, "Subscriber must not be null");
     SubscriptionImpl incomingSubscription = new SubscriptionImpl(stream, subscriber);
     subscriber.onSubscribe(incomingSubscription);
   }

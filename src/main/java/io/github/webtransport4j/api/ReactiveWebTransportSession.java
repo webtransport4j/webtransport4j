@@ -1,7 +1,9 @@
 package io.github.webtransport4j.api;
 
 import java.security.cert.Certificate;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 import org.reactivestreams.Publisher;
@@ -126,12 +128,18 @@ public class ReactiveWebTransportSession {
     return new Publisher<Void>() {
       @Override
       public void subscribe(Subscriber<? super Void> subscriber) {
+        Objects.requireNonNull(subscriber, "Subscriber must not be null");
         subscriber.onSubscribe(
             new Subscription() {
+              private final AtomicBoolean done = new AtomicBoolean();
+
               @Override
               public void request(long n) {
                 if (n <= 0) {
                   subscriber.onError(new IllegalArgumentException("Demand must be positive"));
+                  return;
+                }
+                if (!done.compareAndSet(false, true)) {
                   return;
                 }
                 try {
@@ -143,7 +151,9 @@ public class ReactiveWebTransportSession {
               }
 
               @Override
-              public void cancel() {}
+              public void cancel() {
+                done.set(true);
+              }
             });
       }
     };
@@ -171,12 +181,18 @@ public class ReactiveWebTransportSession {
     return new Publisher<ReactiveWebTransportStream>() {
       @Override
       public void subscribe(Subscriber<? super ReactiveWebTransportStream> subscriber) {
+        Objects.requireNonNull(subscriber, "Subscriber must not be null");
         subscriber.onSubscribe(
             new Subscription() {
+              private final AtomicBoolean done = new AtomicBoolean();
+
               @Override
               public void request(long n) {
                 if (n <= 0) {
                   subscriber.onError(new IllegalArgumentException("Demand must be positive"));
+                  return;
+                }
+                if (!done.compareAndSet(false, true)) {
                   return;
                 }
                 CompletableFuture<WebTransportStream> future =
@@ -193,7 +209,9 @@ public class ReactiveWebTransportSession {
               }
 
               @Override
-              public void cancel() {}
+              public void cancel() {
+                done.set(true);
+              }
             });
       }
     };
@@ -221,12 +239,18 @@ public class ReactiveWebTransportSession {
     return new Publisher<ReactiveWebTransportStream>() {
       @Override
       public void subscribe(Subscriber<? super ReactiveWebTransportStream> subscriber) {
+        Objects.requireNonNull(subscriber, "Subscriber must not be null");
         subscriber.onSubscribe(
             new Subscription() {
+              private final AtomicBoolean done = new AtomicBoolean();
+
               @Override
               public void request(long n) {
                 if (n <= 0) {
                   subscriber.onError(new IllegalArgumentException("Demand must be positive"));
+                  return;
+                }
+                if (!done.compareAndSet(false, true)) {
                   return;
                 }
                 CompletableFuture<WebTransportStream> future =
@@ -245,7 +269,9 @@ public class ReactiveWebTransportSession {
               }
 
               @Override
-              public void cancel() {}
+              public void cancel() {
+                done.set(true);
+              }
             });
       }
     };
