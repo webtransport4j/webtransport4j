@@ -87,14 +87,24 @@ jobs:
           done
 
       - name: Upload artifacts to GitHub Release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           tag="${{ github.event.release.tag_name }}"
-          gh release upload "$tag" \
-            target/webtransport4j-*.jar \
-            target/webtransport4j-*.jar.sha256 \
-            pom.xml \
-            target/pom.xml.sha256 \
-            --clobber
+          if [ -z "$tag" ]; then
+            tag="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+          fi
+
+          echo "Target release tag: $tag"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              target/webtransport4j-*.jar \
+              target/webtransport4j-*.jar.sha256 \
+              pom.xml \
+              target/pom.xml.sha256 \
+              --clobber
+            echo "Uploaded release artifacts to GitHub release $tag"
+          else
+            echo "GitHub release $tag does not exist yet; skipping asset upload."
+          fi
