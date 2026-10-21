@@ -72,15 +72,24 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
           AUTO_PUBLISH: ${{ inputs.auto_publish || 'true' }}
         run: |
-          mvn --batch-mode --errors --no-transfer-progress clean deploy \
-            -P release \
-            -DskipTests \
-            -DautoPublish=${AUTO_PUBLISH}
+          set -euo pipefail
+          version="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
+          if curl -fsSLI "https://repo1.maven.org/maven2/io/github/webtransport4j/webtransport4j/${version}/webtransport4j-${version}.jar" >/dev/null 2>&1; then
+            echo "Version ${version} is already published on Maven Central (immutable). Skipping deployment."
+            mvn --batch-mode --errors --no-transfer-progress verify -P release -DskipTests
+          else
+            echo "Deploying version ${version} to Maven Central Portal..."
+            mvn --batch-mode --errors --no-transfer-progress clean deploy \
+              -P release \
+              -DskipTests \
+              -DautoPublish=${AUTO_PUBLISH}
+          fi
 
       - name: Generate SHA-256 Checksums
         run: |
+          sha256sum pom.xml > target/pom.xml.sha256
           cd target
-          for f in webtransport4j-*.jar pom.xml; do
+          for f in webtransport4j-*.jar; do
             if [ -f "$f" ]; then
               sha256sum "$f" > "$f.sha256"
             fi
@@ -98,12 +107,13 @@ jobs:
 
           echo "Target release tag: $tag"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" \
-              target/webtransport4j-*.jar \
-              target/webtransport4j-*.jar.sha256 \
-              pom.xml \
-              target/pom.xml.sha256 \
-              --clobber
+            files=()
+            for f in target/webtransport4j-*.jar target/webtransport4j-*.jar.sha256 target/webtransport4j-*.jar.asc pom.xml target/pom.xml.sha256 target/pom.xml.asc; do
+              if [ -f "$f" ]; then
+                files+=("$f")
+              fi
+            done
+            gh release upload "$tag" "${files[@]}" --clobber
             echo "Uploaded release artifacts to GitHub release $tag"
           else
             echo "GitHub release $tag does not exist yet; skipping asset upload."
