@@ -1,11 +1,11 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import org.jspecify.annotations.Nullable;
 
-/** Binary source supporting zero-copy retained chunk reads. */
+/** Binary source supporting zero-copy chunk reads as NIO ByteBuffers. */
 public interface ZeroCopyBinarySource extends BinarySource {
 
-  @Nullable ByteBuf readRetainedChunk(int maxBytes) throws IOException;
+  @Nullable ByteBuffer readZeroCopyChunk(int maxBytes) throws IOException;
 }

@@ -174,7 +174,7 @@ public final class Datagram1GbZgcBenchmark {
             final String assignedSocket = sockInfo;
             System.out.printf(
                 ">>> Server: Session %d ready on socket [%s]. Active sessions: %d%n",
-                session.sessionId(), assignedSocket, activeSessions.get());
+                session.getSessionStreamId(), assignedSocket, activeSessions.get());
             if (session instanceof NettyWebTransportSession) {
               ((NettyWebTransportSession) session)
                   .onRawDatagram(
@@ -233,7 +233,7 @@ public final class Datagram1GbZgcBenchmark {
             int remaining = activeSessions.decrementAndGet();
             System.out.printf(
                 ">>> Server: Session %d closed. Remaining active sessions: %d%n",
-                session.sessionId(), remaining);
+                session.getSessionStreamId(), remaining);
             if (remaining <= 0) {
               if (endTime.get() == 0) {
                 endTime.set(System.nanoTime());

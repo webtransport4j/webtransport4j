@@ -1,6 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,9 +26,6 @@ public final class BinarySources {
     return new ByteBufferBinarySource(buffer);
   }
 
-  public static @NonNull BinarySource fromByteBuf(@NonNull ByteBuf buffer) {
-    return new ByteBufBinarySource(buffer);
-  }
 
   /** Java 25 Foreign Memory API. */
   public static @NonNull BinarySource fromMemorySegment(@NonNull Object segment) {
