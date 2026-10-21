@@ -1,7 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -47,12 +45,12 @@ final class ByteArrayBinarySource implements ZeroCopyBinarySource {
   }
 
   @Override
-  public @Nullable ByteBuf readRetainedChunk(int maxBytes) {
+  public @Nullable ByteBuffer readZeroCopyChunk(int maxBytes) {
     if (position >= end) {
       return null;
     }
     int bytes = Math.min(maxBytes, end - position);
-    ByteBuf chunk = Unpooled.wrappedBuffer(data, position, bytes);
+    ByteBuffer chunk = ByteBuffer.wrap(data, position, bytes).slice();
     position += bytes;
     return chunk;
   }

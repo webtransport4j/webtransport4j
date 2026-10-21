@@ -26,14 +26,6 @@ public interface WebTransportSession {
    */
   long getSessionStreamId();
 
-  /**
-   * Alias for {@link #getSessionStreamId()}.
-   *
-   * @return the session ID
-   */
-  default long sessionId() {
-    return getSessionStreamId();
-  }
 
   /**
    * Returns a unique positive identifier for this session instance within the JVM / server.
@@ -380,24 +372,8 @@ public interface WebTransportSession {
    * the same path does not affect existing sessions.
    *
    * @return the bound handler, or null
-   * @see #getHandler()
    */
   default @Nullable WebTransportHandler getBoundHandler() {
     return null;
-  }
-
-  /**
-   * Returns the handler bound to this session when it was admitted, or null when no handler was
-   * bound.
-   *
-   * <p>This method is an alias for {@link #getBoundHandler()}. Sessions retain the handler resolved
-   * at registration time; re-registering a handler for the same path does not affect existing active
-   * sessions.
-   *
-   * @return the bound handler, or null
-   * @see #getBoundHandler()
-   */
-  default @Nullable WebTransportHandler getHandler() {
-    return getBoundHandler();
   }
 }

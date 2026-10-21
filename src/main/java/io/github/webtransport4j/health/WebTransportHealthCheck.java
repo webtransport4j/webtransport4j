@@ -77,7 +77,7 @@ public final class WebTransportHealthCheck {
     details.put("running", running);
     details.put("draining", draining);
     details.put("boundPort", server.getPort());
-    details.put("activeSessions", server.getActiveSessionsCount());
+    details.put("activeSessions", server.getActiveSessionCount());
 
     return Collections.unmodifiableMap(details);
   }

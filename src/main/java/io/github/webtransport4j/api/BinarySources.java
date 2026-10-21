@@ -1,6 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -55,18 +54,6 @@ public final class BinarySources {
     return new ByteBufferBinarySource(buffer);
   }
 
-  /**
-   * Creates a {@link BinarySource} backed by a Netty {@link ByteBuf}.
-   *
-   * <p>Note: Reading from this source will advance the reader index of the underlying {@code
-   * ByteBuf}.
-   *
-   * @param buffer the buffer to read from
-   * @return a new binary source wrapping the buffer
-   */
-  public static @NonNull BinarySource fromByteBuf(@NonNull ByteBuf buffer) {
-    return new ByteBufBinarySource(buffer);
-  }
 
   /**
    * Creates a {@link BinarySource} backed by a Java Foreign Memory API segment.

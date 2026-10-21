@@ -22,7 +22,7 @@ public class WebTransportHealthCheckTest {
     when(server.isRunning()).thenReturn(true);
     when(server.isDraining()).thenReturn(false);
     when(server.getPort()).thenReturn(4433);
-    when(server.getActiveSessionsCount()).thenReturn(5);
+    when(server.getActiveSessionCount()).thenReturn(5);
 
     assertTrue(WebTransportHealthCheck.isAlive(server));
     assertTrue(WebTransportHealthCheck.isReady(server));
@@ -41,7 +41,7 @@ public class WebTransportHealthCheckTest {
     when(server.isRunning()).thenReturn(true);
     when(server.isDraining()).thenReturn(true);
     when(server.getPort()).thenReturn(4433);
-    when(server.getActiveSessionsCount()).thenReturn(2);
+    when(server.getActiveSessionCount()).thenReturn(2);
 
     assertTrue(WebTransportHealthCheck.isAlive(server)); // still alive
     assertFalse(WebTransportHealthCheck.isReady(server)); // not ready for new traffic

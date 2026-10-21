@@ -1,7 +1,5 @@
 package io.github.webtransport4j.api;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
@@ -42,7 +40,7 @@ final class ByteBufferBinarySource implements ZeroCopyBinarySource {
   }
 
   @Override
-  public @Nullable ByteBuf readRetainedChunk(int maxBytes) {
+  public @Nullable ByteBuffer readZeroCopyChunk(int maxBytes) {
     if (!buffer.hasRemaining()) {
       return null;
     }
@@ -50,7 +48,7 @@ final class ByteBufferBinarySource implements ZeroCopyBinarySource {
     ByteBuffer slice = buffer.slice();
     slice.limit(bytes);
     buffer.position(buffer.position() + bytes);
-    return Unpooled.wrappedBuffer(slice);
+    return slice;
   }
 
   @Override
