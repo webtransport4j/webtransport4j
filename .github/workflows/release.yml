@@ -1,23 +1,33 @@
-name: Publish to Maven Central
+name: Release & Publish to Maven Central
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      auto_publish:
+        description: 'Auto-publish on Sonatype Central Portal (true = immediate publish, false = review in portal first)'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    name: Publish Release Artifacts
+    name: Build, Sign & Publish to Maven Central
     runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    timeout-minutes: 20
 
-      - name: Set up JDK 25 & Maven settings
-        uses: actions/setup-java@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25 with Maven Central & GPG configuration
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
         with:
           java-version: '25'
           distribution: temurin
@@ -27,29 +37,64 @@ jobs:
           gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
-      - name: Validate multi-release build
-        run: mvn --batch-mode clean package -DskipTests
+      - name: Cache Maven packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-publish-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-publish-
+            ${{ runner.os }}-maven-
 
-      - name: Validate release JAR integrity
+      - name: Build canonical release artifact
+        run: mvn --batch-mode --errors --no-transfer-progress clean package -DskipTests
+
+      - name: Validate multi-release JAR integrity
         run: |
-          artifact=$(find target -maxdepth 1 -name "webtransport4j-*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" ! -name "*-examples.jar")
+          set -euo pipefail
+          mapfile -t artifacts < <(find target -maxdepth 1 -type f \
+            -name 'webtransport4j-*.jar' \
+            ! -name '*-sources.jar' \
+            ! -name '*-javadoc.jar' \
+            ! -name '*-examples.jar' \
+            -print)
+          [[ "${#artifacts[@]}" -eq 1 ]]
+          artifact="${artifacts[0]}"
+          test -s "$artifact"
+
           jar --validate --file "$artifact"
           python3 scripts/verify-release-artifact.py "$artifact" pom.xml
 
-      - name: Deploy to Sonatype Central Portal
+      - name: Publish to Sonatype Central Portal
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          AUTO_PUBLISH: ${{ inputs.auto_publish || 'true' }}
         run: |
-          mvn --batch-mode deploy -P release -DskipTests
+          mvn --batch-mode --errors --no-transfer-progress deploy \
+            -P release \
+            -DskipTests \
+            -DautoPublish=${AUTO_PUBLISH}
 
-      - name: Upload JARs to GitHub Release
+      - name: Generate SHA-256 Checksums
+        run: |
+          cd target
+          for f in webtransport4j-*.jar pom.xml; do
+            if [ -f "$f" ]; then
+              sha256sum "$f" > "$f.sha256"
+            fi
+          done
+
+      - name: Upload artifacts to GitHub Release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload ${{ github.event.release.tag_name }} \
+          tag="${{ github.event.release.tag_name }}"
+          gh release upload "$tag" \
             target/webtransport4j-*.jar \
             target/webtransport4j-*.jar.sha256 \
-            pom.xml --clobber
+            pom.xml \
+            target/pom.xml.sha256 \
+            --clobber
