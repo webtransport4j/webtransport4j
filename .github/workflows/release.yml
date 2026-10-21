@@ -72,7 +72,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
           AUTO_PUBLISH: ${{ inputs.auto_publish || 'true' }}
         run: |
-          mvn --batch-mode --errors --no-transfer-progress deploy \
+          mvn --batch-mode --errors --no-transfer-progress clean deploy \
             -P release \
             -DskipTests \
             -DautoPublish=${AUTO_PUBLISH}
