@@ -1,11 +1,12 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.io.BufferedReader;
 import java.io.StringReader;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link UdpErrorMetricsPoller} {@code /proc/net/snmp} parsing. */
 public class UdpErrorMetricsPollerTest {

@@ -1,8 +1,9 @@
 package io.github.webtransport4j.example;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,11 +18,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Regression coverage for overlapping preStop and JVM shutdown drains. */
 public class ClusterNodeDrainTest {
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void bothCallersWaitUntilSessionsFinishDraining() throws Exception {
     ExecutorService workers = Executors.newFixedThreadPool(2);
     try (WebTransportServer server = WebTransportServer.builder().port(0).build()) {

@@ -1,7 +1,8 @@
 package io.github.webtransport4j.benchmark;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
@@ -14,7 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -285,9 +286,7 @@ public class BufferAllocationBenchmarkTest {
         asyncTasks);
     logger.info("================================================================================");
 
-    assertTrue(
-        "Demonstrates that mutable buffer reuse corrupts async consumers: " + corruptedCount.get(),
-        corruptedCount.get() > 0);
+    assertTrue(corruptedCount.get() > 0, "Demonstrates that mutable buffer reuse corrupts async consumers: " + corruptedCount.get());
   }
 
   private static void warmup(ByteBuf buf) {

@@ -3,8 +3,8 @@ package io.github.webtransport4j.spring;
 import io.github.webtransport4j.api.WebTransportEndpoint;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.server.WebTransportServer;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -24,16 +24,16 @@ public class SpringWebTransportIntegrationTest {
     context.refresh();
 
     WebTransportServer server = context.getBean(WebTransportServer.class);
-    Assert.assertNotNull(server);
+    Assertions.assertNotNull(server);
 
     SpringWebTransportServerLifecycle lifecycle =
         context.getBean(SpringWebTransportServerLifecycle.class);
-    Assert.assertNotNull(lifecycle);
-    Assert.assertTrue(lifecycle.isAutoStartup());
+    Assertions.assertNotNull(lifecycle);
+    Assertions.assertTrue(lifecycle.isAutoStartup());
 
     WebTransportHandler chatHandler = server.getHandler("/spring-chat");
-    Assert.assertNotNull(chatHandler);
-    Assert.assertTrue(chatHandler instanceof ChatEndpoint);
+    Assertions.assertNotNull(chatHandler);
+    Assertions.assertTrue(chatHandler instanceof ChatEndpoint);
 
     context.close();
   }
@@ -59,21 +59,21 @@ public class SpringWebTransportIntegrationTest {
     context.refresh();
 
     WebTransportProperties properties = context.getBean(WebTransportProperties.class);
-    Assert.assertNotNull(properties);
-    Assert.assertEquals(Integer.valueOf(0), properties.getPort());
-    Assert.assertEquals("nio", properties.getTransport());
-    Assert.assertEquals(Long.valueOf(120), properties.getIdleTimeoutSeconds());
-    Assert.assertEquals(Long.valueOf(250), properties.getMaxStreamsBidi());
-    Assert.assertEquals(Long.valueOf(350), properties.getMaxStreamsUni());
-    Assert.assertEquals(Long.valueOf(52428800L), properties.getMaxData());
-    Assert.assertEquals(Integer.valueOf(32768), properties.getCapsuleMaxLength());
-    Assert.assertEquals(2, properties.getAllowedOrigins().size());
-    Assert.assertTrue(properties.getAllowedOrigins().contains("https://app1.internal"));
-    Assert.assertTrue(properties.getAllowedOrigins().contains("https://app2.internal"));
+    Assertions.assertNotNull(properties);
+    Assertions.assertEquals(Integer.valueOf(0), properties.getPort());
+    Assertions.assertEquals("nio", properties.getTransport());
+    Assertions.assertEquals(Long.valueOf(120), properties.getIdleTimeoutSeconds());
+    Assertions.assertEquals(Long.valueOf(250), properties.getMaxStreamsBidi());
+    Assertions.assertEquals(Long.valueOf(350), properties.getMaxStreamsUni());
+    Assertions.assertEquals(Long.valueOf(52428800L), properties.getMaxData());
+    Assertions.assertEquals(Integer.valueOf(32768), properties.getCapsuleMaxLength());
+    Assertions.assertEquals(2, properties.getAllowedOrigins().size());
+    Assertions.assertTrue(properties.getAllowedOrigins().contains("https://app1.internal"));
+    Assertions.assertTrue(properties.getAllowedOrigins().contains("https://app2.internal"));
 
     WebTransportServer server = context.getBean(WebTransportServer.class);
-    Assert.assertNotNull(server);
-    Assert.assertEquals(Integer.valueOf(32768), server.getCapsuleMaxLength());
+    Assertions.assertNotNull(server);
+    Assertions.assertEquals(Integer.valueOf(32768), server.getCapsuleMaxLength());
 
     context.close();
   }
@@ -85,7 +85,7 @@ public class SpringWebTransportIntegrationTest {
             .getClassLoader()
             .getResource(
                 "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports");
-    Assert.assertNotNull(resource);
+    Assertions.assertNotNull(resource);
     String content;
     try (java.io.InputStream in = resource.openStream();
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
@@ -96,7 +96,7 @@ public class SpringWebTransportIntegrationTest {
       }
       content = new String(out.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
     }
-    Assert.assertTrue(
+    Assertions.assertTrue(
         content.contains("io.github.webtransport4j.spring.WebTransportAutoConfiguration"));
   }
 
@@ -112,8 +112,8 @@ public class SpringWebTransportIntegrationTest {
     context.refresh();
 
     WebTransportProperties resolved = context.getBean(WebTransportProperties.class);
-    Assert.assertSame(customProps, resolved);
-    Assert.assertEquals(Integer.valueOf(9999), resolved.getPort());
+    Assertions.assertSame(customProps, resolved);
+    Assertions.assertEquals(Integer.valueOf(9999), resolved.getPort());
     context.close();
   }
 
@@ -128,16 +128,14 @@ public class SpringWebTransportIntegrationTest {
 
     try {
       context.refresh();
-      Assert.fail("Expected exception when multiple unannotated WebTransportHandler beans exist");
+      Assertions.fail("Expected exception when multiple unannotated WebTransportHandler beans exist");
     } catch (Exception e) {
       Throwable root = e;
       while (root.getCause() != null && root.getCause() != root) {
         root = root.getCause();
       }
-      Assert.assertTrue(
-          "Root cause should mention multiple unannotated handlers: " + root.getMessage(),
-          root.getMessage() != null
-              && root.getMessage().contains("Multiple unannotated WebTransportHandler beans found"));
+      Assertions.assertTrue(root.getMessage() != null
+              && root.getMessage().contains("Multiple unannotated WebTransportHandler beans found"), "Root cause should mention multiple unannotated handlers: " + root.getMessage());
     } finally {
       context.close();
     }
@@ -158,7 +156,7 @@ public class SpringWebTransportIntegrationTest {
 
     WebTransportServer server = context.getBean(WebTransportServer.class);
     WebTransportHandler resolved = server.getHandler("/unmatched");
-    Assert.assertTrue(resolved instanceof ExplicitDefaultEndpoint);
+    Assertions.assertTrue(resolved instanceof ExplicitDefaultEndpoint);
     context.close();
   }
 
@@ -168,7 +166,7 @@ public class SpringWebTransportIntegrationTest {
   @Test
   public void testEndpointAnnotationInheritedBySubclassProxy() {
     WebTransportEndpoint ann = SubclassEndpointProxy.class.getAnnotation(WebTransportEndpoint.class);
-    Assert.assertNotNull("@WebTransportEndpoint must be inherited by subclasses", ann);
-    Assert.assertEquals("/spring-chat", ann.path());
+    Assertions.assertNotNull(ann, "@WebTransportEndpoint must be inherited by subclasses");
+    Assertions.assertEquals("/spring-chat", ann.path());
   }
 }

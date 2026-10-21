@@ -1,9 +1,10 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -26,7 +27,7 @@ import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 5: Flow Control. Directly
@@ -50,23 +51,17 @@ public class Draft16Section5FlowControlTest {
     when(mockQuic.attr(any())).thenAnswer(inv -> attrMap.attr(inv.getArgument(0)));
 
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
-    assertFalse(
-        "Flow control must not be negotiated before peer settings arrive",
-        WebTransportSessionManager.isFlowControlNegotiated(mockQuic));
+    assertFalse(WebTransportSessionManager.isFlowControlNegotiated(mockQuic), "Flow control must not be negotiated before peer settings arrive");
 
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
     attrMap.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(100L);
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(0L);
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(0L);
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(0L);
-    assertFalse(
-        "Flow control must not be negotiated if peer declared only 0 limits",
-        WebTransportSessionManager.isFlowControlNegotiated(mockQuic));
+    assertFalse(WebTransportSessionManager.isFlowControlNegotiated(mockQuic), "Flow control must not be negotiated if peer declared only 0 limits");
 
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(50L);
-    assertTrue(
-        "Flow control must be negotiated when both sides declare non-zero limits",
-        WebTransportSessionManager.isFlowControlNegotiated(mockQuic));
+    assertTrue(WebTransportSessionManager.isFlowControlNegotiated(mockQuic), "Flow control must be negotiated when both sides declare non-zero limits");
   }
 
   /**
@@ -85,10 +80,8 @@ public class Draft16Section5FlowControlTest {
     attrMap.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI).set(0L);
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(0L);
 
-    assertTrue("First session must be allowed", mgr.reserveSession(mockQuic, 10));
-    assertFalse(
-        "Second session MUST be rejected when flow control is disabled",
-        mgr.reserveSession(mockQuic, 10));
+    assertTrue(mgr.reserveSession(mockQuic, 10), "First session must be allowed");
+    assertFalse(mgr.reserveSession(mockQuic, 10), "Second session MUST be rejected when flow control is disabled");
   }
 
   /**
@@ -115,10 +108,8 @@ public class Draft16Section5FlowControlTest {
         new DefaultWebTransportSession(
             0L, mockConnectStream, "/wt", 100L, 100L, 10000L, 100L, 100L, 10000L, true, true);
 
-    assertEquals(
-        "Client-initiated Uni count must start at 0", 0L, session.getClientInitiatedStreamsUni());
-    assertEquals(
-        "Client-initiated Bidi count must start at 0", 0L, session.getClientInitiatedStreamsBidi());
+    assertEquals(0L, session.getClientInitiatedStreamsUni(), "Client-initiated Uni count must start at 0");
+    assertEquals(0L, session.getClientInitiatedStreamsBidi(), "Client-initiated Bidi count must start at 0");
   }
 
   /**

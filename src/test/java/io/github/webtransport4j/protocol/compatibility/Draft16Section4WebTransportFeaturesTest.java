@@ -1,10 +1,11 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -39,7 +40,7 @@ import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.nio.charset.StandardCharsets;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -70,16 +71,12 @@ public class Draft16Section4WebTransportFeaturesTest {
     UnknownStreamHandlerFactory factory = new UnknownStreamHandlerFactory();
 
     ChannelHandler wtHandler = factory.apply(WebTransportUtils.UNI_STREAM_TYPE);
-    assertNotNull("Stream type 0x54 must produce WebTransportUniStreamInitializer", wtHandler);
-    assertTrue(
-        "Must be WebTransportUniStreamInitializer",
-        wtHandler instanceof WebTransportUniStreamInitializer);
+    assertNotNull(wtHandler, "Stream type 0x54 must produce WebTransportUniStreamInitializer");
+    assertTrue(wtHandler instanceof WebTransportUniStreamInitializer, "Must be WebTransportUniStreamInitializer");
 
     ChannelHandler unknownHandler = factory.apply(0x99L);
-    assertNotNull("Unknown stream type must produce an initializer", unknownHandler);
-    assertFalse(
-        "Unknown stream type must NOT be WebTransportUniStreamInitializer",
-        unknownHandler instanceof WebTransportUniStreamInitializer);
+    assertNotNull(unknownHandler, "Unknown stream type must produce an initializer");
+    assertFalse(unknownHandler instanceof WebTransportUniStreamInitializer, "Unknown stream type must NOT be WebTransportUniStreamInitializer");
   }
 
   /**
@@ -133,23 +130,17 @@ public class Draft16Section4WebTransportFeaturesTest {
 
     decoder.channelRead(mockCtx, in);
 
-    assertEquals(
-        "Session ID attribute MUST be set to decoded session ID",
-        Long.valueOf(sessionId),
-        streamAttrMap.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get());
-    assertEquals(
-        "Stream type attribute MUST be set to 0x54",
-        Long.valueOf(0x54L),
-        streamAttrMap.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get());
+    assertEquals(Long.valueOf(sessionId), streamAttrMap.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get(), "Session ID attribute MUST be set to decoded session ID");
+    assertEquals(Long.valueOf(0x54L), streamAttrMap.attr(WebTransportAttributeKeys.STREAM_TYPE_KEY).get(), "Stream type attribute MUST be set to 0x54");
 
     ArgumentCaptor<ByteBuf> captor = ArgumentCaptor.forClass(ByteBuf.class);
     verify(mockCtx).fireChannelRead(captor.capture());
     ByteBuf forwarded = captor.getValue();
-    assertNotNull("Stream payload MUST be forwarded to subsequent handlers", forwarded);
+    assertNotNull(forwarded, "Stream payload MUST be forwarded to subsequent handlers");
     byte[] actualPayload = new byte[forwarded.readableBytes()];
     forwarded.readBytes(actualPayload);
     forwarded.release();
-    assertArrayEquals("Payload bytes must match user stream data", payloadBytes, actualPayload);
+    assertArrayEquals(payloadBytes, actualPayload, "Payload bytes must match user stream data");
   }
 
   /**
@@ -162,9 +153,7 @@ public class Draft16Section4WebTransportFeaturesTest {
     WebTransportDetectorHandler detector = new WebTransportDetectorHandler();
     EmbeddedChannel channel = new EmbeddedChannel(new HttpServerCodec(), detector);
 
-    assertTrue(
-        "Pipeline initially contains HTTP codec",
-        channel.pipeline().get(HttpServerCodec.class) != null);
+    assertTrue(channel.pipeline().get(HttpServerCodec.class) != null, "Pipeline initially contains HTTP codec");
 
     ByteBuf bidiSignalBuf = Unpooled.buffer();
     WebTransportUtils.writeVarInt(bidiSignalBuf, WebTransportUtils.BI_STREAM_TYPE); // 0x41
@@ -173,9 +162,7 @@ public class Draft16Section4WebTransportFeaturesTest {
     channel.writeInbound(bidiSignalBuf);
 
     // After detecting 0x41, standard HTTP handlers are stripped from the pipeline
-    assertFalse(
-        "HTTP codec MUST be removed upon detecting WT_STREAM signal (0x41)",
-        channel.pipeline().names().contains(HttpServerCodec.class.getSimpleName()));
+    assertFalse(channel.pipeline().names().contains(HttpServerCodec.class.getSimpleName()), "HTTP codec MUST be removed upon detecting WT_STREAM signal (0x41)");
     channel.finishAndReleaseAll();
   }
 
@@ -188,22 +175,12 @@ public class Draft16Section4WebTransportFeaturesTest {
   @Test
   public void testSection4_3_ClientInitiatedBidiFormulaValidation() {
     for (long id = 0; id <= 100; id += 4) {
-      assertTrue(
-          "Client-initiated bidi stream IDs must be recognized",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
-      assertFalse(
-          "Server-initiated bidi stream (id + 1) must be rejected",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 1));
-      assertFalse(
-          "Client-initiated uni stream (id + 2) must be rejected",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 2));
-      assertFalse(
-          "Server-initiated uni stream (id + 3) must be rejected",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id + 3));
+      assertTrue(WebTransportUtils.isClientInitiatedBidirectionalStream(id), "Client-initiated bidi stream IDs must be recognized");
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id + 1), "Server-initiated bidi stream (id + 1) must be rejected");
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id + 2), "Client-initiated uni stream (id + 2) must be rejected");
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id + 3), "Server-initiated uni stream (id + 3) must be rejected");
     }
-    assertFalse(
-        "Negative stream ID must be rejected",
-        WebTransportUtils.isClientInitiatedBidirectionalStream(-1L));
+    assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(-1L), "Negative stream ID must be rejected");
   }
 
   /**
@@ -218,30 +195,19 @@ public class Draft16Section4WebTransportFeaturesTest {
   public void testSection4_4_ApplicationErrorRemappingInApplication() {
     // Boundary test 0x00000000 -> 0x52e4a40fa8db
     long httpZero = WebTransportUtils.webTransportCodeToHttpCode(0x00000000L);
-    assertEquals("0x00000000 must map to 0x52e4a40fa8db", 0x52e4a40fa8dbL, httpZero);
-    assertEquals(
-        "Round-trip mapping for 0 must yield 0",
-        0x00000000L,
-        WebTransportUtils.httpCodeToWebTransportCode(httpZero));
+    assertEquals(0x52e4a40fa8dbL, httpZero, "0x00000000 must map to 0x52e4a40fa8db");
+    assertEquals(0x00000000L, WebTransportUtils.httpCodeToWebTransportCode(httpZero), "Round-trip mapping for 0 must yield 0");
 
     // Boundary test 0xffffffff -> 0x52e5ac983162
     long httpMax = WebTransportUtils.webTransportCodeToHttpCode(0xffffffffL);
-    assertEquals("0xffffffff must map to 0x52e5ac983162", 0x52e5ac983162L, httpMax);
-    assertEquals(
-        "Round-trip mapping for max must yield 0xffffffff",
-        0xffffffffL,
-        WebTransportUtils.httpCodeToWebTransportCode(httpMax));
+    assertEquals(0x52e5ac983162L, httpMax, "0xffffffff must map to 0x52e5ac983162");
+    assertEquals(0xffffffffL, WebTransportUtils.httpCodeToWebTransportCode(httpMax), "Round-trip mapping for max must yield 0xffffffff");
 
     // Test skipping reserved codepoints of form 0x1f * N + 0x21
     for (long appCode = 0; appCode <= 200; appCode++) {
       long mapped = WebTransportUtils.webTransportCodeToHttpCode(appCode);
-      assertFalse(
-          "Mapped HTTP/3 error code MUST NOT be of form 0x1f * N + 0x21",
-          (mapped - 0x21L) % 31L == 0L);
-      assertEquals(
-          "Round-trip must recover original application error code",
-          appCode,
-          WebTransportUtils.httpCodeToWebTransportCode(mapped));
+      assertFalse((mapped - 0x21L) % 31L == 0L, "Mapped HTTP/3 error code MUST NOT be of form 0x1f * N + 0x21");
+      assertEquals(appCode, WebTransportUtils.httpCodeToWebTransportCode(mapped), "Round-trip must recover original application error code");
     }
   }
 
@@ -265,13 +231,13 @@ public class Draft16Section4WebTransportFeaturesTest {
     channel.writeInbound(datagramBuf);
 
     WebTransportDatagramFrame frame = channel.readInbound();
-    assertNotNull("Decoder must output WebTransportDatagramFrame", frame);
-    assertEquals("Session ID must be quarterSessionId << 2 (12)", 12L, frame.sessionId());
+    assertNotNull(frame, "Decoder must output WebTransportDatagramFrame");
+    assertEquals(12L, frame.sessionId(), "Session ID must be quarterSessionId << 2 (12)");
 
     byte[] payload = new byte[frame.content().readableBytes()];
     frame.content().readBytes(payload);
     frame.release();
-    assertArrayEquals("Payload must match datagram content", dgramData, payload);
+    assertArrayEquals(dgramData, payload, "Payload must match datagram content");
     channel.finishAndReleaseAll();
   }
 
@@ -315,15 +281,13 @@ public class Draft16Section4WebTransportFeaturesTest {
     mgr.register(mockConnectStream);
     WebTransportSession session = mgr.get(0L);
     assertNotNull(session);
-    assertFalse("Session is not draining initially", session.isDraining());
+    assertFalse(session.isDraining(), "Session is not draining initially");
 
     // Valid WT_DRAIN_SESSION with empty payload
     WebTransportCapsule validDrainCapsule =
         new WebTransportCapsule(0L, 0x78aeL, Unpooled.EMPTY_BUFFER);
     WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, validDrainCapsule);
-    assertTrue(
-        "Session MUST be marked as draining after receiving valid WT_DRAIN_SESSION",
-        session.isDraining());
+    assertTrue(session.isDraining(), "Session MUST be marked as draining after receiving valid WT_DRAIN_SESSION");
 
     // Invalid WT_DRAIN_SESSION with non-empty payload
     ByteBuf nonZeroPayload = Unpooled.wrappedBuffer(new byte[] {0x01});
@@ -368,13 +332,9 @@ public class Draft16Section4WebTransportFeaturesTest {
       byte[] decodedContext = new byte[contextLen];
       buf.readBytes(decodedContext);
 
-      assertEquals(
-          "Session ID in exporter context MUST match session", sessionId, decodedSessionId);
-      assertEquals(
-          "Application label MUST be preserved",
-          appLabel,
-          new String(decodedLabel, StandardCharsets.US_ASCII));
-      assertArrayEquals("Application context MUST be preserved", appContext, decodedContext);
+      assertEquals(sessionId, decodedSessionId, "Session ID in exporter context MUST match session");
+      assertEquals(appLabel, new String(decodedLabel, StandardCharsets.US_ASCII), "Application label MUST be preserved");
+      assertArrayEquals(appContext, decodedContext, "Application context MUST be preserved");
     } finally {
       buf.release();
     }

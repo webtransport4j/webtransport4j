@@ -1,8 +1,9 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -18,7 +19,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.concurrent.ImmediateEventExecutor;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests verifying late HTTP/3 SETTINGS flow-control initialization and server-initiated stream
@@ -92,7 +93,7 @@ public class Http3ControlStreamAndAccountingTest {
     // Register session before peer settings arrive (flowControlEnabled will be false)
     mgr.register(mockConnectStream);
     NettyWebTransportSession session = mgr.get(0L);
-    org.junit.Assert.assertNotNull(session);
+    org.junit.jupiter.api.Assertions.assertNotNull(session);
     session.setSettingsMaxStreamsUni(0L);
     session.setSettingsMaxStreamsBidi(0L);
     session.setSettingsMaxData(0L);
@@ -159,7 +160,7 @@ public class Http3ControlStreamAndAccountingTest {
 
     mgr.register(mockConnectStream);
     NettyWebTransportSession session = mgr.get(0L);
-    org.junit.Assert.assertNotNull(session);
+    org.junit.jupiter.api.Assertions.assertNotNull(session);
     session.setFlowControlEnabled(false);
 
     assertEquals(0L, session.getServerInitiatedStreamsBidi());

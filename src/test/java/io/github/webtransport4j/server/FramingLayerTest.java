@@ -1,10 +1,11 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -48,7 +49,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1052,27 +1053,27 @@ public class FramingLayerTest {
     Class<?> clazz = QuicStreamChannel.class;
 
     Method streamIdMethod = clazz.getMethod("streamId");
-    assertNotNull("QuicStreamChannel must define streamId()", streamIdMethod);
+    assertNotNull(streamIdMethod, "QuicStreamChannel must define streamId()");
     assertEquals(long.class, streamIdMethod.getReturnType());
 
     Method typeMethod = clazz.getMethod("type");
-    assertNotNull("QuicStreamChannel must define type()", typeMethod);
+    assertNotNull(typeMethod, "QuicStreamChannel must define type()");
     assertEquals(QuicStreamType.class, typeMethod.getReturnType());
 
     Method shutdownMethod = clazz.getMethod("shutdown", int.class, ChannelPromise.class);
-    assertNotNull("QuicStreamChannel must define shutdown(int, ChannelPromise)", shutdownMethod);
+    assertNotNull(shutdownMethod, "QuicStreamChannel must define shutdown(int, ChannelPromise)");
     assertEquals(ChannelFuture.class, shutdownMethod.getReturnType());
 
     Method shutdownOutputMethod = clazz.getMethod("shutdownOutput");
-    assertNotNull("QuicStreamChannel must define shutdownOutput()", shutdownOutputMethod);
+    assertNotNull(shutdownOutputMethod, "QuicStreamChannel must define shutdownOutput()");
     assertEquals(ChannelFuture.class, shutdownOutputMethod.getReturnType());
 
     Method isLocalCreatedMethod = clazz.getMethod("isLocalCreated");
-    assertNotNull("QuicStreamChannel must define isLocalCreated()", isLocalCreatedMethod);
+    assertNotNull(isLocalCreatedMethod, "QuicStreamChannel must define isLocalCreated()");
     assertEquals(boolean.class, isLocalCreatedMethod.getReturnType());
 
     Method parentMethod = clazz.getMethod("parent");
-    assertNotNull("QuicStreamChannel must define parent()", parentMethod);
+    assertNotNull(parentMethod, "QuicStreamChannel must define parent()");
     assertEquals(QuicChannel.class, parentMethod.getReturnType());
   }
 

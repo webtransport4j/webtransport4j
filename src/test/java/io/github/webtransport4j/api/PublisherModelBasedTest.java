@@ -1,12 +1,13 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -59,8 +60,8 @@ public class PublisherModelBasedTest {
           expected.cancel();
         }
         String trace = "history=" + history + ", step=" + step;
-        assertEquals(trace, expected.delivered, received);
-        assertEquals(trace, expected.terminal ? 1 : 0, terminals[0]);
+        assertEquals(expected.delivered, received, trace);
+        assertEquals(expected.terminal ? 1 : 0, terminals[0], trace);
       }
       subscription[0].cancel();
     }

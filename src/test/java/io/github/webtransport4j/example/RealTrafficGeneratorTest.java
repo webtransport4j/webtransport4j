@@ -1,8 +1,9 @@
 package io.github.webtransport4j.example;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -22,11 +23,13 @@ import java.lang.reflect.Method;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Checks stream response accounting through the actual generator callbacks. */
 public class RealTrafficGeneratorTest {
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void fragmentedResponseCannotStandInForAnotherStream() throws Exception {
     QuicChannel quic = respondingChannel(false);
     RealTrafficGenerator.LiveSession session =
@@ -38,7 +41,8 @@ public class RealTrafficGeneratorTest {
     assertTrue(failure.getMessage().contains("1/2"));
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void countsEachRespondingStreamExactlyOnce() throws Exception {
     QuicChannel quic = respondingChannel(true);
     RealTrafficGenerator.LiveSession session =
@@ -46,7 +50,8 @@ public class RealTrafficGeneratorTest {
     assertEquals(2, RealTrafficGenerator.sendStreams(session, true, 2, "hello"));
   }
 
-  @Test(timeout = 20000)
+  @Timeout(value = 20000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void rejectedHandshakeClosesClientTransportAndEventLoop() throws Exception {
     io.netty.handler.ssl.util.SelfSignedCertificate certificate =
         new io.netty.handler.ssl.util.SelfSignedCertificate("localhost");
@@ -70,10 +75,8 @@ public class RealTrafficGeneratorTest {
               () ->
                   RealTrafficGenerator.connect(
                       "https://127.0.0.1:" + server.getPort() + "/unregistered", null, group));
-      assertTrue(failure.getMessage(), failure.getMessage().contains("rejected"));
-      assertTrue(
-          "Client transport threads must terminate after rejection",
-          group.terminationFuture().await(5, java.util.concurrent.TimeUnit.SECONDS));
+      assertTrue(failure.getMessage().contains("rejected"), failure.getMessage());
+      assertTrue(group.terminationFuture().await(5, java.util.concurrent.TimeUnit.SECONDS), "Client transport threads must terminate after rejection");
       assertTrue(group.isTerminated());
     } finally {
       group
@@ -84,7 +87,8 @@ public class RealTrafficGeneratorTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void invalidUrlAlsoReleasesOwnedEventLoop() throws Exception {
     io.netty.channel.EventLoopGroup group = new io.netty.channel.nio.NioEventLoopGroup(1);
     try {
@@ -99,12 +103,14 @@ public class RealTrafficGeneratorTest {
     }
   }
 
-  @Test(timeout = 20000)
+  @Timeout(value = 20000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void unansweredConnectTimesOutAndReleasesClientTransport() throws Exception {
     assertConnectTimeout(false);
   }
 
-  @Test(timeout = 20000)
+  @Timeout(value = 20000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void informationalResponseDoesNotRejectHandshake() throws Exception {
     assertConnectTimeout(true);
   }
@@ -196,7 +202,7 @@ public class RealTrafficGeneratorTest {
                   RealTrafficGenerator.connect(
                       "https://127.0.0.1:" + port + "/silent", null, clientGroup));
       assertEquals(0, requestSeen.getCount());
-      assertTrue(failure.getMessage(), failure.getMessage().contains("Timeout establishing"));
+      assertTrue(failure.getMessage().contains("Timeout establishing"), failure.getMessage());
       assertTrue(clientGroup.terminationFuture().await(5, java.util.concurrent.TimeUnit.SECONDS));
       assertTrue(clientGroup.isTerminated());
     } finally {

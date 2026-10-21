@@ -67,9 +67,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -105,7 +105,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
   private static int wtPort;
 
   /** Sets up WebSocket and WebTransport servers for benchmarking. */
-  @BeforeClass
+  @BeforeAll
   public static void startServers() throws Exception {
     System.setProperty("webtransport4j.server.port", "0");
     System.setProperty("webtransport4j.dev_mode", "true");
@@ -180,7 +180,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
   }
 
   /** Stops all benchmark servers and releases resources. */
-  @AfterClass
+  @AfterAll
   public static void stopServers() throws Exception {
     if (wsServerChannel != null) {
       wsServerChannel.close().sync();

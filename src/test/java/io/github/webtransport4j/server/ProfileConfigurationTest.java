@@ -1,15 +1,16 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.test.TestCertificates;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests profile resolution and profile-based TLS certificate enforcement.
@@ -22,7 +23,7 @@ public class ProfileConfigurationTest {
   private String originalCertPath;
 
   /** Sets up test properties before each test. */
-  @Before
+  @BeforeEach
   public void setUp() {
     originalProfile = System.getProperty("webtransport4j.profile");
     originalDevMode = System.getProperty("webtransport4j.dev_mode");
@@ -32,7 +33,7 @@ public class ProfileConfigurationTest {
   }
 
   /** Restores system properties after each test. */
-  @After
+  @AfterEach
   public void tearDown() {
     restoreProperty("webtransport4j.profile", originalProfile);
     restoreProperty("webtransport4j.dev_mode", originalDevMode);
@@ -141,9 +142,9 @@ public class ProfileConfigurationTest {
           "prod,dev", "dev,prod", "prod,test", "test,prod", "custom,dev,prod", " DEV , PrOd , test "
         }) {
       System.setProperty("webtransport4j.profile", profiles);
-      assertEquals(profiles, "prod", WebTransportConfig.getActiveProfile());
-      assertFalse(profiles, WebTransportConfig.isDevOrTestProfile());
-      assertFalse(profiles, WebTransportConfig.getBoolean("webtransport4j.dev_mode", false));
+      assertEquals("prod", WebTransportConfig.getActiveProfile(), profiles);
+      assertFalse(WebTransportConfig.isDevOrTestProfile(), profiles);
+      assertFalse(WebTransportConfig.getBoolean("webtransport4j.dev_mode", false), profiles);
     }
   }
 

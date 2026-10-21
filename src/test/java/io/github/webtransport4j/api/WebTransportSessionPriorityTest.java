@@ -1,9 +1,10 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -27,8 +28,8 @@ import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -45,7 +46,7 @@ public class WebTransportSessionPriorityTest {
 
   /** Sets up test mocks before each test. */
   @SuppressWarnings("unchecked")
-  @Before
+  @BeforeEach
   public void setUp() {
     mockConnectStream = mock(QuicStreamChannel.class);
     mockQuicChannel = mock(QuicChannel.class);
@@ -158,16 +159,22 @@ public class WebTransportSessionPriorityTest {
     }
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testClosedSessionRejectsDatagram() {
-    session.close();
-    session.sendDatagram(new byte[] {1});
+    Assertions.assertThrows(IllegalStateException.class, () -> {
+      session.close();
+      session.sendDatagram(new byte[] {1});
+
+    });
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void testClosedSessionRejectsBufferDatagram() {
-    session.close();
-    session.sendDatagram(mock(WebTransportBuffer.class));
+    Assertions.assertThrows(IllegalStateException.class, () -> {
+      session.close();
+      session.sendDatagram(mock(WebTransportBuffer.class));
+
+    });
   }
 
   @Test

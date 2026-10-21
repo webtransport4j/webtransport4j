@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -38,9 +39,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +63,7 @@ public class WebTransportFlowControlBackpressureTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     streamOpenedLatch = new CountDownLatch(1);
     bytesSentByServer = new AtomicLong(0);
@@ -97,7 +98,7 @@ public class WebTransportFlowControlBackpressureTest {
    *
    * @throws Exception if cleanup fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
       clientQuicChannel.close().sync();
@@ -208,7 +209,7 @@ public class WebTransportFlowControlBackpressureTest {
     headers.set(":protocol", "webtransport");
 
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-    assertTrue("CONNECT handshake failed", connectReady.await(5, TimeUnit.SECONDS));
+    assertTrue(connectReady.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
     long sessionId = connectHolder[0].streamId();
 
@@ -231,8 +232,7 @@ public class WebTransportFlowControlBackpressureTest {
     clientBidiStream.writeAndFlush(header).sync();
 
     // Assert server received the stream
-    assertTrue(
-        "Server should receive incoming stream", streamOpenedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(streamOpenedLatch.await(5, TimeUnit.SECONDS), "Server should receive incoming stream");
 
     // Pause reading on client side to simulate slow reader backpressure while server streams data
     clientBidiStream.config().setAutoRead(false);
@@ -240,7 +240,7 @@ public class WebTransportFlowControlBackpressureTest {
     // Allow time for server to push bytes against flow-controlled slow client
     Thread.sleep(500);
 
-    assertTrue("Server should attempt streaming data", bytesSentByServer.get() > 0);
-    assertTrue("Server state remains active under flow control", server.isStarted());
+    assertTrue(bytesSentByServer.get() > 0, "Server should attempt streaming data");
+    assertTrue(server.isStarted(), "Server state remains active under flow control");
   }
 }

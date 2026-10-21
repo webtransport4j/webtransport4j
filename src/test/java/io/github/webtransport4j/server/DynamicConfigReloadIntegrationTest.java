@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -14,11 +15,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +35,7 @@ public class DynamicConfigReloadIntegrationTest {
   private static final Logger logger =
       LoggerFactory.getLogger(DynamicConfigReloadIntegrationTest.class);
 
-  @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+  @TempDir java.nio.file.Path tempFolder;
 
   /** Test echo endpoint for dynamic configuration reload tests. */
   public static class TestEchoEndpoint implements WebTransportHandler {
@@ -121,8 +121,8 @@ public class DynamicConfigReloadIntegrationTest {
   }
 
   /** Resets dynamic properties before and after each test. */
-  @Before
-  @After
+  @BeforeEach
+  @AfterEach
   public void cleanup() {
     WebTransportConfig.removeProperty(
         "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
@@ -147,8 +147,8 @@ public class DynamicConfigReloadIntegrationTest {
   @Test
   public void testUnmockedDynamicConfigReloadIntegration() throws Exception {
     SelfSignedCertificate cert = new SelfSignedCertificate("localhost");
-    File keyFile = tempFolder.newFile("key.pem");
-    File certFile = tempFolder.newFile("cert.pem");
+    File keyFile = java.nio.file.Files.createFile(tempFolder.resolve("key.pem")).toFile();
+    File certFile = java.nio.file.Files.createFile(tempFolder.resolve("cert.pem")).toFile();
 
     Files.copy(cert.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
     Files.copy(cert.certificate().toPath(), certFile.toPath(), StandardCopyOption.REPLACE_EXISTING);

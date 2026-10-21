@@ -1,12 +1,13 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import io.github.webtransport4j.server.WebTransportDatagramDecoder;
 import io.github.webtransport4j.server.WebTransportDatagramFrame;
@@ -15,7 +16,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.charset.StandardCharsets;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Verifies Quarter Stream ID (Quarter Session ID) encoding and decoding per RFC and draft
@@ -122,35 +123,26 @@ public class QuarterSessionIdEncodingDecodingTest {
     // Valid WebTransport CONNECT stream IDs (Client-Initiated Bidirectional: 0x00)
     long[] validClientBidi = {0L, 4L, 8L, 12L, 16L, 256L, 1024L, 65536L, 4294967296L};
     for (long id : validClientBidi) {
-      assertTrue(
-          "Stream ID " + id + " must be client-initiated bidirectional",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
-      assertEquals(
-          "Quarter ID must reconstruct exact Session ID when shifted by 2", id, (id >> 2) << 2);
+      assertTrue(WebTransportUtils.isClientInitiatedBidirectionalStream(id), "Stream ID " + id + " must be client-initiated bidirectional");
+      assertEquals(id, (id >> 2) << 2, "Quarter ID must reconstruct exact Session ID when shifted by 2");
     }
 
     // Invalid: Server-Initiated Bidirectional (0x01: streamId % 4 == 1)
     long[] serverBidi = {1L, 5L, 9L, 13L, 257L};
     for (long id : serverBidi) {
-      assertFalse(
-          "Server-initiated bidi stream " + id + " must NOT be valid WebTransport CONNECT session",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id), "Server-initiated bidi stream " + id + " must NOT be valid WebTransport CONNECT session");
     }
 
     // Invalid: Client-Initiated Unidirectional (0x02: streamId % 4 == 2)
     long[] clientUni = {2L, 6L, 10L, 14L, 258L};
     for (long id : clientUni) {
-      assertFalse(
-          "Client uni stream " + id + " must NOT be valid WebTransport CONNECT session",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id), "Client uni stream " + id + " must NOT be valid WebTransport CONNECT session");
     }
 
     // Invalid: Server-Initiated Unidirectional (0x03: streamId % 4 == 3)
     long[] serverUni = {3L, 7L, 11L, 15L, 259L};
     for (long id : serverUni) {
-      assertFalse(
-          "Server uni stream " + id + " must NOT be valid WebTransport CONNECT session",
-          WebTransportUtils.isClientInitiatedBidirectionalStream(id));
+      assertFalse(WebTransportUtils.isClientInitiatedBidirectionalStream(id), "Server uni stream " + id + " must NOT be valid WebTransport CONNECT session");
     }
 
     // Invalid: Negative stream IDs
@@ -166,20 +158,20 @@ public class QuarterSessionIdEncodingDecodingTest {
     // 1. Empty buffer returns -1 and produces 0 frames
     ByteBuf emptyBuf = Unpooled.buffer();
     channel.writeInbound(emptyBuf);
-    assertNull("Empty buffer must produce no datagram frame", channel.readInbound());
+    assertNull(channel.readInbound(), "Empty buffer must produce no datagram frame");
 
     // 2. Incomplete 2-byte VarInt (first byte is 0x40 -> declares 2 bytes, but only 1 byte given)
     ByteBuf partial2Byte = Unpooled.buffer();
     partial2Byte.writeByte(0x40);
     channel.writeInbound(partial2Byte);
-    assertNull("Incomplete 2-byte VarInt must produce no frame", channel.readInbound());
+    assertNull(channel.readInbound(), "Incomplete 2-byte VarInt must produce no frame");
 
     // 3. Incomplete 4-byte VarInt (first byte is 0x80 -> declares 4 bytes, only 2 bytes given)
     ByteBuf partial4Byte = Unpooled.buffer();
     partial4Byte.writeByte(0x80);
     partial4Byte.writeByte(0x00);
     channel.writeInbound(partial4Byte);
-    assertNull("Incomplete 4-byte VarInt must produce no frame", channel.readInbound());
+    assertNull(channel.readInbound(), "Incomplete 4-byte VarInt must produce no frame");
 
     // 4. Incomplete 8-byte VarInt (first byte is 0xC0 -> declares 8 bytes, only 3 bytes given)
     ByteBuf partial8Byte = Unpooled.buffer();
@@ -187,7 +179,7 @@ public class QuarterSessionIdEncodingDecodingTest {
     partial8Byte.writeByte(0x00);
     partial8Byte.writeByte(0x00);
     channel.writeInbound(partial8Byte);
-    assertNull("Incomplete 8-byte VarInt must produce no frame", channel.readInbound());
+    assertNull(channel.readInbound(), "Incomplete 8-byte VarInt must produce no frame");
 
     channel.finishAndReleaseAll();
   }
@@ -240,24 +232,19 @@ public class QuarterSessionIdEncodingDecodingTest {
       long sessionId, long quarterSessionId, int expectedLength, byte expectedPrefixByte) {
 
     // 1. Validate quarter session ID calculation
-    assertEquals("Quarter session ID must be sessionId >> 2", quarterSessionId, sessionId >> 2);
-    assertEquals(
-        "Session ID must reconstruct to quarterSessionId << 2", sessionId, quarterSessionId << 2);
+    assertEquals(quarterSessionId, sessionId >> 2, "Quarter session ID must be sessionId >> 2");
+    assertEquals(sessionId, quarterSessionId << 2, "Session ID must reconstruct to quarterSessionId << 2");
 
     // 2. Validate VarInt length calculation
     int calculatedLen = WebTransportUtils.varIntLength(quarterSessionId);
-    assertEquals(
-        "Calculated VarInt length must match expected length", expectedLength, calculatedLen);
+    assertEquals(expectedLength, calculatedLen, "Calculated VarInt length must match expected length");
 
     // 3. Write VarInt + payload to buffer
     ByteBuf buf = Unpooled.buffer();
     WebTransportUtils.writeVarInt(buf, quarterSessionId);
     buf.writeBytes(TEST_PAYLOAD);
 
-    assertEquals(
-        "Encoded VarInt bytes must match expected length",
-        expectedLength,
-        buf.readableBytes() - TEST_PAYLOAD.length);
+    assertEquals(expectedLength, buf.readableBytes() - TEST_PAYLOAD.length, "Encoded VarInt bytes must match expected length");
 
     // 4. Verify 2MSB length prefix encoding in the first byte
     byte firstByte = buf.getByte(0);
@@ -279,34 +266,26 @@ public class QuarterSessionIdEncodingDecodingTest {
       default:
         throw new IllegalArgumentException("Unexpected length: " + expectedLength);
     }
-    assertEquals("2MSB prefix bits must match VarInt length power", expectedPrefixBits, prefixBits);
+    assertEquals(expectedPrefixBits, prefixBits, "2MSB prefix bits must match VarInt length power");
 
     // 5. Test raw readVariableLengthInt
     ByteBuf readCheckBuf = buf.duplicate();
     long decodedQuarter = WebTransportUtils.readVariableLengthInt(readCheckBuf);
-    assertEquals(
-        "readVariableLengthInt must recover exact quarterSessionId",
-        quarterSessionId,
-        decodedQuarter);
-    assertEquals(
-        "readVariableLengthInt must consume exactly expected VarInt bytes",
-        TEST_PAYLOAD.length,
-        readCheckBuf.readableBytes());
+    assertEquals(quarterSessionId, decodedQuarter, "readVariableLengthInt must recover exact quarterSessionId");
+    assertEquals(TEST_PAYLOAD.length, readCheckBuf.readableBytes(), "readVariableLengthInt must consume exactly expected VarInt bytes");
 
     // 6. Test full pipeline decode through WebTransportDatagramDecoder
     EmbeddedChannel channel = new EmbeddedChannel(WebTransportDatagramDecoder.INSTANCE);
     channel.writeInbound(buf);
 
     WebTransportDatagramFrame frame = channel.readInbound();
-    assertNotNull("Decoder must output WebTransportDatagramFrame", frame);
-    assertEquals(
-        "Frame session ID must exactly match original session ID", sessionId, frame.sessionId());
+    assertNotNull(frame, "Decoder must output WebTransportDatagramFrame");
+    assertEquals(sessionId, frame.sessionId(), "Frame session ID must exactly match original session ID");
 
     byte[] payloadBytes = new byte[frame.content().readableBytes()];
     frame.content().readBytes(payloadBytes);
     frame.release();
-    assertArrayEquals(
-        "Decoded datagram payload must match original payload", TEST_PAYLOAD, payloadBytes);
+    assertArrayEquals(TEST_PAYLOAD, payloadBytes, "Decoded datagram payload must match original payload");
 
     channel.finishAndReleaseAll();
   }

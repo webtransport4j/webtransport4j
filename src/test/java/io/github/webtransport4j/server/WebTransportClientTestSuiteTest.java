@@ -7,9 +7,9 @@ import io.github.webtransport4j.api.WebTransportStream;
 import io.github.webtransport4j.client.WebTransportClientTestSuite;
 import java.nio.charset.StandardCharsets;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -139,7 +139,7 @@ public class WebTransportClientTestSuiteTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     System.setProperty("webtransport4j.webtransport.enable_server_push", "false");
     System.setProperty("webtransport4j.server.port", "0");
@@ -172,7 +172,7 @@ public class WebTransportClientTestSuiteTest {
    *
    * @throws Exception if teardown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (server != null) {
       server.stop();

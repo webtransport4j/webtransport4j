@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -38,9 +39,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,7 +64,7 @@ public class WebTransportAbruptDisconnectTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
     sessionClosedLatch = new CountDownLatch(1);
@@ -105,7 +106,7 @@ public class WebTransportAbruptDisconnectTest {
    *
    * @throws Exception if teardown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
       clientQuicChannel.close().sync();
@@ -216,7 +217,7 @@ public class WebTransportAbruptDisconnectTest {
     headers.set(":protocol", "webtransport");
 
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-    assertTrue("CONNECT handshake failed", connectReady.await(5, TimeUnit.SECONDS));
+    assertTrue(connectReady.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
     long sessionId = connectHolder[0].streamId();
 
@@ -242,9 +243,7 @@ public class WebTransportAbruptDisconnectTest {
     clientUdpChannel.close().sync();
 
     // Assert server cleans up session via idle timeout or disconnect handler
-    assertTrue(
-        "Server should invoke onSessionClosed after disconnect",
-        sessionClosedLatch.await(10, TimeUnit.SECONDS));
+    assertTrue(sessionClosedLatch.await(10, TimeUnit.SECONDS), "Server should invoke onSessionClosed after disconnect");
 
     // Force System.gc() to trigger Netty ResourceLeakDetector check
     System.gc();

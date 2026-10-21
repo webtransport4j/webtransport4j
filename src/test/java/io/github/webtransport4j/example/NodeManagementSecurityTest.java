@@ -1,15 +1,16 @@
 package io.github.webtransport4j.example;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.sun.net.httpserver.HttpServer;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URL;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Regression coverage for authenticated and restricted node management. */
 public class NodeManagementSecurityTest {
@@ -67,9 +68,12 @@ public class NodeManagementSecurityTest {
     return connection;
   }
 
-  @Test(expected = IllegalStateException.class)
+  @Test
   public void missingSecretFailsClosed() {
-    ClusterNodeSample.requireSecret("WT4J_TEST_SECRET_THAT_IS_NOT_CONFIGURED");
+    Assertions.assertThrows(IllegalStateException.class, () -> {
+      ClusterNodeSample.requireSecret("WT4J_TEST_SECRET_THAT_IS_NOT_CONFIGURED");
+
+    });
   }
 
   @Test

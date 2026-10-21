@@ -1,17 +1,20 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakTracker;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * A test case designed to intentionally leak an object to verify that Netty's leak detection logic
  * is working correctly and catches unreleased references.
  */
 public class MemoryLeakDetectionTest {
+
+  private static volatile Object leakedRef;
 
   @Test
   public void testIntentionalMemoryLeak() throws InterruptedException {
@@ -33,17 +36,21 @@ public class MemoryLeakDetectionTest {
           }
         };
 
-    // Track a dummy object
-    Object dummyLeakedObject = new Object();
-    ResourceLeakTracker<Object> tracker = detector.track(dummyLeakedObject);
+    // Track a dummy object via volatile static reference to prevent JIT escape analysis optimization
+    leakedRef = new Object();
+    ResourceLeakTracker<Object> tracker = detector.track(leakedRef);
 
     // Intentionally lose the reference without calling tracker.close(dummyLeakedObject)
-    dummyLeakedObject = null;
+    leakedRef = null;
 
-    // Force Garbage Collection a few times to trigger the LeakDetector's phantom references
-    for (int i = 0; i < 30; i++) {
+    // Force Garbage Collection to trigger the LeakDetector's phantom references
+    for (int i = 0; i < 50; i++) {
       System.gc();
       Thread.sleep(100);
+
+      // Allocate garbage byte arrays to force young generation collection and phantom reference enqueuing
+      byte[] garbage = new byte[512 * 1024];
+      garbage[0] = (byte) i;
 
       // Allocate another tracked object to trigger the detector check
       Object trigger = new Object();
@@ -57,6 +64,6 @@ public class MemoryLeakDetectionTest {
       }
     }
 
-    assertTrue("Netty's leak detection failed to catch the memory leak!", leakDetected.get());
+    assertTrue(leakDetected.get(), "Netty's leak detection failed to catch the memory leak!");
   }
 }

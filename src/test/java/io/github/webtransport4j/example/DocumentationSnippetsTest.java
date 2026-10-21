@@ -24,8 +24,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Map;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
@@ -47,7 +47,7 @@ public class DocumentationSnippetsTest {
                 new WebTransportHandler() {
                   @Override
                   public void onSessionReady(WebTransportSession session) {
-                    Assert.assertNotNull(session);
+                    Assertions.assertNotNull(session);
                   }
 
                   @Override
@@ -71,7 +71,7 @@ public class DocumentationSnippetsTest {
                 })
             .build();
 
-    Assert.assertNotNull(server);
+    Assertions.assertNotNull(server);
   }
 
   @Test
@@ -104,7 +104,7 @@ public class DocumentationSnippetsTest {
                           @Override
                           public void onNext(WebTransportBuffer buffer) {
                             try {
-                              Assert.assertTrue(buffer.readableBytes() >= 0);
+                              Assertions.assertTrue(buffer.readableBytes() >= 0);
                             } finally {
                               buffer.release();
                               subscription.request(1);
@@ -122,7 +122,7 @@ public class DocumentationSnippetsTest {
                 })
             .build();
 
-    Assert.assertNotNull(server);
+    Assertions.assertNotNull(server);
   }
 
   @Test
@@ -130,16 +130,16 @@ public class DocumentationSnippetsTest {
     byte[] testBytes = "Hello WebTransport".getBytes(StandardCharsets.UTF_8);
 
     WebTransportBuffer buf1 = DefaultNettyWebTransportBuffer.wrap(testBytes);
-    Assert.assertNotNull(buf1);
-    Assert.assertEquals(testBytes.length, buf1.readableBytes());
-    Assert.assertArrayEquals(testBytes, buf1.readBytes());
+    Assertions.assertNotNull(buf1);
+    Assertions.assertEquals(testBytes.length, buf1.readableBytes());
+    Assertions.assertArrayEquals(testBytes, buf1.readBytes());
     buf1.release();
 
     java.nio.ByteBuffer nioBuffer = java.nio.ByteBuffer.wrap(testBytes);
     WebTransportBuffer buf2 = DefaultNettyWebTransportBuffer.wrap(nioBuffer);
-    Assert.assertNotNull(buf2);
-    Assert.assertEquals(testBytes.length, buf2.readableBytes());
-    Assert.assertArrayEquals(testBytes, buf2.readBytes());
+    Assertions.assertNotNull(buf2);
+    Assertions.assertEquals(testBytes.length, buf2.readableBytes());
+    Assertions.assertArrayEquals(testBytes, buf2.readBytes());
     buf2.release();
   }
 
@@ -150,8 +150,8 @@ public class DocumentationSnippetsTest {
     Files.write(tempFile.toPath(), "PayloadData".getBytes(StandardCharsets.UTF_8));
 
     BinarySource source = BinarySources.fromPath(tempFile.toPath());
-    Assert.assertNotNull(source);
-    Assert.assertEquals(11, source.size());
+    Assertions.assertNotNull(source);
+    Assertions.assertEquals(11, source.size());
   }
 
   @Test
@@ -163,7 +163,7 @@ public class DocumentationSnippetsTest {
     SdkTracerProvider tracerProvider = SdkTracerProvider.builder().build();
     Tracer otelTracer = tracerProvider.get("webtransport-service");
     WebTransportOpenTelemetryTracer tracer = new WebTransportOpenTelemetryTracer(otelTracer);
-    Assert.assertNotNull(tracer);
+    Assertions.assertNotNull(tracer);
 
     WebTransportServer server =
         WebTransportServer.builder()
@@ -173,12 +173,12 @@ public class DocumentationSnippetsTest {
             .build();
 
     // Verify Health Checks
-    Assert.assertFalse(WebTransportHealthCheck.isAlive(server)); // Not started yet
-    Assert.assertFalse(WebTransportHealthCheck.isReady(server));
+    Assertions.assertFalse(WebTransportHealthCheck.isAlive(server)); // Not started yet
+    Assertions.assertFalse(WebTransportHealthCheck.isReady(server));
 
     Map<String, Object> details = WebTransportHealthCheck.getHealthDetails(server);
-    Assert.assertNotNull(details);
-    Assert.assertEquals(false, details.get("running"));
+    Assertions.assertNotNull(details);
+    Assertions.assertEquals(false, details.get("running"));
 
     tracerProvider.close();
   }

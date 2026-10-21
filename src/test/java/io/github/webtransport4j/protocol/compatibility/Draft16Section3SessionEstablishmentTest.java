@@ -1,8 +1,9 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -29,7 +30,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
 import java.util.Collections;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -52,13 +53,9 @@ public class Draft16Section3SessionEstablishmentTest {
     Http3Settings serverSettings = server.buildHttp3Settings();
 
     Long wtEnabled = serverSettings.get(0x2c7cf000L);
-    assertEquals("Server MUST advertise SETTINGS_WT_ENABLED = 1", Long.valueOf(1L), wtEnabled);
-    assertTrue(
-        "Server MUST enable HTTP/3 Datagrams for WebTransport",
-        Boolean.TRUE.equals(serverSettings.h3DatagramEnabled()));
-    assertTrue(
-        "Server MUST enable HTTP/3 Extended CONNECT for WebTransport",
-        Boolean.TRUE.equals(serverSettings.connectProtocolEnabled()));
+    assertEquals(Long.valueOf(1L), wtEnabled, "Server MUST advertise SETTINGS_WT_ENABLED = 1");
+    assertTrue(Boolean.TRUE.equals(serverSettings.h3DatagramEnabled()), "Server MUST enable HTTP/3 Datagrams for WebTransport");
+    assertTrue(Boolean.TRUE.equals(serverSettings.connectProtocolEnabled()), "Server MUST enable HTTP/3 Extended CONNECT for WebTransport");
   }
 
   /**
@@ -129,9 +126,7 @@ public class Draft16Section3SessionEstablishmentTest {
     Http3InboundControlStreamHandler handler = new Http3InboundControlStreamHandler();
     handler.channelRead(mockCtx, new DefaultHttp3SettingsFrame(clientSettingsMissingDatagram));
 
-    assertFalse(
-        "Peer settings must be marked invalid when datagrams are disabled",
-        parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).get());
+    assertFalse(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).get(), "Peer settings must be marked invalid when datagrams are disabled");
     verify(mockConnectStream).shutdown(eq(0x010e), any());
   }
 

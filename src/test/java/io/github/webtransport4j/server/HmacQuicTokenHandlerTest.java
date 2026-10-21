@@ -1,13 +1,14 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for hmac quic token handler. */
 public class HmacQuicTokenHandlerTest {

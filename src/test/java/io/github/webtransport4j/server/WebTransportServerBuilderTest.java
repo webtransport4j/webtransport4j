@@ -6,15 +6,15 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
 import io.netty.handler.codec.quic.InsecureQuicTokenHandler;
 import java.util.concurrent.TimeUnit;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /** Test for WebTransportServerBuilder functionality. */
 public class WebTransportServerBuilderTest {
 
   @Test
   public void testConflictingRateLimitConfigurationRejected() {
-    Assert.assertThrows(IllegalArgumentException.class,
+    Assertions.assertThrows(IllegalArgumentException.class,
         () -> WebTransportServer.builder()
             .ipRateLimitingHandler(new IpRateLimitingHandler())
             .rateLimitBackend(new LocalMemoryRateLimitBackend())
@@ -25,7 +25,7 @@ public class WebTransportServerBuilderTest {
   public void testCustomRateLimitHandlerRetained() {
     IpRateLimitingHandler handler = new IpRateLimitingHandler(new LocalMemoryRateLimitBackend());
     try (WebTransportServer server = WebTransportServer.builder().ipRateLimitingHandler(handler).build()) {
-      Assert.assertSame(handler, server.getIpRateLimitingHandler());
+      Assertions.assertSame(handler, server.getIpRateLimitingHandler());
     }
   }
 
@@ -50,12 +50,12 @@ public class WebTransportServerBuilderTest {
             .reactiveHandler("/chat", customReactiveHandler)
             .build();
 
-    Assert.assertNotNull(server);
-    Assert.assertEquals(8443, server.getPort());
-    Assert.assertEquals("127.0.0.1", server.getHost());
-    Assert.assertFalse(server.isStarted());
-    Assert.assertNotNull(server.getHandler("/"));
-    Assert.assertNotNull(server.getHandler("/chat"));
+    Assertions.assertNotNull(server);
+    Assertions.assertEquals(8443, server.getPort());
+    Assertions.assertEquals("127.0.0.1", server.getHost());
+    Assertions.assertFalse(server.isStarted());
+    Assertions.assertNotNull(server.getHandler("/"));
+    Assertions.assertNotNull(server.getHandler("/chat"));
   }
 
   @Test
@@ -67,8 +67,8 @@ public class WebTransportServerBuilderTest {
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
-    Assert.assertNotNull(server);
-    Assert.assertNull(server.getTrafficShaper()); // not started yet
+    Assertions.assertNotNull(server);
+    Assertions.assertNull(server.getTrafficShaper()); // not started yet
   }
 
   @Test
@@ -79,8 +79,8 @@ public class WebTransportServerBuilderTest {
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
-    Assert.assertNotNull(server);
-    Assert.assertEquals(4, server.getSocketCount());
+    Assertions.assertNotNull(server);
+    Assertions.assertEquals(4, server.getSocketCount());
   }
 
   @Test
@@ -92,23 +92,23 @@ public class WebTransportServerBuilderTest {
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
-    Assert.assertFalse(server.isStarted());
+    Assertions.assertFalse(server.isStarted());
     server.start();
 
-    Assert.assertTrue(server.isStarted());
-    Assert.assertTrue(server.getPort() > 0);
-    Assert.assertTrue(server.getChannels().size() >= 1);
-    Assert.assertEquals(server.getChannels().size(), server.getSocketCount());
+    Assertions.assertTrue(server.isStarted());
+    Assertions.assertTrue(server.getPort() > 0);
+    Assertions.assertTrue(server.getChannels().size() >= 1);
+    Assertions.assertEquals(server.getChannels().size(), server.getSocketCount());
 
     server.stop();
-    Assert.assertFalse(server.isStarted());
+    Assertions.assertFalse(server.isStarted());
   }
 
   @Test
   public void testBuilderByteBufAllocatorConfiguration() {
     io.netty.buffer.ByteBufAllocator allocator = io.netty.buffer.PooledByteBufAllocator.DEFAULT;
     WebTransportServerBuilder builder = new WebTransportServerBuilder().byteBufAllocator(allocator);
-    Assert.assertSame(allocator, builder.getByteBufAllocator());
+    Assertions.assertSame(allocator, builder.getByteBufAllocator());
   }
 
   @Test
@@ -120,7 +120,7 @@ public class WebTransportServerBuilderTest {
             .byteBufAllocator(customAlloc)
             .build();
 
-    Assert.assertSame(customAlloc, server.getByteBufAllocator());
+    Assertions.assertSame(customAlloc, server.getByteBufAllocator());
   }
 
   @Test
@@ -129,9 +129,9 @@ public class WebTransportServerBuilderTest {
     String previous = System.getProperty(key);
     try {
       System.setProperty(key, "DeFaUlT");
-      Assert.assertNull(WebTransportServer.builder()
+      Assertions.assertNull(WebTransportServer.builder()
           .build().getByteBufAllocator());
-      Assert.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
+      Assertions.assertSame(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT,
           WebTransportServer.builder()
               .byteBufAllocator(io.netty.buffer.UnpooledByteBufAllocator.DEFAULT)
               .build().getByteBufAllocator());
@@ -151,7 +151,7 @@ public class WebTransportServerBuilderTest {
             .port(8443)
             .build();
 
-    Assert.assertSame(
+    Assertions.assertSame(
         io.netty.buffer.PooledByteBufAllocator.DEFAULT, server.getByteBufAllocator());
   }
 
@@ -166,8 +166,8 @@ public class WebTransportServerBuilderTest {
 
       WebTransportServer server = WebTransportServer.builder().port(0).build();
       java.util.List<String> origins = server.resolveAllowedOrigins();
-      Assert.assertNotNull(origins);
-      Assert.assertTrue("Production default allowed origins must be empty", origins.isEmpty());
+      Assertions.assertNotNull(origins);
+      Assertions.assertTrue(origins.isEmpty(), "Production default allowed origins must be empty");
     } finally {
       if (prevProfile != null) {
         System.setProperty("webtransport4j.profile", prevProfile);
@@ -188,24 +188,17 @@ public class WebTransportServerBuilderTest {
     java.util.Properties props = new java.util.Properties();
     try (java.io.InputStream in =
         getClass().getClassLoader().getResourceAsStream("webtransport.properties")) {
-      Assert.assertNotNull("webtransport.properties must exist", in);
+      Assertions.assertNotNull(in, "webtransport.properties must exist");
       props.load(in);
     }
 
     String allowedOrigins = props.getProperty("webtransport4j.allowed.origins", "");
-    Assert.assertNotEquals(
-        "webtransport4j.allowed.origins must not default to * in production config",
-        "*",
-        allowedOrigins.trim());
+    Assertions.assertNotEquals("*", allowedOrigins.trim(), "webtransport4j.allowed.origins must not default to * in production config");
 
     String overrides = props.getProperty("webtransport4j.server.ratelimit.overrides", "");
-    Assert.assertFalse(
-        "Default overrides must not blackhole 10.0.0.1",
-        overrides.contains("10.0.0.1:0"));
+    Assertions.assertFalse(overrides.contains("10.0.0.1:0"), "Default overrides must not blackhole 10.0.0.1");
 
     String blocklist = props.getProperty("webtransport4j.server.ratelimit.blocklist", "");
-    Assert.assertFalse(
-        "Default blocklist must not contain public DNS IP 9.9.9.9",
-        blocklist.contains("9.9.9.9"));
+    Assertions.assertFalse(blocklist.contains("9.9.9.9"), "Default blocklist must not contain public DNS IP 9.9.9.9");
   }
 }

@@ -98,6 +98,9 @@ public class WebTransportClientTestSuite {
 
                 @Override
                 protected void channelRead0(ChannelHandlerContext ctx2, ByteBuf msg) {
+                  if (accum.refCnt() <= 0) {
+                    return;
+                  }
                   accum.writeBytes(msg);
                   String content = accum.toString(StandardCharsets.UTF_8);
                   if (content.contains("Hello from Server-Initiated Bidirectional Stream!")) {
@@ -113,7 +116,9 @@ public class WebTransportClientTestSuite {
                     ctx2.writeAndFlush(reply)
                         .addListener(
                             f -> {
-                              accum.release();
+                              if (accum.refCnt() > 0) {
+                                accum.release();
+                              }
                               ctx2.close();
                             });
                   }
@@ -122,8 +127,18 @@ public class WebTransportClientTestSuite {
                 @Override
                 public void exceptionCaught(ChannelHandlerContext ctx2, Throwable cause) {
                   logger.error("Error on server-initiated bidi stream", cause);
-                  accum.release();
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
                   ctx2.close();
+                }
+
+                @Override
+                public void channelInactive(ChannelHandlerContext ctx2) throws Exception {
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
+                  super.channelInactive(ctx2);
                 }
               });
     }
@@ -139,6 +154,9 @@ public class WebTransportClientTestSuite {
 
                 @Override
                 protected void channelRead0(ChannelHandlerContext ctx2, ByteBuf msg) {
+                  if (accum.refCnt() <= 0) {
+                    return;
+                  }
                   accum.writeBytes(msg);
                   String content = accum.toString(StandardCharsets.UTF_8);
 
@@ -150,7 +168,9 @@ public class WebTransportClientTestSuite {
                     logger.info("📥 Accepted Server Uni Stream data: {}", content);
                     pendingVerifications.remove("Server_Uni_Received");
                     serverUniLatch.countDown();
-                    accum.release();
+                    if (accum.refCnt() > 0) {
+                      accum.release();
+                    }
                     ctx2.close();
                   }
                 }
@@ -158,8 +178,18 @@ public class WebTransportClientTestSuite {
                 @Override
                 public void exceptionCaught(ChannelHandlerContext ctx2, Throwable cause) {
                   logger.error("Error on server-initiated uni stream", cause);
-                  accum.release();
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
                   ctx2.close();
+                }
+
+                @Override
+                public void channelInactive(ChannelHandlerContext ctx2) throws Exception {
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
+                  super.channelInactive(ctx2);
                 }
               });
     }
@@ -304,12 +334,14 @@ public class WebTransportClientTestSuite {
     CountDownLatch serverBidiLatch = new CountDownLatch(1);
 
     try {
+      pendingVerifications.clear();
+      uniStreamListeners.clear();
+      pendingVerifications.add("Server_Uni_Received");
+      pendingVerifications.add("Server_Bidi_Received");
+
       logger.info("🔗 Connecting to {}...", url);
       final Session session = connect(url, group, serverUniLatch, serverBidiLatch);
       logger.info("✅ Connection Established!\n");
-
-      pendingVerifications.add("Server_Uni_Received");
-      pendingVerifications.add("Server_Bidi_Received");
 
       // Wait a moment for server to issue greetings
       Thread.sleep(1000);
@@ -341,10 +373,12 @@ public class WebTransportClientTestSuite {
 
       // Ensure background tasks for the primary session completed
       logger.info("🎧 Verifying Server-Initiated Streams...");
-      if (serverUniLatch.await(5, TimeUnit.SECONDS) && serverBidiLatch.await(5, TimeUnit.SECONDS)) {
+      boolean uniOk = serverUniLatch.await(15, TimeUnit.SECONDS);
+      boolean bidiOk = serverBidiLatch.await(15, TimeUnit.SECONDS);
+      if (uniOk && bidiOk) {
         logger.info("✅ Server Streams Received, Verified, and Handled.");
       } else {
-        logger.warn("⚠️ Timeout waiting for server-initiated streams.");
+        logger.warn("⚠️ Timeout waiting for server-initiated streams (uni: {}, bidi: {}).", uniOk, bidiOk);
       }
       System.out.println("");
 
@@ -850,8 +884,9 @@ public class WebTransportClientTestSuite {
 
   private static void testHeartbeatIdle(Session session) throws Exception {
     logger.info("🧪 --- Running Heartbeat / Idle Test ---");
-    logger.info("Sleeping for 15 seconds to verify connection stability...");
-    Thread.sleep(15000);
+    long idleSleepMs = Long.getLong("webtransport4j.test.idle.sleep.ms", 15000L);
+    logger.info("Sleeping for {} ms to verify connection stability...", idleSleepMs);
+    Thread.sleep(idleSleepMs);
 
     // Verify connection is still alive by running a quick uni test
     String payloadId = "PingAfterSleep_" + System.currentTimeMillis();
@@ -898,6 +933,10 @@ public class WebTransportClientTestSuite {
 
   private static void testHeartbeatTimeoutNegative(String url, EventLoopGroup group)
       throws Exception {
+    if (Boolean.getBoolean("webtransport4j.test.skip.timeout")) {
+      logger.info("⏩ Skipping Heartbeat Timeout Negative Test (-Dwebtransport4j.test.skip.timeout=true)");
+      return;
+    }
     logger.info("🧪 --- Running Heartbeat Timeout Negative Test ---");
     logger.info("🔗 Establishing a separate connection to test timeout drops...");
     CountDownLatch dummyUni = new CountDownLatch(1);

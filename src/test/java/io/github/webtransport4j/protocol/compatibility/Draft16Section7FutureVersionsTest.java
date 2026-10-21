@@ -1,7 +1,8 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -21,7 +22,7 @@ import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Protocol compatibility tests for IETF WebTransport over HTTP/3 (Draft-16). Section 7:
@@ -42,10 +43,7 @@ public class Draft16Section7FutureVersionsTest {
     Http3Settings settings = server.buildHttp3Settings();
 
     Long draft16Setting = settings.get(0x2c7cf000L);
-    assertEquals(
-        "Server MUST send SETTINGS_WT_ENABLED with codepoint 0x2c7cf000 for draft-16",
-        Long.valueOf(1L),
-        draft16Setting);
+    assertEquals(Long.valueOf(1L), draft16Setting, "Server MUST send SETTINGS_WT_ENABLED with codepoint 0x2c7cf000 for draft-16");
   }
 
   /**
@@ -62,9 +60,7 @@ public class Draft16Section7FutureVersionsTest {
 
     // Prior to receiving peer settings:
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(false);
-    assertFalse(
-        "Flow control MUST NOT be negotiated before peer settings arrived",
-        WebTransportSessionManager.isFlowControlNegotiated(mockQuic));
+    assertFalse(WebTransportSessionManager.isFlowControlNegotiated(mockQuic), "Flow control MUST NOT be negotiated before peer settings arrived");
 
     // When client sends invalid/unsupported settings (e.g. no datagrams), reject incoming CONNECT
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);

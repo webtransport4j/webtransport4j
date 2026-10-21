@@ -112,7 +112,7 @@ public class JolokiaHttpHandler implements HttpHandler {
               "{\"request\":{\"type\":\"version\"},\"status\":200,\"timestamp\":%d,"
                   + "\"value\":{\"protocol\":\"7.3\",\"agent\":\"2.1.2\","
                   + "\"info\":{\"product\":\"WebTransport4J\",\"vendor\":\"io.github.webtransport4j\","
-                  + "\"version\":\"0.1.0-SNAPSHOT\",\"node\":\"%s\"}}}",
+                  + "\"version\":\"0.1.0\",\"node\":\"%s\"}}}",
               timestamp, escapeJson(nodeName));
       sendJson(exchange, 200, json);
       return;
@@ -207,7 +207,7 @@ public class JolokiaHttpHandler implements HttpHandler {
           "{\"request\":{\"type\":\"version\"},\"status\":200,\"timestamp\":%d,"
               + "\"value\":{\"protocol\":\"7.3\",\"agent\":\"2.1.2\","
               + "\"info\":{\"product\":\"WebTransport4J\",\"vendor\":\"io.github.webtransport4j\","
-              + "\"version\":\"0.1.0-SNAPSHOT\",\"node\":\"%s\"}}}",
+              + "\"version\":\"0.1.0\",\"node\":\"%s\"}}}",
           timestamp, escapeJson(nodeName));
     }
 

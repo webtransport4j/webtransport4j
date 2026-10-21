@@ -4,8 +4,8 @@ import io.github.webtransport4j.api.WebTransportEndpoint;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.server.WebTransportServer;
 import java.util.Collections;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /** Integration test for Quarkus and CDI WebTransport manager lifecycle. */
 public class QuarkusWebTransportIntegrationTest {
@@ -22,18 +22,18 @@ public class QuarkusWebTransportIntegrationTest {
         QuarkusWebTransportManager.create(
             WebTransportServer.builder().port(0), Collections.singletonList(endpoint));
 
-    Assert.assertNotNull(manager);
+    Assertions.assertNotNull(manager);
     WebTransportServer server = manager.getServer();
-    Assert.assertNotNull(server);
+    Assertions.assertNotNull(server);
 
     WebTransportHandler registered = server.getHandler("/quarkus-stream");
-    Assert.assertEquals(endpoint, registered);
+    Assertions.assertEquals(endpoint, registered);
 
     manager.onStartup();
-    Assert.assertTrue(server.isStarted());
-    Assert.assertTrue(server.getPort() > 0);
+    Assertions.assertTrue(server.isStarted());
+    Assertions.assertTrue(server.getPort() > 0);
 
     manager.onShutdown();
-    Assert.assertFalse(server.isStarted());
+    Assertions.assertFalse(server.isStarted());
   }
 }

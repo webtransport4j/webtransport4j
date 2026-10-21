@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -38,9 +39,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.SSLEngine;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +58,7 @@ public class WebTransportResumptionLatencyTest {
   private WebTransportServer webTransportServer;
 
   /** Sets up test fixtures. */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     webTransportServer = org.mockito.Mockito.spy(new WebTransportServer());
     // This test owns the QUIC listener directly; the server supplies its handler registry.
@@ -156,7 +157,7 @@ public class WebTransportResumptionLatencyTest {
   }
 
   /** Cleans up test fixtures. */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (serverChannel != null) {
       serverChannel.close().sync();
@@ -271,7 +272,7 @@ public class WebTransportResumptionLatencyTest {
               }
             });
 
-    assertTrue("Session 1 establishment failed", latch1.await(5, TimeUnit.SECONDS));
+    assertTrue(latch1.await(5, TimeUnit.SECONDS), "Session 1 establishment failed");
 
     // Wait for the server to send the Session Ticket
     Thread.sleep(500L);
@@ -371,15 +372,14 @@ public class WebTransportResumptionLatencyTest {
               }
             });
 
-    assertTrue("Session 2 establishment failed", latch2.await(5, TimeUnit.SECONDS));
+    assertTrue(latch2.await(5, TimeUnit.SECONDS), "Session 2 establishment failed");
 
     // Confirm that the second connection was actually resumed at client TLS level
     SSLEngine clientEngine = quicClient2.sslEngine();
     Method m = clientEngine.getClass().getDeclaredMethod("isSessionReused");
     m.setAccessible(true);
     boolean clientResumed = (Boolean) m.invoke(clientEngine);
-    assertTrue(
-        "Client Connection 2 SHOULD be resumed (QUIC Level Session Resumption)", clientResumed);
+    assertTrue(clientResumed, "Client Connection 2 SHOULD be resumed (QUIC Level Session Resumption)");
 
     log.info("🚀 RESUMPTION VERIFIED SUCCESSFULLY!");
     double speedup = durationFullMs / durationResumedMs;

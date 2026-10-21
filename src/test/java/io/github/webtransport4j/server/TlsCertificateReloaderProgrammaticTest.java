@@ -1,20 +1,23 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import io.github.webtransport4j.security.ClientAuthMode;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Integration tests for programmatic TLS certificate reloading. */
 public class TlsCertificateReloaderProgrammaticTest {
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testProgrammaticCertificateReload() throws Exception {
     SelfSignedCertificate initial = new SelfSignedCertificate("localhost");
     SelfSignedCertificate rotated = new SelfSignedCertificate("localhost");
@@ -36,7 +39,8 @@ public class TlsCertificateReloaderProgrammaticTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void pemReloadPreservesRequiredClientAuthenticationAndTrust() throws Exception {
     SelfSignedCertificate initial = new SelfSignedCertificate("localhost");
     SelfSignedCertificate rotated = new SelfSignedCertificate("localhost");
@@ -65,7 +69,8 @@ public class TlsCertificateReloaderProgrammaticTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void pemReloadPreservesSessionTimeoutAndCacheSize() throws Exception {
     String prevTimeout = System.getProperty("webtransport4j.ssl.session.timeout.seconds");
     String prevCache = System.getProperty("webtransport4j.ssl.session.cache.size");

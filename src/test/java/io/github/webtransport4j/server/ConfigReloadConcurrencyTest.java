@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
@@ -10,7 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Real file reload histories verify whole-object publication and old snapshot immutability. */
 public class ConfigReloadConcurrencyTest {
@@ -52,7 +53,7 @@ public class ConfigReloadConcurrencyTest {
     }
   }
 
-  @org.junit.After
+  @org.junit.jupiter.api.AfterEach
   public void tearDown() {
     WebTransportConfig.clearProgrammaticProperties();
   }

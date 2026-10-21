@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -34,9 +35,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unmocked Integration test verifying real QUIC connection teardown, session unregistration, and
@@ -56,7 +57,7 @@ public class SessionManagerTeardownIntegrationTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     sessionsOpenedCount.set(0);
     sessionsClosedCount.set(0);
@@ -92,7 +93,7 @@ public class SessionManagerTeardownIntegrationTest {
   }
 
   /** Shuts down client event loop group after test execution. */
-  @After
+  @AfterEach
   public void tearDown() {
     if (clientGroup != null) {
       clientGroup.shutdownGracefully();
@@ -195,9 +196,7 @@ public class SessionManagerTeardownIntegrationTest {
               .writeAndFlush(new DefaultHttp3HeadersFrame(headers))
               .addListener(QuicStreamChannel.SHUTDOWN_OUTPUT)
               .sync();
-          assertTrue(
-              "GET response FIN must arrive after request FIN",
-              responseFin.await(5, TimeUnit.SECONDS));
+          assertTrue(responseFin.await(5, TimeUnit.SECONDS), "GET response FIN must arrive after request FIN");
           assertEquals("404", status.get());
           assertEquals("", body.toString());
         } finally {
@@ -293,19 +292,14 @@ public class SessionManagerTeardownIntegrationTest {
         connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
         // Wait for response headers (handshake)
-        assertTrue(
-            "Handshake response headers must be received for run " + run,
-            responseLatch.await(5, TimeUnit.SECONDS));
+        assertTrue(responseLatch.await(5, TimeUnit.SECONDS), "Handshake response headers must be received for run " + run);
 
         // Verify active session count on server == 1
         long deadline = System.currentTimeMillis() + 3000;
         while (server.getActiveSessionCount() == 0 && System.currentTimeMillis() < deadline) {
           Thread.sleep(50);
         }
-        assertEquals(
-            "Server active sessions must be 1 during session for run " + run,
-            1,
-            server.getActiveSessionCount());
+        assertEquals(1, server.getActiveSessionCount(), "Server active sessions must be 1 during session for run " + run);
 
         // Forcefully close client connection
         quicChannel.close().sync();
@@ -316,10 +310,7 @@ public class SessionManagerTeardownIntegrationTest {
           Thread.sleep(50);
         }
 
-        assertEquals(
-            "Server active session count must return to 0 after connection teardown for run " + run,
-            0,
-            server.getActiveSessionCount());
+        assertEquals(0, server.getActiveSessionCount(), "Server active session count must return to 0 after connection teardown for run " + run);
       } finally {
         udpChannel.close();
       }

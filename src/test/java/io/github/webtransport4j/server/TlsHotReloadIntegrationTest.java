@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -14,9 +15,8 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +31,7 @@ public class TlsHotReloadIntegrationTest {
 
   private static final Logger logger = LoggerFactory.getLogger(TlsHotReloadIntegrationTest.class);
 
-  @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+  @TempDir java.nio.file.Path tempFolder;
 
   /** Test echo endpoint for TLS hot-reload integration tests. */
   public static class TestEchoEndpoint implements WebTransportHandler {
@@ -122,8 +122,8 @@ public class TlsHotReloadIntegrationTest {
 
     // Step 1: Generate initial certificate 1
     SelfSignedCertificate cert1 = new SelfSignedCertificate("localhost");
-    File keyFile = tempFolder.newFile("key.pem");
-    File certFile = tempFolder.newFile("cert.pem");
+    File keyFile = java.nio.file.Files.createFile(tempFolder.resolve("key.pem")).toFile();
+    File certFile = java.nio.file.Files.createFile(tempFolder.resolve("cert.pem")).toFile();
 
     Files.copy(cert1.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
     Files.copy(

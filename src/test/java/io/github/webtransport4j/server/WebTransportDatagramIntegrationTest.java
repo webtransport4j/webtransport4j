@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -37,9 +38,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,7 +66,7 @@ public class WebTransportDatagramIntegrationTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     serverDatagramReceivedLatch = new CountDownLatch(1);
     clientDatagramReceivedLatch = new CountDownLatch(1);
@@ -107,7 +108,7 @@ public class WebTransportDatagramIntegrationTest {
    *
    * @throws Exception if teardown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
       clientQuicChannel.close().sync();
@@ -239,7 +240,7 @@ public class WebTransportDatagramIntegrationTest {
 
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
-    assertTrue("CONNECT handshake failed", connectReady.await(5, TimeUnit.SECONDS));
+    assertTrue(connectReady.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
     long sessionId = connectHolder[0].streamId();
 
@@ -252,15 +253,11 @@ public class WebTransportDatagramIntegrationTest {
     clientQuicChannel.writeAndFlush(datagramBuf).sync();
 
     // Assert server receives client datagram
-    assertTrue(
-        "Server should receive datagram within 5s",
-        serverDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(serverDatagramReceivedLatch.await(5, TimeUnit.SECONDS), "Server should receive datagram within 5s");
     assertEquals("HELLO-DATAGRAM-12345", lastReceivedServerDatagram);
 
     // Assert client receives echoed datagram back from server
-    assertTrue(
-        "Client should receive echoed datagram within 5s",
-        clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS), "Client should receive echoed datagram within 5s");
     assertEquals("ECHO:HELLO-DATAGRAM-12345", lastReceivedClientDatagram);
   }
 }

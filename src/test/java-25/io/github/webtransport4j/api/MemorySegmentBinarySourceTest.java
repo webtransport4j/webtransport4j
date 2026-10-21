@@ -1,6 +1,6 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -8,21 +8,21 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for memory segment binary source. */
 public class MemorySegmentBinarySourceTest {
 
   private byte[] testData;
 
-  @Before
+  @BeforeEach
   public void setup() {
     testData = "Hello Java 25 WebTransport!".getBytes(StandardCharsets.UTF_8);
   }
 
-  @After
+  @AfterEach
   public void teardown() {}
 
   @Test
@@ -37,7 +37,7 @@ public class MemorySegmentBinarySourceTest {
 
       BinarySource source = BinarySources.fromMemorySegment(byteSegment);
 
-      assertEquals("Size should match", testData.length, source.size());
+      assertEquals(testData.length, source.size(), "Size should match");
 
       ByteBuffer dst = ByteBuffer.allocate(10);
       int totalRead = 0;
@@ -50,12 +50,12 @@ public class MemorySegmentBinarySourceTest {
         }
         dst.flip();
         for (int i = 0; i < read; i++) {
-          assertEquals("Bytes should match", testData[totalRead + i], dst.get());
+          assertEquals(testData[totalRead + i], dst.get(), "Bytes should match");
         }
         totalRead += read;
       }
 
-      assertEquals("Total bytes read should match", testData.length, totalRead);
+      assertEquals(testData.length, totalRead, "Total bytes read should match");
       source.close();
     }
   }

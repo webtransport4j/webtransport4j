@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -11,11 +12,13 @@ import static org.mockito.Mockito.when;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.health.WebTransportHealthCheck;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Integration tests for coordinated server draining and graceful shutdown. */
 public class WebTransportServerLifecycleDrainTest {
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testServerDrainTransition() throws Exception {
     try (WebTransportServer server = new WebTransportServerBuilder().port(0).build()) {
       server.start();
@@ -36,7 +39,8 @@ public class WebTransportServerLifecycleDrainTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void timedDrainClosesSessionsWithinOneBudget() throws Exception {
     try (WebTransportServer server = new WebTransportServerBuilder().port(0).build()) {
       server.start();
@@ -57,14 +61,14 @@ public class WebTransportServerLifecycleDrainTest {
       long started = System.nanoTime();
       server.drain(100, TimeUnit.MILLISECONDS);
       assertTrue(notified.get());
-      assertTrue("Drain added a second session wait",
-          System.nanoTime() - started < TimeUnit.SECONDS.toNanos(2));
+      assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(2), "Drain added a second session wait");
       org.mockito.Mockito.verify(session).close();
       assertTrue(server.getActiveSessions().isEmpty());
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testSessionLookupAndUnregisterStrictlyByUniqueSessionId() throws Exception {
     try (WebTransportServer server = new WebTransportServerBuilder().port(0).build()) {
       WebTransportSession session1 = mock(WebTransportSession.class);

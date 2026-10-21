@@ -1,7 +1,8 @@
 package io.github.webtransport4j.api;
 
+import org.junit.jupiter.api.Assertions;
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.await;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -10,7 +11,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -46,7 +48,8 @@ public class PublisherConcurrencyTest {
     assertEquals(1, completions.get());
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void cancelWhileOnNextRunsDisposesQueuedItemsExactlyOnce() throws Exception {
     WebTransportFlowPublisher<Item> publisher = new WebTransportFlowPublisher<>();
     AtomicReference<Subscription> subscription = new AtomicReference<>();
@@ -95,7 +98,8 @@ public class PublisherConcurrencyTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void concurrentErrorAndCompleteHaveOneTerminalOwner() throws Exception {
     WebTransportFlowPublisher<Integer> publisher = new WebTransportFlowPublisher<>();
     AtomicInteger terminals = new AtomicInteger();

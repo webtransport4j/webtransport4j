@@ -1,10 +1,11 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -22,7 +23,7 @@ import io.netty.util.DefaultAttributeMap;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests verifying that HTTP capsule size limits (RFC draft-16) are strictly enforced by
@@ -55,7 +56,7 @@ public class WebTransportCapsuleDecoderTest {
     assertTrue(channel.writeInbound(input));
 
     WebTransportCapsule capsule = channel.readInbound();
-    assertNotNull("Capsule should be produced", capsule);
+    assertNotNull(capsule, "Capsule should be produced");
     assertEquals(42L, capsule.sessionId());
     assertEquals(0x2844, capsule.capsuleType());
     assertEquals("test", capsule.content().toString(StandardCharsets.UTF_8));
@@ -77,8 +78,8 @@ public class WebTransportCapsuleDecoderTest {
     // Channel should close upon encountering oversized capsule
     channel.writeInbound(input);
 
-    assertNull("No capsule should be emitted for oversized frame", channel.readInbound());
-    assertFalse("Channel must be closed to prevent memory exhaustion", channel.isOpen());
+    assertNull(channel.readInbound(), "No capsule should be emitted for oversized frame");
+    assertFalse(channel.isOpen(), "Channel must be closed to prevent memory exhaustion");
   }
 
   @Test
@@ -111,7 +112,7 @@ public class WebTransportCapsuleDecoderTest {
     // Verify unregistration and stream reset with 0x010e (H3_MESSAGE_ERROR)
     verify(sessionManager).unregister(mockStream);
     verify(mockStream).shutdown(eq(0x010e), any());
-    assertTrue("Out list should be empty", out.isEmpty());
+    assertTrue(out.isEmpty(), "Out list should be empty");
     input.release();
   }
 }

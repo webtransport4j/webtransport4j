@@ -1,11 +1,12 @@
 package io.github.webtransport4j.resilience;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelOption;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link UdpSocketTuner}.
@@ -17,8 +18,8 @@ public class UdpSocketTunerTest {
     final int rcv = UdpSocketTuner.getRecommendedReceiveBufferSize();
     final int snd = UdpSocketTuner.getRecommendedSendBufferSize();
 
-    assertTrue("Receive recommendation must be positive", rcv > 0);
-    assertTrue("Send recommendation must be positive", snd > 0);
+    assertTrue(rcv > 0, "Receive recommendation must be positive");
+    assertTrue(snd > 0, "Send recommendation must be positive");
     assertTrue(rcv <= UdpSocketTuner.RECOMMENDED_BUFFER_SIZE);
     assertTrue(snd <= UdpSocketTuner.RECOMMENDED_BUFFER_SIZE);
   }

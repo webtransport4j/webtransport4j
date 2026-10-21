@@ -1,24 +1,25 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.util.Arrays;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for web transport config. */
 public class WebTransportConfigTest {
   /** Cleanup. */
-  @Before
-  @After
+  @BeforeEach
+  @AfterEach
   public void cleanup() {
     WebTransportConfig.clearProgrammaticProperties();
     System.clearProperty("test.math.key");
@@ -303,7 +304,7 @@ public class WebTransportConfigTest {
               "webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", 100));
       // Reload must NOT wipe out programmatic properties
       boolean reloaded = WebTransportConfig.reload();
-      org.junit.Assert.assertFalse(reloaded);
+      org.junit.jupiter.api.Assertions.assertFalse(reloaded);
       assertEquals(
           555,
           WebTransportConfig.getInt(
@@ -347,7 +348,7 @@ public class WebTransportConfigTest {
           WebTransportConfig.getInt("webtransport4j.server.ratelimit.max_tracked_ips", 0));
 
       // 2. Untouched: parsed properties are identical, reload returns false
-      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+      org.junit.jupiter.api.Assertions.assertFalse(WebTransportConfig.reload());
 
       // 3. Semantic check: modify file by adding comments only
       Files.write(
@@ -357,7 +358,7 @@ public class WebTransportConfigTest {
               "webtransport4j.server.ratelimit.max_tracked_ips=9999",
               "# Another comment"));
       // Parsed properties are identical -> returns false without publishing
-      org.junit.Assert.assertFalse(WebTransportConfig.reload());
+      org.junit.jupiter.api.Assertions.assertFalse(WebTransportConfig.reload());
 
       // 4. Semantic change: modify value
       Files.write(

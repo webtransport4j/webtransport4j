@@ -1,16 +1,18 @@
 package io.github.webtransport4j.cluster;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import io.netty.channel.DefaultEventLoop;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Tests for {@link StaticTokenSecretProvider} and {@link RotatingTokenSecretProvider}.
@@ -84,7 +86,8 @@ public class StatelessTokenSecretProviderTest {
     assertArrayEquals(keyB, valid.get(2));
   }
 
-  @Test(timeout = 5000)
+  @Timeout(value = 5000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testRotatingTokenSecretProviderEventLoopSafety() throws Exception {
     final byte[] keyA = new byte[32];
     Arrays.fill(keyA, (byte) 'A');

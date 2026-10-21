@@ -1,11 +1,12 @@
 package io.github.webtransport4j.server;
 
+import org.junit.jupiter.api.Assertions;
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.await;
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.awaitCompletionOrBlockedBy;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -38,13 +39,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 /** Regression invariants for the Java races originally reproduced from TLA+ counterexamples. */
 public class ConcurrencyRaceRegressionTest {
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void emitThatPassedGateMustNotLeakAfterCompletion() throws Exception {
     WebTransportFlowPublisher<Item> publisher = new WebTransportFlowPublisher<>();
     CountDownLatch entered = new CountDownLatch(1);
@@ -86,7 +89,7 @@ public class ConcurrencyRaceRegressionTest {
       assertEquals(1, terminals.get());
       resume.countDown();
       emission.get(5, TimeUnit.SECONDS);
-      assertEquals("Post-terminal emitter stranded its closeable item", 1, item.closed.get());
+      assertEquals(1, item.closed.get(), "Post-terminal emitter stranded its closeable item");
       assertTrue(controlled.isEmpty());
     } finally {
       resume.countDown();
@@ -98,7 +101,8 @@ public class ConcurrencyRaceRegressionTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void delayedTlsInstallationMustNotRepublishAfterClose() throws Exception {
     WebTransportServer server = WebTransportServer.builder().port(0).build();
     Method install =
@@ -125,7 +129,7 @@ public class ConcurrencyRaceRegressionTest {
       server.close();
       installNow.countDown();
       reload.get(5, TimeUnit.SECONDS);
-      assertNull("Closed server accepted a delayed reload callback", server.getActiveSslContext());
+      assertNull(server.getActiveSslContext(), "Closed server accepted a delayed reload callback");
     } finally {
       installNow.countDown();
       executor.shutdownNow();
@@ -133,7 +137,8 @@ public class ConcurrencyRaceRegressionTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   @SuppressWarnings("unchecked")
   public void concurrentStreamCreationMustNotOverspendPeerCredit() throws Exception {
     QuicChannel parent = mock(QuicChannel.class);
@@ -201,7 +206,7 @@ public class ConcurrencyRaceRegressionTest {
       counter.setAccessible(true);
       Object val = counter.get(session);
       long used = ((Number) val).longValue();
-      assertEquals("Peer limit=1", 1, used);
+      assertEquals(1, used, "Peer limit=1");
     } finally {
       resumeRead.countDown();
       executor.shutdownNow();
@@ -209,7 +214,8 @@ public class ConcurrencyRaceRegressionTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void pairedConfigurationReadsMustUseOneGeneration() throws Exception {
     Path config = Paths.get("webtransport-dynamic.properties");
     byte[] originalFile = Files.exists(config) ? Files.readAllBytes(config) : null;
@@ -226,7 +232,7 @@ public class ConcurrencyRaceRegressionTest {
       WebTransportConfig.reload();
       String second = snapshot.get(prefix + "b", "missing");
       assertEquals("2", WebTransportConfig.get(prefix + "b", "missing"));
-      assertEquals("Separate reads crossed a real reload", first, second);
+      assertEquals(first, second, "Separate reads crossed a real reload");
     } finally {
       dynamic.set(null, original);
       if (originalFile == null) {
@@ -237,7 +243,8 @@ public class ConcurrencyRaceRegressionTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void olderConfigReloadMustNotOverwriteNewerPublication() throws Exception {
     Path config = Paths.get("webtransport-dynamic.properties");
     byte[] originalFile = Files.exists(config) ? Files.readAllBytes(config) : null;
@@ -271,8 +278,7 @@ public class ConcurrencyRaceRegressionTest {
       assertEquals("2", WebTransportConfig.get(key, "missing"));
       resume.countDown();
       older.get(5, TimeUnit.SECONDS);
-      assertEquals(
-          "Older reload replaced newer config", "2", WebTransportConfig.get(key, "missing"));
+      assertEquals("2", WebTransportConfig.get(key, "missing"), "Older reload replaced newer config");
     } finally {
       resume.countDown();
       executor.shutdownNow();
@@ -286,7 +292,8 @@ public class ConcurrencyRaceRegressionTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void olderTlsReloadMustNotOverwriteNewerPublication() throws Exception {
     SelfSignedCertificate first = new SelfSignedCertificate("localhost");
     SelfSignedCertificate second = new SelfSignedCertificate("localhost");
@@ -357,8 +364,7 @@ public class ConcurrencyRaceRegressionTest {
       } finally {
         secondCaller.shutdownNow();
       }
-      assertSame(
-          "Older callback replaced newer TLS context", latest.get(), server.getActiveSslContext());
+      assertSame(latest.get(), server.getActiveSslContext(), "Older callback replaced newer TLS context");
     } finally {
       resume.countDown();
       executor.shutdownNow();

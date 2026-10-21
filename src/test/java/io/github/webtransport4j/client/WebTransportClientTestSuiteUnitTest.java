@@ -1,8 +1,9 @@
 package io.github.webtransport4j.client;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -19,15 +20,15 @@ import java.io.IOException;
 import java.nio.channels.ClosedChannelException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit tests verifying stream flow control and exception handling in WebTransportClientTestSuite.
  */
 public class WebTransportClientTestSuiteUnitTest {
 
-  @After
+  @AfterEach
   public void tearDown() {
     System.clearProperty("webtransport4j.test.require_flow_control_exhaustion");
   }
@@ -140,7 +141,7 @@ public class WebTransportClientTestSuiteUnitTest {
       fail("Expected InterruptedException to be propagated");
     } catch (InterruptedException e) {
       // Success: InterruptedException propagated and interrupted flag is preserved
-      assertTrue("Thread interrupted flag should be set", Thread.interrupted());
+      assertTrue(Thread.interrupted(), "Thread interrupted flag should be set");
     } catch (Exception e) {
       fail("Expected InterruptedException, but got: " + e);
     }

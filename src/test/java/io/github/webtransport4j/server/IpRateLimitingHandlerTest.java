@@ -1,12 +1,13 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -23,9 +24,9 @@ import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for ip rate limiting handler. */
 public class IpRateLimitingHandlerTest {
@@ -35,7 +36,7 @@ public class IpRateLimitingHandlerTest {
   private QuicChannel channel;
 
   /** Sets up test fixtures. */
-  @Before
+  @BeforeEach
   public void setUp() {
     // Set standard config properties for tests
     System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "2");
@@ -58,7 +59,7 @@ public class IpRateLimitingHandlerTest {
   }
 
   /** Cleans up test fixtures. */
-  @After
+  @AfterEach
   public void tearDown() {
     System.clearProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
     System.clearProperty("webtransport4j.server.ratelimit.whitelist");
@@ -248,8 +249,7 @@ public class IpRateLimitingHandlerTest {
       WebTransportConfig.reload();
       IpRateLimitingHandler.reloadSharedConfig();
       assertEquals(0.000000001, bloomFpp(), 0.0);
-      assertSame("Invalid setting should reuse the default filter: " + value,
-          original, handler.getBloomFilter());
+      assertSame(original, handler.getBloomFilter(), "Invalid setting should reuse the default filter: " + value);
     }
   }
 

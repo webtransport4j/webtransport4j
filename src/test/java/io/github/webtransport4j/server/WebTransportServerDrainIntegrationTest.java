@@ -1,8 +1,9 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -36,9 +37,9 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,7 @@ public class WebTransportServerDrainIntegrationTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     sessionClosedLatch = new CountDownLatch(1);
     streamAfterDrain = new CountDownLatch(1);
@@ -110,7 +111,7 @@ public class WebTransportServerDrainIntegrationTest {
    *
    * @throws Exception if teardown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
       clientQuicChannel.close().sync();
@@ -230,12 +231,12 @@ public class WebTransportServerDrainIntegrationTest {
     headers.set(":protocol", "webtransport");
 
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
-    assertTrue("CONNECT handshake failed", connectReady.await(5, TimeUnit.SECONDS));
+    assertTrue(connectReady.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
-    assertTrue("Server should be started", server.isStarted());
+    assertTrue(server.isStarted(), "Server should be started");
 
     server.drain();
-    assertTrue("Peer did not receive WT_DRAIN_SESSION", peerDrain.await(5, TimeUnit.SECONDS));
+    assertTrue(peerDrain.await(5, TimeUnit.SECONDS), "Peer did not receive WT_DRAIN_SESSION");
     QuicStreamChannel dataStream = clientQuicChannel.createStream(
         io.netty.handler.codec.quic.QuicStreamType.BIDIRECTIONAL,
         new ChannelInitializer<QuicStreamChannel>() {
@@ -247,14 +248,12 @@ public class WebTransportServerDrainIntegrationTest {
     WebTransportUtils.writeVarInt(streamPayload, connectStream.streamId());
     streamPayload.writeByte(1);
     dataStream.writeAndFlush(streamPayload).sync();
-    assertTrue("Existing session rejected a new stream after server drain",
-        streamAfterDrain.await(5, TimeUnit.SECONDS));
+    assertTrue(streamAfterDrain.await(5, TimeUnit.SECONDS), "Existing session rejected a new stream after server drain");
     io.netty.buffer.ByteBuf datagram = clientQuicChannel.alloc().buffer();
     WebTransportUtils.writeVarInt(datagram, connectStream.streamId() >> 2);
     datagram.writeByte(1);
     clientQuicChannel.writeAndFlush(datagram).sync();
-    assertTrue("Existing session rejected a datagram after server drain",
-        datagramAfterDrain.await(5, TimeUnit.SECONDS));
+    assertTrue(datagramAfterDrain.await(5, TimeUnit.SECONDS), "Existing session rejected a datagram after server drain");
     assertEquals(WebTransportServer.ServerState.DRAINING, server.getState());
     assertFalse(server.isAcceptingSessions());
     assertTrue(server.isStarted());
@@ -282,11 +281,10 @@ public class WebTransportServerDrainIntegrationTest {
         rejectedConnect.writeAndFlush(new DefaultHttp3HeadersFrame(headers));
     assertTrue(rejectedWrite.await(5, TimeUnit.SECONDS));
     if (rejectedWrite.isSuccess()) {
-      assertTrue("Draining server admitted a new session", rejected.await(5, TimeUnit.SECONDS));
+      assertTrue(rejected.await(5, TimeUnit.SECONDS), "Draining server admitted a new session");
     } else {
       assertTrue(rejectedWrite.cause() instanceof io.netty.handler.codec.http3.Http3Exception);
-      assertTrue("Expected GOAWAY admission rejection",
-          rejectedWrite.cause().getMessage().contains("GOAWAY"));
+      assertTrue(rejectedWrite.cause().getMessage().contains("GOAWAY"), "Expected GOAWAY admission rejection");
     }
 
     int serverPort = server.getPort();
@@ -294,18 +292,15 @@ public class WebTransportServerDrainIntegrationTest {
     // Trigger server stop
     long stopStarted = System.nanoTime();
     server.stop(200, TimeUnit.MILLISECONDS);
-    assertTrue("Shutdown exceeded its bounded grace period",
-        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stopStarted) < 2000);
+    assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stopStarted) < 2000, "Shutdown exceeded its bounded grace period");
 
     // Assert server state is STOPPED
     assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
     assertEquals(0, server.getActiveSessionCount());
-    assertFalse("Server should report isStarted() == false after stop", server.isStarted());
+    assertFalse(server.isStarted(), "Server should report isStarted() == false after stop");
 
     // Assert session closed latch was triggered
-    assertTrue(
-        "Active session should receive onSessionClosed on server stop",
-        sessionClosedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(sessionClosedLatch.await(5, TimeUnit.SECONDS), "Active session should receive onSessionClosed on server stop");
 
     // Attempt connecting a new client to the stopped port (should fail or time out)
     boolean connectFailed = false;
@@ -325,6 +320,6 @@ public class WebTransportServerDrainIntegrationTest {
     } catch (Exception e) {
       connectFailed = true;
     }
-    assertTrue("New connection attempts to stopped server should fail", connectFailed);
+    assertTrue(connectFailed, "New connection attempts to stopped server should fail");
   }
 }

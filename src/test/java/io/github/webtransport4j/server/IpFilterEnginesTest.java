@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.net.InetSocketAddress;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for ip filter engines. */
 public class IpFilterEnginesTest {
@@ -103,7 +104,7 @@ public class IpFilterEnginesTest {
   private void assertMatch(
       IpFilterEngine<Integer> netty, IpFilterEngine<Integer> trie, String ip, Integer expected) {
     InetSocketAddress address = new InetSocketAddress(ip, 0);
-    assertEquals("Netty engine failed for " + ip, expected, netty.match(address));
-    assertEquals("Trie engine failed for " + ip, expected, trie.match(address));
+    assertEquals(expected, netty.match(address), "Netty engine failed for " + ip);
+    assertEquals(expected, trie.match(address), "Trie engine failed for " + ip);
   }
 }

@@ -1,7 +1,8 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -21,7 +22,7 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
 import java.nio.charset.StandardCharsets;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 6: Session Termination.
@@ -50,9 +51,9 @@ public class Draft16Section6SessionTerminationTest {
     channel.writeInbound(in);
 
     WebTransportCapsule capsule = channel.readInbound();
-    assertNotNull("Decoder must produce WebTransportCapsule", capsule);
-    assertEquals("Capsule type must be 0x2843", 0x2843L, capsule.capsuleType());
-    assertEquals("Session ID must be 4", 4L, capsule.sessionId());
+    assertNotNull(capsule, "Decoder must produce WebTransportCapsule");
+    assertEquals(0x2843L, capsule.capsuleType(), "Capsule type must be 0x2843");
+    assertEquals(4L, capsule.sessionId(), "Session ID must be 4");
     capsule.content().release();
     channel.finishAndReleaseAll();
   }
@@ -179,9 +180,6 @@ public class Draft16Section6SessionTerminationTest {
    */
   @Test
   public void testSection6_2_ImmediateClosureSessionGoneCodepoint() {
-    assertEquals(
-        "WT_SESSION_GONE codepoint must be 0x170d7b68",
-        0x170d7b68L,
-        WebTransportUtils.WT_SESSION_GONE & 0xFFFFFFFFL);
+    assertEquals(0x170d7b68L, WebTransportUtils.WT_SESSION_GONE & 0xFFFFFFFFL, "WT_SESSION_GONE codepoint must be 0x170d7b68");
   }
 }
