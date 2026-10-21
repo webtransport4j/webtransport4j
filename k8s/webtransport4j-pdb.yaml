@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: webtransport4j-pdb
+  namespace: webtransport-prod
+  labels:
+    app.kubernetes.io/name: webtransport4j
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webtransport4j

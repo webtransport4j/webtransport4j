@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
@@ -27,7 +28,7 @@ import io.netty.util.Attribute;
 import io.netty.util.ReferenceCountUtil;
 import java.io.IOException;
 import java.lang.reflect.Method;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /** Test cases for session flow control. */

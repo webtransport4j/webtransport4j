@@ -1,7 +1,8 @@
 package io.github.webtransport4j.cluster;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.server.HmacQuicTokenHandler;
 import io.netty.buffer.ByteBuf;
@@ -9,7 +10,7 @@ import io.netty.buffer.Unpooled;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for multi-node QUIC token exchange and zero-downtime key rotation across cluster nodes.

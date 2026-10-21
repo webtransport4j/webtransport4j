@@ -1,8 +1,9 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
@@ -15,7 +16,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http3.Http3Settings;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Protocol compatibility tests for draft-ietf-webtrans-http3-16 Section 9: IANA Considerations.
@@ -30,10 +31,7 @@ public class Draft16Section9IanaAndCodepointsTest {
    */
   @Test
   public void testSection9_1_UpgradeTokenRegistration() {
-    assertEquals(
-        "Upgrade token MUST be webtransport-h3",
-        "webtransport-h3",
-        WebTransportHeadersHandler.UPGRADE_TOKEN_H3);
+    assertEquals("webtransport-h3", WebTransportHeadersHandler.UPGRADE_TOKEN_H3, "Upgrade token MUST be webtransport-h3");
   }
 
   /**
@@ -47,14 +45,12 @@ public class Draft16Section9IanaAndCodepointsTest {
     WebTransportServer server = new WebTransportServerBuilder().build();
     Http3Settings settings = server.buildHttp3Settings();
 
-    assertNotNull("SETTINGS_WT_ENABLED (0x2c7cf000) must be present", settings.get(0x2c7cf000L));
+    assertNotNull(settings.get(0x2c7cf000L), "SETTINGS_WT_ENABLED (0x2c7cf000) must be present");
     assertEquals(Long.valueOf(1L), settings.get(0x2c7cf000L));
 
-    assertNotNull(
-        "SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) must be present", settings.get(0x2b64L));
-    assertNotNull(
-        "SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) must be present", settings.get(0x2b65L));
-    assertNotNull("SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) must be present", settings.get(0x2b61L));
+    assertNotNull(settings.get(0x2b64L), "SETTINGS_WT_INITIAL_MAX_STREAMS_UNI (0x2b64) must be present");
+    assertNotNull(settings.get(0x2b65L), "SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI (0x2b65) must be present");
+    assertNotNull(settings.get(0x2b61L), "SETTINGS_WT_INITIAL_MAX_DATA (0x2b61) must be present");
   }
 
   /**
@@ -63,7 +59,7 @@ public class Draft16Section9IanaAndCodepointsTest {
    */
   @Test
   public void testSection9_3_FrameTypeRegistrationInApplication() {
-    assertEquals("WT_STREAM frame type MUST be 0x41", 0x41L, WebTransportUtils.BI_STREAM_TYPE);
+    assertEquals(0x41L, WebTransportUtils.BI_STREAM_TYPE, "WT_STREAM frame type MUST be 0x41");
   }
 
   /**
@@ -72,7 +68,7 @@ public class Draft16Section9IanaAndCodepointsTest {
    */
   @Test
   public void testSection9_4_StreamTypeRegistrationInApplication() {
-    assertEquals("WebTransport stream type MUST be 0x54", 0x54L, WebTransportUtils.UNI_STREAM_TYPE);
+    assertEquals(0x54L, WebTransportUtils.UNI_STREAM_TYPE, "WebTransport stream type MUST be 0x54");
   }
 
   /**
@@ -82,10 +78,8 @@ public class Draft16Section9IanaAndCodepointsTest {
    */
   @Test
   public void testSection9_5_WtApplicationErrorRangeBoundsInApplication() {
-    assertEquals(
-        "First WT_APPLICATION_ERROR codepoint", 0x52e4a40fa8dbL, WebTransportUtils.WT_ERROR_FIRST);
-    assertEquals(
-        "Last WT_APPLICATION_ERROR codepoint", 0x52e5ac983162L, WebTransportUtils.WT_ERROR_LAST);
+    assertEquals(0x52e4a40fa8dbL, WebTransportUtils.WT_ERROR_FIRST, "First WT_APPLICATION_ERROR codepoint");
+    assertEquals(0x52e5ac983162L, WebTransportUtils.WT_ERROR_LAST, "Last WT_APPLICATION_ERROR codepoint");
     assertTrue(WebTransportUtils.isWebTransportApplicationError(WebTransportUtils.WT_ERROR_FIRST));
     assertTrue(WebTransportUtils.isWebTransportApplicationError(WebTransportUtils.WT_ERROR_LAST));
 
@@ -128,8 +122,7 @@ public class Draft16Section9IanaAndCodepointsTest {
       channel.writeInbound(in);
 
       WebTransportCapsule capsule = channel.readInbound();
-      assertNotNull(
-          "Decoder must produce capsule for type 0x" + Long.toHexString(capsuleType), capsule);
+      assertNotNull(capsule, "Decoder must produce capsule for type 0x" + Long.toHexString(capsuleType));
       assertEquals(capsuleType, capsule.capsuleType());
       capsule.content().release();
       channel.finishAndReleaseAll();

@@ -1,10 +1,11 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -48,7 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.reactivestreams.Publisher;
 
@@ -72,16 +73,14 @@ public class WebTransportHandlerLifecycleTest {
 
     // Default onSessionRequest must permit by default
     SessionRequestContext mockReq = mock(SessionRequestContext.class);
-    assertTrue("Default onSessionRequest must return true", handler.onSessionRequest(mockReq));
+    assertTrue(handler.onSessionRequest(mockReq), "Default onSessionRequest must return true");
 
     // Default selectSubprotocol returns null
     assertNull(handler.selectSubprotocol(java.util.Collections.singletonList("proto1")));
 
     // onSessionClosed with code and reason delegates to legacy onSessionClosed
     handler.onSessionClosed(mockSession, 0, "Clean");
-    assertTrue(
-        "Overloaded onSessionClosed should delegate to legacy onSessionClosed",
-        legacyClosedCalled.get());
+    assertTrue(legacyClosedCalled.get(), "Overloaded onSessionClosed should delegate to legacy onSessionClosed");
 
     // Default onError and onConnectionMigration do not throw
     handler.onError(mockSession, new RuntimeException("test"));
@@ -238,7 +237,7 @@ public class WebTransportHandlerLifecycleTest {
     sessionManager.register(mockConnectStream);
 
     WebTransportSession session = sessionManager.get(4L);
-    assertNotNull("Session should be registered", session);
+    assertNotNull(session, "Session should be registered");
     assertTrue(session instanceof NettyWebTransportSession);
     ((NettyWebTransportSession) session).setCloseCode(42);
     ((NettyWebTransportSession) session).setCloseReason("Kicked for inactivity");

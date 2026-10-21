@@ -234,7 +234,7 @@ Current coordinates:
 <dependency>
     <groupId>io.github.webtransport4j</groupId>
     <artifactId>webtransport4j</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 
@@ -1062,7 +1062,7 @@ mvn test -Pbench
 The packaged artifact exposes different classes depending on the runtime JVM without requiring separate artifact coordinates:
 
 ```text
-webtransport4j-0.1.0-SNAPSHOT.jar
+webtransport4j-0.1.0.jar
 ├── META-INF/
 │   ├── MANIFEST.MF                     <── Contains: "Multi-Release: true"
 │   └── versions/

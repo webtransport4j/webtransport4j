@@ -1,15 +1,16 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.server.DefaultNettyWebTransportBuffer;
 import io.github.webtransport4j.server.FlyweightWebTransportBuffer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import java.nio.charset.StandardCharsets;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests byte-level comparison and primitive access methods on WebTransport buffers without heap
@@ -78,54 +79,66 @@ public class ZeroAllocationBufferComparisonTest {
     }
   }
 
-  @Test(expected = IndexOutOfBoundsException.class)
+  @Test
   public void testDefaultNettyBufferOutOfBoundsByte() {
-    ByteBuf direct = Unpooled.buffer(4);
-    direct.writeByte(42);
-    DefaultNettyWebTransportBuffer buf = DefaultNettyWebTransportBuffer.wrap(direct);
-    try {
-      buf.getByte(1);
-    } finally {
-      buf.release();
-    }
+    Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+      ByteBuf direct = Unpooled.buffer(4);
+      direct.writeByte(42);
+      DefaultNettyWebTransportBuffer buf = DefaultNettyWebTransportBuffer.wrap(direct);
+      try {
+        buf.getByte(1);
+      } finally {
+        buf.release();
+      }
+
+    });
   }
 
-  @Test(expected = IndexOutOfBoundsException.class)
+  @Test
   public void testDefaultNettyBufferOutOfBoundsInt() {
-    ByteBuf direct = Unpooled.buffer(4);
-    direct.writeBytes(new byte[] {1, 2, 3});
-    DefaultNettyWebTransportBuffer buf = DefaultNettyWebTransportBuffer.wrap(direct);
-    try {
-      buf.getInt(0);
-    } finally {
-      buf.release();
-    }
+    Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+      ByteBuf direct = Unpooled.buffer(4);
+      direct.writeBytes(new byte[] {1, 2, 3});
+      DefaultNettyWebTransportBuffer buf = DefaultNettyWebTransportBuffer.wrap(direct);
+      try {
+        buf.getInt(0);
+      } finally {
+        buf.release();
+      }
+
+    });
   }
 
-  @Test(expected = IndexOutOfBoundsException.class)
+  @Test
   public void testFlyweightOutOfBoundsByte() {
-    ByteBuf direct = Unpooled.buffer(4);
-    direct.writeByte(42);
-    FlyweightWebTransportBuffer flyweight = FlyweightWebTransportBuffer.createFlyweight().attach(direct);
-    try {
-      flyweight.getByte(1);
-    } finally {
-      flyweight.detach();
-      direct.release();
-    }
+    Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+      ByteBuf direct = Unpooled.buffer(4);
+      direct.writeByte(42);
+      FlyweightWebTransportBuffer flyweight = FlyweightWebTransportBuffer.createFlyweight().attach(direct);
+      try {
+        flyweight.getByte(1);
+      } finally {
+        flyweight.detach();
+        direct.release();
+      }
+
+    });
   }
 
-  @Test(expected = IndexOutOfBoundsException.class)
+  @Test
   public void testFlyweightOutOfBoundsLong() {
-    ByteBuf direct = Unpooled.buffer(8);
-    direct.writeBytes(new byte[] {1, 2, 3, 4, 5, 6, 7});
-    FlyweightWebTransportBuffer flyweight = FlyweightWebTransportBuffer.createFlyweight().attach(direct);
-    try {
-      flyweight.getLong(0);
-    } finally {
-      flyweight.detach();
-      direct.release();
-    }
+    Assertions.assertThrows(IndexOutOfBoundsException.class, () -> {
+      ByteBuf direct = Unpooled.buffer(8);
+      direct.writeBytes(new byte[] {1, 2, 3, 4, 5, 6, 7});
+      FlyweightWebTransportBuffer flyweight = FlyweightWebTransportBuffer.createFlyweight().attach(direct);
+      try {
+        flyweight.getLong(0);
+      } finally {
+        flyweight.detach();
+        direct.release();
+      }
+
+    });
   }
 
   @Test

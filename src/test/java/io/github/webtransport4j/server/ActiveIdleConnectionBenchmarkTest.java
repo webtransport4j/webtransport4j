@@ -43,10 +43,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,12 +96,12 @@ public class ActiveIdleConnectionBenchmarkTest {
   private int port;
 
   /** Sets up benchmark connection parameters from system properties. */
-  @Before
+  @BeforeEach
   public void setUp() {
     String configuredPort = System.getProperty("target.port");
-    Assume.assumeTrue(
-        "Start BenchmarkServerRunner and set -Dtarget.port=<port> to run this benchmark.",
-        configuredPort != null && !configuredPort.trim().isEmpty());
+    Assumptions.assumeTrue(
+        configuredPort != null && !configuredPort.trim().isEmpty(),
+        "Start BenchmarkServerRunner and set -Dtarget.port=<port> to run this benchmark.");
 
     try {
       port = Integer.parseInt(configuredPort);
@@ -642,9 +642,9 @@ public class ActiveIdleConnectionBenchmarkTest {
   }
 
   private static void assertAllSessionsHealthy(List<BenchmarkSession> sessions, int expectedCount) {
-    Assert.assertEquals("Session count match", expectedCount, sessions.size());
+    Assertions.assertEquals(expectedCount, sessions.size(), "Session count match");
     for (BenchmarkSession s : sessions) {
-      Assert.assertTrue("Session #" + s.index + " must be healthy and active", s.isHealthy());
+      Assertions.assertTrue(s.isHealthy(), "Session #" + s.index + " must be healthy and active");
     }
   }
 

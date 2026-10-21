@@ -1,12 +1,13 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.channel.Channel;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for web transport server transport. */
 public class WebTransportServerTransportTest {
@@ -14,7 +15,7 @@ public class WebTransportServerTransportTest {
   private WebTransportServer server;
 
   /** Sets up test fixtures. */
-  @Before
+  @BeforeEach
   public void setUp() {
     server = new WebTransportServer();
     // Register a dummy handler so the server can start
@@ -22,7 +23,7 @@ public class WebTransportServerTransportTest {
   }
 
   /** Cleans up test fixtures. */
-  @After
+  @AfterEach
   public void tearDown() {
     if (server != null) {
       server.stop();
@@ -45,7 +46,7 @@ public class WebTransportServerTransportTest {
     while (server.getChannels().isEmpty() && System.currentTimeMillis() < timeout) {
       Thread.sleep(50);
     }
-    assertTrue("Server should start successfully", !server.getChannels().isEmpty());
+    assertTrue(!server.getChannels().isEmpty(), "Server should start successfully");
     Channel channel = server.getChannels().isEmpty() ? null : server.getChannels().get(0);
     server.stop();
     t.join(2000);
@@ -59,9 +60,7 @@ public class WebTransportServerTransportTest {
     try {
       Channel channel = startServerAsyncAndVerify();
       if (isEpollAvailable()) {
-        assertTrue(
-            "Auto should prefer Epoll when available on Linux",
-            channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"));
+        assertTrue(channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"), "Auto should prefer Epoll when available on Linux");
       }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
@@ -75,9 +74,7 @@ public class WebTransportServerTransportTest {
     System.setProperty("webtransport4j.server.port", "0"); // Use random port
     try {
       Channel channel = startServerAsyncAndVerify();
-      assertTrue(
-          "Explicit nio should use NioDatagramChannel",
-          channel != null && channel.getClass().getSimpleName().contains("NioDatagramChannel"));
+      assertTrue(channel != null && channel.getClass().getSimpleName().contains("NioDatagramChannel"), "Explicit nio should use NioDatagramChannel");
     } finally {
       System.clearProperty("webtransport4j.server.transport");
       System.clearProperty("webtransport4j.server.port");
@@ -91,17 +88,13 @@ public class WebTransportServerTransportTest {
     try {
       if (isEpollAvailable()) {
         Channel channel = startServerAsyncAndVerify();
-        assertTrue(
-            "Explicit epoll should use EpollDatagramChannel",
-            channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"));
+        assertTrue(channel != null && channel.getClass().getSimpleName().contains("EpollDatagramChannel"), "Explicit epoll should use EpollDatagramChannel");
       } else {
         IllegalStateException ex =
-            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
-        assertTrue(
-            "Expected explicit epoll unavailability message",
-            ex.getMessage() != null
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(ex.getMessage() != null
                 && (ex.getMessage().contains("Epoll transport was explicitly requested")
-                    || ex.getMessage().contains("could not be initialized")));
+                    || ex.getMessage().contains("could not be initialized")), "Expected explicit epoll unavailability message");
       }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
@@ -118,12 +111,10 @@ public class WebTransportServerTransportTest {
         startServerAsyncAndVerify();
       } else {
         IllegalStateException ex =
-            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
-        assertTrue(
-            "Expected explicit kqueue unavailability message",
-            ex.getMessage() != null
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(ex.getMessage() != null
                 && (ex.getMessage().contains("KQueue transport was explicitly requested")
-                    || ex.getMessage().contains("could not be initialized")));
+                    || ex.getMessage().contains("could not be initialized")), "Expected explicit kqueue unavailability message");
       }
     } finally {
       System.clearProperty("webtransport4j.server.transport");
@@ -138,18 +129,14 @@ public class WebTransportServerTransportTest {
     try {
       if (isIouringAvailable()) {
         Channel channel = startServerAsyncAndVerify();
-        assertTrue(
-            "Explicit iouring should use IoUringDatagramChannel",
-            channel != null
-                && channel.getClass().getSimpleName().contains("IoUringDatagramChannel"));
+        assertTrue(channel != null
+                && channel.getClass().getSimpleName().contains("IoUringDatagramChannel"), "Explicit iouring should use IoUringDatagramChannel");
       } else {
         IllegalStateException ex =
-            org.junit.Assert.assertThrows(IllegalStateException.class, server::start);
-        assertTrue(
-            "Expected explicit iouring unavailability message",
-            ex.getMessage() != null
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(ex.getMessage() != null
                 && (ex.getMessage().contains("IOUring transport was explicitly requested")
-                    || ex.getMessage().contains("could not be initialized")));
+                    || ex.getMessage().contains("could not be initialized")), "Expected explicit iouring unavailability message");
       }
     } finally {
       System.clearProperty("webtransport4j.server.transport");

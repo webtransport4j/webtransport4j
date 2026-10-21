@@ -44,7 +44,7 @@ The isolated module keeps the harness and Mockito out of production dependencies
 
 ```sh
 mvn -Pbench -Dexec.skip=true -DskipTests install
-jar --validate --file target-maven/webtransport4j-0.1.0-SNAPSHOT.jar
+jar --validate --file target-maven/webtransport4j-0.1.0.jar
 mvn -f verification/jcstress/pom.xml package
 cd verification/jcstress/target
 java -jar jcstress.jar -t 'io.github.webtransport4j.concurrency.*' \

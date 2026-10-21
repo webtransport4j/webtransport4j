@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -42,9 +43,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,7 +75,7 @@ public class WebTransportThreadSafetyIntegrationTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     corruptedMessagesCount = new AtomicInteger(0);
     processedMessagesCount = new AtomicInteger(0);
@@ -228,7 +229,7 @@ public class WebTransportThreadSafetyIntegrationTest {
     h.set(":protocol", "webtransport");
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(h)).sync();
 
-    assertTrue("CONNECT failed", sessionLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(sessionLatch.await(5, TimeUnit.SECONDS), "CONNECT failed");
     this.sessionId = connectHolder[0].streamId();
   }
 
@@ -239,7 +240,7 @@ public class WebTransportThreadSafetyIntegrationTest {
    *
    * @throws Exception if shutdown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (asyncPool != null) {
       asyncPool.shutdownNow();
@@ -314,7 +315,7 @@ public class WebTransportThreadSafetyIntegrationTest {
 
     // Wait for all asynchronous responses to complete
     boolean completed = allResponsesReceivedLatch.await(15, TimeUnit.SECONDS);
-    assertTrue("Timed out waiting for async thread responses", completed);
+    assertTrue(completed, "Timed out waiting for async thread responses");
 
     // Give worker threads up to 15 seconds to complete atomic counter increments after network echo
     long deadline = System.currentTimeMillis() + 15000;
@@ -324,16 +325,10 @@ public class WebTransportThreadSafetyIntegrationTest {
     }
 
     // Assert zero corruption and exact message count
-    assertEquals("Corrupted message count must be 0", 0, corruptedMessagesCount.get());
-    assertEquals("All byte payload must be received", expectedTotalBytes, rxBytesCounter.get());
-    assertEquals(
-        "All byte payload must be processed off-thread",
-        expectedTotalBytes,
-        processedBytesCount.get());
-    assertEquals(
-        "All expected messages must be processed off-thread",
-        (long) totalExpectedMessages,
-        (long) processedMessagesCount.get());
+    assertEquals(0, corruptedMessagesCount.get(), "Corrupted message count must be 0");
+    assertEquals(expectedTotalBytes, rxBytesCounter.get(), "All byte payload must be received");
+    assertEquals(expectedTotalBytes, processedBytesCount.get(), "All byte payload must be processed off-thread");
+    assertEquals((long) totalExpectedMessages, (long) processedMessagesCount.get(), "All expected messages must be processed off-thread");
 
     log.info(
         "✅ ThreadSafetyTest: Successfully processed {} messages asynchronously across "

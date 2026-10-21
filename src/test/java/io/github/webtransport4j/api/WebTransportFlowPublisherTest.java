@@ -1,9 +1,10 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,7 +15,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
@@ -148,8 +149,7 @@ public class WebTransportFlowPublisherTest {
       }
 
       assertTrue(completedLatch.await(5, TimeUnit.SECONDS));
-      assertFalse(
-          "Subscriber signals must not be called concurrently", concurrentSignalViolation.get());
+      assertFalse(concurrentSignalViolation.get(), "Subscriber signals must not be called concurrently");
       assertEquals(itemCount, received.size());
       for (int i = 0; i < itemCount; i++) {
         assertEquals(Integer.valueOf(i), received.get(i));

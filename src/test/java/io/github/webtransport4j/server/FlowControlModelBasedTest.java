@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -14,7 +15,7 @@ import io.netty.util.AttributeKey;
 import io.netty.util.DefaultAttributeMap;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.util.Random;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Sequential stream creation/grant histories checked against cumulative credit semantics. */
 public class FlowControlModelBasedTest {
@@ -56,9 +57,8 @@ public class FlowControlModelBasedTest {
             used++;
           }
         }
-        assertEquals(
-            "history=" + history + ", step=" + step, used, session.getServerInitiatedStreamsBidi());
-        org.junit.Assert.assertTrue(used <= session.getPeerSettingsMaxStreamsBidi());
+        assertEquals(used, session.getServerInitiatedStreamsBidi(), "history=" + history + ", step=" + step);
+        org.junit.jupiter.api.Assertions.assertTrue(used <= session.getPeerSettingsMaxStreamsBidi());
       }
     }
   }

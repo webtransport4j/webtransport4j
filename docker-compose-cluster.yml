@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Node 1
   wt-node-1:

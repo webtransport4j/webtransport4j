@@ -4,24 +4,24 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test for non-blocking server lifecycle and ephemeral port resolution. */
 public class WebTransportNonBlockingLifecycleTest {
   private String previousPort;
 
   /** Sets up test environment. */
-  @Before
+  @BeforeEach
   public void setUp() {
     previousPort = System.getProperty("webtransport4j.server.port");
     System.setProperty("webtransport4j.server.port", "0");
   }
 
   /** Tears down test environment. */
-  @After
+  @AfterEach
   public void tearDown() {
     restoreProperty("webtransport4j.server.port", previousPort);
   }
@@ -42,20 +42,20 @@ public class WebTransportNonBlockingLifecycleTest {
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
-    Assert.assertFalse(server.isStarted());
+    Assertions.assertFalse(server.isStarted());
 
     // Non-blocking start
     server.start();
 
-    Assert.assertTrue(server.isStarted());
-    Assert.assertTrue(server.isRunning());
+    Assertions.assertTrue(server.isStarted());
+    Assertions.assertTrue(server.isRunning());
 
     int boundPort = server.getPort();
-    Assert.assertTrue("Bound port should be > 0 when using ephemeral port 0", boundPort > 0);
+    Assertions.assertTrue(boundPort > 0, "Bound port should be > 0 when using ephemeral port 0");
 
     // Stop server
     server.stop();
-    Assert.assertFalse(server.isStarted());
+    Assertions.assertFalse(server.isStarted());
   }
 
   @Test
@@ -71,17 +71,17 @@ public class WebTransportNonBlockingLifecycleTest {
             .build();
     SelfSignedCertificate tls = null;
     try {
-      Assert.assertThrows(IllegalStateException.class, server::start);
-      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      Assertions.assertThrows(IllegalStateException.class, server::start);
+      Assertions.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
 
       tls = new SelfSignedCertificate("localhost");
       Files.copy(tls.privateKey().toPath(), key);
       Files.copy(tls.certificate().toPath(), certificate);
       server.start();
-      Assert.assertTrue(server.isStarted());
+      Assertions.assertTrue(server.isStarted());
 
       server.stop();
-      Assert.assertFalse(server.isStarted());
+      Assertions.assertFalse(server.isStarted());
     } finally {
       server.stop();
       if (tls != null) {
@@ -102,8 +102,8 @@ public class WebTransportNonBlockingLifecycleTest {
             .ssl("missing-key.pem", "missing-cert.pem")
             .build();
     try {
-      Assert.assertThrows(IllegalStateException.class, server::start);
-      Assert.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
+      Assertions.assertThrows(IllegalStateException.class, server::start);
+      Assertions.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
     } finally {
       server.stop();
     }

@@ -38,10 +38,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Assert;
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,12 +85,12 @@ public class ConnectionScalabilityBenchmarkTest {
   private int port;
 
   /** Sets up test configuration. */
-  @Before
+  @BeforeEach
   public void setUp() {
     String configuredPort = System.getProperty("target.port");
-    Assume.assumeTrue(
-        "Start BenchmarkServerRunner and set -Dtarget.port=<port> to run this benchmark.",
-        configuredPort != null && !configuredPort.trim().isEmpty());
+    Assumptions.assumeTrue(
+        configuredPort != null && !configuredPort.trim().isEmpty(),
+        "Start BenchmarkServerRunner and set -Dtarget.port=<port> to run this benchmark.");
 
     try {
       port = Integer.parseInt(configuredPort);
@@ -401,15 +401,13 @@ public class ConnectionScalabilityBenchmarkTest {
       MessageCounts messageCounts,
       boolean finished,
       List<Throwable> failures) {
-    Assert.assertTrue(
-        "Timed out after "
+    Assertions.assertTrue(finished, "Timed out after "
             + tierTimeoutSeconds(connections)
             + " seconds; "
             + successfulConnections
             + "/"
             + connections
-            + " connections completed",
-        finished);
+            + " connections completed");
 
     if (!failures.isEmpty()) {
       AssertionError failure =
@@ -421,26 +419,16 @@ public class ConnectionScalabilityBenchmarkTest {
       throw failure;
     }
 
-    Assert.assertEquals("Every connection must complete", connections, successfulConnections);
-    Assert.assertEquals(
-        "Every echoed message must be received",
-        (long) connections * STREAMS_PER_CONNECTION * MESSAGES_PER_STREAM,
-        receivedMessages);
-    Assert.assertEquals(
-        "Every PING message sent must be received",
-        messageCounts.sentMessageOne(),
-        messageCounts.receivedMessageOne());
-    Assert.assertEquals(
-        "Every PONG message sent must be received",
-        messageCounts.sentMessageTwo(),
-        messageCounts.receivedMessageTwo());
+    Assertions.assertEquals(connections, successfulConnections, "Every connection must complete");
+    Assertions.assertEquals((long) connections * STREAMS_PER_CONNECTION * MESSAGES_PER_STREAM, receivedMessages, "Every echoed message must be received");
+    Assertions.assertEquals(messageCounts.sentMessageOne(), messageCounts.receivedMessageOne(), "Every PING message sent must be received");
+    Assertions.assertEquals(messageCounts.sentMessageTwo(), messageCounts.receivedMessageTwo(), "Every PONG message sent must be received");
   }
 
   private static void assertOpenConnections(
       List<OpenConnection> openConnections, int expectedConnections) {
     List<OpenConnection> connections = new ArrayList<OpenConnection>(openConnections);
-    Assert.assertEquals(
-        "Every successful connection must remain open", expectedConnections, connections.size());
+    Assertions.assertEquals(expectedConnections, connections.size(), "Every successful connection must remain open");
     for (OpenConnection connection : connections) {
       connection.assertHealthy();
     }
@@ -601,7 +589,7 @@ public class ConnectionScalabilityBenchmarkTest {
         assertion.initCause(failure);
         throw assertion;
       }
-      Assert.assertTrue("A connection closed during the hold period", channel.isActive());
+      Assertions.assertTrue(channel.isActive(), "A connection closed during the hold period");
     }
 
     private void close() {

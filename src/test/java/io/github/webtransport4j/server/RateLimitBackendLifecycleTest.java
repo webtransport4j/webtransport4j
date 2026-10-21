@@ -1,14 +1,18 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import io.github.webtransport4j.server.ratelimit.LocalMemoryRateLimitBackend;
 import io.github.webtransport4j.server.ratelimit.RateLimitBackend;
-import org.junit.Test;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Rate limit resets follow server ownership across stop and restart. */
 public class RateLimitBackendLifecycleTest {
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void stoppingServerResetsOnlyItsBackendAcrossRestart() throws Exception {
     LocalMemoryRateLimitBackend first = new LocalMemoryRateLimitBackend();
     LocalMemoryRateLimitBackend second = new LocalMemoryRateLimitBackend();
@@ -32,7 +36,8 @@ public class RateLimitBackendLifecycleTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void sharedHandlerRetainsCountsUntilLastServerStops() throws Exception {
     LocalMemoryRateLimitBackend backend = new LocalMemoryRateLimitBackend();
     IpRateLimitingHandler handler = new IpRateLimitingHandler(backend);
@@ -42,7 +47,8 @@ public class RateLimitBackendLifecycleTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void defaultServersRetainConfiguredBackendUntilLastServerStops() throws Exception {
     RateLimitBackend original = IpRateLimitingHandler.getBackend();
     LocalMemoryRateLimitBackend backend = new LocalMemoryRateLimitBackend();

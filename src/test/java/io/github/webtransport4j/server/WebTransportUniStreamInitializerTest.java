@@ -1,15 +1,16 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.netty.channel.Channel;
 import io.netty.channel.DefaultChannelPipeline;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -25,7 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 import io.netty.util.DefaultAttributeMap;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Tests for {@link WebTransportUniStreamInitializer}. */
 public class WebTransportUniStreamInitializerTest {
@@ -96,21 +97,13 @@ public class WebTransportUniStreamInitializerTest {
         new WebTransportUniStreamInitializer(WebTransportUtils.UNI_STREAM_TYPE);
     initializer.initChannel(mockStream);
 
-    assertNotNull(
-        "Connection traffic shaper must be attached",
-        pipeline.get("conn-traffic-shaper"));
+    assertNotNull(pipeline.get("conn-traffic-shaper"), "Connection traffic shaper must be attached");
     assertSame(connShaper, pipeline.get("conn-traffic-shaper"));
 
-    assertNotNull(
-        "WebTransportUniStreamHeaderDecoder must be attached",
-        pipeline.get(WebTransportUniStreamHeaderDecoder.class));
+    assertNotNull(pipeline.get(WebTransportUniStreamHeaderDecoder.class), "WebTransportUniStreamHeaderDecoder must be attached");
 
-    assertNull(
-        "WebTransportCapsuleHandler must NOT be attached to unidirectional stream pipeline",
-        pipeline.get(WebTransportCapsuleHandler.class));
+    assertNull(pipeline.get(WebTransportCapsuleHandler.class), "WebTransportCapsuleHandler must NOT be attached to unidirectional stream pipeline");
 
-    assertNotNull(
-        "MessageDispatcher must be attached",
-        pipeline.get(DefaultMessageDispatcher.class));
+    assertNotNull(pipeline.get(DefaultMessageDispatcher.class), "MessageDispatcher must be attached");
   }
 }

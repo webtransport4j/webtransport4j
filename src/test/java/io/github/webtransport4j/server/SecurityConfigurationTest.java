@@ -1,11 +1,12 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import io.github.webtransport4j.security.ClientAuthMode;
@@ -15,11 +16,14 @@ import java.io.File;
 import java.security.cert.X509Certificate;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import org.junit.Test;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Security configuration must fail explicitly rather than silently weaken TLS. */
 public class SecurityConfigurationTest {
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void suppliedContextRejectsClientAuthAndTrustOptions() throws Exception {
     QuicSslContext context = mock(QuicSslContext.class);
     for (ClientAuthMode mode : ClientAuthMode.values()) {
@@ -47,7 +51,8 @@ public class SecurityConfigurationTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void suppliedContextRejectsConfiguredAuthAndTrust() throws Exception {
     withProperty(
         "webtransport4j.ssl.client_auth",
@@ -77,7 +82,8 @@ public class SecurityConfigurationTest {
         });
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void invalidAuthModeFailsStartup() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     try {
@@ -97,7 +103,8 @@ public class SecurityConfigurationTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void missingOrBlankConfiguredTrustFileFailsStartup() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     try {
@@ -123,7 +130,8 @@ public class SecurityConfigurationTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void eachTrustOverloadReplacesEveryOtherSource() {
     File file = new File("old-ca.pem");
     X509Certificate[] certificates = {mock(X509Certificate.class)};
@@ -142,7 +150,8 @@ public class SecurityConfigurationTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void replacementFactoryIsAppliedInsteadOfStaleFile() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     TrustManagerFactory factory =
@@ -160,7 +169,8 @@ public class SecurityConfigurationTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void certificatesAreSnapshottedAndNullResetsPreviousSource() {
     X509Certificate trusted = mock(X509Certificate.class);
     X509Certificate[] input = {trusted};
@@ -171,7 +181,8 @@ public class SecurityConfigurationTest {
     assertNull(builder.getTrustCertificates());
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void explicitEmptyCertificatesOverrideConfiguredTrustPath() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     try {

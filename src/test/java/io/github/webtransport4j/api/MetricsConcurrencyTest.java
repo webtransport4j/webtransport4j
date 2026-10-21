@@ -1,8 +1,9 @@
 package io.github.webtransport4j.api;
 
+import org.junit.jupiter.api.Assertions;
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.await;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.concurrency.ConcurrencySupport;
 import java.util.concurrent.CountDownLatch;
@@ -11,11 +12,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Tests bounded exporter admission and the shutdown/submission race. */
 public class MetricsConcurrencyTest {
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void saturationAndShutdownPreserveDocumentedDropAccounting() {
     CountDownLatch entered = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
@@ -49,7 +52,8 @@ public class MetricsConcurrencyTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void shutdownDuringPublicationCountsDiscard() throws Exception {
     AsyncWebTransportMetricsListener listener =
         new AsyncWebTransportMetricsListener(
@@ -80,7 +84,8 @@ public class MetricsConcurrencyTest {
     }
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void onSessionRejectedDelegatesAsync() throws Exception {
     CountDownLatch latch = new CountDownLatch(1);
     java.util.concurrent.atomic.AtomicReference<String> receivedReason =

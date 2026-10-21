@@ -1,8 +1,9 @@
 package io.github.webtransport4j.server.ratelimit;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertSame;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import io.github.webtransport4j.server.IpRateLimitingHandler;
 import io.github.webtransport4j.server.WebTransportConfig;
@@ -15,21 +16,22 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Tests for rate limit backend implementations. */
 public class RateLimitBackendTest {
   private RateLimitBackend originalBackend;
 
-  @Before
+  @BeforeEach
   public void setUp() {
     originalBackend = IpRateLimitingHandler.getBackend();
     IpRateLimitingHandler.clearState();
   }
 
-  @After
+  @AfterEach
   public void tearDown() {
     IpRateLimitingHandler.setBackend(originalBackend);
     IpRateLimitingHandler.clearState();
@@ -63,7 +65,8 @@ public class RateLimitBackendTest {
     assertEquals(1, backend.incrementAndGet("10.0.0.2", minute + 1, 1));
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testConcurrentAdmissionPreservesCapacityAndCounts() throws Exception {
     LocalMemoryRateLimitBackend backend = new LocalMemoryRateLimitBackend();
     ExecutorService executor = Executors.newFixedThreadPool(8);
@@ -145,25 +148,28 @@ public class RateLimitBackendTest {
     assertEquals(1, handler.getEffectiveBackend().incrementAndGet("10.0.0.1", 1000L, 1));
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testRedisBackendConfigRejection() throws Exception {
-    System.setProperty("webtransport4j.server.ratelimit.backend", "redis");
-    try {
-      WebTransportConfig.reload();
-      java.lang.reflect.Method m = IpRateLimitingHandler.class.getDeclaredMethod("createBackend");
-      m.setAccessible(true);
+    Assertions.assertThrows(IllegalArgumentException.class, () -> {
+      System.setProperty("webtransport4j.server.ratelimit.backend", "redis");
       try {
-        m.invoke(null);
-      } catch (java.lang.reflect.InvocationTargetException ite) {
-        if (ite.getCause() instanceof RuntimeException) {
-          throw (RuntimeException) ite.getCause();
+        WebTransportConfig.reload();
+        java.lang.reflect.Method m = IpRateLimitingHandler.class.getDeclaredMethod("createBackend");
+        m.setAccessible(true);
+        try {
+          m.invoke(null);
+        } catch (java.lang.reflect.InvocationTargetException ite) {
+          if (ite.getCause() instanceof RuntimeException) {
+            throw (RuntimeException) ite.getCause();
+          }
+          throw new RuntimeException(ite.getCause());
         }
-        throw new RuntimeException(ite.getCause());
+      } finally {
+        System.clearProperty("webtransport4j.server.ratelimit.backend");
+        WebTransportConfig.reload();
       }
-    } finally {
-      System.clearProperty("webtransport4j.server.ratelimit.backend");
-      WebTransportConfig.reload();
-    }
+
+    });
   }
 
   @Test

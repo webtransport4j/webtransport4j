@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertNotNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -15,7 +16,7 @@ import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests enforcing draft-16 Section 5.4 prohibition of stream-level flow control capsules

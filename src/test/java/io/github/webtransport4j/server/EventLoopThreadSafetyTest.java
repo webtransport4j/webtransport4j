@@ -1,18 +1,21 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThrows;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.internal.EventLoopSafety;
 import io.netty.channel.DefaultEventLoop;
 import io.netty.util.concurrent.DefaultEventExecutor;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Verifies the event-loop boundary rejects blocking control-plane operations. */
 public class EventLoopThreadSafetyTest {
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void rejectsControlPlaneLocksOnEventLoopButAllowsWorkerThread() throws Exception {
     DefaultEventLoop loop = new DefaultEventLoop();
     DefaultEventExecutor worker = new DefaultEventExecutor();

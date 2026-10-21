@@ -1,10 +1,11 @@
 package io.github.webtransport4j.api;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.server.BinarySourceChunkedInput;
 import io.netty.buffer.ByteBuf;
@@ -18,9 +19,9 @@ import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for binary sources. */
 public class BinarySourcesTest {
@@ -29,14 +30,14 @@ public class BinarySourcesTest {
   private Path tempFile;
 
   /** Sets up test fixtures. */
-  @Before
+  @BeforeEach
   public void setup() throws IOException {
     testData = "Hello WebTransport 4J".getBytes();
     tempFile = Files.createTempFile("wt4j", ".bin");
     Files.write(tempFile, testData);
   }
 
-  @After
+  @AfterEach
   public void teardown() throws IOException {
     Files.deleteIfExists(tempFile);
   }
@@ -61,7 +62,7 @@ public class BinarySourcesTest {
       totalRead += read;
     }
 
-    assertEquals("Total bytes read should match test data", testData.length, totalRead);
+    assertEquals(testData.length, totalRead, "Total bytes read should match test data");
     source.close();
   }
 
@@ -95,7 +96,7 @@ public class BinarySourcesTest {
     BinarySource source = BinarySources.fromByteBuffer(buf);
     assertEquals(testData.length, source.size());
     verifySource(source);
-    assertEquals("Underlying buffer position should be advanced", testData.length, buf.position());
+    assertEquals(testData.length, buf.position(), "Underlying buffer position should be advanced");
   }
 
   @Test
@@ -104,8 +105,7 @@ public class BinarySourcesTest {
     BinarySource source = BinarySources.fromByteBuf(buf);
     assertEquals(testData.length, source.size());
     verifySource(source);
-    assertEquals(
-        "Underlying Netty ByteBuf readerIndex should be exhausted", 0, buf.readableBytes());
+    assertEquals(0, buf.readableBytes(), "Underlying Netty ByteBuf readerIndex should be exhausted");
   }
 
   @Test
@@ -166,7 +166,7 @@ public class BinarySourcesTest {
   public void testInputStreamBinarySource() throws IOException {
     ByteArrayInputStream in = new ByteArrayInputStream(testData);
     BinarySource source = BinarySources.fromInputStream(in);
-    assertEquals("InputStream size is generally unknown", -1, source.size());
+    assertEquals(-1, source.size(), "InputStream size is generally unknown");
     assertFalse(source.hasKnownSize());
     verifySource(source);
   }

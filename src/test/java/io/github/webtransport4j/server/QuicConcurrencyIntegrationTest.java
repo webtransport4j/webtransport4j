@@ -1,8 +1,9 @@
 package io.github.webtransport4j.server;
 
+import org.junit.jupiter.api.Assertions;
 import static io.github.webtransport4j.concurrency.ConcurrencySupport.await;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -42,11 +43,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Real QUIC connections exercise dispatch/drain races and TLS engine snapshots. */
 public class QuicConcurrencyIntegrationTest {
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void streamsAndDatagramsRemainUsableWhileSessionDrains() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     CountDownLatch ready = new CountDownLatch(1);
@@ -145,7 +148,8 @@ public class QuicConcurrencyIntegrationTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void liveReloadChangesNewHandshakeWithoutChangingExistingEngine() throws Exception {
     SelfSignedCertificate first = new SelfSignedCertificate("localhost");
     SelfSignedCertificate second = new SelfSignedCertificate("localhost");
@@ -184,7 +188,8 @@ public class QuicConcurrencyIntegrationTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void admittedSessionReleasesOverloadPermitOnDisconnect() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     OverloadProtectionPolicy policy = org.mockito.Mockito.mock(OverloadProtectionPolicy.class);
@@ -207,7 +212,8 @@ public class QuicConcurrencyIntegrationTest {
     }
   }
 
-  @Test(timeout = 30000)
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void adaptiveCapacityAdmitsConfiguredMaximumAndRecoversAfterDisconnect() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     CountDownLatch released = new CountDownLatch(1);

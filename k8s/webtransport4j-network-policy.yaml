@@ -1,0 +1,42 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webtransport4j-network-policy
+  namespace: webtransport-prod
+  labels:
+    app.kubernetes.io/name: webtransport4j
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: webtransport4j
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow QUIC/WebTransport traffic from any source (public-facing UDP)
+    - ports:
+        - port: 4433
+          protocol: UDP
+    # Allow health/metrics/management access only from within the cluster
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow OTLP telemetry export to the OTel Collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: webtransport-prod
+      ports:
+        - port: 4318
+          protocol: TCP

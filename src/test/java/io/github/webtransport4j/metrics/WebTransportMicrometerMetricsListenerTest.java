@@ -1,15 +1,16 @@
 package io.github.webtransport4j.metrics;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
  * Unit test verifying {@link WebTransportMicrometerMetricsListener} meter registration and
@@ -73,7 +74,7 @@ public class WebTransportMicrometerMetricsListenerTest {
   private WebTransportMicrometerMetricsListener listener;
 
   /** Initializes meter registry and listener. */
-  @Before
+  @BeforeEach
   public void setUp() {
     registry = new SimpleMeterRegistry();
     listener = new WebTransportMicrometerMetricsListener("test.wt");

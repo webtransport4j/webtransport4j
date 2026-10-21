@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.BinarySource;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
@@ -66,9 +67,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.reactivestreams.Publisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,7 +91,7 @@ public class WebTransportIntegrationTest {
   private GlobalTrafficShapingHandler globalTrafficShaper;
 
   /** Sets up test environment and cleans up system properties. */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     System.clearProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute");
     System.clearProperty("webtransport4j.server.ratelimit.max_tracked_ips");
@@ -518,7 +519,7 @@ public class WebTransportIntegrationTest {
   }
 
   /** Cleans up test fixtures. */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (webTransportServer != null) {
       webTransportServer.registerHandler("/test-integration", null);
@@ -687,7 +688,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
     long sessionId = connectStream[0].streamId();
 
@@ -744,7 +745,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("First write failed or timed out", firstWriteLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(firstWriteLatch.await(5, TimeUnit.SECONDS), "First write failed or timed out");
 
     // Write another 15 bytes to a separate stream (total 30 bytes, exceeding 20 limit)
     CountDownLatch secondWriteLatch = new CountDownLatch(1);
@@ -798,13 +799,11 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Second write failed or timed out", secondWriteLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(secondWriteLatch.await(5, TimeUnit.SECONDS), "Second write failed or timed out");
 
     // Verify that the connectStream is closed by the server due to flow control error (read limit
     // exceeded)
-    assertTrue(
-        "Connect stream was not closed by flow control error",
-        closeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(closeLatch.await(5, TimeUnit.SECONDS), "Connect stream was not closed by flow control error");
     quicClient.close().sync();
   }
 
@@ -971,7 +970,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
 
     // Let the client session manager register the CONNECT stream
@@ -1060,11 +1059,9 @@ public class WebTransportIntegrationTest {
     assertNotNull(clientSession);
 
     // Verify: The write fails immediately because buffering is not supported.
-    assertTrue(
-        "Immediate failure write did not complete in time",
-        writePromise.await(5, TimeUnit.SECONDS));
-    assertFalse("Write should have failed due to exceeding flow control", writePromise.isSuccess());
-    assertTrue("Cause should be IOException", writePromise.cause() instanceof IOException);
+    assertTrue(writePromise.await(5, TimeUnit.SECONDS), "Immediate failure write did not complete in time");
+    assertFalse(writePromise.isSuccess(), "Write should have failed due to exceeding flow control");
+    assertTrue(writePromise.cause() instanceof IOException, "Cause should be IOException");
 
     quicClient.close().sync();
   }
@@ -1256,7 +1253,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
     long sessionId = connectStream[0].streamId();
 
@@ -1265,7 +1262,7 @@ public class WebTransportIntegrationTest {
     WebTransportUtils.writeVarInt(dgData, sessionId);
     dgData.writeBytes("Hello, Datagram integration fire!".getBytes(StandardCharsets.UTF_8));
     quicClient.writeAndFlush(dgData);
-    assertTrue("Datagram echo failed or timed out", datagramLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(datagramLatch.await(5, TimeUnit.SECONDS), "Datagram echo failed or timed out");
 
     // 3. Bidirectional Stream Transmission Verification
     CountDownLatch bidiEchoLatch = new CountDownLatch(1);
@@ -1361,8 +1358,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiEchoLatch.await(5, TimeUnit.SECONDS), "Bidirectional stream echo failed or timed out");
     quicClient.close().sync();
   }
 
@@ -1466,13 +1462,9 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "CONNECT stream was not reset due to invalid peer settings",
-        resetLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(resetLatch.await(5, TimeUnit.SECONDS), "CONNECT stream was not reset due to invalid peer settings");
     assertNotNull(caughtException[0]);
-    assertTrue(
-        "Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName(),
-        caughtException[0] instanceof QuicStreamResetException);
+    assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName());
     assertEquals(
         0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
@@ -1579,7 +1571,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
     long sessionId = connectStream[0].streamId();
 
@@ -1659,8 +1651,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiEchoLatch.await(5, TimeUnit.SECONDS), "Bidirectional stream echo failed or timed out");
     assertNotNull(bidiStream[0]);
 
     // Retrieve server-side session
@@ -1679,7 +1670,7 @@ public class WebTransportIntegrationTest {
     serverSession.resetStream(serverStream, 500L);
 
     // Verify client bidi stream received the mapped/fallback application error code
-    assertTrue("Client did not receive stream reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiResetLatch.await(5, TimeUnit.SECONDS), "Client did not receive stream reset");
     assertNotNull(caughtBidiException[0]);
     assertTrue(caughtBidiException[0] instanceof QuicStreamResetException);
     QuicStreamResetException resetExc = (QuicStreamResetException) caughtBidiException[0];
@@ -1810,7 +1801,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
     long sessionId = connectStream[0].streamId();
 
@@ -1890,8 +1881,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "Bidirectional stream echo failed or timed out", bidiEchoLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiEchoLatch.await(5, TimeUnit.SECONDS), "Bidirectional stream echo failed or timed out");
     assertNotNull(bidiStream[0]);
 
     // Retrieve server-side session
@@ -1905,14 +1895,14 @@ public class WebTransportIntegrationTest {
     serverSession.abort(0x1001L);
 
     // Verify client connect stream was reset with error code 0x1001L
-    assertTrue("Client CONNECT stream did not reset", connectResetLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(connectResetLatch.await(5, TimeUnit.SECONDS), "Client CONNECT stream did not reset");
     assertNotNull(caughtConnectException[0]);
     assertTrue(caughtConnectException[0] instanceof QuicStreamResetException);
     assertEquals(
         0x1001L, ((QuicStreamResetException) caughtConnectException[0]).applicationProtocolCode());
 
     // Verify client bidi stream was reset with error code 0x1001L
-    assertTrue("Client bidi stream did not reset", bidiResetLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiResetLatch.await(5, TimeUnit.SECONDS), "Client bidi stream did not reset");
     assertNotNull(caughtBidiException[0]);
     assertTrue(caughtBidiException[0] instanceof QuicStreamResetException);
     assertEquals(
@@ -2139,10 +2129,10 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Transfer timed out", echoLatch.await(30, TimeUnit.SECONDS));
+    assertTrue(echoLatch.await(30, TimeUnit.SECONDS), "Transfer timed out");
     long duration = endTime[0] - startTime;
     log.info("Connection Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 2000);
+    assertTrue(duration >= 2000, "Throttling did not delay transfer: " + duration + "ms");
 
     quicClient.close().sync();
   }
@@ -2335,10 +2325,10 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Transfer timed out", echoLatch.await(30, TimeUnit.SECONDS));
+    assertTrue(echoLatch.await(30, TimeUnit.SECONDS), "Transfer timed out");
     long duration = endTime[0] - startTime;
     log.info("Stream Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 2000);
+    assertTrue(duration >= 2000, "Throttling did not delay transfer: " + duration + "ms");
 
     quicClient.close().sync();
   }
@@ -2693,10 +2683,10 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
+    assertTrue(echoLatch.await(15, TimeUnit.SECONDS), "Transfer timed out");
     long duration = System.currentTimeMillis() - startTime;
     log.info("Global Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
+    assertTrue(duration >= 1500, "Throttling did not delay transfer: " + duration + "ms");
 
     quicClient1.close().sync();
     quicClient2.close().sync();
@@ -2890,10 +2880,10 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
+    assertTrue(echoLatch.await(15, TimeUnit.SECONDS), "Transfer timed out");
     long duration = endTime[0] - startTime;
     log.info("Stream Read Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1100);
+    assertTrue(duration >= 1100, "Throttling did not delay transfer: " + duration + "ms");
 
     quicClient.close().sync();
   }
@@ -3086,10 +3076,10 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Transfer timed out", echoLatch.await(15, TimeUnit.SECONDS));
+    assertTrue(echoLatch.await(15, TimeUnit.SECONDS), "Transfer timed out");
     long duration = endTime[0] - startTime;
     log.info("Coexistence Throttling Test Duration: " + duration + " ms");
-    assertTrue("Throttling did not delay transfer: " + duration + "ms", duration >= 1500);
+    assertTrue(duration >= 1500, "Throttling did not delay transfer: " + duration + "ms");
 
     quicClient.close().sync();
   }
@@ -3194,13 +3184,9 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "CONNECT stream did not reset due to malformed/invalid settings",
-        resetLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(resetLatch.await(5, TimeUnit.SECONDS), "CONNECT stream did not reset due to malformed/invalid settings");
     assertNotNull(caughtException[0]);
-    assertTrue(
-        "Expected QuicStreamResetException",
-        caughtException[0] instanceof QuicStreamResetException);
+    assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException");
     // H3_MESSAGE_ERROR is 0x010e (270)
     assertEquals(
         0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
@@ -3321,7 +3307,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed or timed out");
     assertNotNull(connectStream[0]);
     long sessionId = connectStream[0].streamId();
 
@@ -3428,9 +3414,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "Bidirectional stream exchange with fragmented headers failed or timed out",
-        bidiEchoLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(bidiEchoLatch.await(5, TimeUnit.SECONDS), "Bidirectional stream exchange with fragmented headers failed or timed out");
 
     quicClient.close().sync();
   }
@@ -3537,7 +3521,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
     long sessionId = connectStream[0].streamId();
 
     StringBuilder accumulatedEcho = new StringBuilder();
@@ -3633,7 +3617,7 @@ public class WebTransportIntegrationTest {
           }
         });
 
-    assertTrue("Chunked echo timed out", chunkedEchoLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(chunkedEchoLatch.await(5, TimeUnit.SECONDS), "Chunked echo timed out");
     quicClient.close().sync();
   }
 
@@ -3735,7 +3719,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake failed or timed out");
     assertNotNull(connectStream[0]);
 
     CountDownLatch dataLatch = new CountDownLatch(1);
@@ -3800,7 +3784,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Reactive stream ACK failed or timed out", dataLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(dataLatch.await(5, TimeUnit.SECONDS), "Reactive stream ACK failed or timed out");
 
     quicClient.close().sync();
   }
@@ -3903,7 +3887,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake failed or timed out");
     assertNotNull(connectStream[0]);
 
     CountDownLatch dataLatch = new CountDownLatch(1);
@@ -3969,8 +3953,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue(
-        "Pure Reactive stream ACK failed or timed out", dataLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(dataLatch.await(5, TimeUnit.SECONDS), "Pure Reactive stream ACK failed or timed out");
 
     quicClient.close().sync();
   }
@@ -4078,7 +4061,7 @@ public class WebTransportIntegrationTest {
       } catch (Exception e) {
         connectFailed = true;
       }
-      assertTrue("Connection from blocked IP should fail", connectFailed);
+      assertTrue(connectFailed, "Connection from blocked IP should fail");
 
     } finally {
       // 4. Clean up the dynamic override file
@@ -4140,8 +4123,7 @@ public class WebTransportIntegrationTest {
               .remoteAddress(new InetSocketAddress("127.0.0.1", port));
 
       QuicChannel quicClient = bootstrap.connect().sync().getNow();
-      assertTrue(
-          "Whitelisted connection should succeed despite 0 rate limit", quicClient.isActive());
+      assertTrue(quicClient.isActive(), "Whitelisted connection should succeed despite 0 rate limit");
       quicClient.close().sync();
 
     } finally {
@@ -4203,7 +4185,7 @@ public class WebTransportIntegrationTest {
               .remoteAddress(new InetSocketAddress("127.0.0.1", port));
 
       QuicChannel quicClient = bootstrap.connect().sync().getNow();
-      assertTrue("Overrides connection should succeed despite 0 rate limit", quicClient.isActive());
+      assertTrue(quicClient.isActive(), "Overrides connection should succeed despite 0 rate limit");
       quicClient.close().sync();
 
     } finally {
@@ -4277,7 +4259,7 @@ public class WebTransportIntegrationTest {
       } catch (Exception e) {
         connectFailed = true;
       }
-      assertTrue("Connection from blocked IP should fail", connectFailed);
+      assertTrue(connectFailed, "Connection from blocked IP should fail");
 
     } finally {
       if (tempFile.exists()) {
@@ -4400,7 +4382,7 @@ public class WebTransportIntegrationTest {
                 }
               });
 
-      assertTrue("Handshake failed or timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+      assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake failed or timed out");
       // Send WT_STREAMS_BLOCKED capsule to update the limit to max_absolute_streams.bidi=2
       WebTransportUtils.sendStreamsBlockedCapsule(connectStream[0], true, 10);
       Thread.sleep(200);
@@ -4413,8 +4395,7 @@ public class WebTransportIntegrationTest {
                 @Override
                 protected void initChannel(QuicStreamChannel ch) {}
               });
-      assertTrue(
-          "1st stream creation should succeed", s1.await(2, TimeUnit.SECONDS) && s1.isSuccess());
+      assertTrue(s1.await(2, TimeUnit.SECONDS) && s1.isSuccess(), "1st stream creation should succeed");
 
       // 2nd stream creation: should succeed
       Future<QuicStreamChannel> s2 =
@@ -4424,8 +4405,7 @@ public class WebTransportIntegrationTest {
                 @Override
                 protected void initChannel(QuicStreamChannel ch) {}
               });
-      assertTrue(
-          "2nd stream creation should succeed", s2.await(2, TimeUnit.SECONDS) && s2.isSuccess());
+      assertTrue(s2.await(2, TimeUnit.SECONDS) && s2.isSuccess(), "2nd stream creation should succeed");
 
       // Write stream headers to consume limits
       ByteBuf header1 = s1.getNow().alloc().buffer();
@@ -4446,9 +4426,7 @@ public class WebTransportIntegrationTest {
                 @Override
                 protected void initChannel(QuicStreamChannel ch) {}
               });
-      assertTrue(
-          "3rd stream QUIC creation should succeed locally",
-          s3.await(2, TimeUnit.SECONDS) && s3.isSuccess());
+      assertTrue(s3.await(2, TimeUnit.SECONDS) && s3.isSuccess(), "3rd stream QUIC creation should succeed locally");
 
       // Write stream header to s3: triggers server WebTransport limit enforcement
       ByteBuf header3 = s3.getNow().alloc().buffer();
@@ -4457,9 +4435,7 @@ public class WebTransportIntegrationTest {
       s3.getNow().writeAndFlush(header3).await(2, TimeUnit.SECONDS);
 
       // The server must reject it and close the session (which triggers onSessionClosed)
-      assertTrue(
-          "Session should be closed by server due to WebTransport flow control limit",
-          sessionCloseLatch[0].await(5, TimeUnit.SECONDS));
+      assertTrue(sessionCloseLatch[0].await(5, TimeUnit.SECONDS), "Session should be closed by server due to WebTransport flow control limit");
 
       quicClient.close().sync();
 
@@ -4567,7 +4543,7 @@ public class WebTransportIntegrationTest {
                 }
               });
 
-      assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+      assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
       assertEquals("403", responseStatus[0]);
 
       quicClient.close().sync();
@@ -4686,7 +4662,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
 
     byte[] largePayloadBytes = new byte[1000];
     Arrays.fill(largePayloadBytes, (byte) 'A');
@@ -4697,10 +4673,8 @@ public class WebTransportIntegrationTest {
 
     quicClient.writeAndFlush(payloadBuf);
 
-    assertTrue("Datagram ACK timed out", datagramAckLatch.await(5, TimeUnit.SECONDS));
-    assertTrue(
-        "Ack should contain original content prefix",
-        receivedAck[0].startsWith("ACK DG: I received the message from /test-integration: AAAAA"));
+    assertTrue(datagramAckLatch.await(5, TimeUnit.SECONDS), "Datagram ACK timed out");
+    assertTrue(receivedAck[0].startsWith("ACK DG: I received the message from /test-integration: AAAAA"), "Ack should contain original content prefix");
 
     quicClient.close().sync();
   }
@@ -4792,7 +4766,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
 
     ByteBuf malformedFrame = connectStream[0].alloc().buffer();
     WebTransportUtils.writeVarInt(malformedFrame, 0x00);
@@ -4803,9 +4777,7 @@ public class WebTransportIntegrationTest {
     connectStream[0].writeAndFlush(malformedFrame).await(2, TimeUnit.SECONDS);
     connectStream[0].shutdownOutput();
 
-    assertTrue(
-        "CONNECT stream should close due to malformed capsule",
-        connectStream[0].closeFuture().await(5, TimeUnit.SECONDS));
+    assertTrue(connectStream[0].closeFuture().await(5, TimeUnit.SECONDS), "CONNECT stream should close due to malformed capsule");
 
     quicClient.close().sync();
   }
@@ -4897,7 +4869,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
 
     Future<QuicStreamChannel> uniStreamFuture =
         quicClient.createStream(
@@ -4906,9 +4878,7 @@ public class WebTransportIntegrationTest {
               @Override
               protected void initChannel(QuicStreamChannel ch) {}
             });
-    assertTrue(
-        "Uni stream creation should succeed",
-        uniStreamFuture.await(2, TimeUnit.SECONDS) && uniStreamFuture.isSuccess());
+    assertTrue(uniStreamFuture.await(2, TimeUnit.SECONDS) && uniStreamFuture.isSuccess(), "Uni stream creation should succeed");
 
     QuicStreamChannel uniStream = uniStreamFuture.getNow();
     ByteBuf payload = uniStream.alloc().buffer();
@@ -4917,7 +4887,7 @@ public class WebTransportIntegrationTest {
     payload.writeBytes("Hello Uni Stream".getBytes(StandardCharsets.UTF_8));
     uniStream.writeAndFlush(payload).await(2, TimeUnit.SECONDS);
 
-    assertFalse("CONNECT stream should remain active", connectStream[0].closeFuture().isDone());
+    assertFalse(connectStream[0].closeFuture().isDone(), "CONNECT stream should remain active");
 
     Future<QuicStreamChannel> badUniStreamFuture =
         quicClient.createStream(
@@ -4935,9 +4905,7 @@ public class WebTransportIntegrationTest {
                         });
               }
             });
-    assertTrue(
-        "Bad Uni stream creation should succeed",
-        badUniStreamFuture.await(2, TimeUnit.SECONDS) && badUniStreamFuture.isSuccess());
+    assertTrue(badUniStreamFuture.await(2, TimeUnit.SECONDS) && badUniStreamFuture.isSuccess(), "Bad Uni stream creation should succeed");
 
     QuicStreamChannel badUniStream = badUniStreamFuture.getNow();
     ByteBuf badPayload = badUniStream.alloc().buffer();
@@ -4947,10 +4915,8 @@ public class WebTransportIntegrationTest {
     badUniStream.writeAndFlush(badPayload).await(2, TimeUnit.SECONDS);
     badUniStream.shutdownOutput();
 
-    assertTrue(
-        "Bad Uni stream should be closed by server due to incorrect type prefix",
-        badUniStream.closeFuture().await(5, TimeUnit.SECONDS));
-    assertFalse("CONNECT stream should remain active", connectStream[0].closeFuture().isDone());
+    assertTrue(badUniStream.closeFuture().await(5, TimeUnit.SECONDS), "Bad Uni stream should be closed by server due to incorrect type prefix");
+    assertFalse(connectStream[0].closeFuture().isDone(), "CONNECT stream should remain active");
 
     quicClient.close().sync();
   }
@@ -5042,7 +5008,7 @@ public class WebTransportIntegrationTest {
               }
             });
 
-    assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
 
     WebTransportUtils.sendStreamsBlockedCapsule(connectStream[0], true, 10);
 
@@ -5055,9 +5021,7 @@ public class WebTransportIntegrationTest {
         .await(2, TimeUnit.SECONDS);
 
     Thread.sleep(300);
-    assertFalse(
-        "CONNECT stream should remain open since unknown capsules must be ignored",
-        connectStream[0].closeFuture().isDone());
+    assertFalse(connectStream[0].closeFuture().isDone(), "CONNECT stream should remain open since unknown capsules must be ignored");
 
     Future<QuicStreamChannel> s1 =
         quicClient.createStream(
@@ -5066,8 +5030,7 @@ public class WebTransportIntegrationTest {
               @Override
               protected void initChannel(QuicStreamChannel ch) {}
             });
-    assertTrue(
-        "Bidi stream creation should succeed", s1.await(2, TimeUnit.SECONDS) && s1.isSuccess());
+    assertTrue(s1.await(2, TimeUnit.SECONDS) && s1.isSuccess(), "Bidi stream creation should succeed");
 
     quicClient.close().sync();
   }
@@ -5509,7 +5472,7 @@ public class WebTransportIntegrationTest {
                 }
               });
 
-      assertTrue("Handshake timed out", handshakeLatch.await(5, TimeUnit.SECONDS));
+      assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "Handshake timed out");
 
       CountDownLatch bidiLatch = new CountDownLatch(1);
       final int[] totalBytesReceived = new int[1];
@@ -5563,9 +5526,7 @@ public class WebTransportIntegrationTest {
                           });
                 }
               });
-      assertTrue(
-          "Bidi stream creation should succeed",
-          s1Future.await(2, TimeUnit.SECONDS) && s1Future.isSuccess());
+      assertTrue(s1Future.await(2, TimeUnit.SECONDS) && s1Future.isSuccess(), "Bidi stream creation should succeed");
       QuicStreamChannel s1 = s1Future.getNow();
 
       ByteBuf header = s1.alloc().buffer();
@@ -5579,12 +5540,10 @@ public class WebTransportIntegrationTest {
       long startTime = System.currentTimeMillis();
       s1.writeAndFlush(Unpooled.copiedBuffer(payload));
 
-      assertTrue("Echo data transfer timed out", bidiLatch.await(10, TimeUnit.SECONDS));
+      assertTrue(bidiLatch.await(10, TimeUnit.SECONDS), "Echo data transfer timed out");
       long duration = System.currentTimeMillis() - startTime;
 
-      assertTrue(
-          "Data transfer should have been throttled (duration=" + duration + "ms)",
-          duration > 1000);
+      assertTrue(duration > 1000, "Data transfer should have been throttled (duration=" + duration + "ms)");
 
       quicClient.close().sync();
 
@@ -5695,7 +5654,7 @@ public class WebTransportIntegrationTest {
     IpRateLimitingHandler.reloadSharedConfig();
 
     try {
-      assertFalse("Connection from blocked IP should be rejected", tryConnectAndVerifyActive(port));
+      assertFalse(tryConnectAndVerifyActive(port), "Connection from blocked IP should be rejected");
 
       System.clearProperty("webtransport4j.server.ratelimit.blocklist");
       System.setProperty("webtransport4j.server.ratelimit.max_connections_per_ip_per_minute", "2");
@@ -5703,10 +5662,9 @@ public class WebTransportIntegrationTest {
       IpRateLimitingHandler.reloadSharedConfig();
       IpRateLimitingHandler.clearState();
 
-      assertTrue("First connection should be accepted", tryConnectAndVerifyActive(port));
-      assertTrue("Second connection should be accepted", tryConnectAndVerifyActive(port));
-      assertFalse(
-          "Third connection exceeding limit should be rejected", tryConnectAndVerifyActive(port));
+      assertTrue(tryConnectAndVerifyActive(port), "First connection should be accepted");
+      assertTrue(tryConnectAndVerifyActive(port), "Second connection should be accepted");
+      assertFalse(tryConnectAndVerifyActive(port), "Third connection exceeding limit should be rejected");
 
     } finally {
       if (tempFile.exists()) {
@@ -5736,7 +5694,7 @@ public class WebTransportIntegrationTest {
     WebTransportConfig.reload();
     IpRateLimitingHandler.reloadSharedConfig();
 
-    assertTrue("Normally localhost should connect", tryConnectAndVerifyActive(port));
+    assertTrue(tryConnectAndVerifyActive(port), "Normally localhost should connect");
 
     // Now write blocklist to properties file to simulate dynamic file modification
     Files.write(
@@ -5759,9 +5717,7 @@ public class WebTransportIntegrationTest {
     }
 
     try {
-      assertTrue(
-          "After background reload, 127.0.0.1 connection should be rejected by blocklist",
-          rejected);
+      assertTrue(rejected, "After background reload, 127.0.0.1 connection should be rejected by blocklist");
     } finally {
       if (tempFile.exists()) {
         tempFile.delete();

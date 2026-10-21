@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -14,7 +15,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /** Lifecycle regression tests for the independently counted wrapper. */
 public class DefaultNettyWebTransportBufferLifecycleTest {
@@ -95,7 +97,8 @@ public class DefaultNettyWebTransportBufferLifecycleTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void concurrentOwnersReleaseExactlyOneDelegateReference() throws Exception {
     ByteBuf delegate = Unpooled.buffer(8);
     DefaultNettyWebTransportBuffer buffer = new DefaultNettyWebTransportBuffer(delegate);
@@ -135,7 +138,8 @@ public class DefaultNettyWebTransportBufferLifecycleTest {
     }
   }
 
-  @Test(timeout = 15000)
+  @Timeout(value = 15000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void retainRacingFinalReleaseCannotResurrect() throws Exception {
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {

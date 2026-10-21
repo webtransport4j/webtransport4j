@@ -1,8 +1,9 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -30,7 +31,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
@@ -157,7 +158,7 @@ public class SubprotocolNegotiationTest {
 
     // Verify WT-Protocol header is present with selected protocol
     CharSequence wtProtocolHeader = responseFrame.headers().get("wt-protocol");
-    assertNotNull("WT-Protocol header must be present in 200 response", wtProtocolHeader);
+    assertNotNull(wtProtocolHeader, "WT-Protocol header must be present in 200 response");
     assertEquals("\"chat-v2\"", wtProtocolHeader.toString());
 
     // Verify session received the selected subprotocol

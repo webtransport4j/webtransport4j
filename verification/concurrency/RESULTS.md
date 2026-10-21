@@ -39,7 +39,7 @@ The complete Maven test suite is run in the repository's isolated build output t
 
 ```sh
 mvn -Pbench -Dexec.skip=true clean install
-jar --validate --file target-maven/webtransport4j-0.1.0-SNAPSHOT.jar
+jar --validate --file target-maven/webtransport4j-0.1.0.jar
 mvn checkstyle:check
 python3 verification/tla/check.py --jar /path/to/tla2tools.jar
 ```

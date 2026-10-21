@@ -1,7 +1,8 @@
 package io.github.webtransport4j.protocol.compatibility;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -12,7 +13,7 @@ import io.github.webtransport4j.server.WebTransportSessionManager;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.DefaultAttributeMap;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Protocol compatibility tests for IETF WebTransport over HTTP/3 (Draft-16). Section 8: Security
@@ -41,20 +42,18 @@ public class Draft16Section8SecurityConsiderationsTest {
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(0L);
 
     // First session reservation succeeds
-    assertTrue("Single session allowed without flow control", mgr.reserveSession(mockQuic, 10));
+    assertTrue(mgr.reserveSession(mockQuic, 10), "Single session allowed without flow control");
     // Second session MUST be rejected because connection cannot be shared without flow control
-    assertFalse(
-        "Sharing transport connection MUST be rejected without flow control",
-        mgr.reserveSession(mockQuic, 10));
+    assertFalse(mgr.reserveSession(mockQuic, 10), "Sharing transport connection MUST be rejected without flow control");
 
     // When flow control IS negotiated:
     final WebTransportSessionManager multiSessionMgr = new WebTransportSessionManager();
     attrMap.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI).set(10L);
     attrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(10L);
 
-    assertTrue("Session 1 allowed with flow control", multiSessionMgr.reserveSession(mockQuic, 2));
-    assertTrue("Session 2 allowed with flow control", multiSessionMgr.reserveSession(mockQuic, 2));
-    assertFalse("Configured session limit respected", multiSessionMgr.reserveSession(mockQuic, 2));
+    assertTrue(multiSessionMgr.reserveSession(mockQuic, 2), "Session 1 allowed with flow control");
+    assertTrue(multiSessionMgr.reserveSession(mockQuic, 2), "Session 2 allowed with flow control");
+    assertFalse(multiSessionMgr.reserveSession(mockQuic, 2), "Configured session limit respected");
 
     // Verify session stream budget tracking prevents exhaustion
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
@@ -67,7 +66,7 @@ public class Draft16Section8SecurityConsiderationsTest {
   }
 
   private void assertEqualsLimit(long expected, long actual) {
-    org.junit.Assert.assertEquals("Stream limit must be bounded", expected, actual);
+    org.junit.jupiter.api.Assertions.assertEquals(expected, actual, "Stream limit must be bounded");
   }
 
   /**

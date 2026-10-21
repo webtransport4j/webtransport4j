@@ -48,7 +48,7 @@ spec:
 
       containers:
         - name: webtransport4j-node
-          image: ghcr.io/webtransport4j/webtransport4j:latest
+          image: ghcr.io/webtransport4j/webtransport4j:0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: quic-udp

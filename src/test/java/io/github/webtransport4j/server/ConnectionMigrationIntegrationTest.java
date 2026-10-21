@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -46,9 +47,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -143,7 +144,7 @@ public class ConnectionMigrationIntegrationTest {
     }
   }
 
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     setUpServer();
   }
@@ -232,7 +233,7 @@ public class ConnectionMigrationIntegrationTest {
   }
 
   /** Cleans up test fixtures. */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (serverChannel != null) {
       serverChannel.close().sync();
@@ -392,7 +393,7 @@ public class ConnectionMigrationIntegrationTest {
               }
             });
 
-    assertTrue("CONNECT handshake failed", handshakeLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(handshakeLatch.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
     // Create Bi-Di stream
     final QuicStreamChannel[] bidiStream = new QuicStreamChannel[1];
@@ -462,7 +463,7 @@ public class ConnectionMigrationIntegrationTest {
               }
             });
 
-    assertTrue("Stream creation failed", streamLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(streamLatch.await(5, TimeUnit.SECONDS), "Stream creation failed");
     QuicStreamChannel stream = bidiStream[0];
     long sessionId = connectStream[0].streamId();
 
@@ -473,8 +474,7 @@ public class ConnectionMigrationIntegrationTest {
     data1.writeBytes("PING 1".getBytes(StandardCharsets.UTF_8));
     stream.writeAndFlush(data1);
 
-    assertTrue(
-        "Failed to receive PONG 1 before migration", preMigrationLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(preMigrationLatch.await(5, TimeUnit.SECONDS), "Failed to receive PONG 1 before migration");
 
     // MIGRATE (Simulate Network Change)
     proxy.migrate();
@@ -485,23 +485,15 @@ public class ConnectionMigrationIntegrationTest {
     data2.writeBytes("PING 2".getBytes(StandardCharsets.UTF_8));
     stream.writeAndFlush(data2);
 
-    assertTrue(
-        "Failed to receive PONG 2 AFTER migration! Connection Migration broke!",
-        postMigrationLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(postMigrationLatch.await(5, TimeUnit.SECONDS), "Failed to receive PONG 2 AFTER migration! Connection Migration broke!");
 
-    assertNotNull("Pre-migration address should not be null", preMigrationAddress.get());
-    assertNotNull("Post-migration address should not be null", postMigrationAddress.get());
-    assertNotEquals(
-        "The client's source port MUST change to prove connection migration!",
-        preMigrationAddress.get().getPort(),
-        postMigrationAddress.get().getPort());
+    assertNotNull(preMigrationAddress.get(), "Pre-migration address should not be null");
+    assertNotNull(postMigrationAddress.get(), "Post-migration address should not be null");
+    assertNotEquals(preMigrationAddress.get().getPort(), postMigrationAddress.get().getPort(), "The client's source port MUST change to prove connection migration!");
 
-    assertNotNull("Pre-migration ChannelId should not be null", preMigrationChannelId.get());
-    assertEquals(
-        "The underlying QUIC Connection object MUST remain identical to prove no new handshake"
-            + " occurred!",
-        preMigrationChannelId.get(),
-        postMigrationChannelId.get());
+    assertNotNull(preMigrationChannelId.get(), "Pre-migration ChannelId should not be null");
+    assertEquals(preMigrationChannelId.get(), postMigrationChannelId.get(), "The underlying QUIC Connection object MUST remain identical to prove no new handshake"
+            + " occurred!");
 
     log.info(
         "✅ VERIFIED: Server detected port change from "

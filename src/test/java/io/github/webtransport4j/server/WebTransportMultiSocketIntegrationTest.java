@@ -1,7 +1,8 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -37,9 +38,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.NonNull;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,7 +67,7 @@ public class WebTransportMultiSocketIntegrationTest {
    *
    * @throws Exception if setup fails
    */
-  @Before
+  @BeforeEach
   public void setUp() throws Exception {
     serverDatagramReceivedLatch = new CountDownLatch(1);
     clientDatagramReceivedLatch = new CountDownLatch(1);
@@ -114,7 +115,7 @@ public class WebTransportMultiSocketIntegrationTest {
    *
    * @throws Exception if teardown fails
    */
-  @After
+  @AfterEach
   public void tearDown() throws Exception {
     if (clientQuicChannel != null && clientQuicChannel.isActive()) {
       clientQuicChannel.close().sync();
@@ -132,8 +133,8 @@ public class WebTransportMultiSocketIntegrationTest {
 
   @Test
   public void testMultiSocketDatagramExchange() throws Exception {
-    assertTrue("Server should have at least 1 bound socket", server.getChannels().size() >= 1);
-    assertTrue("Server should be started", server.isStarted());
+    assertTrue(server.getChannels().size() >= 1, "Server should have at least 1 bound socket");
+    assertTrue(server.isStarted(), "Server should be started");
 
     clientGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
 
@@ -208,7 +209,7 @@ public class WebTransportMultiSocketIntegrationTest {
             .remoteAddress(new InetSocketAddress("127.0.0.1", server.getPort()));
 
     clientQuicChannel = qcb.connect().get(5, TimeUnit.SECONDS);
-    assertTrue("Client QUIC connection should be active", clientQuicChannel.isActive());
+    assertTrue(clientQuicChannel.isActive(), "Client QUIC connection should be active");
 
     CountDownLatch connectReady = new CountDownLatch(1);
     QuicStreamChannel[] connectHolder = new QuicStreamChannel[1];
@@ -250,7 +251,7 @@ public class WebTransportMultiSocketIntegrationTest {
 
     connectStream.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
-    assertTrue("CONNECT handshake failed", connectReady.await(5, TimeUnit.SECONDS));
+    assertTrue(connectReady.await(5, TimeUnit.SECONDS), "CONNECT handshake failed");
 
     long sessionId = connectHolder[0].streamId();
 
@@ -261,14 +262,10 @@ public class WebTransportMultiSocketIntegrationTest {
 
     clientQuicChannel.writeAndFlush(datagramBuf).sync();
 
-    assertTrue(
-        "Server should receive datagram through multi-socket dispatcher",
-        serverDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(serverDatagramReceivedLatch.await(5, TimeUnit.SECONDS), "Server should receive datagram through multi-socket dispatcher");
     assertEquals("MULTI_SOCKET_HELLO", lastReceivedServerDatagram);
 
-    assertTrue(
-        "Client should receive echoed datagram from server",
-        clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS));
+    assertTrue(clientDatagramReceivedLatch.await(5, TimeUnit.SECONDS), "Client should receive echoed datagram from server");
     assertEquals("MULTI_ECHO:MULTI_SOCKET_HELLO", lastReceivedClientDatagram);
   }
 }

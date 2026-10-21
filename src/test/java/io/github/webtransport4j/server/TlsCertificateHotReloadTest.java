@@ -1,9 +1,10 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
@@ -12,16 +13,17 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
 /** Tests for TLS certificate hot reload watcher. */
 public class TlsCertificateHotReloadTest {
 
-  @Rule public TemporaryFolder tempFolder = new TemporaryFolder();
+  @TempDir java.nio.file.Path tempFolder;
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void failedReloadRetriesWithSecurityCustomization() throws Exception {
     SelfSignedCertificate certificate = new SelfSignedCertificate("localhost");
     AtomicInteger customized = new AtomicInteger();
@@ -57,8 +59,8 @@ public class TlsCertificateHotReloadTest {
   @Test
   public void testTlsCertificateHotReloadWatcher() throws Exception {
     SelfSignedCertificate cert1 = new SelfSignedCertificate("localhost");
-    File keyFile = tempFolder.newFile("key.pem");
-    File certFile = tempFolder.newFile("cert.pem");
+    File keyFile = java.nio.file.Files.createFile(tempFolder.resolve("key.pem")).toFile();
+    File certFile = java.nio.file.Files.createFile(tempFolder.resolve("cert.pem")).toFile();
 
     // Copy initial cert files
     Files.copy(cert1.privateKey().toPath(), keyFile.toPath(), StandardCopyOption.REPLACE_EXISTING);

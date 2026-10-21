@@ -1,10 +1,11 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThrows;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,7 +17,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import javax.net.ssl.SSLEngine;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests verifying the TLS Keying Material Exporter context structure and domain separation per
@@ -107,9 +108,7 @@ public class WebTransportKeyExporterTest {
 
     assertEquals(32, keySession0.length);
     assertEquals(32, keySession4.length);
-    assertFalse(
-        "Keys for different sessions MUST be cryptographically distinct",
-        Arrays.equals(keySession0, keySession4));
+    assertFalse(Arrays.equals(keySession0, keySession4), "Keys for different sessions MUST be cryptographically distinct");
   }
 
   @Test

@@ -1,10 +1,11 @@
 package io.github.webtransport4j.resilience;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.concurrency.ConcurrencySupport;
 import java.util.ArrayList;
@@ -15,7 +16,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Tests for {@link AdaptiveCircuitBreaker} and {@link AdaptiveOverloadProtectionPolicy}.
@@ -66,7 +68,8 @@ public class AdaptiveOverloadProtectionTest {
     assertTrue(breaker.allowExecution());
   }
 
-  @Test(timeout = 10000)
+  @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
   public void testOnlyOneConcurrentRecoveryProbeIsAdmitted() throws Exception {
     AdaptiveCircuitBreaker breaker = new AdaptiveCircuitBreaker(2, 1000L);
     breaker.trip();
@@ -92,7 +95,7 @@ public class AdaptiveOverloadProtectionTest {
           admitted++;
         }
       }
-      assertEquals("Recovery must admit exactly one probe", 1, admitted);
+      assertEquals(1, admitted, "Recovery must admit exactly one probe");
       assertFalse(breaker.allowExecution());
       breaker.recordFailure();
       assertEquals(AdaptiveCircuitBreaker.State.OPEN, breaker.getState());
@@ -219,8 +222,8 @@ public class AdaptiveOverloadProtectionTest {
   @Test
   public void testCalculateHeapUsageRatioValidRange() {
     double ratio = AdaptiveOverloadProtectionPolicy.calculateHeapUsageRatio();
-    assertTrue("Heap ratio must be >= 0.0", ratio >= 0.0);
-    assertTrue("Heap ratio must be <= 1.0", ratio <= 1.0);
+    assertTrue(ratio >= 0.0, "Heap ratio must be >= 0.0");
+    assertTrue(ratio <= 1.0, "Heap ratio must be <= 1.0");
   }
 
   /**

@@ -1,13 +1,14 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * Validates that {@link WebTransportDetectorHandler} preserves {@link WebTransportChunkedWriteHandler}
@@ -34,14 +35,10 @@ public class WebTransportDetectorHandlerPipelineTest {
     channel.writeInbound(in);
 
     // WebTransportChunkedWriteHandler MUST be preserved in the pipeline
-    assertNotNull(
-        "WebTransportChunkedWriteHandler must be preserved in hijacked pipeline",
-        channel.pipeline().get(WebTransportChunkedWriteHandler.class));
+    assertNotNull(channel.pipeline().get(WebTransportChunkedWriteHandler.class), "WebTransportChunkedWriteHandler must be preserved in hijacked pipeline");
 
     // HTTP/3 handler should have been removed
-    assertNull(
-        "Dummy HTTP/3 handler should be removed from hijacked pipeline",
-        channel.pipeline().get("dummyHttp3Handler"));
+    assertNull(channel.pipeline().get("dummyHttp3Handler"), "Dummy HTTP/3 handler should be removed from hijacked pipeline");
 
     channel.finishAndReleaseAll();
   }

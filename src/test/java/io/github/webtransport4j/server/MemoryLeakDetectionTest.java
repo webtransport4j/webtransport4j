@@ -1,11 +1,12 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakTracker;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /**
  * A test case designed to intentionally leak an object to verify that Netty's leak detection logic
@@ -57,6 +58,6 @@ public class MemoryLeakDetectionTest {
       }
     }
 
-    assertTrue("Netty's leak detection failed to catch the memory leak!", leakDetected.get());
+    assertTrue(leakDetected.get(), "Netty's leak detection failed to catch the memory leak!");
   }
 }

@@ -1,10 +1,11 @@
 package io.github.webtransport4j.server;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -28,7 +29,7 @@ import io.netty.util.Attribute;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 /** Test cases for stream buffering. */
 public class StreamBufferingTest {
@@ -159,22 +160,31 @@ public class StreamBufferingTest {
     WebTransportServer.validateConfig(10, 5, 20, 10, 1000, 500);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testConfigValidationBidiMismatch() {
-    // QUIC bidi is smaller than WT bidi
-    WebTransportServer.validateConfig(4, 5, 20, 10, 1000, 500);
+    Assertions.assertThrows(IllegalArgumentException.class, () -> {
+      // QUIC bidi is smaller than WT bidi
+      WebTransportServer.validateConfig(4, 5, 20, 10, 1000, 500);
+
+    });
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testConfigValidationUniMismatch() {
-    // QUIC uni is smaller than WT uni
-    WebTransportServer.validateConfig(10, 5, 9, 10, 1000, 500);
+    Assertions.assertThrows(IllegalArgumentException.class, () -> {
+      // QUIC uni is smaller than WT uni
+      WebTransportServer.validateConfig(10, 5, 9, 10, 1000, 500);
+
+    });
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test
   public void testConfigValidationDataMismatch() {
-    // QUIC initial max data is smaller than WT initial max data
-    WebTransportServer.validateConfig(10, 5, 20, 10, 499, 500);
+    Assertions.assertThrows(IllegalArgumentException.class, () -> {
+      // QUIC initial max data is smaller than WT initial max data
+      WebTransportServer.validateConfig(10, 5, 20, 10, 499, 500);
+
+    });
   }
 
   @SuppressWarnings("unchecked")
