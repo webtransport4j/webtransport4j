@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
  */
 public class MemoryLeakDetectionTest {
 
+  private static volatile Object leakedRef;
+
   @Test
   public void testIntentionalMemoryLeak() throws InterruptedException {
     AtomicBoolean leakDetected = new AtomicBoolean(false);
@@ -34,17 +36,21 @@ public class MemoryLeakDetectionTest {
           }
         };
 
-    // Track a dummy object
-    Object dummyLeakedObject = new Object();
-    ResourceLeakTracker<Object> tracker = detector.track(dummyLeakedObject);
+    // Track a dummy object via volatile static reference to prevent JIT escape analysis optimization
+    leakedRef = new Object();
+    ResourceLeakTracker<Object> tracker = detector.track(leakedRef);
 
     // Intentionally lose the reference without calling tracker.close(dummyLeakedObject)
-    dummyLeakedObject = null;
+    leakedRef = null;
 
-    // Force Garbage Collection a few times to trigger the LeakDetector's phantom references
-    for (int i = 0; i < 30; i++) {
+    // Force Garbage Collection to trigger the LeakDetector's phantom references
+    for (int i = 0; i < 50; i++) {
       System.gc();
       Thread.sleep(100);
+
+      // Allocate garbage byte arrays to force young generation collection and phantom reference enqueuing
+      byte[] garbage = new byte[512 * 1024];
+      garbage[0] = (byte) i;
 
       // Allocate another tracked object to trigger the detector check
       Object trigger = new Object();

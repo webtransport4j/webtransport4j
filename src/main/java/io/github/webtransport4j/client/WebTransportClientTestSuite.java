@@ -341,10 +341,12 @@ public class WebTransportClientTestSuite {
 
       // Ensure background tasks for the primary session completed
       logger.info("🎧 Verifying Server-Initiated Streams...");
-      if (serverUniLatch.await(5, TimeUnit.SECONDS) && serverBidiLatch.await(5, TimeUnit.SECONDS)) {
+      boolean uniOk = serverUniLatch.await(15, TimeUnit.SECONDS);
+      boolean bidiOk = serverBidiLatch.await(15, TimeUnit.SECONDS);
+      if (uniOk && bidiOk) {
         logger.info("✅ Server Streams Received, Verified, and Handled.");
       } else {
-        logger.warn("⚠️ Timeout waiting for server-initiated streams.");
+        logger.warn("⚠️ Timeout waiting for server-initiated streams (uni: {}, bidi: {}).", uniOk, bidiOk);
       }
       System.out.println("");
 
