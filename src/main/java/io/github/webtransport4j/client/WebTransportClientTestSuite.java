@@ -850,8 +850,9 @@ public class WebTransportClientTestSuite {
 
   private static void testHeartbeatIdle(Session session) throws Exception {
     logger.info("🧪 --- Running Heartbeat / Idle Test ---");
-    logger.info("Sleeping for 15 seconds to verify connection stability...");
-    Thread.sleep(15000);
+    long idleSleepMs = Long.getLong("webtransport4j.test.idle.sleep.ms", 15000L);
+    logger.info("Sleeping for {} ms to verify connection stability...", idleSleepMs);
+    Thread.sleep(idleSleepMs);
 
     // Verify connection is still alive by running a quick uni test
     String payloadId = "PingAfterSleep_" + System.currentTimeMillis();
@@ -898,6 +899,10 @@ public class WebTransportClientTestSuite {
 
   private static void testHeartbeatTimeoutNegative(String url, EventLoopGroup group)
       throws Exception {
+    if (Boolean.getBoolean("webtransport4j.test.skip.timeout")) {
+      logger.info("⏩ Skipping Heartbeat Timeout Negative Test (-Dwebtransport4j.test.skip.timeout=true)");
+      return;
+    }
     logger.info("🧪 --- Running Heartbeat Timeout Negative Test ---");
     logger.info("🔗 Establishing a separate connection to test timeout drops...");
     CountDownLatch dummyUni = new CountDownLatch(1);
