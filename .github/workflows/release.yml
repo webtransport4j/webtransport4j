@@ -1,0 +1,55 @@
+name: Publish to Maven Central
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish Release Artifacts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25 & Maven settings
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: temurin
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Validate multi-release build
+        run: mvn --batch-mode clean package -DskipTests
+
+      - name: Validate release JAR integrity
+        run: |
+          artifact=$(find target -maxdepth 1 -name "webtransport4j-*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" ! -name "*-examples.jar")
+          jar --validate --file "$artifact"
+          python3 scripts/verify-release-artifact.py "$artifact" pom.xml
+
+      - name: Deploy to Sonatype Central Portal
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: |
+          mvn --batch-mode deploy -P release -DskipTests
+
+      - name: Upload JARs to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload ${{ github.event.release.tag_name }} \
+            target/webtransport4j-*.jar \
+            target/webtransport4j-*.jar.sha256 \
+            pom.xml --clobber
