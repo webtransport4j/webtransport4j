@@ -20,9 +20,7 @@ public class StreamPriorityTest {
     assertFalse(StreamPriority.DEFAULT_INCREMENTAL);
 
     assertEquals(3, StreamPriority.DEFAULT.urgency());
-    assertEquals(3, StreamPriority.DEFAULT.getUrgency());
     assertFalse(StreamPriority.DEFAULT.isIncremental());
-    assertFalse(StreamPriority.DEFAULT.incremental());
 
     assertEquals(0, StreamPriority.HIGHEST.urgency());
     assertFalse(StreamPriority.HIGHEST.isIncremental());

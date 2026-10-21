@@ -895,10 +895,6 @@ public class WebTransportServer implements AutoCloseable {
     return state.get() == ServerState.DRAINING;
   }
 
-  /** Returns the number of active WebTransport sessions across all QUIC connections. */
-  public int getActiveSessionsCount() {
-    return getActiveSessionCount();
-  }
 
   /**
    * Enters the coordinated draining phase per WebTransport Draft-16.

@@ -608,8 +608,8 @@ StreamPriority incOnly    = StreamPriority.incremental(true); // default urgency
 StreamPriority modified = custom.withUrgency(0).withIncremental(false);
 
 // Querying priority
-int urgency   = custom.urgency();       // or custom.getUrgency()
-boolean isInc = custom.isIncremental(); // or custom.incremental()
+int urgency   = custom.urgency();
+boolean isInc = custom.isIncremental();
 
 // 1. Setting priority at stream creation:
 session.createBiStream(StreamPriority.of(1, true))

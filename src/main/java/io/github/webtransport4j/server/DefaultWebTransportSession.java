@@ -290,11 +290,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return boundHandler;
   }
 
-  /** Alias for {@link #getBoundHandler()}. */
-  @Override
-  public @Nullable WebTransportHandler getHandler() {
-    return boundHandler;
-  }
 
   /** Binds the handler resolved for this session's path upon admission. */
   @Override
