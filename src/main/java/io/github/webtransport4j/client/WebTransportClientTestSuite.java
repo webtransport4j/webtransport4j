@@ -98,6 +98,9 @@ public class WebTransportClientTestSuite {
 
                 @Override
                 protected void channelRead0(ChannelHandlerContext ctx2, ByteBuf msg) {
+                  if (accum.refCnt() <= 0) {
+                    return;
+                  }
                   accum.writeBytes(msg);
                   String content = accum.toString(StandardCharsets.UTF_8);
                   if (content.contains("Hello from Server-Initiated Bidirectional Stream!")) {
@@ -113,7 +116,9 @@ public class WebTransportClientTestSuite {
                     ctx2.writeAndFlush(reply)
                         .addListener(
                             f -> {
-                              accum.release();
+                              if (accum.refCnt() > 0) {
+                                accum.release();
+                              }
                               ctx2.close();
                             });
                   }
@@ -122,8 +127,18 @@ public class WebTransportClientTestSuite {
                 @Override
                 public void exceptionCaught(ChannelHandlerContext ctx2, Throwable cause) {
                   logger.error("Error on server-initiated bidi stream", cause);
-                  accum.release();
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
                   ctx2.close();
+                }
+
+                @Override
+                public void channelInactive(ChannelHandlerContext ctx2) throws Exception {
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
+                  super.channelInactive(ctx2);
                 }
               });
     }
@@ -139,6 +154,9 @@ public class WebTransportClientTestSuite {
 
                 @Override
                 protected void channelRead0(ChannelHandlerContext ctx2, ByteBuf msg) {
+                  if (accum.refCnt() <= 0) {
+                    return;
+                  }
                   accum.writeBytes(msg);
                   String content = accum.toString(StandardCharsets.UTF_8);
 
@@ -150,7 +168,9 @@ public class WebTransportClientTestSuite {
                     logger.info("📥 Accepted Server Uni Stream data: {}", content);
                     pendingVerifications.remove("Server_Uni_Received");
                     serverUniLatch.countDown();
-                    accum.release();
+                    if (accum.refCnt() > 0) {
+                      accum.release();
+                    }
                     ctx2.close();
                   }
                 }
@@ -158,8 +178,18 @@ public class WebTransportClientTestSuite {
                 @Override
                 public void exceptionCaught(ChannelHandlerContext ctx2, Throwable cause) {
                   logger.error("Error on server-initiated uni stream", cause);
-                  accum.release();
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
                   ctx2.close();
+                }
+
+                @Override
+                public void channelInactive(ChannelHandlerContext ctx2) throws Exception {
+                  if (accum.refCnt() > 0) {
+                    accum.release();
+                  }
+                  super.channelInactive(ctx2);
                 }
               });
     }
@@ -304,12 +334,14 @@ public class WebTransportClientTestSuite {
     CountDownLatch serverBidiLatch = new CountDownLatch(1);
 
     try {
+      pendingVerifications.clear();
+      uniStreamListeners.clear();
+      pendingVerifications.add("Server_Uni_Received");
+      pendingVerifications.add("Server_Bidi_Received");
+
       logger.info("🔗 Connecting to {}...", url);
       final Session session = connect(url, group, serverUniLatch, serverBidiLatch);
       logger.info("✅ Connection Established!\n");
-
-      pendingVerifications.add("Server_Uni_Received");
-      pendingVerifications.add("Server_Bidi_Received");
 
       // Wait a moment for server to issue greetings
       Thread.sleep(1000);
