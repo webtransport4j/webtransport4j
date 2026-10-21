@@ -98,14 +98,6 @@ public final class StreamPriority implements Comparable<StreamPriority> {
     return urgency;
   }
 
-  /**
-   * Returns the urgency level (0 to 7).
-   *
-   * @return urgency level
-   */
-  public int getUrgency() {
-    return urgency;
-  }
 
   /**
    * Creates a {@link StreamPriority} with the default urgency and the given incremental flag.
@@ -117,14 +109,6 @@ public final class StreamPriority implements Comparable<StreamPriority> {
     return of(DEFAULT_URGENCY, incremental);
   }
 
-  /**
-   * Returns whether incremental scheduling is enabled.
-   *
-   * @return true if incremental scheduling is enabled
-   */
-  public boolean incremental() {
-    return incremental;
-  }
 
   /**
    * Returns whether incremental scheduling is enabled.

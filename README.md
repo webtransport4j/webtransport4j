@@ -27,6 +27,7 @@
     <img src="https://img.shields.io/badge/license-Apache%202.0-2ea44f?style=flat-square" alt="Apache License 2.0">
   </a>
   <a href="https://deepwiki.com/webtransport4j/webtransport4j"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="https://www.bestpractices.dev/projects/15763"><img src="https://www.bestpractices.dev/projects/15763/badge"></a>
 </p>
 
 <p align="center">

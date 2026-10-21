@@ -144,7 +144,11 @@ public class RateLimitBackendTest {
     assertEquals(1, handler.getEffectiveBackend().incrementAndGet("10.0.0.1", 1000L, 1));
     IpRateLimitingHandler.clearState();
     assertEquals(1, handler.getEffectiveBackend().incrementAndGet("10.0.0.1", 1000L, 1));
+    // reloadSharedConfig preserves active rate-limit counters to avoid DoS burst windows
     IpRateLimitingHandler.reloadSharedConfig();
+    assertEquals(2, handler.getEffectiveBackend().incrementAndGet("10.0.0.1", 1000L, 1));
+    // explicit clearState resets counters
+    IpRateLimitingHandler.clearState();
     assertEquals(1, handler.getEffectiveBackend().incrementAndGet("10.0.0.1", 1000L, 1));
   }
 

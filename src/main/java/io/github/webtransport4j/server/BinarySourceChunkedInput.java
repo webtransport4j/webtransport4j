@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.BinarySource;
 import io.github.webtransport4j.api.ZeroCopyBinarySource;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.stream.ChunkedInput;
 import java.io.IOException;
@@ -82,6 +83,10 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
       }
     }
 
+    if (source instanceof ByteBufBinarySource) {
+      return readByteBufChunk((ByteBufBinarySource) source, currentChunkSize);
+    }
+
     if (source instanceof ZeroCopyBinarySource) {
       return readZeroCopyChunk((ZeroCopyBinarySource) source, currentChunkSize);
     }
@@ -135,7 +140,38 @@ public final class BinarySourceChunkedInput implements ChunkedInput<ByteBuf> {
 
   private @Nullable ByteBuf readZeroCopyChunk(
       @NonNull ZeroCopyBinarySource zeroCopySource, int currentChunkSize) throws IOException {
-    ByteBuf chunk = zeroCopySource.readRetainedChunk(currentChunkSize);
+    ByteBuffer nioChunk = zeroCopySource.readZeroCopyChunk(currentChunkSize);
+    if (nioChunk == null) {
+      eof = true;
+      close();
+      return null;
+    }
+    int totalRead = nioChunk.remaining();
+    if (totalRead == 0) {
+      return null;
+    }
+    ByteBuf chunk = Unpooled.wrappedBuffer(nioChunk);
+    try {
+      progress += totalRead;
+      if (source.hasKnownSize() && progress >= source.size()) {
+        eof = true;
+        close();
+      }
+      if (logger.isDebugEnabled()) {
+        logger.debug(
+            "Read zero-copy chunk of {} bytes. Total progress: {} bytes", totalRead, progress);
+      }
+      return chunk;
+    } catch (Throwable t) {
+      chunk.release();
+      close();
+      throw t;
+    }
+  }
+
+  private @Nullable ByteBuf readByteBufChunk(
+      @NonNull ByteBufBinarySource byteBufSource, int currentChunkSize) throws IOException {
+    ByteBuf chunk = byteBufSource.readRetainedChunk(currentChunkSize);
     if (chunk == null) {
       eof = true;
       close();

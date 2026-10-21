@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.webtransport4j.server.BinarySourceChunkedInput;
+import io.github.webtransport4j.server.ByteBufBinarySource;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
@@ -102,7 +103,7 @@ public class BinarySourcesTest {
   @Test
   public void testByteBufBinarySource() throws IOException {
     ByteBuf buf = Unpooled.wrappedBuffer(testData);
-    BinarySource source = BinarySources.fromByteBuf(buf);
+    BinarySource source = new ByteBufBinarySource(buf);
     assertEquals(testData.length, source.size());
     verifySource(source);
     assertEquals(0, buf.readableBytes(), "Underlying Netty ByteBuf readerIndex should be exhausted");
@@ -132,7 +133,7 @@ public class BinarySourcesTest {
   public void testChunkedInputUsesRetainedByteBufSlices() throws Exception {
     ByteBuf sourceBuffer = Unpooled.wrappedBuffer("abcdef".getBytes());
     BinarySourceChunkedInput input =
-        new BinarySourceChunkedInput(BinarySources.fromByteBuf(sourceBuffer), 4);
+        new BinarySourceChunkedInput(new ByteBufBinarySource(sourceBuffer), 4);
 
     ByteBuf first = input.readChunk(ByteBufAllocator.DEFAULT);
     assertEquals(4, first.readableBytes());
