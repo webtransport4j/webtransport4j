@@ -371,7 +371,7 @@ public class WebTransportSessionManager {
     }
   }
 
-  private void putSession(
+  void putSession(
       long sessionStreamId, @NonNull NettyWebTransportSession session) {
     for (;;) {
       SessionHolder current = SESSION_HOLDER_HANDLE.get(this);
