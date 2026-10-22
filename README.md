@@ -31,7 +31,7 @@
 </a>
   <a href="https://www.bestpractices.dev/projects/15763"><img src="https://www.bestpractices.dev/projects/15763/badge"></a>
   <a href="https://github.com/webtransport4j/webtransport4j/actions">
-  <img src="https://github.com/webtransport4j/webtransport4j/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI Status">
+  <img src="https://github.com/webtransport4j/webtransport4j/actions/workflows/ci.yml/badge.svg?branch=main" alt="Build Status">
 </a>
 </p>
 
