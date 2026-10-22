@@ -359,22 +359,43 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                       : session.getActiveClientInitiatedUni().size();
               long currentLimit =
                   isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+              long maxAbsolute =
+                  WebTransportConfig.getLong(
+                      isBidi
+                          ? "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi"
+                          : "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni",
+                      5000L);
               long newLimit =
                   Math.min(
                       policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount),
                       0x3FFFFFFFFFFFFFFFL);
-              if (newLimit > currentLimit) {
+              if (currentLimit > maxAbsolute) {
+                long clamped = Math.min(newLimit > 0 ? newLimit : maxAbsolute, maxAbsolute);
                 if (isBidi) {
-                  session.setSettingsMaxStreamsBidi(newLimit);
+                  session.setSettingsMaxStreamsBidi(clamped);
                 } else {
-                  session.setSettingsMaxStreamsUni(newLimit);
+                  session.setSettingsMaxStreamsUni(clamped);
                 }
                 logger.debug(
-                    "📊 WT_STREAMS_BLOCKED received. Policy extended {} limit to {}",
+                    "📊 WT_STREAMS_BLOCKED received. Clamped {} limit from {} to absolute cap {}",
                     isBidi ? "bidi" : "uni",
-                    newLimit);
-                WebTransportUtils.sendMaxStreamsCapsule(
-                    session.getConnectStream(), isBidi, newLimit);
+                    currentLimit,
+                    clamped);
+              } else if (newLimit > currentLimit) {
+                long effectiveLimit = Math.min(newLimit, maxAbsolute);
+                if (effectiveLimit > currentLimit) {
+                  if (isBidi) {
+                    session.setSettingsMaxStreamsBidi(effectiveLimit);
+                  } else {
+                    session.setSettingsMaxStreamsUni(effectiveLimit);
+                  }
+                  logger.debug(
+                      "📊 WT_STREAMS_BLOCKED received. Policy extended {} limit to {}",
+                      isBidi ? "bidi" : "uni",
+                      effectiveLimit);
+                  WebTransportUtils.sendMaxStreamsCapsule(
+                      session.getConnectStream(), isBidi, effectiveLimit);
+                }
               } else {
                 logger.debug(
                     "ℹ️ WT_STREAMS_BLOCKED received but policy returned {} "
