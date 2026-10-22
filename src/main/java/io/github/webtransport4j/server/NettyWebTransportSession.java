@@ -7,6 +7,8 @@ import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -525,4 +527,34 @@ public interface NettyWebTransportSession extends WebTransportSession {
    * stream writability.
    */
   void notifyOutboundFlowControlResumed();
+
+  /**
+   * Enqueues an outbound write when session flow control credits are exhausted.
+   *
+   * @param ctx the channel handler context
+   * @param data the byte buffer to write
+   * @param promise the channel promise
+   * @return {@code true} if enqueued, {@code false} if queue capacity was exceeded or queueing is disabled
+   */
+  boolean enqueuePendingOutboundWrite(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data, @NonNull ChannelPromise promise);
+
+  /**
+   * Drains and flushes queued outbound writes whose bytes fit within the updated peer limit.
+   */
+  void drainPendingOutboundWrites();
+
+  /**
+   * Returns {@code true} if there are pending outbound writes queued waiting for flow control credits.
+   *
+   * @return true if writes are queued
+   */
+  boolean hasPendingOutboundWrites();
+
+  /**
+   * Returns the current number of pending outbound bytes queued.
+   *
+   * @return queued outbound bytes
+   */
+  long getPendingOutboundBytes();
 }

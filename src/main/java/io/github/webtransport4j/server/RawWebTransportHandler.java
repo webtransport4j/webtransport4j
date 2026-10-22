@@ -252,9 +252,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
       return;
     }
     long peerLimit = session.getPeerSettingsMaxData();
-    // Atomically reserve outbound bytes using CAS to prevent the check-then-act race
-    // that could allow concurrent streams to exceed the peer's flow control limit.
-    if (!session.tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
+    // If pending writes are already queued, this write must be queued to preserve FIFO ordering,
+    // or attempt to reserve bytes if queue is empty.
+    if (session.hasPendingOutboundWrites() || !session.tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
       session.notifyOutboundFlowControlPaused();
       // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
       if (session.tryRecordDataBlockedLimit(peerLimit)) {
@@ -265,20 +265,24 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
             peerLimit);
         WebTransportUtils.sendDataBlockedCapsule(session.getConnectStream(), peerLimit);
       }
-      // Fail the write request immediately and release buffer to avoid leaks
-      try {
-        data.release();
-      } catch (Exception expected) {
+      if (!session.enqueuePendingOutboundWrite(ctx, data, promise)) {
+        // Queue full or queueing disabled; fail immediately and release buffer to avoid leaks
+        try {
+          data.release();
+        } catch (Exception expected) {
+        }
+        promise.setFailure(
+            new IOException(
+                "Flow control limit exceeded for session "
+                    + session.getSessionStreamId()
+                    + ": write ("
+                    + bytesToWrite
+                    + ") exceeds peer limit ("
+                    + peerLimit
+                    + ")"));
+        return;
       }
-      promise.setFailure(
-          new IOException(
-              "Flow control limit exceeded for session "
-                  + session.getSessionStreamId()
-                  + ": write ("
-                  + bytesToWrite
-                  + ") exceeds peer limit ("
-                  + peerLimit
-                  + ")"));
+      session.drainPendingOutboundWrites();
       return;
     }
     if (!session.isOutboundFlowControlWritable()) {

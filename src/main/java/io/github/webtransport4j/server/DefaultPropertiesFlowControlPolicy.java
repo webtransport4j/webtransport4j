@@ -58,4 +58,11 @@ public class DefaultPropertiesFlowControlPolicy implements SessionFlowControlPol
     }
     return 0L;
   }
+
+  @Override
+  public long getMaxPendingOutboundBytes() {
+    return WebTransportConfig.getLong(
+        "webtransport4j.webtransport.flowcontrol.max.pending.outbound.bytes",
+        64L * 1024 * 1024);
+  }
 }

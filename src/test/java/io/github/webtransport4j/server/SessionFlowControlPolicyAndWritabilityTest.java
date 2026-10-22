@@ -323,7 +323,80 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     assertFalse(session.isOutboundFlowControlWritable());
     assertFalse(stream.isWritable());
 
-    // 2. Attempt next write exceeding limit -> rejected and paused
+    // 2. Attempt next write exceeding limit -> queued in session instead of dropped
+    ByteBuf data2 = Unpooled.buffer(10);
+    data2.writeZero(10);
+    ChannelPromise promise2 = mock(ChannelPromise.class);
+
+    handler.write(mockCtx, data2, promise2);
+
+    assertTrue(session.hasPendingOutboundWrites());
+    assertEquals(10L, session.getPendingOutboundBytes());
+    assertFalse(stream.isWritable());
+
+    // 3. Replenishing credits via WT_MAX_DATA drains queued write and restores writability
+    session.setPeerSettingsMaxData(100L);
+    assertFalse(session.hasPendingOutboundWrites());
+    assertEquals(0L, session.getPendingOutboundBytes());
+    assertTrue(session.isOutboundFlowControlWritable());
+    assertTrue(stream.isWritable());
+    verify(mockCtx).write(data2, promise2);
+  }
+
+  @Test
+  public void testRawWebTransportHandlerFailsImmediatelyWhenQueueDisabled() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockChannel = mock(QuicStreamChannel.class);
+    QuicChannel mockQuic = mock(QuicChannel.class);
+    when(mockCtx.channel()).thenReturn(mockChannel);
+    when(mockChannel.parent()).thenReturn(mockQuic);
+    when(mockChannel.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
+    when(mockQuic.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    when(mockConnect.isOpen()).thenReturn(true);
+    when(mockConnect.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnect.writeAndFlush(any())).thenReturn(mock(ChannelFuture.class));
+
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            701L, mockConnect, "/test", 10L, 10L, 1000L, 10L, 10L, 50L, true, true);
+    session.setFlowControlPolicy(new SessionFlowControlPolicy() {
+      @Override
+      public long onRequestDataCredit(
+          WebTransportSession session, long blockedAtLimit, long cumulativeReceivedBytes) {
+        return 0L;
+      }
+
+      @Override
+      public long getMaxPendingOutboundBytes() {
+        return 0L;
+      }
+    });
+    mgr.putSession(701L, session);
+
+    DefaultNettyWebTransportStream stream =
+        new DefaultNettyWebTransportStream(mockChannel, 701L, session);
+    Attribute<WebTransportStream> streamAttr = mockAttribute(stream);
+    when(mockChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);
+
+    Attribute<Long> sessIdAttr = mockAttribute(701L);
+    when(mockChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+    when(mockChannel.isWritable()).thenReturn(true);
+    session.getActiveClientInitiatedBi().add(mockChannel);
+
+    RawWebTransportHandler handler = new RawWebTransportHandler();
+
+    ByteBuf data1 = Unpooled.buffer(50);
+    data1.writeZero(50);
+    ChannelPromise promise1 = mock(ChannelPromise.class);
+
+    handler.write(mockCtx, data1, promise1);
+
     ByteBuf data2 = Unpooled.buffer(10);
     data2.writeZero(10);
     ChannelPromise promise2 = mock(ChannelPromise.class);
@@ -331,6 +404,6 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     handler.write(mockCtx, data2, promise2);
 
     verify(promise2).setFailure(any(java.io.IOException.class));
-    assertFalse(stream.isWritable());
+    assertEquals(0, data2.refCnt());
   }
 }

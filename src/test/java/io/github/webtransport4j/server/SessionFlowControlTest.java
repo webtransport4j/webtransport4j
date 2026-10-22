@@ -2,7 +2,9 @@ package io.github.webtransport4j.server;
 
 import org.junit.jupiter.api.Assertions;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
@@ -10,6 +12,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
+import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
@@ -296,14 +300,104 @@ public class SessionFlowControlTest {
     ByteBuf data2 = Unpooled.copiedBuffer(new byte[50]);
     handler.write(mockCtx, data2, promise2);
 
-    // Verify: promise2 failed with IOException, data2 is released
-    verify(promise2).setFailure(any(IOException.class));
-    assertEquals(0, data2.refCnt());
-
     // Verify: WT_DATA_BLOCKED capsule was sent back to connectStream
     ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
     verify(mockConnectStream).writeAndFlush(captor.capture());
     ReferenceCountUtil.release(captor.getValue());
+
+    // Verify: write is queued waiting for credit rather than dropped
+    NettyWebTransportSession session = mgr.get(100L);
+    assertTrue(session.hasPendingOutboundWrites());
+    assertEquals(50L, session.getPendingOutboundBytes());
+
+    // Expanding peer limit drains queued write and forwards downstream
+    session.setPeerSettingsMaxData(200L);
+    assertFalse(session.hasPendingOutboundWrites());
+    assertEquals(0L, session.getPendingOutboundBytes());
+    verify(mockCtx).write(data2, promise2);
+  }
+
+  @Test
+  public void testOutgoingDataExceedingLimitFailsImmediatelyWhenQueueDisabled() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.streamId()).thenReturn(124L);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+    when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+
+    EventLoop mockEventLoop = mock(EventLoop.class);
+    when(mockStream.eventLoop()).thenReturn(mockEventLoop);
+    when(mockEventLoop.inEventLoop()).thenReturn(true);
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.streamId()).thenReturn(101L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
+
+    Attribute<Long> sessIdAttr = mockAttribute(101L);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(sessIdAttr);
+
+    Attribute<Long> bidiLimitAttr = mockAttribute(5L);
+    Attribute<Long> uniLimitAttr = mockAttribute(5L);
+    Attribute<Long> localDataLimitAttr = mockAttribute(1000L);
+    Attribute<Long> peerDataLimitAttr = mockAttribute(100L);
+
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(bidiLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(uniLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA))
+        .thenReturn(localDataLimitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA))
+        .thenReturn(peerDataLimitAttr);
+
+    mgr.register(mockConnectStream);
+
+    NettyWebTransportSession session = mgr.get(101L);
+    session.setFlowControlPolicy(new SessionFlowControlPolicy() {
+      @Override
+      public long onRequestDataCredit(
+          WebTransportSession session, long blockedAtLimit, long cumulativeReceivedBytes) {
+        return 0L;
+      }
+
+      @Override
+      public long getMaxPendingOutboundBytes() {
+        return 0L; // Disable outbound queueing
+      }
+    });
+
+    Attribute<Long> streamSessIdAttr = mockAttribute(101L);
+    Attribute<Boolean> serverInitAttr = mockAttribute(false);
+
+    when(mockStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY)).thenReturn(streamSessIdAttr);
+    when(mockStream.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY))
+        .thenReturn(serverInitAttr);
+
+    RawWebTransportHandler handler = new RawWebTransportHandler();
+
+    ByteBuf data1 = Unpooled.copiedBuffer(new byte[60]);
+    ChannelPromise promise1 = mock(ChannelPromise.class);
+    handler.write(mockCtx, data1, promise1);
+    verify(mockCtx).write(data1, promise1);
+
+    ByteBuf data2 = Unpooled.copiedBuffer(new byte[50]);
+    ChannelPromise promise2 = mock(ChannelPromise.class);
+    handler.write(mockCtx, data2, promise2);
+
+    verify(promise2).setFailure(any(IOException.class));
+    assertEquals(0, data2.refCnt());
   }
 
   @Test

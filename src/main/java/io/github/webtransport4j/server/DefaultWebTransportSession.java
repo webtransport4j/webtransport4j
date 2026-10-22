@@ -20,7 +20,9 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.EventLoop;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.handler.codec.http3.DefaultHttp3DataFrame;
@@ -28,10 +30,12 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
+import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.Certificate;
 import java.util.ArrayList;
@@ -40,12 +44,15 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
@@ -287,6 +294,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private volatile @Nullable WebTransportHandler boundHandler;
 
   private final AtomicBoolean outboundFlowControlPaused = new AtomicBoolean(false);
+  private final Queue<PendingOutboundWrite> pendingOutboundWrites = new ConcurrentLinkedQueue<>();
+  private final AtomicLong pendingOutboundBytes = new AtomicLong(0);
+  private final AtomicInteger drainState = new AtomicInteger(0);
 
   private volatile @NonNull SessionFlowControlPolicy flowControlPolicy =
       DefaultPropertiesFlowControlPolicy.INSTANCE;
@@ -616,6 +626,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public void setPeerSettingsMaxData(long value) {
     this.peerSettingsMaxData = value;
+    drainPendingOutboundWrites();
     if (isFlowControlEnabled() && isOutboundFlowControlWritable()) {
       notifyOutboundFlowControlResumed();
     }
@@ -648,6 +659,152 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       if (stream instanceof DefaultNettyWebTransportStream) {
         DefaultNettyWebTransportStream s = (DefaultNettyWebTransportStream) stream;
         s.notifyWritabilityChanged(s.isWritable());
+      }
+    }
+  }
+
+  @Override
+  public boolean enqueuePendingOutboundWrite(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data, @NonNull ChannelPromise promise) {
+    long maxPending = flowControlPolicy.getMaxPendingOutboundBytes();
+    int bytesToWrite = data.readableBytes();
+    if (maxPending <= 0 || pendingOutboundBytes.get() + bytesToWrite > maxPending) {
+      return false;
+    }
+    PendingOutboundWrite pw = new PendingOutboundWrite(ctx, data, promise);
+    pendingOutboundWrites.add(pw);
+    pendingOutboundBytes.addAndGet(bytesToWrite);
+    if (pendingOutboundBytes.get() > maxPending) {
+      if (pendingOutboundWrites.remove(pw)) {
+        pendingOutboundBytes.addAndGet(-bytesToWrite);
+        return false;
+      }
+    }
+    if (ctx.channel().closeFuture() != null) {
+      ctx.channel().closeFuture().addListener(f -> {
+        if (pendingOutboundWrites.remove(pw)) {
+          pendingOutboundBytes.addAndGet(-bytesToWrite);
+          pw.cancel();
+        }
+      });
+    }
+    return true;
+  }
+
+  @Override
+  public void drainPendingOutboundWrites() {
+    if (drainState.getAndIncrement() != 0) {
+      return;
+    }
+    int missed = 1;
+    do {
+      long peerLimit = getPeerSettingsMaxData();
+      PendingOutboundWrite pw;
+      while ((pw = pendingOutboundWrites.peek()) != null) {
+        if (pw.isCancelled()) {
+          pendingOutboundWrites.poll();
+          pendingOutboundBytes.addAndGet(-pw.getBytesToWrite());
+          pw.cancel();
+          continue;
+        }
+        int bytesToWrite = pw.getBytesToWrite();
+        if (!tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
+          break;
+        }
+        pendingOutboundWrites.poll();
+        pendingOutboundBytes.addAndGet(-bytesToWrite);
+        pw.executeWrite();
+        peerLimit = getPeerSettingsMaxData();
+      }
+      missed = drainState.addAndGet(-missed);
+    } while (missed != 0);
+  }
+
+  @Override
+  public boolean hasPendingOutboundWrites() {
+    return !pendingOutboundWrites.isEmpty();
+  }
+
+  @Override
+  public long getPendingOutboundBytes() {
+    return pendingOutboundBytes.get();
+  }
+
+  /** Releases and fails all queued outbound writes. */
+  public void cleanupPendingOutboundWrites(@NonNull Throwable cause) {
+    PendingOutboundWrite pw;
+    while ((pw = pendingOutboundWrites.poll()) != null) {
+      pendingOutboundBytes.addAndGet(-pw.getBytesToWrite());
+      try {
+        pw.getData().release();
+      } catch (Exception ignored) {
+      }
+      pw.getPromise().tryFailure(cause);
+    }
+  }
+
+  /** A pending write queued waiting for session flow control credits. */
+  public static final class PendingOutboundWrite {
+    private final ChannelHandlerContext ctx;
+    private final ByteBuf data;
+    private final ChannelPromise promise;
+    private final int bytesToWrite;
+    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+
+    public PendingOutboundWrite(
+        @NonNull ChannelHandlerContext ctx,
+        @NonNull ByteBuf data,
+        @NonNull ChannelPromise promise) {
+      this.ctx = ctx;
+      this.data = data;
+      this.promise = promise;
+      this.bytesToWrite = data.readableBytes();
+    }
+
+    public @NonNull ChannelHandlerContext getContext() {
+      return ctx;
+    }
+
+    public @NonNull ByteBuf getData() {
+      return data;
+    }
+
+    public @NonNull ChannelPromise getPromise() {
+      return promise;
+    }
+
+    public int getBytesToWrite() {
+      return bytesToWrite;
+    }
+
+    public boolean isCancelled() {
+      return cancelled.get();
+    }
+
+    public void cancel() {
+      if (cancelled.compareAndSet(false, true)) {
+        try {
+          data.release();
+        } catch (Exception ignored) {
+        }
+        promise.tryFailure(new ClosedChannelException());
+      }
+    }
+
+    public void executeWrite() {
+      if (isCancelled()) {
+        cancel();
+        return;
+      }
+      EventExecutor executor = ctx.executor();
+      if (executor == null || executor.inEventLoop()) {
+        ctx.write(data, promise);
+        ctx.flush();
+      } else {
+        executor.execute(() -> {
+          ctx.write(data, promise);
+          ctx.flush();
+        });
       }
     }
   }
@@ -817,6 +974,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
     Runnable task =
         () -> {
+          cleanupPendingOutboundWrites(new ClosedChannelException());
           for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
             activeStream.close();
           }
@@ -894,6 +1052,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     final int finalCode = code;
     Runnable task =
         () -> {
+          cleanupPendingOutboundWrites(
+              new IllegalStateException(
+                  "Session aborted with error: 0x" + Long.toHexString(finalCode)));
           // Reset all associated data streams
           for (QuicStreamChannel activeStream : getAllActiveWebTransportStreams()) {
             activeStream.shutdown(finalCode, activeStream.newPromise());

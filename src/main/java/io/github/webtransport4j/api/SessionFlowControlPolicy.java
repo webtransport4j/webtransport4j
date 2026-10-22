@@ -41,6 +41,17 @@ public interface SessionFlowControlPolicy {
   }
 
   /**
+   * Returns the maximum number of outbound bytes that may be queued in memory when session-level
+   * flow control credit is exhausted. If exceeded, further writes are rejected with an
+   * {@link java.io.IOException}. Returning {@code 0} disables queueing and fails writes immediately.
+   *
+   * @return maximum pending outbound bytes, defaults to 64 MB
+   */
+  default long getMaxPendingOutboundBytes() {
+    return 64L * 1024 * 1024;
+  }
+
+  /**
    * Returns a policy that denies all flow control extension requests (returns 0 for all credits).
    *
    * @return a denying policy
