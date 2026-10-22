@@ -10,6 +10,9 @@ import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelPipeline;
+import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamPriority;
 import io.netty.handler.codec.quic.QuicStreamType;
@@ -122,18 +125,41 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   private final Queue<CompletableFuture<Void>> writableWaiters = new ConcurrentLinkedQueue<>();
   private volatile @Nullable Consumer<Boolean> writabilityListener;
+  private final @Nullable NettyWebTransportSession sessionRef;
   private volatile boolean lastNotifiedWritable = true;
 
   /** Default Netty Web Transport Stream. */
   public DefaultNettyWebTransportStream(@NonNull QuicStreamChannel channel, long sessionId) {
+    this(channel, sessionId, null);
+  }
+
+  /** Default Netty Web Transport Stream with session reference. */
+  public DefaultNettyWebTransportStream(
+      @NonNull QuicStreamChannel channel,
+      long sessionId,
+      @Nullable NettyWebTransportSession session) {
     this.streamChannel = Objects.requireNonNull(channel, "channel must not be null");
     this.sessionId = sessionId;
     this.streamId = channel.streamId();
     this.bidirectional = (channel.type() == QuicStreamType.BIDIRECTIONAL);
-    this.lastNotifiedWritable = channel.isWritable();
+    this.sessionRef = session;
+    this.lastNotifiedWritable = isWritable();
     if (channel.closeFuture() != null) {
       channel.closeFuture().addListener(f -> notifyClosed());
     }
+  }
+
+  private @Nullable NettyWebTransportSession resolveSession() {
+    Channel parent = streamChannel.parent();
+    if (parent instanceof QuicChannel) {
+      QuicChannel quic = (QuicChannel) parent;
+      WebTransportSessionManager mgr =
+          quic.attr(WebTransportAttributeKeys.WT_SESSION_MGR).get();
+      if (mgr != null) {
+        return mgr.get(sessionId);
+      }
+    }
+    return null;
   }
 
   public long sessionId() {
@@ -272,8 +298,16 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    * @param writable true if the channel has become writable
    */
   public void notifyWritabilityChanged(boolean writable) {
-    if (writable) {
+    if (isWritable()) {
       drainWritableWaiters();
+      ChannelPipeline pipeline = streamChannel.pipeline();
+      if (pipeline != null) {
+        WebTransportChunkedWriteHandler chunkedHandler =
+            pipeline.get(WebTransportChunkedWriteHandler.class);
+        if (chunkedHandler != null) {
+          chunkedHandler.resumeTransfer();
+        }
+      }
     }
     notifyWritabilityListener();
   }
@@ -311,7 +345,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
 
   @Override
   public boolean isWritable() {
-    return streamChannel.isWritable();
+    if (!streamChannel.isWritable()) {
+      return false;
+    }
+    NettyWebTransportSession session =
+        (this.sessionRef != null) ? this.sessionRef : resolveSession();
+    if (session != null && session.isFlowControlEnabled()) {
+      return session.isOutboundFlowControlWritable();
+    }
+    return true;
   }
 
   @Override
@@ -392,12 +434,12 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    */
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource) {
     return toCompletableFuture(
-        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource)));
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, this)));
   }
 
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource, int chunkSize) {
     return toCompletableFuture(
-        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize)));
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize, this)));
   }
 
   /**

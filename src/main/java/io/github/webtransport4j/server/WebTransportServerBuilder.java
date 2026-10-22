@@ -2,6 +2,7 @@ package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
@@ -40,6 +41,7 @@ public class WebTransportServerBuilder {
   private QuicSslContext sslContext;
   private List<String> allowedOrigins;
   private WebTransportMetricsListener metricsListener;
+  private SessionFlowControlPolicy flowControlPolicy = DefaultPropertiesFlowControlPolicy.INSTANCE;
   private QuicTokenHandler quicTokenHandler;
   private QuicConnectionIdGenerator connectionIdGenerator;
   private String transportType;
@@ -251,6 +253,20 @@ public class WebTransportServerBuilder {
       @Nullable WebTransportMetricsListener metricsListener) {
     this.metricsListener = metricsListener;
     return this;
+  }
+
+  /** Sets the default session-level flow control policy. */
+  public @NonNull WebTransportServerBuilder flowControlPolicy(
+      @Nullable SessionFlowControlPolicy flowControlPolicy) {
+    this.flowControlPolicy =
+        (flowControlPolicy != null)
+            ? flowControlPolicy
+            : DefaultPropertiesFlowControlPolicy.INSTANCE;
+    return this;
+  }
+
+  SessionFlowControlPolicy getFlowControlPolicy() {
+    return flowControlPolicy;
   }
 
   /** Sets the maximum allowed capsule length in bytes. */

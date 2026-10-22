@@ -354,6 +354,9 @@ public class WebTransportSessionManager {
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
     if (server != null) {
       server.registerSession(session);
+      if (server.getFlowControlPolicy() != null) {
+        session.setFlowControlPolicy(server.getFlowControlPolicy());
+      }
     }
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : null;
     session.setBoundHandler(handler);
@@ -368,7 +371,7 @@ public class WebTransportSessionManager {
     }
   }
 
-  private void putSession(
+  void putSession(
       long sessionStreamId, @NonNull NettyWebTransportSession session) {
     for (;;) {
       SessionHolder current = SESSION_HOLDER_HANDLE.get(this);

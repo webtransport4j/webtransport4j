@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
@@ -293,14 +294,15 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           if (mgr != null) {
             NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null && session.isFlowControlEnabled()) {
+              SessionFlowControlPolicy policy = session.getFlowControlPolicy();
+              if (policy == null) {
+                policy = DefaultPropertiesFlowControlPolicy.INSTANCE;
+              }
               long extendAmount =
-                  WebTransportConfig.getLong(
-                      "webtransport4j.webtransport.flowcontrol.extend.data", 2097152L);
+                  policy.onRequestDataCredit(
+                      session, maxData, session.getCumulativeBytesReceived());
               long currentSettingsMaxData = session.getSettingsMaxData();
-              long unconsumedCredit = currentSettingsMaxData - session.getCumulativeBytesReceived();
-              if (extendAmount > 0
-                  && maxData >= currentSettingsMaxData
-                  && unconsumedCredit < extendAmount) {
+              if (extendAmount > 0) {
                 long newLimit = currentSettingsMaxData + extendAmount;
                 if (newLimit > 0x3FFFFFFFFFFFFFFFL || newLimit < currentSettingsMaxData) {
                   newLimit = 0x3FFFFFFFFFFFFFFFL;
@@ -317,12 +319,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                 }
               } else {
                 logger.debug(
-                    "ℹ️ Received WT_DATA_BLOCKED but not extending local settings max data"
-                        + " (maxData={}, currentSettingsMaxData={}, unconsumedCredit={},"
-                        + " extendAmount={}) for session {}",
-                    maxData,
-                    currentSettingsMaxData,
-                    unconsumedCredit,
+                    "ℹ️ Received WT_DATA_BLOCKED but policy returned {} (extension denied/deferred)"
+                        + " for session {}",
                     extendAmount,
                     capsule.sessionId());
               }
@@ -351,55 +349,60 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           if (mgr != null) {
             NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
-              // Calculate remaining allowed active slots
+              SessionFlowControlPolicy policy = session.getFlowControlPolicy();
+              if (policy == null) {
+                policy = DefaultPropertiesFlowControlPolicy.INSTANCE;
+              }
               long activeCount =
                   isBidi
                       ? session.getActiveClientInitiatedBi().size()
                       : session.getActiveClientInitiatedUni().size();
-              long initialLimit =
-                  isBidi ? session.getInitialMaxStreamsBidi() : session.getInitialMaxStreamsUni();
-              long remaining = initialLimit - activeCount;
-              // Cap the remaining slots by the configured max.active.streams setting.
-              // This prevents unbounded stream limit growth in response to WT_STREAMS_BLOCKED.
-              long maxActiveStreams =
+              long currentLimit =
+                  isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+              long maxAbsolute =
                   WebTransportConfig.getLong(
                       isBidi
-                          ? "webtransport4j.webtransport.flowcontrol.max.active.streams.bidi"
-                          : "webtransport4j.webtransport.flowcontrol.max.active.streams.uni",
-                      100L);
-              long cappedRemaining = Math.min(remaining, maxActiveStreams);
-              if (cappedRemaining > 0) {
-                long maxAbsolute =
-                    WebTransportConfig.getLong(
-                        isBidi
-                            ? "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi"
-                            : "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni",
-                        5000L);
-                long newLimit = Math.min(blockedAtMax + cappedRemaining, maxAbsolute);
+                          ? "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi"
+                          : "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni",
+                      5000L);
+              long newLimit =
+                  Math.min(
+                      policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount),
+                      0x3FFFFFFFFFFFFFFFL);
+              if (currentLimit > maxAbsolute) {
+                long clamped = Math.min(newLimit > 0 ? newLimit : maxAbsolute, maxAbsolute);
                 if (isBidi) {
-                  session.setSettingsMaxStreamsBidi(newLimit);
+                  session.setSettingsMaxStreamsBidi(clamped);
                 } else {
-                  session.setSettingsMaxStreamsUni(newLimit);
+                  session.setSettingsMaxStreamsUni(clamped);
                 }
                 logger.debug(
-                    "📊 WT_STREAMS_BLOCKED received. Extending {} limit to {} (blocked={}"
-                        + " + capped_remaining={} / {} max_active={} max_absolute={})",
+                    "📊 WT_STREAMS_BLOCKED received. Clamped {} limit from {} to absolute cap {}",
                     isBidi ? "bidi" : "uni",
-                    newLimit,
-                    blockedAtMax,
-                    cappedRemaining,
-                    remaining,
-                    maxActiveStreams,
-                    maxAbsolute);
-                WebTransportUtils.sendMaxStreamsCapsule(
-                    session.getConnectStream(), isBidi, newLimit);
+                    currentLimit,
+                    clamped);
+              } else if (newLimit > currentLimit) {
+                long effectiveLimit = Math.min(newLimit, maxAbsolute);
+                if (effectiveLimit > currentLimit) {
+                  if (isBidi) {
+                    session.setSettingsMaxStreamsBidi(effectiveLimit);
+                  } else {
+                    session.setSettingsMaxStreamsUni(effectiveLimit);
+                  }
+                  logger.debug(
+                      "📊 WT_STREAMS_BLOCKED received. Policy extended {} limit to {}",
+                      isBidi ? "bidi" : "uni",
+                      effectiveLimit);
+                  WebTransportUtils.sendMaxStreamsCapsule(
+                      session.getConnectStream(), isBidi, effectiveLimit);
+                }
               } else {
                 logger.debug(
-                    "ℹ️ WT_STREAMS_BLOCKED received but no remaining active slots available"
-                        + " (active={} initial={} max_extension={}). Not extending limit.",
-                    activeCount,
-                    initialLimit,
-                    maxActiveStreams);
+                    "ℹ️ WT_STREAMS_BLOCKED received but policy returned {} "
+                        + "(current limit {}, extension denied/deferred) for session {}",
+                    newLimit,
+                    currentLimit,
+                    capsule.sessionId());
               }
             }
           }

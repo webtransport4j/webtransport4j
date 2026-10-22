@@ -272,7 +272,7 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
       WebTransportStream stream =
           streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (stream == null) {
-        stream = new DefaultNettyWebTransportStream(streamChannel, sessionId);
+        stream = new DefaultNettyWebTransportStream(streamChannel, sessionId, session);
         streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
         final WebTransportStream finalStream = stream;
         streamChannel

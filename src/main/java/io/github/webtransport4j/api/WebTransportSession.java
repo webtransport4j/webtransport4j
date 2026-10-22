@@ -357,6 +357,15 @@ public interface WebTransportSession {
   }
 
   /**
+   * Returns true if session-level outbound flow control permits sending data bytes to the peer.
+   *
+   * @return true if outbound flow control credit is available or unconstrained
+   */
+  default boolean isOutboundFlowControlWritable() {
+    return true;
+  }
+
+  /**
    * Returns an unmodifiable collection of all active WebTransport stream summaries, or an empty
    * collection if stream enumeration is not supported.
    *
@@ -376,4 +385,38 @@ public interface WebTransportSession {
   default @Nullable WebTransportHandler getBoundHandler() {
     return null;
   }
+
+  /**
+   * Returns our initial local maximum unidirectional streams limit advertised to the peer.
+   *
+   * @return initial local max uni streams limit
+   */
+  default long getInitialMaxStreamsUni() {
+    return 0L;
+  }
+
+  /**
+   * Returns our initial local maximum bidirectional streams limit advertised to the peer.
+   *
+   * @return initial local max bidi streams limit
+   */
+  default long getInitialMaxStreamsBidi() {
+    return 0L;
+  }
+
+  /**
+   * Returns the flow control policy governing this session, or null if none is configured.
+   *
+   * @return flow control policy
+   */
+  default @Nullable SessionFlowControlPolicy getFlowControlPolicy() {
+    return null;
+  }
+
+  /**
+   * Sets the flow control policy governing this session.
+   *
+   * @param policy flow control policy
+   */
+  default void setFlowControlPolicy(@NonNull SessionFlowControlPolicy policy) {}
 }
