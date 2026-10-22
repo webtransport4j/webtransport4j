@@ -1,6 +1,7 @@
 package io.github.webtransport4j.server;
 
 import io.github.webtransport4j.api.OnCloseListener;
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportBuffer;
 import io.github.webtransport4j.api.WebTransportHandler;
@@ -284,6 +285,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   private volatile @Nullable WebTransportHandler boundHandler;
 
+  private volatile @NonNull SessionFlowControlPolicy flowControlPolicy =
+      DefaultPropertiesFlowControlPolicy.INSTANCE;
+
   /** Returns the handler bound to this session upon admission, or null. */
   @Override
   public @Nullable WebTransportHandler getBoundHandler() {
@@ -295,6 +299,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   @Override
   public void setBoundHandler(@Nullable WebTransportHandler handler) {
     this.boundHandler = handler;
+  }
+
+  @Override
+  public @NonNull SessionFlowControlPolicy getFlowControlPolicy() {
+    return flowControlPolicy;
+  }
+
+  @Override
+  public void setFlowControlPolicy(@NonNull SessionFlowControlPolicy policy) {
+    this.flowControlPolicy = java.util.Objects.requireNonNull(policy, "policy must not be null");
   }
 
   /** Returns true if graceful shutdown was signaled locally or by the peer. */

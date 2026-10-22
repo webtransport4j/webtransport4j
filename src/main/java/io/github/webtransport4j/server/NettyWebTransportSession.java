@@ -1,5 +1,6 @@
 package io.github.webtransport4j.server;
 
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.StreamPriority;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportSession;
@@ -488,4 +489,20 @@ public interface NettyWebTransportSession extends WebTransportSession {
    * @param data the raw ByteBuf datagram payload
    */
   void sendDatagramDirect(@NonNull ByteBuf data);
+
+  /**
+   * Returns the flow control policy governing this session.
+   *
+   * @return flow control policy
+   */
+  @Override
+  @NonNull SessionFlowControlPolicy getFlowControlPolicy();
+
+  /**
+   * Sets the flow control policy governing this session.
+   *
+   * @param policy flow control policy
+   */
+  @Override
+  void setFlowControlPolicy(@NonNull SessionFlowControlPolicy policy);
 }

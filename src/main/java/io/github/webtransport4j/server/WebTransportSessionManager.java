@@ -354,6 +354,9 @@ public class WebTransportSessionManager {
     WebTransportServer server = serverAttr != null ? serverAttr.get() : null;
     if (server != null) {
       server.registerSession(session);
+      if (server.getFlowControlPolicy() != null) {
+        session.setFlowControlPolicy(server.getFlowControlPolicy());
+      }
     }
     WebTransportHandler handler = server != null ? server.getHandler(pathStr) : null;
     session.setBoundHandler(handler);

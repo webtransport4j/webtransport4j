@@ -6,6 +6,7 @@ import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
 import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
@@ -150,6 +151,7 @@ public class WebTransportServer implements AutoCloseable {
   private Long initialMaxStreamsBidi;
   private Long initialMaxStreamsUni;
   private Long initialMaxData;
+  private SessionFlowControlPolicy flowControlPolicy;
   private StatelessTokenSecretProvider statelessTokenSecretProvider;
   private ClusterBroadcastBridge clusterBroadcastBridge;
   private OverloadProtectionPolicy overloadProtectionPolicy;
@@ -351,6 +353,7 @@ public class WebTransportServer implements AutoCloseable {
     this.initialMaxStreamsBidi = builder.getInitialMaxStreamsBidi();
     this.initialMaxStreamsUni = builder.getInitialMaxStreamsUni();
     this.initialMaxData = builder.getInitialMaxData();
+    this.flowControlPolicy = builder.getFlowControlPolicy();
     GlobalTrafficShapingHandler builderTrafficShaper = builder.getTrafficShaper();
     this.trafficShaper = claimTrafficShaper(builderTrafficShaper);
     this.trafficShaperExternallySupplied = builderTrafficShaper != null;
@@ -490,6 +493,12 @@ public class WebTransportServer implements AutoCloseable {
     WebTransportMetricsListener previous = this.metricsListener;
     this.metricsListener = isolateMetricsListener(Objects.requireNonNull(listener, "listener"));
     closeMetricsListener(previous);
+  }
+
+  public @NonNull SessionFlowControlPolicy getFlowControlPolicy() {
+    return flowControlPolicy != null
+        ? flowControlPolicy
+        : DefaultPropertiesFlowControlPolicy.INSTANCE;
   }
 
   public @NonNull WebTransportMetricsListener getMetricsListener() {
