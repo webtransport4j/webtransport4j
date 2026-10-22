@@ -505,4 +505,24 @@ public interface NettyWebTransportSession extends WebTransportSession {
    */
   @Override
   void setFlowControlPolicy(@NonNull SessionFlowControlPolicy policy);
+
+  /**
+   * Returns true if session-level outbound flow control permits sending data bytes to the peer.
+   *
+   * @return true if outbound credit is available or unconstrained
+   */
+  @Override
+  boolean isOutboundFlowControlWritable();
+
+  /**
+   * Notifies the session that outbound flow control credit is exhausted, pausing child stream
+   * writability.
+   */
+  void notifyOutboundFlowControlPaused();
+
+  /**
+   * Notifies the session that outbound flow control credit has been replenished, resuming child
+   * stream writability.
+   */
+  void notifyOutboundFlowControlResumed();
 }

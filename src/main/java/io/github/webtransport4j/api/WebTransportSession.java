@@ -357,6 +357,15 @@ public interface WebTransportSession {
   }
 
   /**
+   * Returns true if session-level outbound flow control permits sending data bytes to the peer.
+   *
+   * @return true if outbound flow control credit is available or unconstrained
+   */
+  default boolean isOutboundFlowControlWritable() {
+    return true;
+  }
+
+  /**
    * Returns an unmodifiable collection of all active WebTransport stream summaries, or an empty
    * collection if stream enumeration is not supported.
    *

@@ -45,6 +45,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
@@ -284,6 +285,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private volatile @Nullable Consumer<ByteBuf> rawDatagramConsumer;
 
   private volatile @Nullable WebTransportHandler boundHandler;
+
+  private final AtomicBoolean outboundFlowControlPaused = new AtomicBoolean(false);
 
   private volatile @NonNull SessionFlowControlPolicy flowControlPolicy =
       DefaultPropertiesFlowControlPolicy.INSTANCE;
@@ -610,8 +613,43 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     return peerSettingsMaxData;
   }
 
+  @Override
   public void setPeerSettingsMaxData(long value) {
     this.peerSettingsMaxData = value;
+    if (isFlowControlEnabled() && isOutboundFlowControlWritable()) {
+      notifyOutboundFlowControlResumed();
+    }
+  }
+
+  @Override
+  public boolean isOutboundFlowControlWritable() {
+    if (!isFlowControlEnabled()) {
+      return true;
+    }
+    return peerSettingsMaxData > cumulativeBytesSent;
+  }
+
+  @Override
+  public void notifyOutboundFlowControlPaused() {
+    if (outboundFlowControlPaused.compareAndSet(false, true)) {
+      notifyAllStreamsWritabilityChanged();
+    }
+  }
+
+  @Override
+  public void notifyOutboundFlowControlResumed() {
+    outboundFlowControlPaused.set(false);
+    notifyAllStreamsWritabilityChanged();
+  }
+
+  private void notifyAllStreamsWritabilityChanged() {
+    for (QuicStreamChannel ch : getAllActiveWebTransportStreams()) {
+      WebTransportStream stream = ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
+      if (stream instanceof DefaultNettyWebTransportStream) {
+        DefaultNettyWebTransportStream s = (DefaultNettyWebTransportStream) stream;
+        s.notifyWritabilityChanged(s.isWritable());
+      }
+    }
   }
 
   public boolean markPeerMaxDataCapsuleReceived() {
@@ -1177,7 +1215,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
               cf.completeExceptionally(new IllegalStateException("Session is closed"));
               return;
             }
-            WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId);
+            WebTransportStream stream = new DefaultNettyWebTransportStream(ch, sessionStreamId, this);
             ch.attr(WebTransportAttributeKeys.WT_STREAM_KEY).set(stream);
             if (priority != null) {
               stream

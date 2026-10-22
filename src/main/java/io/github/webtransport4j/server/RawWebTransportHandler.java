@@ -255,6 +255,7 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
     // Atomically reserve outbound bytes using CAS to prevent the check-then-act race
     // that could allow concurrent streams to exceed the peer's flow control limit.
     if (!session.tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
+      session.notifyOutboundFlowControlPaused();
       // Peer is blocking us. Send WT_DATA_BLOCKED capsule (at most once per unique blocked limit).
       if (session.tryRecordDataBlockedLimit(peerLimit)) {
         logger.warn(
@@ -279,6 +280,9 @@ class RawWebTransportHandler extends ChannelDuplexHandler {
                   + peerLimit
                   + ")"));
       return;
+    }
+    if (!session.isOutboundFlowControlWritable()) {
+      session.notifyOutboundFlowControlPaused();
     }
     // Reservation succeeded; forward the write downstream toward the QUIC network.
     super.write(ctx, msg, promise);
