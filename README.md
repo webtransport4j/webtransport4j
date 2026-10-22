@@ -28,6 +28,9 @@
   </a>
   <a href="https://deepwiki.com/webtransport4j/webtransport4j"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="https://www.bestpractices.dev/projects/15763"><img src="https://www.bestpractices.dev/projects/15763/badge"></a>
+  <a href="https://github.com/webtransport4j/webtransport4j/actions">
+  <img src="https://github.com/webtransport4j/webtransport4j/actions/workflows/ci.yml/badge.svg" alt="Build Status">
+</a>
 </p>
 
 <p align="center">
