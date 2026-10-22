@@ -680,13 +680,15 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         return false;
       }
     }
+    ChannelFutureListener closeListener = f -> {
+      if (pendingOutboundWrites.remove(pw)) {
+        pendingOutboundBytes.addAndGet(-bytesToWrite);
+        pw.cancel();
+      }
+    };
+    pw.setCloseListener(closeListener);
     if (ctx.channel().closeFuture() != null) {
-      ctx.channel().closeFuture().addListener(f -> {
-        if (pendingOutboundWrites.remove(pw)) {
-          pendingOutboundBytes.addAndGet(-bytesToWrite);
-          pw.cancel();
-        }
-      });
+      ctx.channel().closeFuture().addListener(closeListener);
     }
     return true;
   }
@@ -713,7 +715,13 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         }
         pendingOutboundWrites.poll();
         pendingOutboundBytes.addAndGet(-bytesToWrite);
-        pw.executeWrite();
+        try {
+          pw.executeWrite();
+        } catch (RejectedExecutionException e) {
+          incrementCumulativeBytesSent(-bytesToWrite);
+          ReferenceCountUtil.safeRelease(pw.getData());
+          pw.getPromise().tryFailure(e);
+        }
         peerLimit = getPeerSettingsMaxData();
       }
       missed = drainState.addAndGet(-missed);
@@ -735,6 +743,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     PendingOutboundWrite pw;
     while ((pw = pendingOutboundWrites.poll()) != null) {
       pendingOutboundBytes.addAndGet(-pw.getBytesToWrite());
+      pw.removeCloseListener();
       try {
         pw.getData().release();
       } catch (Exception ignored) {
@@ -750,6 +759,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     private final ChannelPromise promise;
     private final int bytesToWrite;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private volatile ChannelFutureListener closeListener;
 
     public PendingOutboundWrite(
         @NonNull ChannelHandlerContext ctx,
@@ -781,8 +791,28 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       return cancelled.get();
     }
 
+    public void setCloseListener(ChannelFutureListener closeListener) {
+      this.closeListener = closeListener;
+    }
+
+    public ChannelFutureListener getCloseListener() {
+      return closeListener;
+    }
+
+    public void removeCloseListener() {
+      ChannelFutureListener listener = this.closeListener;
+      if (listener != null) {
+        this.closeListener = null;
+        try {
+          ctx.channel().closeFuture().removeListener(listener);
+        } catch (Exception ignored) {
+        }
+      }
+    }
+
     public void cancel() {
       if (cancelled.compareAndSet(false, true)) {
+        removeCloseListener();
         try {
           data.release();
         } catch (Exception ignored) {
@@ -792,6 +822,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
 
     public void executeWrite() {
+      removeCloseListener();
       if (isCancelled()) {
         cancel();
         return;

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,6 +20,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
@@ -27,7 +29,9 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import io.netty.util.ReferenceCountUtil;
+import io.netty.util.concurrent.EventExecutor;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
@@ -545,5 +549,130 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     // When stream is writable, notifyWritabilityChanged triggers resumeTransfer()
     stream.notifyWritabilityChanged(true);
     verify(mockChunkedHandler).resumeTransfer();
+  }
+
+  @Test
+  public void testStreamCreditPolicyDoesNotDecreaseLimit() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mockAttribute(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    when(mockConnect.isOpen()).thenReturn(true);
+    when(mockConnect.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            350L, mockConnect, "/test", 10L, 10L, 1000L, 10L, 10L, 1000L, true, true);
+    mgr.putSession(350L, session);
+
+    // Policy returning 8L (which is lower than currentLimit 10L)
+    session.setFlowControlPolicy(
+        new SessionFlowControlPolicy() {
+          @Override
+          public long onRequestDataCredit(
+              @NonNull WebTransportSession s, long blockedAtLimit, long cumulativeReceivedBytes) {
+            return 0L;
+          }
+
+          @Override
+          public long onRequestStreamCredit(
+              @NonNull WebTransportSession s,
+              boolean bidirectional,
+              long blockedAtLimit,
+              long currentActiveCount) {
+            return 8L;
+          }
+        });
+
+    ByteBuf payload = Unpooled.buffer();
+    WebTransportUtils.writeVarInt(payload, 10L);
+    WebTransportCapsule capsule = new WebTransportCapsule(350L, 0x190B4D43L, payload);
+
+    WebTransportCapsuleHandler handler = new WebTransportCapsuleHandler();
+    handler.channelRead(mockCtx, capsule);
+
+    // Limit must remain 10L (monotonicity preserved) and no capsule sent
+    assertEquals(10L, session.getSettingsMaxStreamsBidi());
+    verify(mockConnect, never()).writeAndFlush(any());
+  }
+
+  @Test
+  public void testOutboundDrainHandlesRejectedExecutionException() {
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            500L, mockConnect, "/test", 100L, 100L, 1000L, 100L, 100L, 1000L, true, true);
+    session.setPeerSettingsMaxData(100L);
+
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+    when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    when(mockCtx.channel()).thenReturn(mockStream);
+
+    EventExecutor mockExecutor = mock(EventExecutor.class);
+    when(mockCtx.executor()).thenReturn(mockExecutor);
+    when(mockExecutor.inEventLoop()).thenReturn(false);
+    doThrow(new RejectedExecutionException("Executor saturated"))
+        .when(mockExecutor)
+        .execute(any(Runnable.class));
+
+    ChannelPromise promise = mock(ChannelPromise.class);
+    ByteBuf data = Unpooled.buffer(20).writeZero(20);
+
+    assertTrue(session.enqueuePendingOutboundWrite(mockCtx, data, promise));
+    assertEquals(20L, session.getPendingOutboundBytes());
+
+    session.drainPendingOutboundWrites();
+
+    // Verify exception handled cleanly: credit restored, buffer freed, promise failed
+    assertEquals(0L, session.getCumulativeBytesSent());
+    assertEquals(0, data.refCnt());
+    verify(promise).tryFailure(any(RejectedExecutionException.class));
+    assertFalse(session.hasPendingOutboundWrites());
+  }
+
+  @Test
+  public void testCloseFutureListenerDetachedOnWriteDrainAndCancel() {
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            600L, mockConnect, "/test", 100L, 100L, 1000L, 100L, 100L, 1000L, true, true);
+    session.setPeerSettingsMaxData(100L);
+
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    ChannelFuture mockCloseFuture = mock(ChannelFuture.class);
+    when(mockStream.closeFuture()).thenReturn(mockCloseFuture);
+
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockCtx.executor()).thenReturn(null);
+
+    ChannelPromise promise = mock(ChannelPromise.class);
+    ByteBuf data = Unpooled.buffer(10).writeZero(10);
+
+    assertTrue(session.enqueuePendingOutboundWrite(mockCtx, data, promise));
+    ArgumentCaptor<ChannelFutureListener> captor =
+        ArgumentCaptor.forClass(ChannelFutureListener.class);
+    verify(mockCloseFuture).addListener(captor.capture());
+    ChannelFutureListener closeListener = captor.getValue();
+    assertNotNull(closeListener);
+
+    // Drain the write
+    session.drainPendingOutboundWrites();
+
+    // Verify closeFuture listener is removed to prevent memory retention
+    verify(mockCloseFuture).removeListener(closeListener);
+    data.release();
   }
 }

@@ -357,12 +357,13 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                   isBidi
                       ? session.getActiveClientInitiatedBi().size()
                       : session.getActiveClientInitiatedUni().size();
+              long currentLimit =
+                  isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
               long newLimit =
-                  policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount);
-              if (newLimit > 0) {
-                if (newLimit > 0x3FFFFFFFFFFFFFFFL) {
-                  newLimit = 0x3FFFFFFFFFFFFFFFL;
-                }
+                  Math.min(
+                      policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount),
+                      0x3FFFFFFFFFFFFFFFL);
+              if (newLimit > currentLimit) {
                 if (isBidi) {
                   session.setSettingsMaxStreamsBidi(newLimit);
                 } else {
@@ -376,9 +377,10 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                     session.getConnectStream(), isBidi, newLimit);
               } else {
                 logger.debug(
-                    "ℹ️ WT_STREAMS_BLOCKED received but policy returned {} (extension denied/deferred)"
-                        + " for session {}",
+                    "ℹ️ WT_STREAMS_BLOCKED received but policy returned {} "
+                        + "(current limit {}, extension denied/deferred) for session {}",
                     newLimit,
+                    currentLimit,
                     capsule.sessionId());
               }
             }

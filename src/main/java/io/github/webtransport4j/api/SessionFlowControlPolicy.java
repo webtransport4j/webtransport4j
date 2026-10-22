@@ -23,14 +23,18 @@ public interface SessionFlowControlPolicy {
       @NonNull WebTransportSession session, long blockedAtLimit, long cumulativeReceivedBytes);
 
   /**
-   * Evaluates a {@code WT_STREAMS_BLOCKED} capsule from the peer and determines how many additional
-   * streams to permit, or {@code 0} to deny or cap the extension.
+   * Evaluates a {@code WT_STREAMS_BLOCKED} capsule from the peer and determines the new absolute
+   * cumulative stream limit to permit, or {@code 0} to deny or defer the extension.
+   *
+   * <p>Note: WebTransport and QUIC stream limits are strictly monotonic and cumulative. The returned
+   * value must be strictly greater than the session's current stream limit to take effect and be
+   * advertised to the peer via {@code WT_MAX_STREAMS}.
    *
    * @param session the WebTransport session
    * @param bidirectional {@code true} for bidirectional streams, {@code false} for unidirectional
    * @param blockedAtLimit the stream limit at which blocking occurred
    * @param currentActiveCount the number of active streams currently open in this direction
-   * @return additional stream slots to grant (must be positive), or {@code 0} (or negative) to deny
+   * @return the new absolute cumulative stream limit, or {@code 0} (or negative / lower than current) to deny
    */
   default long onRequestStreamCredit(
       @NonNull WebTransportSession session,
