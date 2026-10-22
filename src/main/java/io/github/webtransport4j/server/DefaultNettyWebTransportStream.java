@@ -11,6 +11,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamPriority;
@@ -299,6 +300,14 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   public void notifyWritabilityChanged(boolean writable) {
     if (isWritable()) {
       drainWritableWaiters();
+      ChannelPipeline pipeline = streamChannel.pipeline();
+      if (pipeline != null) {
+        WebTransportChunkedWriteHandler chunkedHandler =
+            pipeline.get(WebTransportChunkedWriteHandler.class);
+        if (chunkedHandler != null) {
+          chunkedHandler.resumeTransfer();
+        }
+      }
     }
     notifyWritabilityListener();
   }
@@ -425,12 +434,12 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
    */
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource) {
     return toCompletableFuture(
-        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource)));
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, this)));
   }
 
   public @NonNull CompletableFuture<Void> write(@NonNull BinarySource binarySource, int chunkSize) {
     return toCompletableFuture(
-        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize)));
+        streamChannel().writeAndFlush(new BinarySourceChunkedInput(binarySource, chunkSize, this)));
   }
 
   /**

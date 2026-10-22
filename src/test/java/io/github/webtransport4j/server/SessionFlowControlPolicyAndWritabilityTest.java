@@ -2,6 +2,8 @@ package io.github.webtransport4j.server;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -9,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.webtransport4j.api.BinarySources;
 import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
@@ -17,6 +20,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
@@ -405,5 +409,124 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     verify(promise2).setFailure(any(java.io.IOException.class));
     assertEquals(0, data2.refCnt());
+  }
+
+  @Test
+  public void testBinarySourceChunkedInputRespectsStreamWritabilityDirectly() throws Exception {
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    when(mockConnect.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnect.isOpen()).thenReturn(true);
+
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            800L, mockConnect, "/test", 10L, 10L, 1000L, 10L, 10L, 100L, true, true);
+
+    QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
+    when(mockStreamChannel.isWritable()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream =
+        new DefaultNettyWebTransportStream(mockStreamChannel, 800L, session);
+
+    byte[] payload = new byte[150];
+    for (int i = 0; i < payload.length; i++) {
+      payload[i] = (byte) i;
+    }
+    BinarySourceChunkedInput input =
+        new BinarySourceChunkedInput(BinarySources.fromByteArray(payload), 50, stream);
+
+    // 1. First chunk (50 bytes) read while writable
+    ByteBuf chunk1 = input.readChunk(UnpooledByteBufAllocator.DEFAULT);
+    assertNotNull(chunk1);
+    assertEquals(50, chunk1.readableBytes());
+    session.incrementCumulativeBytesSent(50);
+    chunk1.release();
+
+    // 2. Second chunk (50 bytes) reaches limit 100
+    ByteBuf chunk2 = input.readChunk(UnpooledByteBufAllocator.DEFAULT);
+    assertNotNull(chunk2);
+    assertEquals(50, chunk2.readableBytes());
+    session.incrementCumulativeBytesSent(50);
+    chunk2.release();
+
+    assertFalse(session.isOutboundFlowControlWritable());
+    assertFalse(stream.isWritable());
+
+    // 3. Third chunk: stream is not writable -> chunk extraction is gated (returns null)
+    ByteBuf chunk3 = input.readChunk(UnpooledByteBufAllocator.DEFAULT);
+    assertNull(chunk3);
+    assertFalse(input.isEndOfInput());
+
+    // 4. Replenishing credits restores writability -> chunk extraction resumes
+    session.setPeerSettingsMaxData(200L);
+    assertTrue(stream.isWritable());
+
+    chunk3 = input.readChunk(UnpooledByteBufAllocator.DEFAULT);
+    assertNotNull(chunk3);
+    assertEquals(50, chunk3.readableBytes());
+    chunk3.release();
+
+    input.close();
+  }
+
+  @Test
+  public void testWebTransportChunkedWriteHandlerWrapsAndGatesChunkedInput() throws Exception {
+    QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
+    when(mockConnect.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnect.isOpen()).thenReturn(true);
+
+    DefaultWebTransportSession session =
+        new DefaultWebTransportSession(
+            801L, mockConnect, "/test", 10L, 10L, 1000L, 10L, 10L, 50L, true, true);
+
+    QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
+    when(mockStreamChannel.isWritable()).thenReturn(true);
+
+    DefaultNettyWebTransportStream stream =
+        new DefaultNettyWebTransportStream(mockStreamChannel, 801L, session);
+
+    Attribute<WebTransportStream> streamAttr = mockAttribute(stream);
+    when(mockStreamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY)).thenReturn(streamAttr);
+
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    when(mockCtx.channel()).thenReturn(mockStreamChannel);
+    when(mockCtx.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    WebTransportChunkedWriteHandler chunkedHandler = new WebTransportChunkedWriteHandler();
+
+    byte[] data = new byte[100];
+    BinarySourceChunkedInput rawInput =
+        new BinarySourceChunkedInput(BinarySources.fromByteArray(data), 50);
+
+    ChannelPromise promise = mock(ChannelPromise.class);
+    chunkedHandler.write(mockCtx, rawInput, promise);
+
+    // Consume the 50 bytes peer credit
+    session.incrementCumulativeBytesSent(50);
+    assertFalse(stream.isWritable());
+
+    // Calling channelWritabilityChanged passes stream.isWritable()
+    chunkedHandler.channelWritabilityChanged(mockCtx);
+    assertFalse(stream.isWritable());
+
+    rawInput.close();
+  }
+
+  @Test
+  public void testNotifyWritabilityChangedTriggersResumeTransferOnChunkedHandler() {
+    QuicStreamChannel mockStreamChannel = mock(QuicStreamChannel.class);
+    when(mockStreamChannel.isWritable()).thenReturn(true);
+
+    ChannelPipeline mockPipeline = mock(ChannelPipeline.class);
+    when(mockStreamChannel.pipeline()).thenReturn(mockPipeline);
+
+    WebTransportChunkedWriteHandler mockChunkedHandler = mock(WebTransportChunkedWriteHandler.class);
+    when(mockPipeline.get(WebTransportChunkedWriteHandler.class)).thenReturn(mockChunkedHandler);
+
+    DefaultNettyWebTransportStream stream =
+        new DefaultNettyWebTransportStream(mockStreamChannel, 900L, null);
+
+    // When stream is writable, notifyWritabilityChanged triggers resumeTransfer()
+    stream.notifyWritabilityChanged(true);
+    verify(mockChunkedHandler).resumeTransfer();
   }
 }
