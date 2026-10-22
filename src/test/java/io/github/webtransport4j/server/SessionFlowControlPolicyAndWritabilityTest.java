@@ -26,10 +26,12 @@ import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
+import io.netty.util.ReferenceCountUtil;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /** Tests for {@link SessionFlowControlPolicy} and outbound writability pause/resume mechanics. */
 public class SessionFlowControlPolicyAndWritabilityTest {
@@ -108,7 +110,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     handler.channelRead(mockCtx, capsule);
 
     assertEquals(1000L + 5 * 1024 * 1024L, session.getSettingsMaxData());
-    verify(mockConnect).writeAndFlush(any());
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnect).writeAndFlush(captor.capture());
+    ReferenceCountUtil.release(captor.getValue());
 
     // 2. Custom policy that denies extension (returns 0)
     QuicStreamChannel mockConnect2 = mock(QuicStreamChannel.class);
@@ -181,7 +185,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     handler.channelRead(mockCtx, capsule);
 
     assertEquals(75L, session.getSettingsMaxStreamsBidi());
-    verify(mockConnect).writeAndFlush(any());
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnect).writeAndFlush(captor.capture());
+    ReferenceCountUtil.release(captor.getValue());
 
     // Policy denying stream extension
     QuicStreamChannel mockConnect4 = mock(QuicStreamChannel.class);
@@ -345,6 +351,12 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     assertTrue(session.isOutboundFlowControlWritable());
     assertTrue(stream.isWritable());
     verify(mockCtx).write(data2, promise2);
+
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnect).writeAndFlush(captor.capture());
+    ReferenceCountUtil.release(captor.getValue());
+    data1.release();
+    data2.release();
   }
 
   @Test
@@ -409,6 +421,11 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     verify(promise2).setFailure(any(java.io.IOException.class));
     assertEquals(0, data2.refCnt());
+
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnect).writeAndFlush(captor.capture());
+    ReferenceCountUtil.release(captor.getValue());
+    data1.release();
   }
 
   @Test

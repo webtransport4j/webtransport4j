@@ -219,6 +219,7 @@ public class SessionFlowControlTest {
     RawWebTransportHandler handler = new RawWebTransportHandler();
     handler.channelRead(mockCtx, data1);
     verify(mockCtx).fireChannelRead(data1);
+    data1.release();
 
     // Send 51 bytes (total 101, exceeds limit of 100)
     ByteBuf data2 = Unpooled.copiedBuffer(new byte[51]);
@@ -315,6 +316,8 @@ public class SessionFlowControlTest {
     assertFalse(session.hasPendingOutboundWrites());
     assertEquals(0L, session.getPendingOutboundBytes());
     verify(mockCtx).write(data2, promise2);
+    data1.release();
+    data2.release();
   }
 
   @Test
@@ -398,6 +401,11 @@ public class SessionFlowControlTest {
 
     verify(promise2).setFailure(any(IOException.class));
     assertEquals(0, data2.refCnt());
+
+    ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+    verify(mockConnectStream).writeAndFlush(captor.capture());
+    ReferenceCountUtil.release(captor.getValue());
+    data1.release();
   }
 
   @Test
