@@ -45,8 +45,10 @@ public class AfXdpDatagramChannel extends AbstractChannel implements DatagramCha
   private volatile boolean open = true;
   private volatile boolean active;
   private volatile boolean connected;
+  private volatile AfXdpNativeSocket nativeSocket;
 
   private final AtomicLong packetsReceived = new AtomicLong();
+
   private final AtomicLong bytesReceived = new AtomicLong();
   private final AtomicLong packetsSent = new AtomicLong();
   private final AtomicLong bytesSent = new AtomicLong();
@@ -151,6 +153,29 @@ public class AfXdpDatagramChannel extends AbstractChannel implements DatagramCha
       throw new IllegalArgumentException("localAddress must be an InetSocketAddress: " + localAddress);
     }
     this.localAddress = (InetSocketAddress) localAddress;
+
+    String ifname = config.getInterfaceName();
+    if (ifname != null && !ifname.isEmpty()) {
+      if (AfXdpNativeBinding.isAvailable()) {
+        try {
+          this.nativeSocket = AfXdpNativeBinding.openSocket(
+              ifname,
+              config.getQueueId(),
+              umem,
+              2048
+          );
+        } catch (AfXdpException e) {
+          if (config.isNativeModeRequired()) {
+            throw e;
+          }
+        }
+      } else if (config.isNativeModeRequired()) {
+        throw new AfXdpException(
+            "Native AF_XDP required but unavailable: " + AfXdpNativeBinding.getLoadError()
+        );
+      }
+    }
+
     this.active = true;
   }
 
@@ -165,10 +190,16 @@ public class AfXdpDatagramChannel extends AbstractChannel implements DatagramCha
     open = false;
     this.active = false;
     this.connected = false;
+    AfXdpNativeSocket nativeSock = this.nativeSocket;
+    if (nativeSock != null) {
+      this.nativeSocket = null;
+      nativeSock.close();
+    }
     if (ownsUmem) {
       umem.close();
     }
   }
+
 
   @Override
   protected void doBeginRead() throws Exception {
@@ -224,14 +255,25 @@ public class AfXdpDatagramChannel extends AbstractChannel implements DatagramCha
       byte[] dstMac = resolveDestMac(recipient.getAddress());
       MemorySegment seg = umem.getFrameSlice(frameOffset, umem.getFrameSize());
       int wireLen = AfXdpFrameParser.writeFrame(seg, srcMac, dstMac, local, recipient, content);
+      AfXdpNativeSocket nativeSock = this.nativeSocket;
+      if (nativeSock != null) {
 
-      umem.submitTx(frameOffset, wireLen);
+        nativeSock.reapCompletions(64);
+        boolean sent = nativeSock.sendTx(frameOffset, wireLen);
+        if (!sent) {
+          umem.recycleFrame(frameOffset);
+          break;
+        }
+      } else {
+        umem.submitTx(frameOffset, wireLen);
+      }
       packetsSent.incrementAndGet();
       bytesSent.addAndGet(content.readableBytes());
 
       in.remove();
     }
   }
+
 
   /**
    * Ingests a raw wire packet descriptor received from the AF_XDP RX ring into Netty's pipeline.
@@ -352,7 +394,31 @@ public class AfXdpDatagramChannel extends AbstractChannel implements DatagramCha
     return umem.getFreeFrameCount();
   }
 
+  /**
+   * Returns the active native AF_XDP socket, or null if operating in virtual/simulated mode.
+   *
+   * @return native socket instance or null
+   */
+  public AfXdpNativeSocket getNativeSocket() {
+    return nativeSocket;
+  }
+
+  /**
+   * Polls the native AF_XDP RX ring directly and delivers packets to Netty's pipeline.
+   *
+   * @param maxBatch maximum packets to poll
+   * @return number of packets dispatched
+   */
+  public int pollNativeRx(int maxBatch) {
+    AfXdpNativeSocket nativeSock = this.nativeSocket;
+    if (nativeSock != null) {
+      return nativeSock.pollRx(this::feedRxFrame, maxBatch);
+    }
+    return 0;
+  }
+
   // --- Multicast Not Supported in AF_XDP Raw Stack ---
+
 
   @Override
   public ChannelFuture joinGroup(InetAddress multicastAddress) {

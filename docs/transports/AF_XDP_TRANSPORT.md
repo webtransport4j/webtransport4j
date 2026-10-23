@@ -11,37 +11,37 @@ Standard POSIX UDP sockets (`EpollDatagramChannel` / `NioDatagramChannel`) incur
 2. Kernel `sk_buff` allocation, packet copying, and IP route table traversals.
 3. Socket receive buffer queue limits (`SO_RCVBUF`) leading to packet drops during traffic spikes.
 
-The AF_XDP transport replaces this with a **zero-copy kernel-bypass data plane**:
+The AF_XDP transport uses a high-performance **Hybrid Architecture**:
+1. **Control Plane**: Uses Linux `libxdp.so.1` via Java 25 Foreign Function & Memory (FFM) to create UMEM buffers, configure XSK sockets, negotiate driver zero-copy flags, and safely manage eBPF program attachment via the XDP dispatcher.
+2. **Data Plane**: Direct in-JVM lock-free ring manipulation (`AfXdpRing`) on off-heap memory slices, achieving raw hardware speed without per-packet native call overhead.
 
 ```
 [ NIC Hardware RX Ring ]
            │
-           ▼
-[ eBPF Driver Hook: xdp_webtransport.bpf.o ]
-           │
-  ┌────────┴───────────────────────────┐
-  │ Matches UDP Dst Port (e.g. 443)?   │
-  ▼ YES (XDP_REDIRECT)                 ▼ NO (XDP_PASS)
-[ AF_XDP Socket (XSK) ]        [ Normal Linux Stack (SSH, ARP, DNS) ]
-           │
-           ▼ Zero-Copy DMA
-[ Off-Heap UMEM (Java 25 FFM Arena) ]
+           ▼ (Zero-Copy DMA)
+[ Linux Kernel Driver (XDP Hook via libxdp) ]
            │
            ▼
-[ AfXdpFrameParser (Zero-Copy) ]
-           │
-           ▼
-[ AfXdpDatagramChannel ]
-           │
-  ┌────────┴───────────────────────────┐
-  │ Inbound Path:                      │ Outbound Path:
-  │ - Extract IP & UDP payload         │ - Intercept write(DatagramPacket)
-  │ - Auto-learn neighbor MAC address  │ - Resolve destination MAC in neighbor table
-  │ - Wrap UMEM into AfXdpFrameByteBuf │ - Assemble Eth + IP + UDP headers + checksum
-  │ - fireChannelRead(DatagramPacket)  │ - Push frame to UMEM TX ring
-  ▼                                    ▼
-[ Netty ChannelPipeline: QuicServerCodec / WebTransportSession ]
+[ Off-Heap UMEM (Java 25 FFM Arena) ] ◄── Direct Memory Mapping
+           │                                      ▲
+           ▼                                      │
+[ AfXdpRing: Direct Memory Descriptors ]          │
+           │                                      │
+           ▼                                      │
+[ AfXdpFrameParser: Zero-Copy IP/UDP ]            │
+           │                                      │
+           ▼                                      │
+[ AfXdpDatagramChannel ]                          │
+           │                                      │
+  ┌────────┴───────────────────────────┐          │
+  │ Inbound:                           │ Outbound:│
+  │ - Extract IP/UDP payload           │ - write(DatagramPacket)
+  │ - Auto-learn neighbor MAC address  │ - Resolve MAC & write L2 frame
+  │ - Deliver zero-copy to Netty       │ - Push directly to TX ring
+  ▼                                    ▼          │
+[ Netty ChannelPipeline: QuicServerCodec / WebTransport ]
 ```
+
 
 ---
 
@@ -137,18 +137,18 @@ securityContext:
       - NET_RAW
 ```
 
-### eBPF Filter Attachment
-Compile and attach the XDP filter to your interface:
+### eBPF Filter & Dispatcher Management
+With the Hybrid architecture, `libxdp` manages eBPF attachment automatically using the standard Linux multi-prog dispatcher. When `AfXdpDatagramChannel` binds to an interface (e.g. `eth0`), `libxdp`:
+1. Safely checks for existing XDP programs and coexists with CNI plugins (Cilium, Calico).
+2. Sets up the redirect map (`xsks_map`) for your hardware queue.
+3. Cleans up and detaches upon channel close.
+
+Optionally, you can attach custom XDP filter policies prior to running:
 ```bash
-# 1. Compile eBPF filter
-clang -O2 -target bpf -c poc/af_xdp/bpf/xdp_webtransport.bpf.c -o xdp_webtransport.bpf.o
-
-# 2. Attach to network interface in driver mode (or xdpgeneric for Wi-Fi/Virtual)
-sudo ip link set dev eth0 xdp obj xdp_webtransport.bpf.o sec xdp
-
-# To detach when stopping:
-sudo ip link set dev eth0 xdp off
+# Attach custom XDP bytecode if specialized pre-routing filtering is required
+sudo ip link set dev eth0 xdp obj my_custom_xdp.o sec xdp
 ```
+
 
 ---
 

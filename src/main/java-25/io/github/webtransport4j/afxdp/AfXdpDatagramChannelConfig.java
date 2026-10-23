@@ -50,12 +50,14 @@ public final class AfXdpDatagramChannelConfig extends DefaultChannelConfig
         AfXdpChannelOption.INTERFACE_NAME,
         AfXdpChannelOption.QUEUE_ID,
         AfXdpChannelOption.SOURCE_MAC,
-        AfXdpChannelOption.GATEWAY_MAC);
+        AfXdpChannelOption.GATEWAY_MAC,
+        AfXdpChannelOption.NATIVE_MODE_REQUIRED);
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public <T> T getOption(ChannelOption<T> option) {
+
     if (option == ChannelOption.SO_BROADCAST) {
       return (T) Boolean.valueOf(isBroadcast());
     }
@@ -89,6 +91,9 @@ public final class AfXdpDatagramChannelConfig extends DefaultChannelConfig
     if (option == AfXdpChannelOption.GATEWAY_MAC) {
       return (T) getGatewayMac();
     }
+    if (option == AfXdpChannelOption.NATIVE_MODE_REQUIRED) {
+      return (T) Boolean.valueOf(isNativeModeRequired());
+    }
     return super.getOption(option);
   }
 
@@ -117,11 +122,14 @@ public final class AfXdpDatagramChannelConfig extends DefaultChannelConfig
       setSourceMac((byte[]) value);
     } else if (option == AfXdpChannelOption.GATEWAY_MAC) {
       setGatewayMac((byte[]) value);
+    } else if (option == AfXdpChannelOption.NATIVE_MODE_REQUIRED) {
+      setNativeModeRequired((Boolean) value);
     } else {
       return super.setOption(option, value);
     }
     return true;
   }
+
 
   @Override
   public boolean isBroadcast() {
@@ -371,6 +379,8 @@ public final class AfXdpDatagramChannelConfig extends DefaultChannelConfig
     return gatewayMac != null ? gatewayMac.clone() : null;
   }
 
+  private volatile boolean nativeModeRequired;
+
   /**
    * Sets the default gateway MAC address for outbound packets without learned MAC.
    *
@@ -381,4 +391,25 @@ public final class AfXdpDatagramChannelConfig extends DefaultChannelConfig
     this.gatewayMac = gatewayMac != null ? gatewayMac.clone() : null;
     return this;
   }
+
+  /**
+   * Returns true if channel binding must fail when native AF_XDP is unavailable.
+   *
+   * @return true if native mode is required
+   */
+  public boolean isNativeModeRequired() {
+    return nativeModeRequired;
+  }
+
+  /**
+   * Configures whether channel binding must fail when native AF_XDP is unavailable.
+   *
+   * @param nativeModeRequired true to require native AF_XDP
+   * @return this config
+   */
+  public AfXdpDatagramChannelConfig setNativeModeRequired(boolean nativeModeRequired) {
+    this.nativeModeRequired = nativeModeRequired;
+    return this;
+  }
 }
+

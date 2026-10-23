@@ -17,6 +17,7 @@ public final class AfXdpPacketDispatcher {
 
   private final AfXdpUmem umem;
   private final int targetPort;
+  private final AfXdpDatagramChannel channel;
   private final Consumer<ByteBuf> legacyHandler;
   private final BiPredicate<Long, Integer> frameDispatcher;
   private final AtomicLong packetsReceived = new AtomicLong(0);
@@ -29,7 +30,8 @@ public final class AfXdpPacketDispatcher {
    * @param channel target datagram channel
    */
   public AfXdpPacketDispatcher(AfXdpDatagramChannel channel) {
-    this.umem = Objects.requireNonNull(channel, "channel").getUmem();
+    this.channel = Objects.requireNonNull(channel, "channel");
+    this.umem = channel.getUmem();
     this.targetPort = channel.localAddress() != null ? channel.localAddress().getPort() : 0;
     this.legacyHandler = null;
     this.frameDispatcher = channel::feedRxFrame;
@@ -43,11 +45,26 @@ public final class AfXdpPacketDispatcher {
    * @param handler callback consumer for incoming datagrams
    */
   public AfXdpPacketDispatcher(AfXdpUmem umem, int targetPort, Consumer<ByteBuf> handler) {
+    this.channel = null;
     this.umem = Objects.requireNonNull(umem, "umem");
     this.targetPort = targetPort;
     this.legacyHandler = Objects.requireNonNull(handler, "handler");
     this.frameDispatcher = null;
   }
+
+  /**
+   * Polls the native AF_XDP RX ring if the attached channel is bound to a native socket.
+   *
+   * @param maxBatch maximum packets to poll
+   * @return number of packets processed
+   */
+  public int pollNative(int maxBatch) {
+    if (channel != null) {
+      return channel.pollNativeRx(maxBatch);
+    }
+    return 0;
+  }
+
 
   /**
    * Processes a single incoming packet descriptor from the Rx ring.

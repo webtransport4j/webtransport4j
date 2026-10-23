@@ -28,4 +28,9 @@ public final class AfXdpChannelOption {
   /** Default gateway MAC address (6 bytes) for Layer 2 Ethernet framing. */
   public static final ChannelOption<byte[]> GATEWAY_MAC =
       ChannelOption.valueOf("AF_XDP_GATEWAY_MAC");
+
+  /** Whether binding must fail if native AF_XDP (libxdp) cannot be initialized. Default false. */
+  public static final ChannelOption<Boolean> NATIVE_MODE_REQUIRED =
+      ChannelOption.valueOf("AF_XDP_NATIVE_MODE_REQUIRED");
 }
+
