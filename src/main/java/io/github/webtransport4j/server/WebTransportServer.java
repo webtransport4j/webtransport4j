@@ -1628,7 +1628,8 @@ public class WebTransportServer implements AutoCloseable {
     boolean requestEpoll = "epoll".equalsIgnoreCase(requested);
     boolean requestKqueue = "kqueue".equalsIgnoreCase(requested);
     boolean requestNio = "nio".equalsIgnoreCase(requested);
-    if (!auto && !requestIoUring && !requestEpoll && !requestKqueue && !requestNio) {
+    boolean requestAfXdp = "afxdp".equalsIgnoreCase(requested);
+    if (!auto && !requestIoUring && !requestEpoll && !requestKqueue && !requestNio && !requestAfXdp) {
       throw new IllegalArgumentException("Unknown transport type: " + requested);
     }
 
@@ -1804,6 +1805,20 @@ public class WebTransportServer implements AutoCloseable {
           throw unavailableTransport("KQueue", e);
         }
         logger.debug("KQueue is not available.", e);
+      }
+    }
+
+    if (ioHandlerFactory == null && requestAfXdp) {
+      try {
+        @SuppressWarnings("unchecked")
+        Class<? extends Channel> clazz =
+            (Class<? extends Channel>)
+                Class.forName("io.github.webtransport4j.afxdp.AfXdpDatagramChannel");
+        channelClass = clazz;
+        ioHandlerFactory = NioIoHandler.newFactory();
+        logger.info("Using AF_XDP native kernel-bypass transport");
+      } catch (ReflectiveOperationException | LinkageError e) {
+        throw unavailableTransport("AF_XDP", e);
       }
     }
 

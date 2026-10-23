@@ -308,7 +308,7 @@ public class WebTransportServerBuilder {
     return this;
   }
 
-  /** Sets the transport type ("auto", "epoll", "kqueue", "iouring", "nio"). */
+  /** Sets the transport type ("auto", "epoll", "kqueue", "iouring", "nio", "afxdp"). */
   public @NonNull WebTransportServerBuilder transportType(@Nullable String transportType) {
     this.transportType = transportType;
     return this;

@@ -144,6 +144,37 @@ public class WebTransportServerTransportTest {
     }
   }
 
+  @Test
+  public void testAfXdpTransport() throws Exception {
+    System.setProperty("webtransport4j.server.transport", "afxdp");
+    System.setProperty("webtransport4j.server.port", "0");
+    try {
+      if (isAfXdpAvailable()) {
+        Channel channel = startServerAsyncAndVerify();
+        assertTrue(channel != null
+            && channel.getClass().getSimpleName().contains("AfXdpDatagramChannel"),
+            "Explicit afxdp should use AfXdpDatagramChannel");
+      } else {
+        IllegalStateException ex =
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, server::start);
+        assertTrue(ex.getMessage() != null && ex.getMessage().contains("AF_XDP"),
+            "Expected explicit afxdp unavailability message");
+      }
+    } finally {
+      System.clearProperty("webtransport4j.server.transport");
+      System.clearProperty("webtransport4j.server.port");
+    }
+  }
+
+  private static boolean isAfXdpAvailable() {
+    try {
+      Class.forName("io.github.webtransport4j.afxdp.AfXdpDatagramChannel");
+      return true;
+    } catch (Throwable t) {
+      return false;
+    }
+  }
+
   private static boolean isEpollAvailable() {
     try {
       Class<?> clazz = Class.forName("io.netty.channel.epoll.Epoll");

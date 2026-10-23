@@ -123,3 +123,9 @@ dashboard/testing/.runtime/
 # Go compiled binaries
 interop/go/client_go
 interop/go/throughput/go_throughput
+
+# Scratch scripts and temporary files
+scratch/
+
+# Compiled eBPF bytecode
+*.bpf.o
