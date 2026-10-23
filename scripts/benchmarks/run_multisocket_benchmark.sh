@@ -4,7 +4,15 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-TARGET_BYTES=${1:-1073741824} # 1 GiB (1,073,741,824 bytes) default
+RAW_TARGET=${1:-17179869184} # 16 GiB (17,179,869,184 bytes) default
+case "$RAW_TARGET" in
+  16gb|16GB|16g|16G) TARGET_BYTES=17179869184 ;;
+  10gb|10GB|10g|10G) TARGET_BYTES=10737418240 ;;
+  1gb|1GB|1g|1G)     TARGET_BYTES=1073741824 ;;
+  100mb|100MB|100m|100M) TARGET_BYTES=104857600 ;;
+  *) TARGET_BYTES="$RAW_TARGET" ;;
+esac
+
 SOCKETS=${2:-8}               # 8 sockets for multi-socket run
 DGRAM_SIZE=${3:-1024}         # 1 KiB per datagram
 CONCURRENCY=${4:-8}           # 8 concurrent client connections
@@ -20,8 +28,8 @@ else
   CALC_PACKETS=$(( TARGET_BYTES / DGRAM_SIZE ))
   if [ "$CALC_PACKETS" -lt 50000 ]; then
     AFXDP_PACKETS=50000
-  elif [ "$CALC_PACKETS" -gt 200000 ]; then
-    AFXDP_PACKETS=200000
+  elif [ "$CALC_PACKETS" -gt 300000 ]; then
+    AFXDP_PACKETS=300000
   else
     AFXDP_PACKETS="$CALC_PACKETS"
   fi
@@ -33,17 +41,19 @@ if [ ! -f target/cp.txt ]; then
 fi
 
 CP="target/classes/META-INF/versions/25:target/classes:target/test-classes:$(cat target/cp.txt)"
+TARGET_GIB=$(awk "BEGIN {printf \"%.2f\", $TARGET_BYTES / 1073741824}")
 
 echo "=========================================================================="
 echo " ⚡ WEBTRANSPORT BENCHMARK SUITE: AF_XDP KERNEL-BYPASS vs EPOLL NATIVE ⚡"
-echo " Target Payload:  $TARGET_BYTES bytes ($(( TARGET_BYTES / 1024 / 1024 )) MB)"
-echo " Datagram Size:   $DGRAM_SIZE bytes"
+echo " Target Payload:  $TARGET_BYTES bytes (${TARGET_GIB} GiB)"
+echo " Datagram Size:   $DGRAM_SIZE bytes ($(( TARGET_BYTES / DGRAM_SIZE )) packets)"
 echo " Epoll Sharding:  $SOCKETS sockets (SO_REUSEPORT + QuicCodecDispatcher)"
 echo " Concurrency:     $CONCURRENCY parallel client connections"
 echo " AF_XDP Packets:  $AFXDP_PACKETS datagrams"
 if [ "$PACING_MICROS" -gt 0 ]; then
   echo " Client Pacing:   ${PACING_MICROS} µs/datagram (zero-loss rate matching)"
 fi
+echo " Heap Config:     Server: -Xms4096m -Xmx8192m | Client: -Xms2048m -Xmx4096m"
 echo " JVM:             $(java -version 2>&1 | head -n 1)"
 echo " Runtime Opts:    Java 25 + Compact Object Headers + ZGC + Panama FFM"
 echo "=========================================================================="
@@ -68,7 +78,7 @@ run_benchmark() {
   java --enable-native-access=ALL-UNNAMED \
        -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC \
        -XX:+AlwaysPreTouch -XX:ZAllocationSpikeTolerance=5 \
-       -Xms4096m -Xmx4096m \
+       -Xms4096m -Xmx8192m \
        "-Xlog:gc*:file=$GC_LOG:time,uptime,level,tags" \
        -Dwebtransport4j.server.transport="$TRANSPORT" \
        -Dwebtransport4j.server.socket.rcvbuf=67108864 \
@@ -101,7 +111,7 @@ run_benchmark() {
   java --enable-native-access=ALL-UNNAMED \
        -XX:+UnlockExperimentalVMOptions -XX:+UseCompactObjectHeaders -XX:+UseZGC \
        -XX:+AlwaysPreTouch \
-       -Xms1024m -Xmx1024m \
+       -Xms2048m -Xmx4096m \
        -Dwebtransport4j.quic.datagram.recv.queue.len=65536 \
        -Dwebtransport4j.quic.datagram.send.queue.len=65536 \
        -cp "$CP" \
