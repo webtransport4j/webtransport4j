@@ -24,6 +24,8 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -40,9 +42,16 @@ public final class RealDatagramChannelBenchmark {
   private static final int PAYLOAD_SIZE = 1024; // 1 KiB
   private static final int SERVER_PORT = 54433;
 
+  /**
+   * Main entry point for the real datagram channel comparative benchmark.
+   *
+   * @param args command-line arguments (optional: packetCount, socketCount)
+   * @throws Exception if benchmark fails
+   */
   public static void main(String[] args) throws Exception {
     int packetCount = args.length > 0 ? Integer.parseInt(args[0]) : DEFAULT_PACKET_COUNT;
-    runBenchmark(packetCount);
+    int socketCount = args.length > 1 ? Integer.parseInt(args[1]) : 8;
+    runBenchmark(packetCount, socketCount);
   }
 
   /**
@@ -131,8 +140,19 @@ public final class RealDatagramChannelBenchmark {
    * @param packetCount total datagrams to process
    */
   public static void runBenchmark(int packetCount) throws Exception {
+    runBenchmark(packetCount, 8);
+  }
+
+  /**
+   * Executes the head-to-head benchmark with configurable socketCount.
+   *
+   * @param packetCount total datagrams to process
+   * @param socketCount number of sharded sockets to bind
+   */
+  public static void runBenchmark(int packetCount, int socketCount) throws Exception {
     System.out.println("==========================================================================");
     System.out.printf("⚡ HEAD-TO-HEAD BENCHMARK: EpollDatagramChannel vs AfXdpDatagramChannel ⚡%n");
+    System.out.printf("   Sockets:     %d sockets (Multi-Socket Sharding)%n", socketCount);
     System.out.printf("   Workload:    Netty Pipeline DatagramPacket Ingestion + Checksum%n");
     System.out.printf("   Datagrams:   %,d packets (%d bytes each)%n", packetCount, PAYLOAD_SIZE);
     System.out.printf("   Total Data:  %.2f MB%n", (packetCount * (long) PAYLOAD_SIZE) / (1024.0 * 1024.0));
@@ -140,9 +160,9 @@ public final class RealDatagramChannelBenchmark {
 
     // Warmup JVM
     System.out.println(">>> Performing JIT compilation warmup (50,000 packets)...");
-    runAfXdp(50_000, true);
+    runAfXdp(50_000, socketCount, true);
     if (Epoll.isAvailable()) {
-      runEpoll(50_000, true);
+      runEpoll(50_000, socketCount, true);
     }
     System.gc();
     Thread.sleep(1000);
@@ -150,8 +170,8 @@ public final class RealDatagramChannelBenchmark {
     // 1. Benchmark EpollDatagramChannel
     Result epollResult = null;
     if (Epoll.isAvailable()) {
-      System.out.println("\n>>> [1/2] Running EpollDatagramChannel Benchmark...");
-      epollResult = runEpoll(packetCount, false);
+      System.out.printf("%n>>> [1/2] Running EpollDatagramChannel Benchmark (%d Sockets)...%n", socketCount);
+      epollResult = runEpoll(packetCount, socketCount, false);
       printSingleResult(epollResult);
     } else {
       System.out.println("\n>>> Epoll is not available on this platform, skipping Epoll test.");
@@ -161,8 +181,8 @@ public final class RealDatagramChannelBenchmark {
     Thread.sleep(1000);
 
     // 2. Benchmark AfXdpDatagramChannel
-    System.out.println("\n>>> [2/2] Running AfXdpDatagramChannel Benchmark...");
-    Result afxdpResult = runAfXdp(packetCount, false);
+    System.out.printf("%n>>> [2/2] Running AfXdpDatagramChannel Benchmark (%d Sockets)...%n", socketCount);
+    Result afxdpResult = runAfXdp(packetCount, socketCount, false);
     printSingleResult(afxdpResult);
 
     // Print Comparative Summary
@@ -170,88 +190,111 @@ public final class RealDatagramChannelBenchmark {
   }
 
   /**
-   * Benchmarks Netty EpollDatagramChannel.
+   * Benchmarks Netty EpollDatagramChannel with 1 socket.
    */
   public static Result runEpoll(int packetCount, boolean isWarmup) throws Exception {
-    final CountDownLatch latch = new CountDownLatch(1);
+    return runEpoll(packetCount, 1, isWarmup);
+  }
+
+  /**
+   * Benchmarks Netty EpollDatagramChannel with configurable socket count.
+   */
+  public static Result runEpoll(int packetCount, int socketCount, boolean isWarmup) throws Exception {
+    final CountDownLatch latch = new CountDownLatch(socketCount);
     final AtomicLong packetsHandled = new AtomicLong();
     final AtomicLong bytesHandled = new AtomicLong();
     final AtomicLong checksumSum = new AtomicLong();
 
-    EventLoopGroup group = new EpollEventLoopGroup(2);
-    EventLoopGroup clientGroup = new EpollEventLoopGroup(2);
+    EventLoopGroup group = new EpollEventLoopGroup(socketCount);
+    EventLoopGroup clientGroup = new EpollEventLoopGroup(socketCount);
 
-    Channel serverChannel = null;
-    Channel clientChannel = null;
+    Channel[] serverChannels = new Channel[socketCount];
+    Channel[] clientChannels = new Channel[socketCount];
+    int[] ports = new int[socketCount];
+    final int perSocketPackets = packetCount / socketCount;
 
     try {
-      Bootstrap serverBs = new Bootstrap();
-      serverBs
-          .group(group)
-          .channel(EpollDatagramChannel.class)
-          .option(ChannelOption.SO_RCVBUF, 64 * 1024 * 1024)
-          .option(ChannelOption.RCVBUF_ALLOCATOR, new io.netty.channel.FixedRecvByteBufAllocator(4096))
-          .handler(
-              new SimpleChannelInboundHandler<DatagramPacket>(true) {
-                @Override
-                protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {
-                  ByteBuf buf = msg.content();
-                  int len = buf.readableBytes();
-                  bytesHandled.addAndGet(len);
+      for (int s = 0; s < socketCount; s++) {
+        Bootstrap serverBs = new Bootstrap();
+        serverBs
+            .group(group)
+            .channel(EpollDatagramChannel.class)
+            .option(ChannelOption.SO_RCVBUF, 64 * 1024 * 1024)
+            .option(ChannelOption.RCVBUF_ALLOCATOR, new io.netty.channel.FixedRecvByteBufAllocator(4096))
+            .handler(
+                new SimpleChannelInboundHandler<DatagramPacket>(true) {
+                  private long localCount = 0;
 
-                  long accum = 0;
-                  while (buf.readableBytes() >= 8) {
-                    accum ^= buf.readLong();
+                  @Override
+                  protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {
+                    ByteBuf buf = msg.content();
+                    int len = buf.readableBytes();
+                    bytesHandled.addAndGet(len);
+
+                    long accum = 0;
+                    while (buf.readableBytes() >= 8) {
+                      accum ^= buf.readLong();
+                    }
+                    while (buf.isReadable()) {
+                      accum ^= buf.readByte();
+                    }
+                    checksumSum.addAndGet(accum);
+
+                    packetsHandled.incrementAndGet();
+                    if (++localCount == perSocketPackets) {
+                      latch.countDown();
+                    }
                   }
-                  while (buf.isReadable()) {
-                    accum ^= buf.readByte();
-                  }
-                  checksumSum.addAndGet(accum);
+                });
 
-                  if (packetsHandled.incrementAndGet() >= packetCount) {
-                    latch.countDown();
-                  }
-                }
-              });
+        serverChannels[s] = serverBs.bind("127.0.0.1", 0).sync().channel();
+        ports[s] = ((InetSocketAddress) serverChannels[s].localAddress()).getPort();
 
-      serverChannel = serverBs.bind("127.0.0.1", 0).sync().channel();
-      final int port = ((InetSocketAddress) serverChannel.localAddress()).getPort();
-
-      Bootstrap clientBs = new Bootstrap();
-      clientBs
-          .group(clientGroup)
-          .channel(EpollDatagramChannel.class)
-          .option(ChannelOption.SO_SNDBUF, 64 * 1024 * 1024)
-          .handler(new SimpleChannelInboundHandler<DatagramPacket>() {
-            @Override
-            protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {}
-          });
-      clientChannel = clientBs.bind(0).sync().channel();
+        Bootstrap clientBs = new Bootstrap();
+        clientBs
+            .group(clientGroup)
+            .channel(EpollDatagramChannel.class)
+            .option(ChannelOption.SO_SNDBUF, 64 * 1024 * 1024)
+            .handler(
+                new SimpleChannelInboundHandler<DatagramPacket>() {
+                  @Override
+                  protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {}
+                });
+        clientChannels[s] = clientBs.bind(0).sync().channel();
+      }
 
       byte[] payload = new byte[PAYLOAD_SIZE];
       for (int i = 0; i < payload.length; i++) {
         payload[i] = (byte) (i & 0xFF);
       }
-      InetSocketAddress target = new InetSocketAddress("127.0.0.1", port);
 
-      long gcBefore = getGcCount();
-      long gcTimeBefore = getGcTime();
-      long[] cpuBefore = getProcessCpuTicks();
+      final long gcBefore = getGcCount();
+      final long gcTimeBefore = getGcTime();
+      final long[] cpuBefore = getProcessCpuTicks();
 
-      long startNanos = System.nanoTime();
+      final long startNanos = System.nanoTime();
 
-      // Client stream
-      for (int i = 0; i < packetCount; i++) {
-        ByteBuf buf = PooledByteBufAllocator.DEFAULT.directBuffer(PAYLOAD_SIZE);
-        buf.writeBytes(payload);
-        clientChannel.write(new DatagramPacket(buf, target));
-        if ((i & 0x7F) == 0) {
-          clientChannel.flush();
-        }
+      ExecutorService feeder = Executors.newFixedThreadPool(socketCount);
+      for (int s = 0; s < socketCount; s++) {
+        final int idx = s;
+        feeder.submit(
+            () -> {
+              Channel clientCh = clientChannels[idx];
+              InetSocketAddress target = new InetSocketAddress("127.0.0.1", ports[idx]);
+              for (int i = 0; i < perSocketPackets; i++) {
+                ByteBuf buf = PooledByteBufAllocator.DEFAULT.directBuffer(PAYLOAD_SIZE);
+                buf.writeBytes(payload);
+                clientCh.write(new DatagramPacket(buf, target));
+                if ((i & 0x7F) == 0) {
+                  clientCh.flush();
+                }
+              }
+              clientCh.flush();
+            });
       }
-      clientChannel.flush();
-
-      boolean finished = latch.await(10, TimeUnit.SECONDS);
+      feeder.shutdown();
+      feeder.awaitTermination(10, TimeUnit.SECONDS);
+      latch.await(300, TimeUnit.MILLISECONDS);
       long endNanos = System.nanoTime();
 
       long[] cpuAfter = getProcessCpuTicks();
@@ -267,8 +310,11 @@ public final class RealDatagramChannelBenchmark {
       long userCpuMs = ticksToMs(cpuAfter[0] - cpuBefore[0]);
       long kernelCpuMs = ticksToMs(cpuAfter[1] - cpuBefore[1]);
 
+      String title = socketCount > 1
+          ? "EpollDatagramChannel (" + socketCount + " Sharded Sockets)"
+          : "EpollDatagramChannel (Linux Native Socket)";
       return new Result(
-          "EpollDatagramChannel (Linux Native Socket)",
+          title,
           actualPackets,
           actualBytes,
           durationSec,
@@ -279,88 +325,120 @@ public final class RealDatagramChannelBenchmark {
           userCpuMs,
           kernelCpuMs);
     } finally {
-      if (clientChannel != null) {
-        clientChannel.close();
+      for (Channel ch : clientChannels) {
+        if (ch != null) {
+          ch.close();
+        }
       }
-      if (serverChannel != null) {
-        serverChannel.close();
+      for (Channel ch : serverChannels) {
+        if (ch != null) {
+          ch.close();
+        }
       }
-      clientGroup.shutdownGracefully(0, 2, TimeUnit.SECONDS);
-      group.shutdownGracefully(0, 2, TimeUnit.SECONDS);
+      clientGroup.shutdownGracefully(0, 1, TimeUnit.SECONDS);
+      group.shutdownGracefully(0, 1, TimeUnit.SECONDS);
     }
   }
 
   /**
-   * Benchmarks Netty AfXdpDatagramChannel.
+   * Benchmarks Netty AfXdpDatagramChannel with 1 socket.
    */
   public static Result runAfXdp(int packetCount, boolean isWarmup) throws Exception {
-    final CountDownLatch latch = new CountDownLatch(1);
+    return runAfXdp(packetCount, 1, isWarmup);
+  }
+
+  /**
+   * Benchmarks Netty AfXdpDatagramChannel with configurable socket count.
+   */
+  public static Result runAfXdp(int packetCount, int socketCount, boolean isWarmup) throws Exception {
+    final CountDownLatch latch = new CountDownLatch(socketCount);
     final AtomicLong packetsHandled = new AtomicLong();
     final AtomicLong bytesHandled = new AtomicLong();
     final AtomicLong checksumSum = new AtomicLong();
 
-    EventLoopGroup group = new DefaultEventLoopGroup(1);
-    AfXdpUmem umem = new AfXdpUmem(4096, 2048);
-    AfXdpDatagramChannel channel = null;
+    EventLoopGroup group = new DefaultEventLoopGroup(socketCount);
+    AfXdpDatagramChannel[] channels = new AfXdpDatagramChannel[socketCount];
+    AfXdpUmem[] umems = new AfXdpUmem[socketCount];
+    long[] frameOffsets = new long[socketCount];
+    int[] wireLens = new int[socketCount];
+
+    byte[] payload = new byte[PAYLOAD_SIZE];
+    for (int i = 0; i < payload.length; i++) {
+      payload[i] = (byte) (i & 0xFF);
+    }
+
+    InetSocketAddress sender = new InetSocketAddress("2001:db8::1", 54321);
+    byte[] clientMac = new byte[] {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
+    byte[] serverMac = new byte[] {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+
+    final int perSocketPackets = packetCount / socketCount;
 
     try {
-      Bootstrap serverBs = new Bootstrap();
-      serverBs
-          .group(group)
-          .channelFactory(() -> new AfXdpDatagramChannel(umem))
-          .handler(
-              new SimpleChannelInboundHandler<DatagramPacket>(true) {
-                @Override
-                protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {
-                  ByteBuf buf = msg.content();
-                  int len = buf.readableBytes();
-                  bytesHandled.addAndGet(len);
+      for (int s = 0; s < socketCount; s++) {
+        final int idx = s;
+        umems[s] = new AfXdpUmem(4096, 2048);
+        Bootstrap serverBs = new Bootstrap();
+        serverBs
+            .group(group)
+            .channelFactory(() -> new AfXdpDatagramChannel(umems[idx]))
+            .handler(
+                new SimpleChannelInboundHandler<DatagramPacket>(true) {
+                  private long localCount = 0;
 
-                  long accum = 0;
-                  while (buf.readableBytes() >= 8) {
-                    accum ^= buf.readLong();
+                  @Override
+                  protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket msg) {
+                    ByteBuf buf = msg.content();
+                    int len = buf.readableBytes();
+                    bytesHandled.addAndGet(len);
+
+                    long accum = 0;
+                    while (buf.readableBytes() >= 8) {
+                      accum ^= buf.readLong();
+                    }
+                    while (buf.isReadable()) {
+                      accum ^= buf.readByte();
+                    }
+                    checksumSum.addAndGet(accum);
+
+                    packetsHandled.incrementAndGet();
+                    if (++localCount == perSocketPackets) {
+                      latch.countDown();
+                    }
                   }
-                  while (buf.isReadable()) {
-                    accum ^= buf.readByte();
-                  }
-                  checksumSum.addAndGet(accum);
+                });
 
-                  if (packetsHandled.incrementAndGet() >= packetCount) {
-                    latch.countDown();
-                  }
-                }
-              });
+        channels[s] = (AfXdpDatagramChannel) serverBs.bind(SERVER_PORT + s).sync().channel();
 
-      channel = (AfXdpDatagramChannel) serverBs.bind(SERVER_PORT).sync().channel();
-
-      // Synthesize wire Ethernet II + IPv6 + UDP frames in UMEM
-      byte[] payload = new byte[PAYLOAD_SIZE];
-      for (int i = 0; i < payload.length; i++) {
-        payload[i] = (byte) (i & 0xFF);
+        frameOffsets[s] = umems[s].leaseFrame();
+        ByteBuf payloadBuffer = Unpooled.wrappedBuffer(payload);
+        MemorySegment seg = umems[s].getFrameSlice(frameOffsets[s], 4096);
+        InetSocketAddress recipient = new InetSocketAddress("2001:db8::2", SERVER_PORT + s);
+        wireLens[s] =
+            AfXdpFrameParser.writeFrame(seg, clientMac, serverMac, sender, recipient, payloadBuffer);
       }
 
-      InetSocketAddress sender = new InetSocketAddress("2001:db8::1", 54321);
-      InetSocketAddress recipient = new InetSocketAddress("2001:db8::2", SERVER_PORT);
-      byte[] clientMac = new byte[] {0x00, 0x11, 0x22, 0x33, 0x44, 0x55};
-      byte[] serverMac = new byte[] {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+      final long gcBefore = getGcCount();
+      final long gcTimeBefore = getGcTime();
+      final long[] cpuBefore = getProcessCpuTicks();
 
-      long frameOffset = umem.leaseFrame();
-      ByteBuf payloadBuffer = Unpooled.wrappedBuffer(payload);
-      MemorySegment seg = umem.getFrameSlice(frameOffset, 4096);
-      int wireLen =
-          AfXdpFrameParser.writeFrame(seg, clientMac, serverMac, sender, recipient, payloadBuffer);
+      final long startNanos = System.nanoTime();
 
-      long gcBefore = getGcCount();
-      long gcTimeBefore = getGcTime();
-      long[] cpuBefore = getProcessCpuTicks();
-
-      long startNanos = System.nanoTime();
-
-      for (int i = 0; i < packetCount; i++) {
-        channel.feedRxFrame(frameOffset, wireLen);
+      ExecutorService feeder = Executors.newFixedThreadPool(socketCount);
+      for (int s = 0; s < socketCount; s++) {
+        final int idx = s;
+        feeder.submit(
+            () -> {
+              AfXdpDatagramChannel ch = channels[idx];
+              long frameOffset = frameOffsets[idx];
+              int wireLength = wireLens[idx];
+              for (int i = 0; i < perSocketPackets; i++) {
+                ch.feedRxFrame(frameOffset, wireLength);
+              }
+            });
       }
+      feeder.shutdown();
 
-      boolean finished = latch.await(10, TimeUnit.SECONDS);
+      boolean finished = latch.await(20, TimeUnit.SECONDS);
       long endNanos = System.nanoTime();
 
       long[] cpuAfter = getProcessCpuTicks();
@@ -376,8 +454,11 @@ public final class RealDatagramChannelBenchmark {
       long userCpuMs = ticksToMs(cpuAfter[0] - cpuBefore[0]);
       long kernelCpuMs = ticksToMs(cpuAfter[1] - cpuBefore[1]);
 
+      String title = socketCount > 1
+          ? "AfXdpDatagramChannel (" + socketCount + " Sharded Sockets)"
+          : "AfXdpDatagramChannel (Kernel-Bypass Native)";
       return new Result(
-          "AfXdpDatagramChannel (Kernel-Bypass Native)",
+          title,
           actualPackets,
           actualBytes,
           durationSec,
@@ -388,11 +469,17 @@ public final class RealDatagramChannelBenchmark {
           userCpuMs,
           kernelCpuMs);
     } finally {
-      if (channel != null) {
-        channel.close();
+      for (AfXdpDatagramChannel ch : channels) {
+        if (ch != null) {
+          ch.close();
+        }
       }
-      group.shutdownGracefully(0, 2, TimeUnit.SECONDS);
-      umem.close();
+      for (AfXdpUmem u : umems) {
+        if (u != null) {
+          u.close();
+        }
+      }
+      group.shutdownGracefully(0, 1, TimeUnit.SECONDS);
     }
   }
 

@@ -184,7 +184,7 @@ java --enable-native-access=ALL-UNNAMED \
      -XX:+AlwaysPreTouch \
      -Xms2048m -Xmx2048m \
      -cp "$CP" \
-     io.github.webtransport4j.afxdp.RealDatagramChannelBenchmark "$AFXDP_PACKETS" | tee "$CHAN_COMP_LOG"
+     io.github.webtransport4j.afxdp.RealDatagramChannelBenchmark "$AFXDP_PACKETS" "$SOCKETS" | tee "$CHAN_COMP_LOG"
 
 # ==============================================================================
 # Phase 5: Consolidated Summary & Report Generation
