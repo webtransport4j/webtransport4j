@@ -4777,7 +4777,7 @@ public class WebTransportIntegrationTest {
     connectStream[0].writeAndFlush(malformedFrame).await(2, TimeUnit.SECONDS);
     connectStream[0].shutdownOutput();
 
-    assertTrue(connectStream[0].closeFuture().await(15, TimeUnit.SECONDS), "CONNECT stream should close due to malformed capsule");
+    assertTrue(connectStream[0].closeFuture().await(5, TimeUnit.SECONDS), "CONNECT stream should close due to malformed capsule");
 
     quicClient.close().sync();
   }
