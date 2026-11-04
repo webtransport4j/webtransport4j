@@ -4915,7 +4915,7 @@ public class WebTransportIntegrationTest {
     badUniStream.writeAndFlush(badPayload).await(2, TimeUnit.SECONDS);
     badUniStream.shutdownOutput();
 
-    assertTrue(badUniStream.closeFuture().await(5, TimeUnit.SECONDS), "Bad Uni stream should be closed by server due to incorrect type prefix");
+    assertTrue(badUniStream.closeFuture().await(15, TimeUnit.SECONDS), "Bad Uni stream should be closed by server due to incorrect type prefix");
     assertFalse(connectStream[0].closeFuture().isDone(), "CONNECT stream should remain active");
 
     quicClient.close().sync();

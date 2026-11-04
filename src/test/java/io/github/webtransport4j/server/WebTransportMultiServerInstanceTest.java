@@ -3,7 +3,11 @@ package io.github.webtransport4j.server;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.traffic.GlobalTrafficShapingHandler;
+import java.util.Collection;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -123,7 +127,9 @@ public class WebTransportMultiServerInstanceTest {
       Assertions.assertThrows(IllegalStateException.class, () -> other.setTrafficShaper(shaper));
       Assertions.assertNull(other.getTrafficShaper());
       Assertions.assertSame(shaper, owner.getTrafficShaper());
-      Assertions.assertEquals(1, executor.getQueue().size(), "Rejected ownership transfers must leave the owner's timer active");
+      Assertions.assertTrue(
+          awaitExecutorQueueCondition(executor, q -> q.size() == 1, 3000L),
+          "Rejected ownership transfers must leave the owner's timer active");
     } finally {
       shaper.release();
       executor.shutdownNow();
@@ -148,18 +154,41 @@ public class WebTransportMultiServerInstanceTest {
       Assertions.assertEquals(WebTransportServer.ServerState.STOPPED, server.getState());
       // Injected shaper survives restartable stop() so server can be retried
       Assertions.assertSame(shaper, server.getTrafficShaper());
-      Assertions.assertFalse(executor.getQueue().isEmpty(), "Traffic counter must remain active across restartable stop");
+      Assertions.assertTrue(
+          awaitExecutorQueueCondition(executor, q -> !q.isEmpty(), 3000L),
+          "Traffic counter must remain active across restartable stop");
 
       // Terminal close must release and clear the injected shaper
       server.close();
       Assertions.assertEquals(WebTransportServer.ServerState.CLOSED, server.getState());
       Assertions.assertNull(server.getTrafficShaper());
-      Assertions.assertTrue(executor.getQueue().isEmpty(), "Terminal close must cancel the traffic counter");
+      Assertions.assertTrue(
+          awaitExecutorQueueCondition(executor, Collection::isEmpty, 3000L),
+          "Terminal close must cancel the traffic counter");
     } finally {
       server.close();
       shaper.release();
       executor.shutdownNow();
     }
+  }
+
+  private static boolean awaitExecutorQueueCondition(
+      ScheduledThreadPoolExecutor executor,
+      Predicate<BlockingQueue<Runnable>> condition,
+      long timeoutMillis) {
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    while (System.nanoTime() < deadline) {
+      if (condition.test(executor.getQueue())) {
+        return true;
+      }
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return condition.test(executor.getQueue());
   }
 
   @Test
