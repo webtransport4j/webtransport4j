@@ -48,7 +48,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <checkstyle.config.location>${project.basedir}/config/checkstyle/google_checks.xml</checkstyle.config.location>
-        <netty.version>4.2.16.Final</netty.version>
+        <netty.version>4.2.20.Final</netty.version>
         <bench.src.dir>${project.basedir}/src/main/resources</bench.src.dir>
     </properties>
 
