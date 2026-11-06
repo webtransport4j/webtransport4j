@@ -39,6 +39,10 @@ public interface WebTransportStream {
     if (reliableSize < 0L) {
       throw new IllegalArgumentException("reliableSize must be non-negative: " + reliableSize);
     }
+    if (reliableSize > 0L) {
+      throw new UnsupportedOperationException(
+          "Reliable reset with reliableSize > 0 is not supported by this stream implementation");
+    }
     reset(appErrorCode);
   }
 

@@ -34,7 +34,7 @@ public final class WebTransportProtocolSpec {
   public static final int H3_FRAME_UNEXPECTED = 0x0105;
 
   /** RFC 9114 Section 8.1 / Draft-17 Section 3.1: {@code H3_SETTINGS_ERROR} error code. */
-  public static final int H3_SETTINGS_ERROR = 0x0119;
+  public static final int H3_SETTINGS_ERROR = 0x0109;
 
   /** RFC 9114 Section 6.2.1: HTTP/3 unidirectional Control Stream type. */
   public static final long H3_STREAM_TYPE_CONTROL = 0x00L;
@@ -110,10 +110,29 @@ public final class WebTransportProtocolSpec {
     if (scheme == null || !"https".contentEquals(scheme)) {
       return false;
     }
-    if (authority == null || authority.length() == 0) {
+    if (authority == null || authority.length() == 0 || containsPathSeparator(authority)) {
       return false;
     }
-    return path != null && path.length() > 0 && path.charAt(0) == '/';
+    return path != null && path.length() > 0 && path.charAt(0) == '/' && !containsFragment(path);
+  }
+
+  private static boolean containsPathSeparator(CharSequence seq) {
+    for (int i = 0; i < seq.length(); i++) {
+      char c = seq.charAt(i);
+      if (c == '/' || c == '\\') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean containsFragment(CharSequence seq) {
+    for (int i = 0; i < seq.length(); i++) {
+      if (seq.charAt(i) == '#') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

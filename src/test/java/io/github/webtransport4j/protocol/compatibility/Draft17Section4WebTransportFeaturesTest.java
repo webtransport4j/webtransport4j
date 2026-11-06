@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -137,14 +138,14 @@ public class Draft17Section4WebTransportFeaturesTest {
   @Test
   public void testSection4_3_BidirectionalStreamDetectorHijacksWtStreamAndInstallsGuardOnHttp3() {
     WebTransportDetectorHandler detector = new WebTransportDetectorHandler();
-    EmbeddedChannel wtChannel = new EmbeddedChannel(new HttpServerCodec(), detector);
+    EmbeddedChannel wtChannel = new EmbeddedChannel(detector, new HttpServerCodec());
 
     ByteBuf bidiSignalBuf = Unpooled.buffer();
     WebTransportUtils.writeVarInt(bidiSignalBuf, WebTransportUtils.BI_STREAM_TYPE);
     WebTransportUtils.writeVarInt(bidiSignalBuf, 4L);
     wtChannel.writeInbound(bidiSignalBuf);
 
-    assertFalse(wtChannel.pipeline().names().contains(HttpServerCodec.class.getSimpleName()));
+    assertNull(wtChannel.pipeline().get(HttpServerCodec.class));
     wtChannel.finishAndReleaseAll();
 
     // Standard HTTP/3 request stream (first varint = 0x01 HEADERS): installs Http3WtStreamFrameGuard

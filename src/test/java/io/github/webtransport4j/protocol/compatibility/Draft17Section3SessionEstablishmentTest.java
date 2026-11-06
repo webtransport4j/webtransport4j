@@ -263,15 +263,23 @@ public class Draft17Section3SessionEstablishmentTest {
     assertFalse(WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", ""));
     assertFalse(
         WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", "no-slash"));
+    assertFalse(
+        WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com/bad", "/wt"));
+    assertFalse(
+        WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", "/wt#fragment"));
 
     // Invalid scheme -> 400
     assertConnectRejectedWithBadRequest("http", "localhost", "/wt");
     // Empty authority -> 400
     assertConnectRejectedWithBadRequest("https", "", "/wt");
+    // Authority containing path separator -> 400
+    assertConnectRejectedWithBadRequest("https", "localhost/path", "/wt");
     // Empty path -> 400 per RFC 9110 Section 4.2.2 HTTPS URI
     assertConnectRejectedWithBadRequest("https", "localhost", "");
     // Non-origin-form path -> 400
     assertConnectRejectedWithBadRequest("https", "localhost", "relative/path");
+    // Path containing fragment -> 400
+    assertConnectRejectedWithBadRequest("https", "localhost", "/wt#frag");
   }
 
   private static void assertConnectRejectedWithBadRequest(

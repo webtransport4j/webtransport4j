@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
  * Inbound HTTP/3 control-stream handler for WebTransport clients per Draft-17 Sections 3.1 and 3.2.
  *
  * <p>Validates the server's {@code SETTINGS_WT_ENABLED} ({@code 0x20b8933b}) value, treating values
- * greater than {@code 1} as a connection error of type {@code H3_SETTINGS_ERROR} ({@code 0x0119}),
+ * greater than {@code 1} as a connection error of type {@code H3_SETTINGS_ERROR} ({@code 0x0109}),
  * and overwrites any previously retained connection settings so 0-RTT resumptions always apply the
  * current connection's Section 9.2 values.
  */
@@ -79,7 +79,7 @@ public class Http3ClientControlStreamHandler
     if (!WebTransportProtocolSpec.isValidServerWtEnabledValue(wtEnabled)) {
       logger.warn(
           "Server sent invalid SETTINGS_WT_ENABLED ({}). Closing connection with"
-              + " H3_SETTINGS_ERROR (0x0119).",
+              + " H3_SETTINGS_ERROR (0x0109).",
           wtEnabled);
       if (quic != null) {
         quic.close(true, WebTransportProtocolSpec.H3_SETTINGS_ERROR, Unpooled.EMPTY_BUFFER);

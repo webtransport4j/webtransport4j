@@ -49,7 +49,7 @@ public class Draft17Section9IanaAndCodepointsTest {
     assertEquals(0x0817b3dd, WebTransportUtils.WT_ALPN_ERROR);
     assertEquals(0x212c0d48, WebTransportUtils.WT_REQUIREMENTS_NOT_MET);
     assertEquals(0x0105, WebTransportProtocolSpec.H3_FRAME_UNEXPECTED);
-    assertEquals(0x0119, WebTransportProtocolSpec.H3_SETTINGS_ERROR);
+    assertEquals(0x0109, WebTransportProtocolSpec.H3_SETTINGS_ERROR);
 
     assertEquals(0x52e4a40fa8dbL, WebTransportUtils.WT_ERROR_FIRST);
     assertEquals(0x52e5ac983162L, WebTransportUtils.WT_ERROR_LAST);

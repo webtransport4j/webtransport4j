@@ -22,11 +22,13 @@ public interface StreamResetTransport {
   /**
    * Default Netty QUIC transport adapter.
    *
-   * <p>Netty {@code 4.2.x} {@link QuicStreamChannel} exposes {@code shutdown(int, ChannelPromise)}
-   * without a {@code RESET_STREAM_AT} {@code reliableSize} parameter and sign-extends negative
-   * 32-bit {@code int} values in JNI. Until Netty QUIC exposes unsigned 62-bit {@code
-   * RESET_STREAM_AT}, negative 32-bit casts fall back to the 31-bit non-negative {@code
-   * appErrorCode} (or {@code 0}) to prevent native Quiche panics.
+   * <p>Netty {@code 4.2.x} {@link QuicStreamChannel} exposes {@code shutdownOutput(int,
+   * ChannelPromise)} without a {@code RESET_STREAM_AT} {@code reliableSize} parameter and
+   * sign-extends negative 32-bit {@code int} values in JNI. Until Netty QUIC exposes unsigned
+   * 62-bit {@code RESET_STREAM_AT}, negative 32-bit casts fall back to the 31-bit non-negative
+   * {@code appErrorCode} (or {@code 0}) to prevent native Quiche panics. Calling {@code
+   * shutdownOutput} resets the send side while preserving the receive side per Draft-17 Section
+   * 4.4.
    */
   StreamResetTransport NETTY_DEFAULT =
       (streamChannel, appErrorCode, mappedHttpErrorCode, wireReliableSize) -> {
@@ -36,7 +38,7 @@ public interface StreamResetTransport {
               (appErrorCode >= 0L && appErrorCode <= Integer.MAX_VALUE) ? (int) appErrorCode : 0;
         }
         ChannelPromise promise = streamChannel.newPromise();
-        streamChannel.shutdown(code, promise);
+        streamChannel.shutdownOutput(code, promise);
         return promise;
       };
 

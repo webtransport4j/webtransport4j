@@ -122,7 +122,18 @@ public class Draft17ProtocolIntegrationTest {
       final QuicStreamChannel connectStream =
           openExtendedConnect(quic, port, "/draft17", "200");
 
-      // Verify client received strict Draft-17 server settings (0x20b8933b = 1)
+      // Wait for client to process server settings on control stream before checking state
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (System.nanoTime() < deadline) {
+        if (Boolean.TRUE.equals(
+            quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get())) {
+          break;
+        }
+        Thread.sleep(10);
+      }
+      assertTrue(
+          Boolean.TRUE.equals(
+              quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()));
       assertTrue(Boolean.TRUE.equals(quic.attr(WebTransportAttributeKeys.WT_ENABLED).get()));
       assertTrue(
           Boolean.TRUE.equals(quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).get()));
@@ -350,7 +361,7 @@ public class Draft17ProtocolIntegrationTest {
       assertEquals(
           WebTransportProtocolSpec.H3_SETTINGS_ERROR,
           closeEvent.error(),
-          "Client MUST close connection with H3_SETTINGS_ERROR (0x0119) when server sends > 1");
+          "Client MUST close connection with H3_SETTINGS_ERROR (0x0109) when server sends > 1");
     } finally {
       closeQuietly(quic, clientUdp, clientGroup, null);
       if (serverUdp != null) {

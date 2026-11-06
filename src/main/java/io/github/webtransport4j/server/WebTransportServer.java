@@ -4,9 +4,9 @@ import io.github.webtransport4j.api.AsyncWebTransportMetricsListener;
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
 import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
@@ -499,6 +499,7 @@ public class WebTransportServer implements AutoCloseable {
     closeMetricsListener(previous);
   }
 
+  /** Returns the session flow control policy governing connection and stream limits. */
   public @NonNull SessionFlowControlPolicy getFlowControlPolicy() {
     return flowControlPolicy != null
         ? flowControlPolicy
