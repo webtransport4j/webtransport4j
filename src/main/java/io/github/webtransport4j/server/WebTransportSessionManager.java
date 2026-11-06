@@ -259,21 +259,27 @@ public class WebTransportSessionManager {
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback uni streams limit: {}", uniMax);
       }
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
+      if (uniMax > 0L) {
+        WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
+      }
     }
     if ((biMax == null || biMax == 0L) && flowControlEnabled) {
       biMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback bidi streams limit: {}", biMax);
       }
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
+      if (biMax > 0L) {
+        WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
+      }
     }
     if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
       dataMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
       if (logger.isDebugEnabled()) {
         logger.debug("Using fallback data limit: {}", dataMax);
       }
-      WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
+      if (dataMax > 0L) {
+        WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
+      }
     }
 
     // Create the session state

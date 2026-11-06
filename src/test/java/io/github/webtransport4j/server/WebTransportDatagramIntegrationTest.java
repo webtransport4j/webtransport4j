@@ -158,7 +158,7 @@ public class WebTransportDatagramIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, val) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L);
+    clientSettings.put(0x20b8933bL, 1L);
 
     QuicChannelBootstrap qcb =
         QuicChannel.newBootstrap(clientUdpChannel)

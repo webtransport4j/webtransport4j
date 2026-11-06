@@ -378,6 +378,19 @@ public interface NettyWebTransportSession extends WebTransportSession {
   void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode);
 
   /**
+   * Resets a WebTransport data stream with an application error code and reliable payload byte
+   * offset per Draft-17 Section 4.4 ({@code RESET_STREAM_AT}).
+   *
+   * @param dataStream the stream channel
+   * @param appErrorCode 32-bit unsigned application error code
+   * @param reliableSize non-negative application payload byte offset
+   */
+  default void resetStream(
+      @NonNull QuicStreamChannel dataStream, long appErrorCode, long reliableSize) {
+    WebTransportUtils.resetStream(dataStream, appErrorCode, reliableSize);
+  }
+
+  /**
    * Sets the session close code as an unsigned 32-bit integer.
    *
    * @param closeCode close error code

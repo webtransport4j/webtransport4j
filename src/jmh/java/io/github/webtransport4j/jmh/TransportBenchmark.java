@@ -139,7 +139,7 @@ public class TransportBenchmark {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled (draft-17)
     clientSettings.put(0x2b64L, 10000L); // SETTINGS_WT_INITIAL_MAX_STREAMS_UNI
     clientSettings.put(0x2b65L, 10000L); // SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI
     clientSettings.put(0x2b61L, 100000000000L); // SETTINGS_WT_INITIAL_MAX_DATA

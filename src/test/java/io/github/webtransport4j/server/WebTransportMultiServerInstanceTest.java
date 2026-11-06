@@ -6,7 +6,6 @@ import io.netty.handler.traffic.GlobalTrafficShapingHandler;
 import java.util.Collection;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -176,8 +175,8 @@ public class WebTransportMultiServerInstanceTest {
       ScheduledThreadPoolExecutor executor,
       Predicate<BlockingQueue<Runnable>> condition,
       long timeoutMillis) {
-    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
-    while (System.nanoTime() < deadline) {
+    long deadline = System.currentTimeMillis() + timeoutMillis;
+    while (System.currentTimeMillis() < deadline) {
       if (condition.test(executor.getQueue())) {
         return true;
       }

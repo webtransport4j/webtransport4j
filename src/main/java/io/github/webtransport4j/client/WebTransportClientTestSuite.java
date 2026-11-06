@@ -310,7 +310,7 @@ public class WebTransportClientTestSuite {
     headers.scheme("https");
     headers.path(path);
     headers.authority(host + ":" + port);
-    headers.set(":protocol", "webtransport");
+    headers.set(":protocol", "webtransport-h3");
 
     connectStreamChannel.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 

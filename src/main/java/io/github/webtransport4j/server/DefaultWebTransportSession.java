@@ -1116,8 +1116,16 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * Resets a WebTransport data stream with a WebTransport application error code (automatically
    * mapped to the HTTP/3 error range as per Section 4.4).
    */
+  @Override
   public void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode) {
-    WebTransportUtils.resetStream(dataStream, appErrorCode);
+    resetStream(dataStream, appErrorCode, 0L);
+  }
+
+  @Override
+  public void resetStream(
+      @NonNull QuicStreamChannel dataStream, long appErrorCode, long reliableSize) {
+    WebTransportUtils.resetStream(
+        dataStream, sessionStreamId, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT);
   }
 
   /**

@@ -4,6 +4,7 @@ import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.api.WebTransportStream;
+import io.github.webtransport4j.api.WebTransportStreamResetException;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -16,6 +17,7 @@ import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamResetException;
 import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
+import java.util.OptionalLong;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import javax.net.ssl.SSLException;
@@ -119,33 +121,47 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
 
   @Override
   public void exceptionCaught(@NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
+    Throwable appDeliverableError = cause;
+    if (cause instanceof QuicStreamResetException) {
+      long httpErrorCode = ((QuicStreamResetException) cause).applicationProtocolCode();
+      OptionalLong mappedAppCode = WebTransportUtils.tryMapHttpToApplicationError(httpErrorCode);
+      if (mappedAppCode.isPresent()) {
+        appDeliverableError =
+            WebTransportStreamResetException.withApplicationError(
+                httpErrorCode, mappedAppCode.getAsLong(), cause);
+      } else {
+        appDeliverableError =
+            WebTransportStreamResetException.withoutApplicationError(httpErrorCode, cause);
+      }
+    }
     if (ctx.channel() instanceof QuicStreamChannel) {
       QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
       WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
       if (stream != null && stream.getErrorHandler() != null) {
         long errorStart = System.nanoTime();
         try {
-          stream.getErrorHandler().accept(cause);
+          stream.getErrorHandler().accept(appDeliverableError);
         } catch (Exception e) {
           logger.error("Error in stream onError handler", e);
         }
         warnIfSlowHandler(streamChannel, "onError", errorStart);
       }
-      notifyHandlerError(streamChannel, cause);
+      notifyHandlerError(streamChannel, appDeliverableError);
     }
     if (cause instanceof QuicStreamResetException) {
       QuicStreamResetException reset = (QuicStreamResetException) cause;
       long httpErrorCode = reset.applicationProtocolCode();
-      if (WebTransportUtils.isWebTransportApplicationError(httpErrorCode)) {
-        long wtErrorCode = WebTransportUtils.httpCodeToWebTransportCode(httpErrorCode);
+      OptionalLong mappedAppCode = WebTransportUtils.tryMapHttpToApplicationError(httpErrorCode);
+      if (mappedAppCode.isPresent()) {
+        long wtErrorCode = mappedAppCode.getAsLong();
         logger.info(
-            "🌊 Stream reset by peer with WebTransport application error code: 0x{} ({})",
+            "Stream reset by peer with WebTransport application error code: 0x{} ({})",
             Long.toHexString(wtErrorCode),
             wtErrorCode);
       } else {
         if (logger.isDebugEnabled()) {
           logger.debug(
-              "🌊 Stream reset by peer with HTTP/3 error code: 0x{}",
+              "Stream reset by peer without application error code (HTTP/3 code: 0x{})",
               Long.toHexString(httpErrorCode));
         }
       }

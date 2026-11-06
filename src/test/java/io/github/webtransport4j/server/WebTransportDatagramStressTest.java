@@ -569,7 +569,7 @@ public class WebTransportDatagramStressTest {
     Http3Settings clientSettings = new Http3Settings((k, v) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L);
+    clientSettings.put(0x20b8933bL, 1L);
 
     final ClientConnection[] connHolder = new ClientConnection[1];
 
