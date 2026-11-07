@@ -385,4 +385,57 @@ public class DefaultNettyWebTransportStreamTest {
     assertEquals(threads - 1, failures.get());
     assertTrue(stream.getDataConsumer() != null ^ stream.getRawByteBufConsumer() != null);
   }
+
+  @Test
+  public void testResetWithReliableSizeDefaultImplementation() {
+    class TestStream implements WebTransportStream {
+      long lastResetCode = -1L;
+
+      @Override
+      public long streamId() {
+        return 1L;
+      }
+
+      @Override
+      public boolean isBidirectional() {
+        return true;
+      }
+
+      @Override
+      public void close() {}
+
+      @Override
+      public void reset(long appErrorCode) {
+        this.lastResetCode = appErrorCode;
+      }
+
+      @Override
+      public void onData(
+          @org.jspecify.annotations.NonNull java.util.function.Consumer<WebTransportBuffer> consumer) {}
+
+      @Override
+      public void onWritabilityChanged(
+          @org.jspecify.annotations.NonNull java.util.function.Consumer<Boolean> listener) {}
+
+      @Override
+      public @org.jspecify.annotations.NonNull CompletableFuture<Void> write(byte[] data) {
+        return CompletableFuture.completedFuture(null);
+      }
+
+      @Override
+      public @org.jspecify.annotations.NonNull CompletableFuture<Void> write(
+          @org.jspecify.annotations.NonNull WebTransportBuffer buffer) {
+        return CompletableFuture.completedFuture(null);
+      }
+    }
+
+    TestStream stream = new TestStream();
+
+    // When reliableSize > 0, it should be ignored and do reset
+    stream.reset(42L, 100L);
+    assertEquals(42L, stream.lastResetCode);
+
+    // When reliableSize < 0, it throws IllegalArgumentException
+    Assertions.assertThrows(IllegalArgumentException.class, () -> stream.reset(42L, -1L));
+  }
 }

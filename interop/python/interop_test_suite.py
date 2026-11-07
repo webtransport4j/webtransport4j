@@ -26,6 +26,43 @@ from typing import List, Tuple
 from aioquic.buffer import Buffer
 from pywebtransport import ClientConfig, WebTransportClient
 
+try:
+  from pywebtransport.session import WebTransportSession
+
+  if not hasattr(WebTransportSession, "accept_bidirectional_stream"):
+    async def _accept_bidirectional_stream(self):
+      if hasattr(self, "_incoming_streams_bidi"):
+        stream = await self._incoming_streams_bidi.get()
+        if stream is None:
+          self._incoming_streams_bidi.put_nowait(None)
+          raise ConnectionError("Session closed")
+        return stream
+      elif hasattr(self, "_incoming_bidi_streams"):
+        stream = await self._incoming_bidi_streams.get()
+        if stream is None:
+          raise ConnectionError("Session closed")
+        return stream
+      raise AttributeError("Session has no incoming bidirectional stream queue")
+    WebTransportSession.accept_bidirectional_stream = _accept_bidirectional_stream
+
+  if not hasattr(WebTransportSession, "accept_unidirectional_stream"):
+    async def _accept_unidirectional_stream(self):
+      if hasattr(self, "_incoming_streams_uni"):
+        stream = await self._incoming_streams_uni.get()
+        if stream is None:
+          self._incoming_streams_uni.put_nowait(None)
+          raise ConnectionError("Session closed")
+        return stream
+      elif hasattr(self, "_incoming_uni_streams"):
+        stream = await self._incoming_uni_streams.get()
+        if stream is None:
+          raise ConnectionError("Session closed")
+        return stream
+      raise AttributeError("Session has no incoming unidirectional stream queue")
+    WebTransportSession.accept_unidirectional_stream = _accept_unidirectional_stream
+except Exception:
+  pass
+
 from raw_aioquic import open_raw_session
 
 logging.basicConfig(
@@ -1359,7 +1396,7 @@ async def test_30_inactivity_timeout_negative(client, url: str):
 
 
 async def main():
-  config = ClientConfig(verify_mode=ssl.CERT_NONE, log_level="WARNING")
+  config = ClientConfig(verify_mode=ssl.CERT_NONE)
   base_url = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "https://127.0.0.1:4433"
 
   print("\n" + "=" * 80)
