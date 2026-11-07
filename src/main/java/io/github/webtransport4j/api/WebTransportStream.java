@@ -24,6 +24,28 @@ public interface WebTransportStream {
 
   void reset(long appErrorCode);
 
+  /**
+   * Resets the send side of this stream with a 32-bit WebTransport application error code and an
+   * application-specified reliable byte offset per Draft-17 Section 4.4 ({@code RESET_STREAM_AT}).
+   *
+   * <p>Implementations automatically add the size of any WebTransport stream header written on the
+   * send side of this stream to {@code reliableSize}.
+   *
+   * @param appErrorCode 32-bit unsigned application error code ({@code 0x00000000..0xffffffff})
+   * @param reliableSize non-negative application payload byte offset to deliver reliably before
+   *     resetting
+   */
+  default void reset(long appErrorCode, long reliableSize) {
+    if (reliableSize < 0L) {
+      throw new IllegalArgumentException("reliableSize must be non-negative: " + reliableSize);
+    }
+    if (reliableSize > 0L) {
+      throw new UnsupportedOperationException(
+          "Reliable reset with reliableSize > 0 is not supported by this stream implementation");
+    }
+    reset(appErrorCode);
+  }
+
   /* ---------- Callbacks ---------- */
 
   /**

@@ -126,11 +126,12 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   private final Queue<CompletableFuture<Void>> writableWaiters = new ConcurrentLinkedQueue<>();
   private volatile @Nullable Consumer<Boolean> writabilityListener;
   private final @Nullable NettyWebTransportSession sessionRef;
+  private final @NonNull StreamResetTransport resetTransport;
   private volatile boolean lastNotifiedWritable = true;
 
   /** Default Netty Web Transport Stream. */
   public DefaultNettyWebTransportStream(@NonNull QuicStreamChannel channel, long sessionId) {
-    this(channel, sessionId, null);
+    this(channel, sessionId, null, StreamResetTransport.NETTY_DEFAULT);
   }
 
   /** Default Netty Web Transport Stream with session reference. */
@@ -138,11 +139,21 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
       @NonNull QuicStreamChannel channel,
       long sessionId,
       @Nullable NettyWebTransportSession session) {
+    this(channel, sessionId, session, StreamResetTransport.NETTY_DEFAULT);
+  }
+
+  /** Default Netty Web Transport Stream with custom {@link StreamResetTransport}. */
+  public DefaultNettyWebTransportStream(
+      @NonNull QuicStreamChannel channel,
+      long sessionId,
+      @Nullable NettyWebTransportSession session,
+      @NonNull StreamResetTransport resetTransport) {
     this.streamChannel = Objects.requireNonNull(channel, "channel must not be null");
     this.sessionId = sessionId;
     this.streamId = channel.streamId();
     this.bidirectional = (channel.type() == QuicStreamType.BIDIRECTIONAL);
     this.sessionRef = session;
+    this.resetTransport = Objects.requireNonNull(resetTransport, "resetTransport must not be null");
     this.lastNotifiedWritable = isWritable();
     if (channel.closeFuture() != null) {
       channel.closeFuture().addListener(f -> notifyClosed());
@@ -546,8 +557,15 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
     streamChannel().close();
   }
 
+  @Override
   public void reset(long appErrorCode) {
-    WebTransportUtils.resetStream(streamChannel(), appErrorCode);
+    reset(appErrorCode, 0L);
+  }
+
+  @Override
+  public void reset(long appErrorCode, long reliableSize) {
+    WebTransportUtils.resetStream(
+        streamChannel(), sessionId, appErrorCode, reliableSize, resetTransport);
   }
 
   /** Returns whether the given attribute key is present. */

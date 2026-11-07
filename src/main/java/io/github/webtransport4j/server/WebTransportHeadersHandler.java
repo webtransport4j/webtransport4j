@@ -18,6 +18,7 @@ import io.netty.handler.codec.http3.Http3ErrorCode;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
+import io.netty.handler.codec.http3.Http3UnknownFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
@@ -114,12 +115,25 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
         }
         return;
       }
-      // Validate authority: MUST be present as per draft-15 section 4.4
+      // Validate authority and HTTPS URI path per Draft-17 Section 2.2 (RFC 9110 Section 4.2.2)
       if (authority.length() == 0) {
         if (metricsListener != null) {
           metricsListener.onSessionRejected("missing_authority");
         }
         logger.warn("❌ Rejecting connection due to missing :authority");
+        Http3Headers responseHeaders = new DefaultHttp3Headers();
+        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
+        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+        if (f != null) {
+          f.addListener(ChannelFutureListener.CLOSE);
+        }
+        return;
+      }
+      if (!WebTransportProtocolSpec.isValidHttpsRequestTarget(scheme, authority, path)) {
+        if (metricsListener != null) {
+          metricsListener.onSessionRejected("invalid_path");
+        }
+        logger.warn("Rejecting connection due to invalid HTTPS URI :path '{}'", path);
         Http3Headers responseHeaders = new DefaultHttp3Headers();
         responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
         ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
@@ -423,6 +437,16 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
   @Override
   protected void channelRead(@NonNull ChannelHandlerContext ctx, @NonNull Http3DataFrame frame) {
     ctx.fireChannelRead(frame);
+  }
+
+  @Override
+  protected void channelRead(
+      @NonNull ChannelHandlerContext ctx, @NonNull Http3UnknownFrame frame) {
+    long frameType = frame.type();
+    frame.release();
+    if (frameType == WebTransportUtils.BI_STREAM_TYPE) {
+      Http3WtStreamFrameGuard.closeWithFrameUnexpected(ctx);
+    }
   }
 
   private static boolean reserveGlobalSlot(AtomicInteger slots, int limit) {

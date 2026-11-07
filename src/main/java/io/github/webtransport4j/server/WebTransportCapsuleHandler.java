@@ -168,13 +168,16 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                   isBidi
                       ? session.getPeerSettingsMaxStreamsBidi()
                       : session.getPeerSettingsMaxStreamsUni();
-              if (maxStreams < currentLimit) {
-                // RFC: "If an endpoint receives a WT_MAX_STREAMS capsule with a Maximum
-                // Streams value less than a previously received value, it MUST close the
+              if (!WebTransportProtocolSpec.isStrictlyIncreasingLimit(maxStreams, currentLimit)) {
+                // Draft-17 Section 5.6.2: "If an endpoint receives a WT_MAX_STREAMS capsule with a
+                // Maximum Streams value that does not increase the Maximum Streams value
+                // previously received, or the corresponding initial value
+                // (SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI or SETTINGS_WT_INITIAL_MAX_STREAMS_UNI) if
+                // no WT_MAX_STREAMS capsule of that type has been received, it MUST close the
                 // WebTransport session by resetting the connect stream with the
                 // WT_FLOW_CONTROL_ERROR error code."
                 logger.warn(
-                    "Received lower {} max streams value ({}) than previously set ({}). Closing"
+                    "Received non-increasing {} max streams value ({} <= {}). Closing"
                         + " session with WT_FLOW_CONTROL_ERROR.",
                     isBidi ? "Bidirectional" : "Unidirectional",
                     maxStreams,
@@ -249,10 +252,11 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             NettyWebTransportSession session = mgr.get(capsule.sessionId());
             if (session != null) {
               long currentPeerLimit = session.getPeerSettingsMaxData();
-              boolean isFirstUpdate = session.markPeerMaxDataCapsuleReceived();
-              if (!isFirstUpdate && maxData < currentPeerLimit) {
+              session.markPeerMaxDataCapsuleReceived();
+              if (!WebTransportProtocolSpec.isStrictlyIncreasingLimit(maxData, currentPeerLimit)) {
                 logger.debug(
-                    "❌ Received WT_MAX_DATA ({}) less than previous limit ({}). Closing session.",
+                    "Received non-increasing WT_MAX_DATA ({} <= {}). Closing session with"
+                        + " WT_FLOW_CONTROL_ERROR.",
                     maxData,
                     currentPeerLimit);
                 mgr.closeSessionWithFlowControlError(session);

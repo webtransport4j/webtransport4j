@@ -161,5 +161,5 @@ python3 dashboard/test_admin_verification.py
 python3 dashboard/test_dashboard_unmocked_integration.py
 
 # 4. Run Java RFC & Wire Compatibility Tests:
-mvn test -Dtest=ServerIdConnectionIdGeneratorTest,Draft16Section9IanaAndCodepointsTest
+mvn test -Dtest=ServerIdConnectionIdGeneratorTest,Draft17Section9IanaAndCodepointsTest
 ```

@@ -3,8 +3,10 @@ package io.github.webtransport4j.server;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http3.Http3ControlStreamFrame;
+import io.netty.handler.codec.http3.Http3GoAwayFrame;
 import io.netty.handler.codec.http3.Http3Settings;
 import io.netty.handler.codec.http3.Http3SettingsFrame;
+import io.netty.handler.codec.http3.Http3UnknownFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -13,10 +15,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Handles inbound HTTP/3 control stream settings frames.
+ * Handles inbound HTTP/3 control stream frames per {@code draft-ietf-webtrans-http3-17}.
  *
  * @author https://github.com/sanjomo
- * @date 24/06/26 1:52 pm
+ * @date 24/06/26 1:52 pm
  */
 public class Http3InboundControlStreamHandler
     extends SimpleChannelInboundHandler<Http3ControlStreamFrame> {
@@ -26,12 +28,18 @@ public class Http3InboundControlStreamHandler
 
   @Override
   protected void channelRead0(
-      @NonNull ChannelHandlerContext ctx,
-      @NonNull Http3ControlStreamFrame frame) {
-    if (frame instanceof io.netty.handler.codec.http3.Http3GoAwayFrame) {
-      QuicChannel connection = ctx.channel() instanceof QuicStreamChannel
-          ? ((QuicStreamChannel) ctx.channel()).parent()
-          : ctx.channel() instanceof QuicChannel ? (QuicChannel) ctx.channel() : null;
+      @NonNull ChannelHandlerContext ctx, @NonNull Http3ControlStreamFrame frame) {
+    if (frame instanceof Http3UnknownFrame) {
+      if (((Http3UnknownFrame) frame).type() == WebTransportUtils.BI_STREAM_TYPE) {
+        Http3WtStreamFrameGuard.closeWithFrameUnexpected(ctx);
+      }
+      return;
+    }
+    if (frame instanceof Http3GoAwayFrame) {
+      QuicChannel connection =
+          ctx.channel() instanceof QuicStreamChannel
+              ? ((QuicStreamChannel) ctx.channel()).parent()
+              : ctx.channel() instanceof QuicChannel ? (QuicChannel) ctx.channel() : null;
       if (connection != null) {
         connection.attr(WebTransportAttributeKeys.CONNECTION_DRAINING).set(true);
         WebTransportSessionManager manager =
@@ -59,44 +67,24 @@ public class Http3InboundControlStreamHandler
       } else if (ctx.channel() instanceof QuicChannel) {
         quic = (QuicChannel) ctx.channel();
       }
-      Long wtEnabled = settings.get(0x2c7cf000L);
-      if (wtEnabled != null && wtEnabled != 0L && wtEnabled != 1L) {
-        logger.warn(
-            "❌ Invalid SETTINGS_WT_ENABLED value: {}. Closing connection with H3_SETTINGS_ERROR.",
-            wtEnabled);
-        if (quic != null) {
-          quic.close(true, 0x0119, io.netty.buffer.Unpooled.EMPTY_BUFFER);
-        } else {
-          ctx.close();
-        }
-        return;
-      }
 
+      // Draft-17 Section 3.1: "SETTINGS_WT_ENABLED has no meaning when sent by a client; a server
+      // MUST ignore it." Strict Draft-17 servers do not inspect or validate client
+      // SETTINGS_WT_ENABLED values.
       boolean valid = Boolean.TRUE.equals(settings.h3DatagramEnabled());
       if (quic != null) {
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).set(valid);
-        if (wtEnabled != null) {
-          quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(wtEnabled == 1L);
-        }
       }
-      // Section 5.1: Verify required setting SETTINGS_H3_DATAGRAM
-      // (0x33) is
-      // enabled (1)
-      // NOTE: Do NOT close the connection immediately here.
-      // Per RFC, CONNECT requests can arrive before or after
-      // SETTINGS
-      // (out of order on different streams). If we close
-      // immediately,
-      // a late-arriving CONNECT never gets a proper
-      // H3_MESSAGE_ERROR
-      // reset. Instead, we mark the connection invalid via
-      // attributes
-      // and let WebTransportHeadersHandler reject CONNECT
+      // Section 3.1: Verify required setting SETTINGS_H3_DATAGRAM (0x33) is enabled (1).
+      // NOTE: Do NOT close the connection immediately here. Per RFC, CONNECT requests can arrive
+      // before or after SETTINGS (out of order on different streams). If we close immediately, a
+      // late-arriving CONNECT never gets a proper H3_MESSAGE_ERROR reset. Instead, we mark the
+      // connection invalid via attributes and let WebTransportHeadersHandler reject CONNECT
       // requests.
       if (!valid) {
         logger.warn(
-            "❌ WebTransport requirements not met: Client does not support H3 Datagrams. Treating"
+            "WebTransport requirements not met: Client does not support H3 Datagrams. Treating"
                 + " all established sessions as malformed.");
         if (quic != null) {
           WebTransportSessionManager mgr =
@@ -104,7 +92,7 @@ public class Http3InboundControlStreamHandler
           if (mgr != null) {
             for (NettyWebTransportSession session : new ObjectArrayList<>(mgr.getSessions())) {
               logger.warn(
-                  "⚡️ Resetting established session ID {} with H3_MESSAGE_ERROR",
+                  "Resetting established session ID {} with H3_MESSAGE_ERROR",
                   session.getSessionStreamId());
               session.getConnectStream().shutdown(0x010e, session.getConnectStream().newPromise());
             }
@@ -113,9 +101,9 @@ public class Http3InboundControlStreamHandler
         return;
       }
       if (quic != null) {
-        Long peerUni = settings.get(0x2b64L);
-        Long peerBidi = settings.get(0x2b65L);
-        Long peerData = settings.get(0x2b61L);
+        Long peerUni = settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI);
+        Long peerBidi = settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI);
+        Long peerData = settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(peerUni);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(peerBidi);
         quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(peerData);

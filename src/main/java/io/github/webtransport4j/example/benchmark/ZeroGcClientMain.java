@@ -127,7 +127,7 @@ public class ZeroGcClientMain {
       Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      settings.put(0x2c7cf000L, 1L);
+      settings.put(0x20b8933bL, 1L);
       settings.put(0x2b61L, 1073741824L);
       settings.put(0x2b62L, 10000L);
       settings.put(0x2b63L, 10000L);

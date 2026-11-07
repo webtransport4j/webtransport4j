@@ -1,5 +1,6 @@
 package io.github.webtransport4j.client;
 
+import io.github.webtransport4j.server.Http3WtStreamFrameGuard;
 import io.github.webtransport4j.server.UnknownStreamHandlerFactory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -14,22 +15,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * WebTransport client connection handler.
+ * WebTransport client connection handler enforcing Draft-17 Sections 3.1, 3.2, and 4.3.
  *
  * @author https://github.com/sanjomo
  * @date 03/07/26 4:53 pm
  */
 public class WebTransportClientHandler extends Http3ClientConnectionHandler {
+
   private static final Logger logger = LoggerFactory.getLogger(WebTransportClientHandler.class);
 
+  private static final Http3Settings.NonStandardHttp3SettingsValidator ALLOW_ALL_NON_STANDARD =
+      (id, value) -> true;
+
+  /** Creates a client handler with default settings. */
   public WebTransportClientHandler() {
-    this(null, true, null);
+    this(null, true, ALLOW_ALL_NON_STANDARD);
   }
 
   /** Creates a client handler with the supplied HTTP/3 settings. */
   public WebTransportClientHandler(
       Http3SettingsFrame localSettings, boolean disableQpackDynamicTable) {
-    this(localSettings, disableQpackDynamicTable, null);
+    this(localSettings, disableQpackDynamicTable, ALLOW_ALL_NON_STANDARD);
   }
 
   /** Creates a client handler with the supplied HTTP/3 settings and validator. */
@@ -38,17 +44,21 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
       boolean disableQpackDynamicTable,
       Http3Settings.NonStandardHttp3SettingsValidator nonStandardSettingsValidator) {
     super(
-        null,
+        new Http3ClientControlStreamHandler(),
         null,
         new UnknownStreamHandlerFactory(),
         localSettings,
         disableQpackDynamicTable,
-        nonStandardSettingsValidator);
+        nonStandardSettingsValidator != null
+            ? nonStandardSettingsValidator
+            : ALLOW_ALL_NON_STANDARD);
   }
 
   @Override
   protected void initBidirectionalStream(ChannelHandlerContext ctx, QuicStreamChannel channel) {
-    logger.info("Initializing bidirectional stream {}", channel.streamId());
+    if (logger.isDebugEnabled()) {
+      logger.debug("Initializing bidirectional stream {}", channel.streamId());
+    }
 
     channel
         .pipeline()
@@ -73,25 +83,14 @@ public class WebTransportClientHandler extends Http3ClientConnectionHandler {
   @Override
   protected void initUnidirectionalStream(
       ChannelHandlerContext ctx, QuicStreamChannel streamChannel) {
-    logger.info("Initializing unidirectional stream {}", streamChannel.streamId());
-
+    if (logger.isDebugEnabled()) {
+      logger.debug("Initializing unidirectional stream {}", streamChannel.streamId());
+    }
     streamChannel
         .pipeline()
-        .addLast(
-            new ChannelInboundHandlerAdapter() {
-              @Override
-              public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                if (msg instanceof ByteBuf && logger.isDebugEnabled()) {
-                  ByteBuf buf = (ByteBuf) msg;
-                  logger.debug("=== UNI STREAM {} ===", streamChannel.streamId());
-                  logger.debug(ByteBufUtil.prettyHexDump(buf));
-                  logger.debug(
-                      "ASCII: {}",
-                      buf.toString(buf.readerIndex(), buf.readableBytes(), CharsetUtil.UTF_8));
-                }
-
-                ctx.fireChannelRead(msg);
-              }
-            });
+        .addFirst(
+            Http3WtStreamFrameGuard.HANDLER_NAME,
+            Http3WtStreamFrameGuard.forUnidirectionalStream());
+    super.initUnidirectionalStream(ctx, streamChannel);
   }
 }

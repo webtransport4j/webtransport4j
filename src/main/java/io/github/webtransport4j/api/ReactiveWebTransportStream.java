@@ -65,6 +65,26 @@ public class ReactiveWebTransportStream
     stream.onWritabilityChanged(listener);
   }
 
+  /**
+   * Resets the underlying stream with the given 32-bit application error code.
+   *
+   * @param appErrorCode 32-bit unsigned WebTransport application error code
+   */
+  public void reset(long appErrorCode) {
+    stream.reset(appErrorCode);
+  }
+
+  /**
+   * Resets the underlying stream with a 32-bit application error code and reliable payload byte
+   * offset per Draft-17 Section 4.4.
+   *
+   * @param appErrorCode 32-bit unsigned WebTransport application error code
+   * @param reliableSize non-negative application payload byte offset
+   */
+  public void reset(long appErrorCode, long reliableSize) {
+    stream.reset(appErrorCode, reliableSize);
+  }
+
   @Override
   public void subscribe(Subscriber<? super WebTransportBuffer> subscriber) {
     Objects.requireNonNull(subscriber, "Subscriber must not be null");

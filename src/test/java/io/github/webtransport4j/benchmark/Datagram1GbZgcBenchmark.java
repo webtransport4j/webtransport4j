@@ -532,7 +532,7 @@ public final class Datagram1GbZgcBenchmark {
       Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      settings.put(0x2c7cf000L, 1L);
+      settings.put(0x20b8933bL, 1L);
       settings.put(0x2b61L, 2147483648L);
 
       QuicChannel quicChannel =

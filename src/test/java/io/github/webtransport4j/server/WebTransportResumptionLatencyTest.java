@@ -98,7 +98,7 @@ public class WebTransportResumptionLatencyTest {
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
     serverSettings.enableH3Datagram(true);
     serverSettings.enableConnectProtocol(true);
-    serverSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    serverSettings.put(0x20b8933bL, 1L); // wt_enabled
     serverSettings.put(0x2b64L, 10L);
     serverSettings.put(0x2b65L, 10L);
     serverSettings.put(0x2b61L, 100000L);
@@ -178,7 +178,7 @@ public class WebTransportResumptionLatencyTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 100000L);
