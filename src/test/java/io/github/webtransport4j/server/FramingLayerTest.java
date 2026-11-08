@@ -132,7 +132,8 @@ public class FramingLayerTest {
 
     ByteBuf input = Unpooled.buffer();
     // Capsule Type = 0x2843 (CLOSE_WEBTRANSPORT_SESSION)
-    WebTransportUtils.writeVarInt(input, 0x2843);
+    WebTransportUtils.writeVarInt(
+        input, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
     // Length = 0
     WebTransportUtils.writeVarInt(input, 0);
 
@@ -141,7 +142,8 @@ public class FramingLayerTest {
 
     assertNotNull(received[0]);
     assertEquals(100L, received[0].sessionId());
-    assertEquals(0x2843, received[0].capsuleType());
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, received[0].capsuleType());
     received[0].release();
   }
 
@@ -170,7 +172,8 @@ public class FramingLayerTest {
 
     // Step 1: Send only 1 byte (incomplete capsule header)
     ByteBuf part1 = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(part1, 0x2843);
+    WebTransportUtils.writeVarInt(
+        part1, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
     int headerSize = part1.readableBytes();
     ByteBuf truncatedPart = part1.readSlice(headerSize - 1); // remove the last byte of header
 
@@ -189,7 +192,8 @@ public class FramingLayerTest {
     channel.writeInbound(new DefaultHttp3DataFrame(part2));
     assertNotNull(received[0]);
     assertEquals(100L, received[0].sessionId());
-    assertEquals(0x2843, received[0].capsuleType());
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, received[0].capsuleType());
     assertEquals("Hello", received[0].content().toString(StandardCharsets.UTF_8));
     received[0].release();
   }
@@ -225,7 +229,8 @@ public class FramingLayerTest {
     input.writeBytes("HI".getBytes(StandardCharsets.UTF_8));
 
     // Capsule 2: CLOSE (0x2843), len = 3, value = "BYE"
-    WebTransportUtils.writeVarInt(input, 0x2843);
+    WebTransportUtils.writeVarInt(
+        input, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
     WebTransportUtils.writeVarInt(input, 3);
     input.writeBytes("BYE".getBytes(StandardCharsets.UTF_8));
 
@@ -234,7 +239,8 @@ public class FramingLayerTest {
     assertEquals(2, list.size());
     assertEquals(0x2844, list.get(0).capsuleType());
     assertEquals("HI", list.get(0).content().toString(StandardCharsets.UTF_8));
-    assertEquals(0x2843, list.get(1).capsuleType());
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, list.get(1).capsuleType());
     assertEquals("BYE", list.get(1).content().toString(StandardCharsets.UTF_8));
 
     list.get(0).release();
@@ -331,7 +337,9 @@ public class FramingLayerTest {
 
     ByteBuf data = Unpooled.buffer(4);
     data.writeInt(0);
-    WebTransportCapsule closeCapsule = new WebTransportCapsule(101L, 0x2843L, data);
+    WebTransportCapsule closeCapsule =
+        new WebTransportCapsule(
+            101L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, data);
 
     handler.channelRead(mockCtx, closeCapsule);
 
@@ -550,7 +558,8 @@ public class FramingLayerTest {
     handler.channelRead(mockCtx, mockHeadersFrame);
 
     // Verify connection close with H3_ID_ERROR (0x0108) was called on mockParent
-    verify(mockParent).close(eq(true), eq(0x0108), any(ByteBuf.class));
+    verify(mockParent)
+        .close(eq(true), eq(WebTransportProtocolSpec.H3_ID_ERROR), any(ByteBuf.class));
   }
 
   @Test
@@ -1044,8 +1053,8 @@ public class FramingLayerTest {
     // crash.
     int expectedHttpCode = 500;
 
-    // Verify Netty's shutdown was called with the fallback code
-    verify(mockStream).shutdown(eq(expectedHttpCode), eq(mockPromise));
+    // Verify Netty's shutdownOutput was called with the fallback code
+    verify(mockStream).shutdownOutput(eq(expectedHttpCode), eq(mockPromise));
   }
 
   @Test

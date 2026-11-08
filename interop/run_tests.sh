@@ -138,7 +138,7 @@ if [[ "${ready}" != true ]]; then
 fi
 
 echo "✅ Server UDP socket is bound."
-echo "🐍 Running Python IETF Draft-16 Interop Suite..."
+echo "🐍 Running Python IETF Draft-17 Interop Suite..."
 
 export PYTHONUTF8=1
 export PYTHONIOENCODING=utf-8

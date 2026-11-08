@@ -25,6 +25,8 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
@@ -42,21 +44,23 @@ public class WebTransportUtils {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportUtils.class);
 
   // WebTransport Unidirectional ID
-  public static final long UNI_STREAM_TYPE = 0x54;
+  public static final long UNI_STREAM_TYPE = WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
 
   // WebTransport Bidirectional
-  public static final long BI_STREAM_TYPE = 0x41;
+  public static final long BI_STREAM_TYPE = WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI;
 
   // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-16 / RFC 9297 spec)
-  public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
+  public static final int WT_BUFFERED_STREAM_REJECTED =
+      WebTransportProtocolSpec.WT_BUFFERED_STREAM_REJECTED;
 
-  public static final int WT_SESSION_GONE = 0x170d7b68;
+  public static final int WT_SESSION_GONE = WebTransportProtocolSpec.WT_SESSION_GONE;
 
-  public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
+  public static final int WT_FLOW_CONTROL_ERROR = WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR;
 
-  public static final int WT_ALPN_ERROR = 0x0817b3dd;
+  public static final int WT_ALPN_ERROR = WebTransportProtocolSpec.WT_ALPN_ERROR;
 
-  public static final int WT_REQUIREMENTS_NOT_MET = 0x212c0d48;
+  public static final int WT_REQUIREMENTS_NOT_MET =
+      WebTransportProtocolSpec.WT_REQUIREMENTS_NOT_MET;
 
   /**
    * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream as
@@ -298,7 +302,7 @@ public class WebTransportUtils {
   public static void writeVarInt(@NonNull ByteBuf out, long value) {
     // QUIC VarInts are limited to 62 bits (max roughly 4.6 quintillion)
     // 0x3FFFFFFFFFFFFFFF is the max valid value (2^62 - 1)
-    if (value < 0 || value > 0x3FFFFFFFFFFFFFFFL) {
+    if (value < 0 || value > WebTransportProtocolSpec.MAX_QUIC_VAR_INT) {
       throw new IllegalArgumentException("Invalid QUIC VarInt: " + value);
     }
     // "LZCNT" calculation - extremely fast on modern CPUs
@@ -321,7 +325,7 @@ public class WebTransportUtils {
 
   /** Returns the number of bytes needed to encode the given value as a VarInt. */
   public static int varIntLength(long value) {
-    if (value < 0 || value > 0x3FFFFFFFFFFFFFFFL) {
+    if (value < 0 || value > WebTransportProtocolSpec.MAX_QUIC_VAR_INT) {
       throw new IllegalArgumentException("Invalid QUIC VarInt: " + value);
     }
     int requiredBits = 64 - Long.numberOfLeadingZeros(value);
@@ -449,28 +453,36 @@ public class WebTransportUtils {
 
   public static void sendMaxStreamsCapsule(
       @NonNull QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-    long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
+    long capsuleType =
+        isBidi
+            ? WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI
+            : WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI;
     sendCapsule(connectStream, capsuleType, maxStreams, "WT_MAX_STREAMS");
   }
 
   public static void sendMaxDataCapsule(@NonNull QuicStreamChannel connectStream, long maxData) {
-    sendCapsule(connectStream, 0x190B4D3DL, maxData, "WT_MAX_DATA");
+    sendCapsule(
+        connectStream, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA, maxData, "WT_MAX_DATA");
   }
 
   public static void sendDataBlockedCapsule(
       @NonNull QuicStreamChannel connectStream, long maxData) {
-    sendCapsule(connectStream, 0x190B4D41L, maxData, "WT_DATA_BLOCKED");
+    sendCapsule(
+        connectStream, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, maxData, "WT_DATA_BLOCKED");
   }
 
   public static void sendStreamsBlockedCapsule(
       @NonNull QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-    long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
+    long capsuleType =
+        isBidi
+            ? WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI
+            : WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI;
     sendCapsule(connectStream, capsuleType, maxStreams, "WT_STREAMS_BLOCKED");
   }
 
-  public static final long WT_ERROR_FIRST = 0x52e4a40fa8dbL;
+  public static final long WT_ERROR_FIRST = WebTransportProtocolSpec.WT_APPLICATION_ERROR_FIRST;
 
-  public static final long WT_ERROR_LAST = 0x52e5ac983162L;
+  public static final long WT_ERROR_LAST = WebTransportProtocolSpec.WT_APPLICATION_ERROR_LAST;
 
   /**
    * Maps a 32-bit unsigned WebTransport application error code to a 62-bit HTTP/3 error code as per
@@ -486,7 +498,12 @@ public class WebTransportUtils {
 
   /**
    * Maps a 62-bit HTTP/3 error code back to a 32-bit unsigned WebTransport application error code
-   * as per draft-15 Section 4.4.
+   * per Draft-17 Section 4.4 and Section 9.5.
+   *
+   * @param h 62-bit HTTP/3 error code
+   * @return 32-bit unsigned WebTransport application error code ({@code 0x00000000..0xffffffff})
+   * @throws IllegalArgumentException if {@code h} is outside {@code WT_APPLICATION_ERROR} or is a
+   *     reserved GREASE codepoint ({@code 0x1f * N + 0x21})
    */
   public static long httpCodeToWebTransportCode(long h) {
     if (h >= WT_ERROR_FIRST && h <= WT_ERROR_LAST) {
@@ -496,37 +513,135 @@ public class WebTransportUtils {
       long shifted = h - WT_ERROR_FIRST;
       return shifted - (shifted / 31L);
     }
-    // Fallback for Netty QUIC limitation where large 62-bit codes crash the JVM
-    if (h >= 0 && h <= Integer.MAX_VALUE) {
-      return h;
-    }
     throw new IllegalArgumentException(
-        "HTTP/3 error code is outside WT_APPLICATION_ERROR range: " + h);
+        "HTTP/3 error code is outside WT_APPLICATION_ERROR range: 0x" + Long.toHexString(h));
   }
 
-  /** Checks if a given HTTP/3 error code is within the WT_APPLICATION_ERROR range. */
+  /**
+   * Checks whether a 62-bit HTTP/3 error code falls strictly within the {@code
+   * WT_APPLICATION_ERROR} range per Draft-17 Section 4.4 and Section 9.5.
+   *
+   * @param h 62-bit HTTP/3 error code
+   * @return {@code true} if {@code h} is a valid {@code WT_APPLICATION_ERROR} codepoint
+   */
   public static boolean isWebTransportApplicationError(long h) {
-    return (h >= WT_ERROR_FIRST && h <= WT_ERROR_LAST && (h - 0x21L) % 31L != 0L)
-        || // fallback for Netty QUIC limitation
-        (h >= 0 && h <= Integer.MAX_VALUE);
+    return h >= WT_ERROR_FIRST && h <= WT_ERROR_LAST && (h - 0x21L) % 31L != 0L;
   }
 
-  /** Resets a QUIC stream with the given application error code. */
-  public static void resetStream(@NonNull QuicStreamChannel streamChannel, long appErrorCode) {
-    long httpErrorCode = webTransportCodeToHttpCode(appErrorCode);
-    // Netty's QuicStreamChannel.shutdown(int) takes a signed int.
-    // If we cast a 62-bit HTTP/3 error code to int and it becomes negative,
-    // Netty's JNI layer sign-extends it to a 64-bit value greater than 2^62 - 1,
-    // causing Quiche to panic and crash the JVM.
-    // To prevent this crash under Netty QUIC's limitation, we check if the casted value is
-    // negative.
-    // If it is, we fall back to sending the unmapped appErrorCode (if it fits in positive int)
-    // or a default fallback positive error code (like 0) to avoid crashing the JVM.
-    int code = (int) httpErrorCode;
-    if (code < 0) {
-      code = (appErrorCode >= 0 && appErrorCode <= Integer.MAX_VALUE) ? (int) appErrorCode : 0;
+  /**
+   * Maps an inbound QUIC stream reset HTTP/3 error code to a WebTransport application error code
+   * when within {@code WT_APPLICATION_ERROR}, or returns {@link OptionalLong#empty()} for
+   * non-application HTTP/3 error codes per Draft-17 Section 4.4.
+   *
+   * @param httpErrorCode 62-bit HTTP/3 error code received in {@code RESET_STREAM}, {@code
+   *     RESET_STREAM_AT}, or {@code STOP_SENDING}
+   * @return mapped 32-bit application error code, or empty if outside {@code WT_APPLICATION_ERROR}
+   */
+  public static @NonNull OptionalLong tryMapHttpToApplicationError(long httpErrorCode) {
+    if (!isWebTransportApplicationError(httpErrorCode)) {
+      return OptionalLong.empty();
     }
-    streamChannel.shutdown(code, streamChannel.newPromise());
+    return OptionalLong.of(httpCodeToWebTransportCode(httpErrorCode));
+  }
+
+  /**
+   * Encapsulates the parameters required to reset a WebTransport QUIC stream.
+   */
+  public static final class StreamResetRequest {
+    private final long sessionId;
+    private final long appErrorCode;
+    private final long reliableSize;
+    private final StreamResetTransport transport;
+
+    /**
+     * Constructs a request to reset a WebTransport stream.
+     *
+     * @param sessionId WebTransport session ID
+     * @param appErrorCode 32-bit unsigned application error code
+     * @param reliableSize non-negative application payload byte offset
+     * @param transport strategy dispatching the reset to the underlying QUIC channel
+     */
+    public StreamResetRequest(
+        long sessionId,
+        long appErrorCode,
+        long reliableSize,
+        @NonNull StreamResetTransport transport) {
+      this.sessionId = sessionId;
+      this.appErrorCode = appErrorCode;
+      this.reliableSize = reliableSize;
+      this.transport = Objects.requireNonNull(transport, "transport must not be null");
+    }
+  }
+
+  /** Resets a QUIC stream with the given application error code and zero reliable offset. */
+  public static void resetStream(@NonNull QuicStreamChannel streamChannel, long appErrorCode) {
+    resetStream(streamChannel, appErrorCode, 0L);
+  }
+
+  /**
+   * Resets a QUIC stream with the given application error code and application reliable offset per
+   * Draft-17 Section 4.4.
+   *
+   * @param streamChannel stream channel to reset
+   * @param appErrorCode 32-bit unsigned application error code
+   * @param reliableSize non-negative application payload byte offset
+   */
+  public static void resetStream(
+      @NonNull QuicStreamChannel streamChannel, long appErrorCode, long reliableSize) {
+    resetStream(streamChannel, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT);
+  }
+
+  /**
+   * Resets a QUIC stream using the supplied {@link StreamResetTransport}, computing both the mapped
+   * {@code WT_APPLICATION_ERROR} code and the exact {@code RESET_STREAM_AT} Reliable Size (local
+   * WebTransport stream header bytes + {@code reliableSize}) per Draft-17 Section 4.4.
+   *
+   * @param streamChannel stream channel to reset
+   * @param appErrorCode 32-bit unsigned application error code
+   * @param reliableSize non-negative application payload byte offset
+   * @param transport strategy dispatching the reset to the underlying QUIC channel
+   * @return future returned by the transport strategy
+   */
+  public static @NonNull ChannelFuture resetStream(
+      @NonNull QuicStreamChannel streamChannel,
+      long appErrorCode,
+      long reliableSize,
+      @NonNull StreamResetTransport transport) {
+    long sessionId = 0L;
+    if (streamChannel.hasAttr(WebTransportAttributeKeys.SESSION_ID_KEY)) {
+      Long attrSessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+      if (attrSessionId != null && attrSessionId >= 0L) {
+        sessionId = attrSessionId;
+      }
+    }
+    return resetStream(
+        streamChannel, new StreamResetRequest(sessionId, appErrorCode, reliableSize, transport));
+  }
+
+  /**
+   * Resets a QUIC stream using the supplied {@link StreamResetRequest}.
+   *
+   * @param streamChannel stream channel to reset
+   * @param request stream reset parameters
+   * @return future returned by the transport strategy
+   */
+  public static @NonNull ChannelFuture resetStream(
+      @NonNull QuicStreamChannel streamChannel, @NonNull StreamResetRequest request) {
+    Objects.requireNonNull(streamChannel, "streamChannel must not be null");
+    Objects.requireNonNull(request, "request must not be null");
+    long mappedHttpCode = webTransportCodeToHttpCode(request.appErrorCode);
+    boolean localInitiated =
+        streamChannel.isLocalCreated()
+            || (streamChannel.hasAttr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)
+                && Boolean.TRUE.equals(
+                    streamChannel.attr(WebTransportAttributeKeys.SERVER_INITIATED_KEY).get()));
+    boolean bidirectional =
+        streamChannel.type() == null || streamChannel.type() == QuicStreamType.BIDIRECTIONAL;
+    long wireReliableSize =
+        WebTransportProtocolSpec.computeResetReliableSize(
+            localInitiated, bidirectional, Math.max(0L, request.sessionId), request.reliableSize);
+    return request.transport.resetSendSide(
+        streamChannel, request.appErrorCode, mappedHttpCode, wireReliableSize);
   }
 
   /** Resets a QUIC stream with the given HTTP/3 error code. */

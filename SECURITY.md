@@ -39,6 +39,7 @@ When deploying WebTransport4J in production environments, adhere to the followin
 3. **Origin & Authority Validation**:
    - Always validate the `:origin` and `:authority` pseudo-headers in your endpoint handlers to prevent Cross-Site WebTransport Session Hijacking (CSWSH).
 
-4. **IP Rate Limiting & DoS Protection**:
+4. **IP Rate Limiting, Flow Control & DoS Protection**:
    - Configure the built-in CIDR prefix rate limiter and Bloom filter (`IpRateLimitingHandler`, `IpBloomFilter`) to mitigate abusive clients and flood attacks.
-   - Keep capsule size limits enforced (`webtransport4j.capsule.max_length=65536`, with close reason strings capped at 1024 bytes per RFC draft-16) to prevent memory allocation exhaustion.
+   - Keep capsule size limits enforced (`webtransport4j.capsule.max_length=65536`, with close reason strings capped at 1024 bytes per `draft-ietf-webtrans-http3-17`) to prevent memory allocation exhaustion.
+   - Keep WebTransport session flow control enabled (non-zero `webtransport4j.webtransport.initial.max.*` settings) whenever an HTTP/3 connection may also carry HTTP responses or QPACK streams; disabling WebTransport flow control shares QUIC connection-level stream and data limits across the entire connection, which can cause request starvation or head-of-line deadlocks (`draft-ietf-webtrans-http3-17` Section 8).

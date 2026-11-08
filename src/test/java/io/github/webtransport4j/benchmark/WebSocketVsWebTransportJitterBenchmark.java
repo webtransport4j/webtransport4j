@@ -692,7 +692,7 @@ public class WebSocketVsWebTransportJitterBenchmark {
       Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      settings.put(0x2c7cf000L, 1L);
+      settings.put(0x20b8933bL, 1L);
 
       CompletableFuture<Long>[] activeFuture = new CompletableFuture[] {new CompletableFuture<>()};
       Random rng = new Random(42);

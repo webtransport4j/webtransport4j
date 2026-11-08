@@ -18,6 +18,7 @@ import io.netty.handler.codec.http3.Http3ErrorCode;
 import io.netty.handler.codec.http3.Http3Headers;
 import io.netty.handler.codec.http3.Http3HeadersFrame;
 import io.netty.handler.codec.http3.Http3RequestStreamInboundHandler;
+import io.netty.handler.codec.http3.Http3UnknownFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.util.Attribute;
@@ -39,10 +40,11 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public static final WebTransportHeadersHandler INSTANCE = new WebTransportHeadersHandler();
 
-  public static final String UPGRADE_TOKEN_H3 = "webtransport-h3";
-  public static final String UPGRADE_TOKEN_LEGACY = "webtransport";
-  public static final String HEADER_WT_AVAILABLE_PROTOCOLS = "wt-available-protocols";
-  public static final String HEADER_WT_PROTOCOL = "wt-protocol";
+  public static final String UPGRADE_TOKEN_H3 = WebTransportProtocolSpec.UPGRADE_TOKEN_H3;
+  public static final String UPGRADE_TOKEN_LEGACY = WebTransportProtocolSpec.UPGRADE_TOKEN_LEGACY;
+  public static final String HEADER_WT_AVAILABLE_PROTOCOLS =
+      WebTransportProtocolSpec.HEADER_WT_AVAILABLE_PROTOCOLS;
+  public static final String HEADER_WT_PROTOCOL = WebTransportProtocolSpec.HEADER_WT_PROTOCOL;
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
@@ -100,32 +102,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               ? quic.attr(WebTransportAttributeKeys.METRICS_LISTENER).get()
               : null;
 
-      // Validate scheme: MUST be "https" as per draft-15 section 4.4
-      if (!"https".contentEquals(scheme)) {
-        if (metricsListener != null) {
-          metricsListener.onSessionRejected("invalid_scheme");
-        }
-        logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
-        Http3Headers responseHeaders = new DefaultHttp3Headers();
-        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        if (f != null) {
-          f.addListener(ChannelFutureListener.CLOSE);
-        }
-        return;
-      }
-      // Validate authority: MUST be present as per draft-15 section 4.4
-      if (authority.length() == 0) {
-        if (metricsListener != null) {
-          metricsListener.onSessionRejected("missing_authority");
-        }
-        logger.warn("❌ Rejecting connection due to missing :authority");
-        Http3Headers responseHeaders = new DefaultHttp3Headers();
-        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        if (f != null) {
-          f.addListener(ChannelFutureListener.CLOSE);
-        }
+      // Validate scheme, authority, and path per Draft-17 Section 2.2 (RFC 9110 Section 4.2.2)
+      if (!validateHttpsRequestTarget(ctx, metricsListener, scheme, authority, path)) {
         return;
       }
       if (quic != null) {
@@ -160,7 +138,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
                   + " Treating incoming session CONNECT stream as malformed and resetting with"
                   + " H3_MESSAGE_ERROR (0x010e).");
-          connectStream.shutdown(0x010e, connectStream.newPromise());
+          connectStream.shutdown(
+              WebTransportProtocolSpec.H3_MESSAGE_ERROR, connectStream.newPromise());
           return;
         }
         long sessionId = connectStream.streamId();
@@ -425,6 +404,16 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
     ctx.fireChannelRead(frame);
   }
 
+  @Override
+  protected void channelRead(
+      @NonNull ChannelHandlerContext ctx, @NonNull Http3UnknownFrame frame) {
+    long frameType = frame.type();
+    frame.release();
+    if (frameType == WebTransportUtils.BI_STREAM_TYPE) {
+      Http3WtStreamFrameGuard.closeWithFrameUnexpected(ctx);
+    }
+  }
+
   private static boolean reserveGlobalSlot(AtomicInteger slots, int limit) {
     for (; ; ) {
       int current = slots.get();
@@ -524,6 +513,48 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return host;
     } catch (Exception e) {
       return null;
+    }
+  }
+
+  private boolean validateHttpsRequestTarget(
+      @NonNull ChannelHandlerContext ctx,
+      @Nullable WebTransportMetricsListener metricsListener,
+      @Nullable CharSequence scheme,
+      @Nullable CharSequence authority,
+      @Nullable CharSequence path) {
+    if (!"https".contentEquals(scheme)) {
+      rejectBadRequest(
+          ctx, metricsListener, "invalid_scheme", "❌ Rejecting connection from invalid scheme: {}", scheme);
+      return false;
+    }
+    if (authority == null || authority.length() == 0) {
+      rejectBadRequest(
+          ctx, metricsListener, "missing_authority", "❌ Rejecting connection due to missing :authority");
+      return false;
+    }
+    if (!WebTransportProtocolSpec.isValidHttpsRequestTarget(scheme, authority, path)) {
+      rejectBadRequest(
+          ctx, metricsListener, "invalid_path", "Rejecting connection due to invalid HTTPS URI :path '{}'", path);
+      return false;
+    }
+    return true;
+  }
+
+  private void rejectBadRequest(
+      @NonNull ChannelHandlerContext ctx,
+      @Nullable WebTransportMetricsListener metricsListener,
+      @NonNull String metricReason,
+      @NonNull String logFormat,
+      Object... logArgs) {
+    if (metricsListener != null) {
+      metricsListener.onSessionRejected(metricReason);
+    }
+    logger.warn(logFormat, logArgs);
+    Http3Headers responseHeaders = new DefaultHttp3Headers();
+    responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
+    ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+    if (f != null) {
+      f.addListener(ChannelFutureListener.CLOSE);
     }
   }
 

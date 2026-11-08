@@ -135,6 +135,7 @@ public class QuicChannelInitializer extends ChannelInitializer<QuicChannel> {
         capsuleMax != null && capsuleMax > 0
             ? new WebTransportStreamChannelInitializer(capsuleMax)
             : new WebTransportStreamChannelInitializer();
+    ch.pipeline().addLast(Http3WtStreamFrameGuard.UNIDIRECTIONAL_INSTALLER);
     ch.pipeline()
         .addLast(
             new Http3ServerConnectionHandler(

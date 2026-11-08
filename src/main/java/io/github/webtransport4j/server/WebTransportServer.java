@@ -4,9 +4,9 @@ import io.github.webtransport4j.api.AsyncWebTransportMetricsListener;
 import io.github.webtransport4j.api.NoOpWebTransportMetricsListener;
 import io.github.webtransport4j.api.ReactiveWebTransportHandler;
 import io.github.webtransport4j.api.ReactiveWebTransportHandlerAdapter;
+import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportHandler;
 import io.github.webtransport4j.api.WebTransportMetricsListener;
-import io.github.webtransport4j.api.SessionFlowControlPolicy;
 import io.github.webtransport4j.api.WebTransportSession;
 import io.github.webtransport4j.cluster.ClusterBroadcastBridge;
 import io.github.webtransport4j.cluster.StatelessTokenSecretProvider;
@@ -130,13 +130,17 @@ public class WebTransportServer implements AutoCloseable {
   private static final long DEFAULT_HMAC_EXPIRATION_MS = 60_000L;
   private static final int HMAC_KEY_MIN_BYTES = 16;
   private static final int SESSION_TICKET_KEY_HEX_LEN = 96;
-  private static final long SETTING_WT_ENABLED = 0x2c7cf000L;
-  private static final long SETTING_WT_MAX_STREAMS_UNI = 0x2b64L;
-  private static final long SETTING_WT_MAX_STREAMS_BIDI = 0x2b65L;
-  private static final long SETTING_WT_INITIAL_MAX_DATA = 0x2b61L;
-  private static final long SETTING_WEBTRANSPORT_MAX_SESSIONS = 0x2b603742L;
+  private static final long SETTING_WT_ENABLED = WebTransportProtocolSpec.SETTING_WT_ENABLED;
+  private static final long SETTING_WT_MAX_STREAMS_UNI =
+      WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI;
+  private static final long SETTING_WT_MAX_STREAMS_BIDI =
+      WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI;
+  private static final long SETTING_WT_INITIAL_MAX_DATA =
+      WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA;
+  private static final long SETTING_WEBTRANSPORT_MAX_SESSIONS =
+      WebTransportProtocolSpec.SETTING_WEBTRANSPORT_MAX_SESSIONS;
   private static final String DEFAULT_ALLOWED_SETTINGS =
-      "0x2c7cf000,0x2b64,0x2b65,0x2b61,0x2b603742";
+      WebTransportProtocolSpec.DEFAULT_ALLOWED_SETTINGS;
 
   private Integer configuredPort;
   private String configuredHost;
@@ -495,6 +499,7 @@ public class WebTransportServer implements AutoCloseable {
     closeMetricsListener(previous);
   }
 
+  /** Returns the session flow control policy governing connection and stream limits. */
   public @NonNull SessionFlowControlPolicy getFlowControlPolicy() {
     return flowControlPolicy != null
         ? flowControlPolicy

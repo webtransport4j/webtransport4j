@@ -385,4 +385,25 @@ public class DefaultNettyWebTransportStreamTest {
     assertEquals(threads - 1, failures.get());
     assertTrue(stream.getDataConsumer() != null ^ stream.getRawByteBufConsumer() != null);
   }
+
+  public abstract static class BaseStream implements WebTransportStream {
+    public long resetCode = -1L;
+
+    @Override
+    public void reset(long code) {
+      this.resetCode = code;
+    }
+  }
+
+  @Test
+  public void testResetWithReliableSizeDefaultImplementation() {
+    BaseStream stream = mock(BaseStream.class, Mockito.CALLS_REAL_METHODS);
+
+    // When reliableSize > 0, it should be ignored and do reset
+    stream.reset(42L, 100L);
+    assertEquals(42L, stream.resetCode);
+
+    // When reliableSize < 0, it throws IllegalArgumentException
+    Assertions.assertThrows(IllegalArgumentException.class, () -> stream.reset(42L, -1L));
+  }
 }

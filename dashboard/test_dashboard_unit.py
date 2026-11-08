@@ -390,7 +390,7 @@ class TestStreamAndSessionGuardrailsUnit(unittest.TestCase):
         self.assertEqual(session["streams"][-1]["status"], "OPEN")
 
     def test_positive_stream_create_on_draining_session(self):
-        """Draft-16 Section 4.7 permits streams while draining."""
+        """Draft-17 Section 4.7 permits streams while draining."""
         session = server.MANAGED_SESSIONS[self.session_id]
         session["status"] = "DRAINING"
 

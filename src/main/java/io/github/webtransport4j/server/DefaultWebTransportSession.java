@@ -360,7 +360,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
     if (DRAIN_SENT_HANDLE.compareAndSet(this, 0, 1)) {
       ByteBuf capsule = connectStream.alloc().buffer(5);
-      WebTransportUtils.writeVarInt(capsule, 0x78ae);
+      WebTransportUtils.writeVarInt(
+          capsule, WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION);
       WebTransportUtils.writeVarInt(capsule, 0);
       connectStream.writeAndFlush(new io.netty.handler.codec.http3.DefaultHttp3DataFrame(capsule));
       markDraining();
@@ -747,6 +748,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       try {
         pw.getData().release();
       } catch (Exception ignored) {
+        // Best-effort buffer release on cleanup.
       }
       pw.getPromise().tryFailure(cause);
     }
@@ -761,6 +763,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private volatile ChannelFutureListener closeListener;
 
+    /** Creates a pending outbound write. */
     public PendingOutboundWrite(
         @NonNull ChannelHandlerContext ctx,
         @NonNull ByteBuf data,
@@ -799,6 +802,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       return closeListener;
     }
 
+    /** Removes the stream close listener registered for this pending write. */
     public void removeCloseListener() {
       ChannelFutureListener listener = this.closeListener;
       if (listener != null) {
@@ -806,21 +810,25 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
         try {
           ctx.channel().closeFuture().removeListener(listener);
         } catch (Exception ignored) {
+          // Channel listener removal is best-effort.
         }
       }
     }
 
+    /** Cancels this pending write, releasing the payload buffer. */
     public void cancel() {
       if (cancelled.compareAndSet(false, true)) {
         removeCloseListener();
         try {
           data.release();
         } catch (Exception ignored) {
+          // Buffer release on cancel is best-effort.
         }
         promise.tryFailure(new ClosedChannelException());
       }
     }
 
+    /** Executes the write operation to the pipeline. */
     public void executeWrite() {
       removeCloseListener();
       if (isCancelled()) {
@@ -840,6 +848,7 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
   }
 
+  /** Marks that a peer WT_MAX_DATA capsule has been received. */
   public boolean markPeerMaxDataCapsuleReceived() {
     return HAS_RECEIVED_PEER_MAX_DATA_CAPSULE_HANDLE.compareAndSet(this, 0, 1);
   }
@@ -1017,8 +1026,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
                 (reason != null && !reason.isEmpty())
                     ? reason.getBytes(StandardCharsets.UTF_8)
                     : new byte[0];
-            if (reasonBytes.length > 1024) {
-              int cut = 1024;
+            if (reasonBytes.length > WebTransportProtocolSpec.MAX_CLOSE_REASON_PHRASE_BYTES) {
+              int cut = WebTransportProtocolSpec.MAX_CLOSE_REASON_PHRASE_BYTES;
               while (cut > 0 && (reasonBytes[cut] & 0xC0) == 0x80) {
                 cut--;
               }
@@ -1026,7 +1035,8 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
             }
             ByteBufAllocator alloc = connectStream.alloc();
             ByteBuf capsule = (alloc != null) ? alloc.buffer() : Unpooled.buffer();
-            WebTransportUtils.writeVarInt(capsule, 0x2843L);
+            WebTransportUtils.writeVarInt(
+                capsule, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
             WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
             capsule.writeInt((int) error);
             if (reasonBytes.length > 0) {
@@ -1116,8 +1126,18 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
    * Resets a WebTransport data stream with a WebTransport application error code (automatically
    * mapped to the HTTP/3 error range as per Section 4.4).
    */
+  @Override
   public void resetStream(@NonNull QuicStreamChannel dataStream, long appErrorCode) {
-    WebTransportUtils.resetStream(dataStream, appErrorCode);
+    resetStream(dataStream, appErrorCode, 0L);
+  }
+
+  @Override
+  public void resetStream(
+      @NonNull QuicStreamChannel dataStream, long appErrorCode, long reliableSize) {
+    WebTransportUtils.resetStream(
+        dataStream,
+        new WebTransportUtils.StreamResetRequest(
+            sessionStreamId, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT));
   }
 
   /**

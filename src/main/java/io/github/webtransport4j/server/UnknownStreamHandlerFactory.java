@@ -34,7 +34,9 @@ public final class UnknownStreamHandlerFactory implements LongFunction<ChannelHa
             .execute(
                 () -> {
                   if (ch instanceof QuicStreamChannel) {
-                    ((QuicStreamChannel) ch).shutdown(0x010E, ch.newPromise());
+                    ((QuicStreamChannel) ch)
+                        .shutdown(
+                            WebTransportProtocolSpec.H3_MESSAGE_ERROR, ch.newPromise());
                   }
                   ch.close();
                 });

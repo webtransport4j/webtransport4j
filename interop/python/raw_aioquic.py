@@ -3,7 +3,7 @@
 pywebtransport intentionally exposes a high-level API. Tests which inject an
 unknown session identifier or a malformed capsule need lower-level control, so
 they use aioquic directly while all normal interop coverage remains on
-pywebtransport 0.20.1.
+pywebtransport 0.22.0.
 """
 
 import asyncio

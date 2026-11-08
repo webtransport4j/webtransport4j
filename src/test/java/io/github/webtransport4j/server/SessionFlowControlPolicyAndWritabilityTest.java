@@ -108,7 +108,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 1000L);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D41L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, payload);
 
     WebTransportCapsuleHandler handler = new WebTransportCapsuleHandler();
     handler.channelRead(mockCtx, capsule);
@@ -131,7 +133,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     ByteBuf payloadDeny = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payloadDeny, 1000L);
-    WebTransportCapsule capsuleDeny = new WebTransportCapsule(200L, 0x190B4D41L, payloadDeny);
+    WebTransportCapsule capsuleDeny =
+        new WebTransportCapsule(
+            200L, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, payloadDeny);
 
     handler.channelRead(mockCtx, capsuleDeny);
     assertEquals(1000L, sessionDeny.getSettingsMaxData());
@@ -183,7 +187,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 10L);
-    WebTransportCapsule capsule = new WebTransportCapsule(300L, 0x190B4D43L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            300L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
 
     WebTransportCapsuleHandler handler = new WebTransportCapsuleHandler();
     handler.channelRead(mockCtx, capsule);
@@ -203,7 +209,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     ByteBuf payloadDeny = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payloadDeny, 10L);
-    WebTransportCapsule capsuleDeny = new WebTransportCapsule(400L, 0x190B4D43L, payloadDeny);
+    WebTransportCapsule capsuleDeny =
+        new WebTransportCapsule(
+            400L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payloadDeny);
 
     handler.channelRead(mockCtx, capsuleDeny);
     assertEquals(10L, sessionDeny.getSettingsMaxStreamsBidi());
@@ -595,7 +603,9 @@ public class SessionFlowControlPolicyAndWritabilityTest {
 
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 10L);
-    WebTransportCapsule capsule = new WebTransportCapsule(350L, 0x190B4D43L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            350L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
 
     WebTransportCapsuleHandler handler = new WebTransportCapsuleHandler();
     handler.channelRead(mockCtx, capsule);

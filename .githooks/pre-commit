@@ -340,13 +340,13 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# Gate 8: Java Code Integrity Gates (Checkstyle & Multi-Release Compile)
+# Gate 8: Java Code Integrity Gates (Checkstyle, Multi-Release Compile & Tests)
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}[Gate 8/8] Java Code Quality & Multi-Release Build Gates${NC}"
 JAVA_STAGED=$(echo "$STAGED_FILES" | grep -E '(\.java$|pom\.xml$|config/checkstyle/.*\.xml$)' || true)
 
 if [ -z "$JAVA_STAGED" ]; then
-    echo -e "  ${DIM}ℹ [SKIP]${NC} No Java source or build files staged. Skipping Checkstyle and javac gates."
+    echo -e "  ${DIM}ℹ [SKIP]${NC} No Java source or build files staged. Skipping Checkstyle, javac, and test gates."
     GATE8_STATUS="SKIPPED"
 else
     JAVA_COUNT=$(echo "$JAVA_STAGED" | grep -c . || echo 0)
@@ -420,6 +420,31 @@ else
                     FAILED_GATES=$(( FAILED_GATES + 1 ))
                 fi
             fi
+
+            # Sub-Gate 8.3: Automated Test Execution Gate
+            if [ "$GATE8_STATUS" != "FAILED" ] && [ "${PRE_COMMIT_SKIP_TESTS:-0}" != "1" ]; then
+                echo -e "  ${BLUE}• [8.3]${NC} Running automated test suite (mvn test)..."
+                TEST_START=$SECONDS
+                TEST_FLAGS="-Dsurefire.classesDirectory=target/classes -Dwebtransport4j.test.skip.timeout=true -Dwebtransport4j.stress.duration.seconds=3"
+                if [ "${PRE_COMMIT_FULL_TESTS:-0}" = "1" ]; then
+                    TEST_FLAGS="-Dsurefire.classesDirectory=target/classes"
+                fi
+                if TEST_OUTPUT=$($MVN_CMD --batch-mode test $TEST_FLAGS 2>&1); then
+                    TEST_TIME=$(( SECONDS - TEST_START ))
+                    echo -e "    ${GREEN}✔ [PASS]${NC} All automated tests passed successfully (${TEST_TIME}s)."
+                else
+                    TEST_TIME=$(( SECONDS - TEST_START ))
+                    echo -e "    ${RED}❌ [FAIL] Automated tests failed (${TEST_TIME}s):${NC}"
+                    echo "$TEST_OUTPUT" | grep -E "(\[ERROR\] Failures:|\<\<\< FAILURE\!|\<\<\< ERROR\!|Tests run:.*Failures: [1-9]|Tests run:.*Errors: [1-9])" | head -n 20 | while IFS= read -r terr; do
+                        echo -e "       ${RED}✗${NC} $terr"
+                    done
+                    echo -e "    ${YELLOW}💡 Remediation:${NC} Run ${BOLD}${MVN_CMD} test${NC} locally to diagnose failed tests."
+                    GATE8_STATUS="FAILED"
+                    FAILED_GATES=$(( FAILED_GATES + 1 ))
+                fi
+            elif [ "${PRE_COMMIT_SKIP_TESTS:-0}" = "1" ]; then
+                echo -e "  ${YELLOW}⚠ [WARN]${NC} PRE_COMMIT_SKIP_TESTS=1 detected. Skipping test execution."
+            fi
         fi
     fi
 fi
@@ -450,7 +475,7 @@ echo -e "  Gate 4: OS & Editor Junk Files      : $(format_status "$GATE4_STATUS"
 echo -e "  Gate 5: File Size Safety (≤500 KB)  : $(format_status "$GATE5_STATUS")"
 echo -e "  Gate 6: Whitespace & Line Endings   : $(format_status "$GATE6_STATUS")"
 echo -e "  Gate 7: Syntax (Shell, JSON, YAML)  : $(format_status "$GATE7_STATUS")"
-echo -e "  Gate 8: Java Style & Compilation    : $(format_status "$GATE8_STATUS")"
+echo -e "  Gate 8: Java Style, Build & Tests   : $(format_status "$GATE8_STATUS")"
 echo -e "${CYAN}──────────────────────────────────────────────────────────────────${NC}"
 echo -e "  ${DIM}Total Verification Time:${NC} ${BOLD}${TOTAL_TIME}s${NC}"
 

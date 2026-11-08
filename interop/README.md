@@ -14,7 +14,7 @@ interop/
 ├── sitecustomize.py               # Runtime patch & hook forwarder
 │
 ├── python/                        # Python WebTransport implementations
-│   ├── interop_test_suite.py      # Official IETF Draft-16 30-Test Suite
+│   ├── interop_test_suite.py      # Official IETF Draft-17 30-Test Suite
 │   ├── sitecustomize.py           # Stream event buffering & async shims
 │   ├── client.py                  # Interactive CLI client
 │   ├── benchmarks/                # Throughput & performance benchmarks
@@ -84,14 +84,14 @@ Open `interop/browser/native-wt-test.html` in Chrome or Edge (with `--origin-to-
 
 ## Test Matrix (30 / 30 Passed)
 
-The Python test suite (`interop/python/interop_test_suite.py`) verifies both **positive and negative** cases across all sections of **IETF Draft-16** (`draft-ietf-webtrans-http3-16`):
+The Python test suite (`interop/python/interop_test_suite.py`) verifies both **positive and negative** cases across all sections of **IETF Draft-17** (`draft-ietf-webtrans-http3-17`):
 
 | Section | Scope | Covered Tests |
 |---|---|---|
 | **§ 3.2** | Session Establishment & URL Path Routing | Primary `/test` session, `/chat` and `/echo` routes, scheme rejection |
 | **§ 4.2** | Unidirectional Streams | Client Uni stream, Server Uni stream greeting, unknown session ID drop |
 | **§ 4.3** | Bidirectional Streams | Bidi echo, Server Bidi greeting, 250KB payload integrity, 8 concurrent streams, Head-of-line blocking elimination, unknown session ID drop |
-| **§ 4.4 & 9.5** | Error Remapping & Stream Abort | Draft-16 error code remapping ($N \leftrightarrow H$), reserved codepoint exclusion, `RESET_STREAM`, `STOP_SENDING` |
+| **§ 4.4 & 9.5** | Error Remapping & Stream Abort | Draft-17 error code remapping ($N \leftrightarrow H$), reserved codepoint exclusion, `RESET_STREAM`, `STOP_SENDING` |
 | **§ 4.5** | WebTransport Datagrams | Quarter Stream ID encoding & Uni ACK, unknown session ID datagram drop |
 | **§ 4.7 & 9.6** | Capsule Protocol (Drain) | Valid `WT_DRAIN_SESSION` (`len=0`), malformed drain rejection (`len>0`) |
 | **§ 5.4** | Capsule Protocol (Prohibited) | Prohibited `WT_MAX_STREAM_DATA` (`0x190b4d3e`) & `WT_STREAM_DATA_BLOCKED` (`0x190b4d42`) rejection |

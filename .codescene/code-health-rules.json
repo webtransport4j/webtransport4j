@@ -1,0 +1,16 @@
+{
+  "usage": "Persist this file inside your repositories as .codescene/code-health-rules.json",
+  "rule_sets": [
+    {
+      "matching_content_path": "**/*",
+      "matching_content_path_doc": "Low-level network protocol transport dealing extensively with QUIC primitives (varints, ports, stream IDs)",
+      "rules": [
+        {
+          "name": "Primitive Obsession",
+          "weight": 0.0
+        }
+      ],
+      "thresholds": []
+    }
+  ]
+}

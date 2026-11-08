@@ -277,7 +277,7 @@ public class WebTransportIntegrationTest {
     Http3Settings serverSettings = new Http3Settings((id, value) -> true);
     serverSettings.enableH3Datagram(true);
     serverSettings.enableConnectProtocol(true);
-    serverSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    serverSettings.put(0x20b8933bL, 1L); // wt_enabled
     serverSettings.put(0x2b64L, 10L); // wt_initial_max_streams_uni
     serverSettings.put(0x2b65L, 10L); // wt_initial_max_streams_bidi
     serverSettings.put(0x2b61L, initialMaxData); // wt_initial_max_data
@@ -419,7 +419,7 @@ public class WebTransportIntegrationTest {
                                       if (settings != null) {
                                         log.info(
                                             "SERVER: settings wt_enabled={} | wt_max_data={}",
-                                            settings.get(0x2c7cf000L),
+                                            settings.get(0x20b8933bL),
                                             settings.get(0x2b61L));
                                         QuicChannel quic = null;
                                         if (ctx.channel() instanceof QuicStreamChannel) {
@@ -463,7 +463,7 @@ public class WebTransportIntegrationTest {
                                                 session
                                                     .getConnectStream()
                                                     .shutdown(
-                                                        0x010e,
+                                                        WebTransportProtocolSpec.H3_MESSAGE_ERROR,
                                                         session.getConnectStream().newPromise());
                                               }
                                             }
@@ -576,7 +576,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -824,7 +824,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -1078,7 +1078,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -1375,7 +1375,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(false);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
 
     CountDownLatch resetLatch = new CountDownLatch(1);
     final Throwable[] caughtException = new Throwable[1];
@@ -1466,7 +1466,8 @@ public class WebTransportIntegrationTest {
     assertNotNull(caughtException[0]);
     assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName());
     assertEquals(
-        0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
+        (long) WebTransportProtocolSpec.H3_MESSAGE_ERROR,
+        ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
     quicClient.close().sync();
   }
@@ -1483,7 +1484,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -1675,8 +1676,11 @@ public class WebTransportIntegrationTest {
     assertTrue(caughtBidiException[0] instanceof QuicStreamResetException);
     QuicStreamResetException resetExc = (QuicStreamResetException) caughtBidiException[0];
 
+    long wireCode = resetExc.applicationProtocolCode();
     long wtErrorCode =
-        WebTransportUtils.httpCodeToWebTransportCode(resetExc.applicationProtocolCode());
+        WebTransportUtils.isWebTransportApplicationError(wireCode)
+            ? WebTransportUtils.httpCodeToWebTransportCode(wireCode)
+            : wireCode;
     assertEquals(500L, wtErrorCode);
 
     quicClient.close().sync();
@@ -1694,7 +1698,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -1955,7 +1959,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -2151,7 +2155,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -2347,7 +2351,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L);
+    clientSettings.put(0x20b8933bL, 1L);
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -2706,7 +2710,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -2902,7 +2906,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3096,7 +3100,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(false); // REQUIRED SETTING IS FALSE/MISSING
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3189,7 +3193,8 @@ public class WebTransportIntegrationTest {
     assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException");
     // H3_MESSAGE_ERROR is 0x010e (270)
     assertEquals(
-        0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
+        (long) WebTransportProtocolSpec.H3_MESSAGE_ERROR,
+        ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
     quicClient.close().sync();
   }
@@ -3206,7 +3211,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3424,7 +3429,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3632,7 +3637,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3800,7 +3805,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -3970,7 +3975,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
 
     ChannelHandler clientCodec =
         Http3.newQuicClientCodecBuilder()
@@ -4085,7 +4090,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
 
     File tempFile = new File("webtransport-dynamic.properties");
     try {
@@ -4146,7 +4151,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
 
     File tempFile = new File("webtransport-dynamic.properties");
     try {
@@ -4208,7 +4213,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
 
     File tempFile = new File("webtransport-dynamic.properties");
     try {
@@ -4281,7 +4286,7 @@ public class WebTransportIntegrationTest {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableH3Datagram(true);
     clientSettings.enableConnectProtocol(true);
-    clientSettings.put(0x2c7cf000L, 1L); // wt_enabled
+    clientSettings.put(0x20b8933bL, 1L); // wt_enabled
     clientSettings.put(0x2b64L, 10L);
     clientSettings.put(0x2b65L, 10L);
     clientSettings.put(0x2b61L, 10000L);
@@ -5406,7 +5411,7 @@ public class WebTransportIntegrationTest {
       Http3Settings clientSetting = new Http3Settings((id, value) -> true);
       clientSetting.enableH3Datagram(true);
       clientSetting.enableConnectProtocol(true);
-      clientSetting.put(0x2c7cf000L, 1L);
+      clientSetting.put(0x20b8933bL, 1L);
       clientSetting.put(0x2b64L, 10L);
       clientSetting.put(0x2b65L, 10L);
       clientSetting.put(0x2b61L, 100000L);

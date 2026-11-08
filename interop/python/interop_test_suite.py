@@ -1,5 +1,5 @@
 """
-Comprehensive IETF WebTransport over HTTP/3 Draft-16 Interop Test Suite
+Comprehensive IETF WebTransport over HTTP/3 Draft-17 Interop Test Suite
 ======================================================================
 Tests both POSITIVE and NEGATIVE test cases across all functional areas
 defined in draft-ietf-webtrans-http3-16:
@@ -26,6 +26,38 @@ from typing import List, Tuple
 from aioquic.buffer import Buffer
 from pywebtransport import ClientConfig, WebTransportClient
 
+try:
+  from pywebtransport.session import WebTransportSession
+
+  async def _pop_stream(queue, is_persistent_none: bool):
+    stream = await queue.get()
+    if stream is None:
+      if is_persistent_none:
+        queue.put_nowait(None)
+      raise ConnectionError("Session closed")
+    return stream
+
+  if not hasattr(WebTransportSession, "accept_bidirectional_stream"):
+    async def _accept_bidirectional_stream(self):
+      if hasattr(self, "_incoming_streams_bidi"):
+        return await _pop_stream(self._incoming_streams_bidi, True)
+      if hasattr(self, "_incoming_bidi_streams"):
+        return await _pop_stream(self._incoming_bidi_streams, False)
+      raise AttributeError("Session has no incoming bidirectional stream queue")
+    WebTransportSession.accept_bidirectional_stream = _accept_bidirectional_stream
+
+  if not hasattr(WebTransportSession, "accept_unidirectional_stream"):
+    async def _accept_unidirectional_stream(self):
+      if hasattr(self, "_incoming_streams_uni"):
+        return await _pop_stream(self._incoming_streams_uni, True)
+      if hasattr(self, "_incoming_uni_streams"):
+        return await _pop_stream(self._incoming_uni_streams, False)
+      raise AttributeError("Session has no incoming unidirectional stream queue")
+    WebTransportSession.accept_unidirectional_stream = _accept_unidirectional_stream
+except Exception:
+  # Best-effort monkey patching for optional aioquic methods depending on library version
+  pass
+
 from raw_aioquic import open_raw_session
 
 logging.basicConfig(
@@ -33,7 +65,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("WebTransportDraft16Suite")
+logger = logging.getLogger("WebTransportDraft17Suite")
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
   try:
@@ -46,7 +78,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 test_results: List[Tuple[int, str, str, str, str, str]] = []
 pending_verifications = set()
 
-# Draft-16 Constants
+# Draft-17 Constants
 WT_ERROR_FIRST = 0x52E4A40FA8DB
 WT_ERROR_LAST = 0x52E5AC983162
 WT_DRAIN_SESSION_TYPE = 0x78AE
@@ -672,7 +704,7 @@ async def test_16_wire_stream_reset_positive(
       )
       raw_proto.transmit()
 
-      # Reset stream using Draft-16 mapped HTTP/3 error code
+      # Reset stream using Draft-17 mapped HTTP/3 error code
       mapped_error = webtransport_code_to_http_code(0x1234)
       raw_proto._quic.reset_stream(stream_id, error_code=mapped_error)
       raw_proto.transmit()
@@ -1359,12 +1391,12 @@ async def test_30_inactivity_timeout_negative(client, url: str):
 
 
 async def main():
-  config = ClientConfig(verify_mode=ssl.CERT_NONE, log_level="WARNING")
+  config = ClientConfig(verify_mode=ssl.CERT_NONE)
   base_url = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "https://127.0.0.1:4433"
 
   print("\n" + "=" * 80)
   print(
-      "🚀 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-16 INTEROPERABILITY TEST SUITE 🚀"
+      "🚀 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-17 INTEROPERABILITY TEST SUITE 🚀"
   )
   print("=" * 80 + "\n")
 
@@ -1491,7 +1523,7 @@ async def main():
 
   print("\n" + "=" * 90)
   print(
-      "📋 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-16 INTEROPERABILITY TEST MATRIX"
+      "📋 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-17 INTEROPERABILITY TEST MATRIX"
       " SUMMARY"
   )
   print("=" * 90)
@@ -1518,7 +1550,7 @@ async def main():
     sys.exit(1)
   else:
     logger.info(
-        "🎉 ALL IETF DRAFT-16 POSITIVE AND NEGATIVE TESTS PASSED PERFECTLY! 🎉"
+        "🎉 ALL IETF DRAFT-17 POSITIVE AND NEGATIVE TESTS PASSED PERFECTLY! 🎉"
     )
     sys.exit(0)
 

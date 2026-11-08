@@ -1,6 +1,7 @@
 package io.github.webtransport4j.client;
 
 import io.github.webtransport4j.server.UnknownStreamHandlerFactory;
+import io.github.webtransport4j.server.WebTransportProtocolSpec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -264,9 +265,9 @@ public class WebTransportClientTestSuite {
     Http3Settings settings = new Http3Settings((id, value) -> true);
     settings.enableConnectProtocol(true);
     settings.enableH3Datagram(true);
-    settings.put(0x2b64L, 1000L);
-    settings.put(0x2b65L, 1000L);
-    settings.put(0x2b61L, 10737418240L);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, 1000L);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, 1000L);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 10737418240L);
 
     QuicChannel quicChannel =
         QuicChannel.newBootstrap(channel)
@@ -310,7 +311,7 @@ public class WebTransportClientTestSuite {
     headers.scheme("https");
     headers.path(path);
     headers.authority(host + ":" + port);
-    headers.set(":protocol", "webtransport");
+    headers.set(":protocol", "webtransport-h3");
 
     connectStreamChannel.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).sync();
 
@@ -473,7 +474,7 @@ public class WebTransportClientTestSuite {
               .getNow();
 
       ByteBuf data = stream.alloc().directBuffer();
-      WebTransportUtils.writeVarInt(data, 0x54);
+      WebTransportUtils.writeVarInt(data, WebTransportProtocolSpec.WT_STREAM_TYPE_UNI);
       WebTransportUtils.writeVarInt(data, session.sessionId);
       data.writeBytes(payloadId.getBytes(StandardCharsets.UTF_8));
       stream.writeAndFlush(data).sync();
@@ -529,7 +530,7 @@ public class WebTransportClientTestSuite {
             .getNow();
 
     ByteBuf data = stream.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(data, 0x41);
+    WebTransportUtils.writeVarInt(data, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
     WebTransportUtils.writeVarInt(data, session.sessionId);
     data.writeBytes(payloadId.getBytes(StandardCharsets.UTF_8));
     stream.writeAndFlush(data).sync();
@@ -606,7 +607,7 @@ public class WebTransportClientTestSuite {
 
     // Write WT bidi header
     ByteBuf headerBuf = stream.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(headerBuf, 0x41);
+    WebTransportUtils.writeVarInt(headerBuf, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
     WebTransportUtils.writeVarInt(headerBuf, sessionId);
     stream.writeAndFlush(headerBuf).sync();
 
@@ -665,7 +666,7 @@ public class WebTransportClientTestSuite {
                 if (f.isSuccess()) {
                   QuicStreamChannel ch = f.getNow();
                   ByteBuf data = ch.alloc().directBuffer();
-                  WebTransportUtils.writeVarInt(data, 0x41);
+                  WebTransportUtils.writeVarInt(data, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
                   WebTransportUtils.writeVarInt(data, sessionId);
                   data.writeBytes(payloadId.getBytes(StandardCharsets.UTF_8));
                   ch.writeAndFlush(data);
@@ -718,7 +719,7 @@ public class WebTransportClientTestSuite {
             .getNow();
 
     ByteBuf hogData = hogStream.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(hogData, 0x41);
+    WebTransportUtils.writeVarInt(hogData, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
     WebTransportUtils.writeVarInt(hogData, sessionId);
     hogData.writeBytes(hogPayload.getBytes(StandardCharsets.UTF_8));
     hogStream.writeAndFlush(hogData).sync();
@@ -755,7 +756,7 @@ public class WebTransportClientTestSuite {
             .getNow();
 
     ByteBuf fastData = fastStream.alloc().directBuffer();
-    WebTransportUtils.writeVarInt(fastData, 0x41);
+    WebTransportUtils.writeVarInt(fastData, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
     WebTransportUtils.writeVarInt(fastData, sessionId);
     fastData.writeBytes(fastPayload.getBytes(StandardCharsets.UTF_8));
     fastStream.writeAndFlush(fastData).sync();
@@ -915,7 +916,7 @@ public class WebTransportClientTestSuite {
               .getNow();
 
       ByteBuf data = stream.alloc().directBuffer();
-      WebTransportUtils.writeVarInt(data, 0x54);
+      WebTransportUtils.writeVarInt(data, WebTransportProtocolSpec.WT_STREAM_TYPE_UNI);
       WebTransportUtils.writeVarInt(data, session.sessionId);
       data.writeBytes(payloadId.getBytes(StandardCharsets.UTF_8));
       stream.writeAndFlush(data).sync();
@@ -964,7 +965,7 @@ public class WebTransportClientTestSuite {
       if (f.await(3000, TimeUnit.MILLISECONDS) && f.isSuccess()) {
         QuicStreamChannel stream = f.getNow();
         ByteBuf data = stream.alloc().directBuffer();
-        WebTransportUtils.writeVarInt(data, 0x54);
+        WebTransportUtils.writeVarInt(data, WebTransportProtocolSpec.WT_STREAM_TYPE_UNI);
         WebTransportUtils.writeVarInt(data, session.sessionId);
         data.writeBytes("Should not reach here".getBytes(StandardCharsets.UTF_8));
         stream.writeAndFlush(data).sync();

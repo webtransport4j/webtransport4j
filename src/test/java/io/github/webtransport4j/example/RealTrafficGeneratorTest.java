@@ -28,6 +28,28 @@ import org.junit.jupiter.api.Timeout;
 
 /** Checks stream response accounting through the actual generator callbacks. */
 public class RealTrafficGeneratorTest {
+  @Test
+  public void selectsTokenForConfiguredTargetDraft() {
+    String key = "webtransport4j.traffic.targetDraft";
+    String previous = System.getProperty(key);
+    try {
+      System.clearProperty(key);
+      assertEquals("webtransport-h3", RealTrafficGenerator.targetProtocol());
+      System.setProperty(key, "16");
+      assertEquals("webtransport", RealTrafficGenerator.targetProtocol());
+      System.setProperty(key, "17");
+      assertEquals("webtransport-h3", RealTrafficGenerator.targetProtocol());
+      System.setProperty(key, "0");
+      assertThrows(IllegalArgumentException.class, RealTrafficGenerator::targetProtocol);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
   @Timeout(value = 10000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
   @Test
   public void fragmentedResponseCannotStandInForAnotherStream() throws Exception {

@@ -1,6 +1,7 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.client.WebTransportClientHandler;
+import io.github.webtransport4j.server.WebTransportProtocolSpec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -99,10 +100,25 @@ public final class RealTrafficGenerator {
     }
   }
 
-  /** Establishes a genuine WebTransport session with the specified target server. */
+  /**
+   * Establishes a genuine WebTransport session with the specified target server.
+   *
+   * <p>Set {@code -Dwebtransport4j.traffic.targetDraft=16} for legacy targets. The default
+   * target is Draft-17; drafts 17 and later use the HTTP/3 upgrade token.
+   */
   public static LiveSession connect(final String rawUrl, final String traceparent)
       throws Exception {
     return connect(rawUrl, traceparent, new NioEventLoopGroup(1));
+  }
+
+  static String targetProtocol() {
+    final int draft = Integer.parseInt(System.getProperty("webtransport4j.traffic.targetDraft", "17"));
+    if (draft < 1) {
+      throw new IllegalArgumentException("Target draft must be positive");
+    }
+    return draft >= 17
+        ? WebTransportProtocolSpec.UPGRADE_TOKEN_H3
+        : WebTransportProtocolSpec.UPGRADE_TOKEN_LEGACY;
   }
 
   // Transfers ownership of the client group, including on failed handshakes.
@@ -159,9 +175,9 @@ public final class RealTrafficGenerator {
       final Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      settings.put(0x2b64L, 1000L);
-      settings.put(0x2b65L, 1000L);
-      settings.put(0x2b61L, 10737418240L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, 1000L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, 1000L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 10737418240L);
 
       final QuicChannel quicChannel =
           QuicChannel.newBootstrap(nettyChannel)
@@ -211,7 +227,7 @@ public final class RealTrafficGenerator {
       headers.scheme("https");
       headers.authority(host + ":" + port);
       headers.path(path);
-      headers.set(":protocol", "webtransport");
+      headers.set(":protocol", targetProtocol());
       if (traceparent != null && !traceparent.isEmpty()) {
         headers.set("traceparent", traceparent);
       }
@@ -324,7 +340,10 @@ public final class RealTrafficGenerator {
               .getNow();
 
       final ByteBuf buffer = stream.alloc().directBuffer();
-      final long frameType = bidi ? 0x41L : 0x54L;
+      final long frameType =
+          bidi
+              ? WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI
+              : WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
       WebTransportUtils.writeVarInt(buffer, frameType);
       WebTransportUtils.writeVarInt(buffer, session.getSessionId());
       buffer.writeBytes(payloadBytes);
@@ -491,7 +510,10 @@ public final class RealTrafficGenerator {
                   .getNow();
 
           final ByteBuf buffer = stream.alloc().directBuffer();
-          final long frameType = bidi ? 0x41L : 0x54L;
+          final long frameType =
+          bidi
+              ? WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI
+              : WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
           WebTransportUtils.writeVarInt(buffer, frameType);
           WebTransportUtils.writeVarInt(buffer, session.getSessionId());
           buffer.writeBytes(payloadBytes);
@@ -530,7 +552,8 @@ public final class RealTrafficGenerator {
       } else if ("drain-session".equalsIgnoreCase(command)) {
         try (LiveSession session = connect(url, null)) {
           final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
-          WebTransportUtils.writeVarInt(capsule, 0x78aeL);
+          WebTransportUtils.writeVarInt(
+              capsule, WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION);
           WebTransportUtils.writeVarInt(capsule, 0L);
           session.getConnectStream().writeAndFlush(new DefaultHttp3DataFrame(capsule)).sync();
           final long durationMs = System.currentTimeMillis() - startTime;
@@ -545,7 +568,8 @@ public final class RealTrafficGenerator {
         final byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
         try (LiveSession session = connect(url, null)) {
           final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
-          WebTransportUtils.writeVarInt(capsule, 0x2843L);
+          WebTransportUtils.writeVarInt(
+              capsule, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
           WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
           capsule.writeInt(code);
           capsule.writeBytes(reasonBytes);

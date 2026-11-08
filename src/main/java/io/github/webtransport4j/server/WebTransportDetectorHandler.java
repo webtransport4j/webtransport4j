@@ -79,6 +79,11 @@ public final class WebTransportDetectorHandler extends ByteToMessageDecoder {
           Long.toHexString(marker));
     }
     detected = true;
+    ctx.pipeline()
+        .addAfter(
+            ctx.name(),
+            Http3WtStreamFrameGuard.HANDLER_NAME,
+            Http3WtStreamFrameGuard.forRequestStream());
     ctx.pipeline().remove(this);
   }
 

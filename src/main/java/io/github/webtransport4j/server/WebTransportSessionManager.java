@@ -7,6 +7,7 @@ import io.github.webtransport4j.internal.handles.IntHandle;
 import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -250,30 +251,12 @@ public class WebTransportSessionManager {
             : (peerSettingsReceived == null ? localFlowControlDeclared : false);
 
     WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
-    // Apply fallback defaults for any zero-valued settings when flow control is
-    // enabled.
-    // This ensures clients always have explicit limits, preventing
-    // denial-of-service scenarios.
-    if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-      uniMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback uni streams limit: {}", uniMax);
-      }
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
-    }
-    if ((biMax == null || biMax == 0L) && flowControlEnabled) {
-      biMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback bidi streams limit: {}", biMax);
-      }
-      WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
-    }
-    if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
-      dataMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback data limit: {}", dataMax);
-      }
-      WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
+    // Apply fallback defaults for any zero-valued settings when flow control is enabled.
+    // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
+    if (flowControlEnabled) {
+      uniMax = applyFallbackStreamsLimit(connectStream, config, uniMax, QuicStreamType.UNIDIRECTIONAL);
+      biMax = applyFallbackStreamsLimit(connectStream, config, biMax, QuicStreamType.BIDIRECTIONAL);
+      dataMax = applyFallbackDataLimit(connectStream, config, dataMax);
     }
 
     // Create the session state
@@ -684,5 +667,46 @@ public class WebTransportSessionManager {
         unregister(sessionStreamId, quic);
       }
     }
+  }
+
+  private static Long applyFallbackStreamsLimit(
+      QuicStreamChannel connectStream,
+      WebTransportConfig.Snapshot config,
+      Long currentVal,
+      QuicStreamType streamType) {
+    if (currentVal != null && currentVal > 0L) {
+      return currentVal;
+    }
+    boolean bidirectional = streamType == QuicStreamType.BIDIRECTIONAL;
+    String configKey =
+        bidirectional
+            ? "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi"
+            : "webtransport4j.webtransport.flowcontrol.fallback.streams.uni";
+    long fallback = config.getLong(configKey, 100L);
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "Using fallback {} streams limit: {}", bidirectional ? "bidi" : "uni", fallback);
+    }
+    if (fallback > 0L) {
+      WebTransportUtils.sendMaxStreamsCapsule(connectStream, bidirectional, fallback);
+    }
+    return fallback;
+  }
+
+  private static Long applyFallbackDataLimit(
+      QuicStreamChannel connectStream,
+      WebTransportConfig.Snapshot config,
+      Long currentVal) {
+    if (currentVal != null && currentVal > 0L) {
+      return currentVal;
+    }
+    long fallback = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+    if (logger.isDebugEnabled()) {
+      logger.debug("Using fallback data limit: {}", fallback);
+    }
+    if (fallback > 0L) {
+      WebTransportUtils.sendMaxDataCapsule(connectStream, fallback);
+    }
+    return fallback;
   }
 }

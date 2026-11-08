@@ -65,12 +65,15 @@ public class ProhibitedCapsulesTest {
     ByteBuf payload = Unpooled.buffer();
     payload.writeByte(1); // stream ID
     payload.writeByte(100); // max stream data
-    WebTransportCapsule capsule = new WebTransportCapsule(200L, 0x190B4D3EL, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            200L, WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAM_DATA, payload);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
     // Verify connectStream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
-    verify(mockConnectStream).shutdown(eq(0x045d4487), any());
+    verify(mockConnectStream)
+        .shutdown(eq(WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR), any());
     payload.release();
   }
 
@@ -115,12 +118,15 @@ public class ProhibitedCapsulesTest {
     ByteBuf payload = Unpooled.buffer();
     payload.writeByte(1); // stream ID
     payload.writeByte(100); // stream data limit
-    WebTransportCapsule capsule = new WebTransportCapsule(204L, 0x190B4D42L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            204L, WebTransportProtocolSpec.CAPSULE_WT_STREAM_DATA_BLOCKED, payload);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
     // Verify connectStream was shut down with WT_FLOW_CONTROL_ERROR (0x045d4487)
-    verify(mockConnectStream).shutdown(eq(0x045d4487), any());
+    verify(mockConnectStream)
+        .shutdown(eq(WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR), any());
     payload.release();
   }
 }
