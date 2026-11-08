@@ -55,6 +55,7 @@ try:
       raise AttributeError("Session has no incoming unidirectional stream queue")
     WebTransportSession.accept_unidirectional_stream = _accept_unidirectional_stream
 except Exception:
+  # Best-effort monkey patching for optional aioquic methods depending on library version
   pass
 
 from raw_aioquic import open_raw_session

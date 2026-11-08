@@ -122,15 +122,7 @@ public class Draft17ProtocolIntegrationTest {
       final QuicStreamChannel connectStream =
           openExtendedConnect(quic, port, "/draft17", "200");
 
-      // Wait for client to process server settings on control stream before checking state
-      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-      while (System.nanoTime() < deadline) {
-        if (Boolean.TRUE.equals(
-            quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get())) {
-          break;
-        }
-        Thread.sleep(10);
-      }
+      waitForPeerSettings(quic, 5, TimeUnit.SECONDS);
       assertTrue(
           Boolean.TRUE.equals(
               quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()));
@@ -977,6 +969,18 @@ public class Draft17ProtocolIntegrationTest {
     QuicStreamResetException connectReset = connectResetFuture.get(5, TimeUnit.SECONDS);
     assertEquals(
         (long) WebTransportUtils.WT_FLOW_CONTROL_ERROR, connectReset.applicationProtocolCode());
+  }
+
+  private static void waitForPeerSettings(QuicChannel quic, long timeout, TimeUnit unit)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + unit.toNanos(timeout);
+    while (System.nanoTime() < deadline) {
+      if (Boolean.TRUE.equals(
+          quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get())) {
+        break;
+      }
+      Thread.sleep(10);
+    }
   }
 
   private static void closeQuietly(

@@ -115,7 +115,6 @@ public class Http3ClientControlStreamHandler
 
     // Overwrite all Section 9.2 values unconditionally (never retain 0-RTT values).
     quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(serverEnabled);
-    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
     quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID)
         .set(serverEnabled && datagramEnabled && connectEnabled);
     quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
@@ -124,6 +123,7 @@ public class Http3ClientControlStreamHandler
         .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI));
     quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
         .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA));
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
   }
 
   private static QuicChannel resolveQuicChannel(@NonNull ChannelHandlerContext ctx) {

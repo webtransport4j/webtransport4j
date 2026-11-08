@@ -158,6 +158,12 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
       return;
     }
 
+    if (scanFrames(ctx, buf)) {
+      ctx.fireChannelRead(buf);
+    }
+  }
+
+  private boolean scanFrames(@NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf) {
     int cursor = buf.readerIndex();
     final int limit = buf.writerIndex();
 
@@ -177,11 +183,10 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
 
       long decoded = completeVarInt();
       if (!processDecodedVarInt(ctx, buf, decoded)) {
-        return;
+        return false;
       }
     }
-
-    ctx.fireChannelRead(buf);
+    return true;
   }
 
   private int consumePayload(int cursor, int limit) {

@@ -253,22 +253,8 @@ public class WebTransportSessionManager {
     // Apply fallback defaults for any zero-valued settings when flow control is enabled.
     // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
     if (flowControlEnabled) {
-      uniMax =
-          applyFallbackStreamsLimit(
-              connectStream,
-              config,
-              uniMax,
-              false,
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.uni",
-              100L);
-      biMax =
-          applyFallbackStreamsLimit(
-              connectStream,
-              config,
-              biMax,
-              true,
-              "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi",
-              100L);
+      uniMax = applyFallbackStreamsLimit(connectStream, config, uniMax, false);
+      biMax = applyFallbackStreamsLimit(connectStream, config, biMax, true);
       dataMax = applyFallbackDataLimit(connectStream, config, dataMax);
     }
 
@@ -686,13 +672,15 @@ public class WebTransportSessionManager {
       QuicStreamChannel connectStream,
       WebTransportConfig.Snapshot config,
       Long currentVal,
-      boolean bidirectional,
-      String configKey,
-      long defaultLimit) {
+      boolean bidirectional) {
     if (currentVal != null && currentVal > 0L) {
       return currentVal;
     }
-    long fallback = config.getLong(configKey, defaultLimit);
+    String configKey =
+        bidirectional
+            ? "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi"
+            : "webtransport4j.webtransport.flowcontrol.fallback.streams.uni";
+    long fallback = config.getLong(configKey, 100L);
     if (logger.isDebugEnabled()) {
       logger.debug(
           "Using fallback {} streams limit: {}", bidirectional ? "bidi" : "uni", fallback);

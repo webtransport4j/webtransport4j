@@ -8,7 +8,7 @@ pywebtransport 0.22.0 compatibility shim:
 try:
     import pywebtransport.config
     import pywebtransport.session
-    from pywebtransport.exceptions import ConnectionError, SessionError
+    from pywebtransport.exceptions import ConnectionError
 
     # Patch ClientConfig to ignore deprecated log_level kwarg
     _orig_client_config_init = pywebtransport.config.ClientConfig.__init__
@@ -49,4 +49,5 @@ try:
         pywebtransport.session.WebTransportSession.accept_unidirectional_stream = _accept_unidirectional_stream
 
 except ImportError:
+    # pywebtransport is optional in environments without python interop dependencies
     pass
