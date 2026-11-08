@@ -543,7 +543,7 @@ public class StreamsBlockedCapsuleTest {
   }
 
   @SuppressWarnings("unchecked")
-  private TestSessionFixture createMockSessionFixture(Long streamId, Long initialLimit) {
+  private TestSessionFixture createMockSessionFixture(long streamId, long initialLimit) {
     ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
     QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
     QuicChannel mockParent = mock(QuicChannel.class);
@@ -566,8 +566,7 @@ public class StreamsBlockedCapsuleTest {
               return null;
             });
 
-    long sid = streamId != null ? streamId : 200L;
-    when(mockConnectStream.streamId()).thenReturn(sid);
+    when(mockConnectStream.streamId()).thenReturn(streamId);
     when(mockConnectStream.parent()).thenReturn(mockParent);
     when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
     when(mockConnectStream.isOpen()).thenReturn(true);
@@ -575,7 +574,7 @@ public class StreamsBlockedCapsuleTest {
         .thenReturn(mock(Attribute.class));
 
     Attribute<Long> limitAttr = mock(Attribute.class);
-    when(limitAttr.get()).thenReturn(initialLimit != null ? initialLimit : 100L);
+    when(limitAttr.get()).thenReturn(initialLimit);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
         .thenReturn(limitAttr);
     when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
@@ -584,7 +583,7 @@ public class StreamsBlockedCapsuleTest {
 
     mgr.register(mockConnectStream);
 
-    NettyWebTransportSession session = mgr.get(sid);
+    NettyWebTransportSession session = mgr.get(streamId);
     return new TestSessionFixture(mockCtx, mockConnectStream, session);
   }
 }
