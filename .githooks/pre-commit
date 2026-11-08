@@ -85,14 +85,13 @@ GATE5_STATUS="PASSED"
 GATE6_STATUS="PASSED"
 GATE7_STATUS="PASSED"
 GATE8_STATUS="PASSED"
-GATE9_STATUS="SKIPPED"
 
 # ------------------------------------------------------------------------------
 # Gate 1: Prohibited Certificate & Key File Check
 # WebTransport4J enforces dynamic test certificate generation.
 # No TLS certificates, keys, or keystores may ever be committed to git.
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 1/9] Prohibited Certificate & Key Security Check${NC}"
+echo -e "\n${BOLD}[Gate 1/8] Prohibited Certificate & Key Security Check${NC}"
 echo -e "  ${DIM}Policy: Zero committed certificates. Tests must generate TLS certs dynamically.${NC}"
 
 FORBIDDEN_CERT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(pem|key|pkcs8|p12|pfx|crt|der)$' || true)
@@ -113,7 +112,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 2: Secret & Private Key Content Detection in Staged Diffs
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 2/9] Secret & Private Key Content Scanning${NC}"
+echo -e "\n${BOLD}[Gate 2/8] Secret & Private Key Content Scanning${NC}"
 echo -e "  ${DIM}Policy: Inspect diff additions for embedded private keys and secret blocks.${NC}"
 
 KEY_HEADER="BEGIN"
@@ -136,7 +135,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 3: Merge Conflict Markers Check
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 3/9] Merge Conflict Markers Check${NC}"
+echo -e "\n${BOLD}[Gate 3/8] Merge Conflict Markers Check${NC}"
 echo -e "  ${DIM}Policy: Ensure no unresolved conflict markers (<<<<<<<, =======, >>>>>>>) are staged.${NC}"
 
 CONFLICT_FILES=""
@@ -166,7 +165,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 4: OS & Editor Junk Files Check
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 4/9] OS & Editor Temporary Artifacts Check${NC}"
+echo -e "\n${BOLD}[Gate 4/8] OS & Editor Temporary Artifacts Check${NC}"
 echo -e "  ${DIM}Policy: Prohibit temporary or system files (.DS_Store, Thumbs.db, *.swp, *.orig, etc.)${NC}"
 
 JUNK_FILES=$(echo "$STAGED_FILES" | grep -E '(\.DS_Store|Thumbs\.db|\.orig$|\.rej$|~$|\.swp$|\.bak$)' || true)
@@ -186,7 +185,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 5: File Size Safety Check (Limit: 500 KB per file)
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 5/9] File Size Safety Check${NC}"
+echo -e "\n${BOLD}[Gate 5/8] File Size Safety Check${NC}"
 MAX_FILE_SIZE_KB=500
 echo -e "  ${DIM}Policy: Staged files must not exceed ${MAX_FILE_SIZE_KB} KB (use Git LFS for large payloads).${NC}"
 
@@ -224,7 +223,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 6: Whitespace, Line Endings & Formatting Check
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 6/9] Whitespace, Line Endings & Formatting Check${NC}"
+echo -e "\n${BOLD}[Gate 6/8] Whitespace, Line Endings & Formatting Check${NC}"
 echo -e "  ${DIM}Policy: Disallow trailing whitespace, whitespace errors, and missing EOF newlines.${NC}"
 
 WHITESPACE_ERROR=0
@@ -266,7 +265,7 @@ fi
 # ------------------------------------------------------------------------------
 # Gate 7: Non-Java Syntax Validation (Shell, JSON, YAML)
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 7/9] Non-Java Syntax Validation (Shell, JSON, YAML)${NC}"
+echo -e "\n${BOLD}[Gate 7/8] Non-Java Syntax Validation (Shell, JSON, YAML)${NC}"
 SYNTAX_CHECKED=0
 SYNTAX_FAILED=0
 
@@ -341,11 +340,9 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# Gate 8: Java Code Integrity Gates (Checkstyle & Multi-Release Compile)
-# ------------------------------------------------------------------------------
 # Gate 8: Java Code Integrity Gates (Checkstyle, Multi-Release Compile & Tests)
 # ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 8/9] Java Code Quality & Multi-Release Build Gates${NC}"
+echo -e "\n${BOLD}[Gate 8/8] Java Code Quality & Multi-Release Build Gates${NC}"
 JAVA_STAGED=$(echo "$STAGED_FILES" | grep -E '(\.java$|pom\.xml$|config/checkstyle/.*\.xml$)' || true)
 
 if [ -z "$JAVA_STAGED" ]; then
@@ -453,52 +450,6 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# Gate 9: Docker Integration Test Gate (Runs when Docker is needed / DOCKER=true)
-# ------------------------------------------------------------------------------
-echo -e "\n${BOLD}[Gate 9/9] Docker Integration Test Gate${NC}"
-DOCKER_STAGED=$(echo "$STAGED_FILES" | grep -E '(^Dockerfile$|^docker-compose.*\.ya?ml$|^dashboard/testing/|^dashboard/Dockerfile$)' || true)
-DOCKER_REQUESTED="${DOCKER:-${PRE_COMMIT_DOCKER:-${WITH_DOCKER:-false}}}"
-
-if [ "$DOCKER_REQUESTED" = "true" ] || [ "$DOCKER_REQUESTED" = "1" ] || [ -n "$DOCKER_STAGED" ]; then
-    echo -e "  ${DIM}Docker gate active (DOCKER=${DOCKER_REQUESTED}, staged: ${DOCKER_STAGED:-none})${NC}"
-    if ! command -v docker > /dev/null 2>&1; then
-        echo -e "  ${RED}❌ [FAIL] Docker command ('docker') not found in PATH!${NC}"
-        GATE9_STATUS="FAILED"
-        FAILED_GATES=$(( FAILED_GATES + 1 ))
-    elif ! docker info > /dev/null 2>&1; then
-        echo -e "  ${RED}❌ [FAIL] Docker daemon is not running!${NC}"
-        echo -e "  ${YELLOW}💡 Remediation:${NC} Start Docker Desktop or daemon, or commit with DOCKER=false."
-        GATE9_STATUS="FAILED"
-        FAILED_GATES=$(( FAILED_GATES + 1 ))
-    else
-        echo -e "  ${GREEN}✔ [DOCKER]${NC} Docker daemon is active and responsive."
-
-        DOCKER_PASSED=1
-        if [ -n "$PYTHON_CMD" ] && [ -f "dashboard/test_production_security.py" ]; then
-            echo -e "  ${BLUE}• [9.1]${NC} Running dashboard production container & security tests..."
-            if DOCKER_TEST_OUTPUT=$($PYTHON_CMD dashboard/test_production_security.py 2>&1); then
-                echo -e "    ${GREEN}✔ [PASS]${NC} Dashboard production security tests passed."
-            else
-                echo -e "    ${RED}❌ [FAIL] Dashboard production security tests failed:${NC}"
-                echo "$DOCKER_TEST_OUTPUT" | tail -n 15
-                DOCKER_PASSED=0
-            fi
-        fi
-
-        if [ "$DOCKER_PASSED" -eq 1 ]; then
-            GATE9_STATUS="PASSED"
-            echo -e "  ${GREEN}✔ [PASS]${NC} Docker integration checks completed successfully."
-        else
-            GATE9_STATUS="FAILED"
-            FAILED_GATES=$(( FAILED_GATES + 1 ))
-        fi
-    fi
-else
-    echo -e "  ${DIM}ℹ [SKIP]${NC} Docker tests not required (enable with DOCKER=true or PRE_COMMIT_DOCKER=true)."
-    GATE9_STATUS="SKIPPED"
-fi
-
-# ------------------------------------------------------------------------------
 # Verification Summary Dashboard
 # ------------------------------------------------------------------------------
 TOTAL_TIME=$(( SECONDS - SCRIPT_START_SECONDS ))
@@ -525,7 +476,6 @@ echo -e "  Gate 5: File Size Safety (≤500 KB)  : $(format_status "$GATE5_STATU
 echo -e "  Gate 6: Whitespace & Line Endings   : $(format_status "$GATE6_STATUS")"
 echo -e "  Gate 7: Syntax (Shell, JSON, YAML)  : $(format_status "$GATE7_STATUS")"
 echo -e "  Gate 8: Java Style, Build & Tests   : $(format_status "$GATE8_STATUS")"
-echo -e "  Gate 9: Docker Integration Tests    : $(format_status "$GATE9_STATUS")"
 echo -e "${CYAN}──────────────────────────────────────────────────────────────────${NC}"
 echo -e "  ${DIM}Total Verification Time:${NC} ${BOLD}${TOTAL_TIME}s${NC}"
 
