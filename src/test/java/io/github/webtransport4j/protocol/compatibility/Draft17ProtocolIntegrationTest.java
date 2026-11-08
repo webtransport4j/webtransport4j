@@ -73,43 +73,17 @@ public class Draft17ProtocolIntegrationTest {
   public void testEndToEnd_StrictDraft17NegotiationIgnoresClientWtEnabledAndEchoesBidiStream()
       throws Exception {
     SelfSignedCertificate cert = new SelfSignedCertificate("localhost");
-    WebTransportServer server =
-        WebTransportServer.builder()
-            .port(0)
-            .transportType("nio")
-            .sslContext(buildServerSslContext(cert, false, null))
-            .defaultHandler(
-                new WebTransportHandler() {
-                  @Override
-                  public void onIncomingStream(
-                      @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
-                    stream.onData(
-                        buf -> {
-                          String text = new String(buf.readBytes(), StandardCharsets.UTF_8);
-                          stream.writeText("pong:" + text);
-                        });
-                  }
-                })
-            .build();
-
+    WebTransportServer server = createEchoServer(cert);
     EventLoopGroup clientGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
     Channel udp = null;
     QuicChannel quic = null;
     try {
       server.start();
       int port = server.getPort();
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
       udp = bindClientUdp(clientGroup, clientSsl, port);
 
-      // Client sends SETTINGS_WT_ENABLED = 99 (> 1) to verify server strictly ignores it (§3.1)
-      Http3Settings clientSettings = new Http3Settings((id, value) -> true);
-      clientSettings.enableConnectProtocol(true);
-      clientSettings.enableH3Datagram(true);
-      clientSettings.put(WebTransportProtocolSpec.SETTING_WT_ENABLED, 99L);
-      clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 65536L);
-      clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, 16L);
-      clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, 16L);
-
+      Http3Settings clientSettings = buildDraft17ClientSettings(99L);
       quic =
           QuicChannel.newBootstrap(udp)
               .handler(
@@ -122,7 +96,7 @@ public class Draft17ProtocolIntegrationTest {
       final QuicStreamChannel connectStream =
           openExtendedConnect(quic, port, "/draft17", "200");
 
-      waitForPeerSettings(quic, 5, TimeUnit.SECONDS);
+      waitForPeerSettings(quic);
       assertTrue(
           Boolean.TRUE.equals(
               quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get()));
@@ -171,7 +145,7 @@ public class Draft17ProtocolIntegrationTest {
         WebTransportServer.builder()
             .port(0)
             .transportType("nio")
-            .sslContext(buildServerSslContext(cert, false, null))
+            .sslContext(buildServerSslContext(cert))
             .defaultHandler(
                 new WebTransportHandler() {
                   @Override
@@ -188,7 +162,7 @@ public class Draft17ProtocolIntegrationTest {
     try {
       server.start();
       int port = server.getPort();
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
       udp = bindClientUdp(clientGroup, clientSsl, port);
 
       // Client omits SETTINGS_WT_ENABLED completely per Draft-17 §3.1
@@ -224,7 +198,7 @@ public class Draft17ProtocolIntegrationTest {
         WebTransportServer.builder()
             .port(0)
             .transportType("nio")
-            .sslContext(buildServerSslContext(cert, false, null))
+            .sslContext(buildServerSslContext(cert))
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
@@ -234,7 +208,7 @@ public class Draft17ProtocolIntegrationTest {
     try {
       server.start();
       int port = server.getPort();
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
       udp = bindClientUdp(clientGroup, clientSsl, port);
 
       Http3Settings clientSettings = new Http3Settings((id, value) -> true);
@@ -269,7 +243,7 @@ public class Draft17ProtocolIntegrationTest {
 
     CompletableFuture<QuicConnectionCloseEvent> serverObservedClose = new CompletableFuture<>();
     try {
-      final QuicSslContext serverSsl = buildServerSslContext(cert, false, null);
+      final QuicSslContext serverSsl = buildServerSslContext(cert);
       Http3Settings invalidServerSettings = new Http3Settings((id, value) -> true);
       invalidServerSettings.enableConnectProtocol(true);
       invalidServerSettings.enableH3Datagram(true);
@@ -280,7 +254,7 @@ public class Draft17ProtocolIntegrationTest {
               serverGroup, serverSsl, invalidServerSettings, serverObservedClose);
       int port = ((InetSocketAddress) serverUdp.localAddress()).getPort();
 
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
       clientUdp = bindClientUdp(clientGroup, clientSsl, port);
 
       Http3Settings clientSettings = new Http3Settings((id, value) -> true);
@@ -377,7 +351,7 @@ public class Draft17ProtocolIntegrationTest {
         WebTransportServer.builder()
             .port(0)
             .transportType("nio")
-            .sslContext(buildServerSslContext(cert, false, null))
+            .sslContext(buildServerSslContext(cert))
             .defaultHandler(new WebTransportHandler() {})
             .build();
 
@@ -389,7 +363,7 @@ public class Draft17ProtocolIntegrationTest {
     try {
       server.start();
       int port = server.getPort();
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
 
       // Subcase A: WT_STREAM (0x41) sent after HEADERS on an HTTP/3 request stream
       udp1 = bindClientUdp(clientGroup, clientSsl, port);
@@ -456,7 +430,7 @@ public class Draft17ProtocolIntegrationTest {
         WebTransportServer.builder()
             .port(0)
             .transportType("nio")
-            .sslContext(buildServerSslContext(cert, false, null))
+            .sslContext(buildServerSslContext(cert))
             .defaultHandler(
                 new WebTransportHandler() {
                   @Override
@@ -479,7 +453,7 @@ public class Draft17ProtocolIntegrationTest {
     try {
       server.start();
       int port = server.getPort();
-      QuicSslContext clientSsl = buildClientSslContext(cert, false);
+      QuicSslContext clientSsl = buildClientSslContext(cert);
       udp = bindClientUdp(clientGroup, clientSsl, port);
 
       Http3Settings clientSettings = new Http3Settings((id, value) -> true);
@@ -509,11 +483,48 @@ public class Draft17ProtocolIntegrationTest {
     }
   }
 
+  private static WebTransportServer createEchoServer(SelfSignedCertificate cert) throws Exception {
+    return WebTransportServer.builder()
+        .port(0)
+        .transportType("nio")
+        .sslContext(buildServerSslContext(cert))
+        .defaultHandler(
+            new WebTransportHandler() {
+              @Override
+              public void onIncomingStream(
+                  @NonNull WebTransportSession session, @NonNull WebTransportStream stream) {
+                stream.onData(
+                    buf -> {
+                      String text = new String(buf.readBytes(), StandardCharsets.UTF_8);
+                      stream.writeText("pong:" + text);
+                    });
+              }
+            })
+        .build();
+  }
+
+  private static Http3Settings buildDraft17ClientSettings(Long wtEnabledOverride) {
+    Http3Settings clientSettings = new Http3Settings((id, value) -> true);
+    clientSettings.enableConnectProtocol(true);
+    clientSettings.enableH3Datagram(true);
+    if (wtEnabledOverride != null) {
+      clientSettings.put(WebTransportProtocolSpec.SETTING_WT_ENABLED, wtEnabledOverride);
+    }
+    clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 65536L);
+    clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, 16L);
+    clientSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, 16L);
+    return clientSettings;
+  }
+
+  private static QuicSslContext buildServerSslContext(SelfSignedCertificate cert) {
+    return buildServerSslContext(cert, Boolean.FALSE, null);
+  }
+
   private static QuicSslContext buildServerSslContext(
-      SelfSignedCertificate cert, boolean earlyData, SslSessionTicketKey ticketKey) {
+      SelfSignedCertificate cert, Boolean earlyData, SslSessionTicketKey ticketKey) {
     QuicSslContext ctx =
         QuicSslContextBuilder.forServer(cert.privateKey(), null, cert.certificate())
-            .earlyData(earlyData)
+            .earlyData(Boolean.TRUE.equals(earlyData))
             .sessionCacheSize(20480)
             .sessionTimeout(86400)
             .applicationProtocols(Http3.supportedApplicationProtocols())
@@ -525,26 +536,31 @@ public class Draft17ProtocolIntegrationTest {
     return ctx;
   }
 
+  private static QuicSslContext buildClientSslContext(SelfSignedCertificate cert) {
+    return buildClientSslContext(cert, Boolean.FALSE);
+  }
+
   private static QuicSslContext buildClientSslContext(
-      SelfSignedCertificate cert, boolean earlyData) {
+      SelfSignedCertificate cert, Boolean earlyData) {
     return QuicSslContextBuilder.forClient()
         .trustManager(cert.certificate())
-        .earlyData(earlyData)
+        .earlyData(Boolean.TRUE.equals(earlyData))
         .sessionCacheSize(20480)
         .sessionTimeout(86400)
         .applicationProtocols(Http3.supportedApplicationProtocols())
         .build();
   }
 
-  private static Channel bindClientUdp(EventLoopGroup group, QuicSslContext ssl, int port)
+  private static Channel bindClientUdp(EventLoopGroup group, QuicSslContext ssl, Integer port)
       throws InterruptedException {
+    int targetPort = port != null ? port : 0;
     return new Bootstrap()
         .group(group)
         .channel(NioDatagramChannel.class)
         .handler(
             Http3.newQuicClientCodecBuilder()
                 .sslContext(ssl)
-                .sslEngineProvider(ch -> ssl.newEngine(ch.alloc(), "localhost", port))
+                .sslEngineProvider(ch -> ssl.newEngine(ch.alloc(), "localhost", targetPort))
                 .maxIdleTimeout(10, TimeUnit.SECONDS)
                 .datagram(1024, 1024)
                 .initialMaxData(1_000_000)
@@ -560,11 +576,11 @@ public class Draft17ProtocolIntegrationTest {
   }
 
   private static final class ServerLimits {
-    final long maxData;
-    final long maxBidi;
-    final long maxUni;
+    final Long maxData;
+    final Long maxBidi;
+    final Long maxUni;
 
-    ServerLimits(long maxData, long maxBidi, long maxUni) {
+    ServerLimits(Long maxData, Long maxBidi, Long maxUni) {
       this.maxData = maxData;
       this.maxBidi = maxBidi;
       this.maxUni = maxUni;
@@ -580,9 +596,15 @@ public class Draft17ProtocolIntegrationTest {
     settings.enableConnectProtocol(true);
     settings.enableH3Datagram(true);
     settings.put(WebTransportProtocolSpec.SETTING_WT_ENABLED, 1L);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, limits.maxData);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, limits.maxBidi);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, limits.maxUni);
+    settings.put(
+        WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA,
+        limits.maxData != null ? limits.maxData : 0L);
+    settings.put(
+        WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI,
+        limits.maxBidi != null ? limits.maxBidi : 0L);
+    settings.put(
+        WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI,
+        limits.maxUni != null ? limits.maxUni : 0L);
 
     ChannelHandler codec =
         Http3.newQuicServerCodecBuilder()
@@ -629,7 +651,10 @@ public class Draft17ProtocolIntegrationTest {
   }
 
   private static QuicChannel connectObservingSettings(
-      Channel clientUdp, int port, CountDownLatch settingsLatch, boolean seedStale0RttAttributes)
+      Channel clientUdp,
+      Integer port,
+      CountDownLatch settingsLatch,
+      Boolean seedStale0RttAttributes)
       throws Exception {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
     clientSettings.enableConnectProtocol(true);
@@ -643,7 +668,7 @@ public class Draft17ProtocolIntegrationTest {
                   @Override
                   protected void initChannel(QuicChannel ch) {
                     quicRef.set(ch);
-                    if (seedStale0RttAttributes) {
+                    if (Boolean.TRUE.equals(seedStale0RttAttributes)) {
                       ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).set(999_999L);
                       ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).set(99L);
                       ch.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).set(99L);
@@ -675,7 +700,7 @@ public class Draft17ProtocolIntegrationTest {
                             });
                   }
                 })
-            .remoteAddress(new InetSocketAddress("127.0.0.1", port))
+            .remoteAddress(new InetSocketAddress("127.0.0.1", port != null ? port : 0))
             .connect()
             .get(5, TimeUnit.SECONDS);
 
@@ -694,7 +719,7 @@ public class Draft17ProtocolIntegrationTest {
 
   private static QuicChannel connectCapturingCloseEvent(
       Channel clientUdp,
-      int port,
+      Integer port,
       CompletableFuture<QuicConnectionCloseEvent> closeFuture)
       throws Exception {
     Http3Settings clientSettings = new Http3Settings((id, value) -> true);
@@ -724,7 +749,7 @@ public class Draft17ProtocolIntegrationTest {
                             new DefaultHttp3SettingsFrame(clientSettings), true));
               }
             })
-        .remoteAddress(new InetSocketAddress("127.0.0.1", port))
+        .remoteAddress(new InetSocketAddress("127.0.0.1", port != null ? port : 0))
         .connect()
         .get(5, TimeUnit.SECONDS);
   }
@@ -743,11 +768,11 @@ public class Draft17ProtocolIntegrationTest {
   }
 
   private static final class ConnectTarget {
-    final int port;
+    final Integer port;
     final String path;
     final String expectedStatus;
 
-    ConnectTarget(int port, String path, String expectedStatus) {
+    ConnectTarget(Integer port, String path, String expectedStatus) {
       this.port = port;
       this.path = path;
       this.expectedStatus = expectedStatus;
@@ -755,13 +780,13 @@ public class Draft17ProtocolIntegrationTest {
   }
 
   private static QuicStreamChannel openExtendedConnect(
-      QuicChannel quic, int port, String path, String expectedStatus) throws Exception {
+      QuicChannel quic, Integer port, String path, String expectedStatus) throws Exception {
     return openExtendedConnectTarget(quic, new ConnectTarget(port, path, expectedStatus), null);
   }
 
   private static QuicStreamChannel openExtendedConnectCapturingReset(
       QuicChannel quic,
-      int port,
+      Integer port,
       String path,
       CompletableFuture<QuicStreamResetException> resetFuture)
       throws Exception {
@@ -880,7 +905,7 @@ public class Draft17ProtocolIntegrationTest {
         .channel();
   }
 
-  private static QuicChannel verifyInitialSettingsServer1(Channel client1Udp, int port1)
+  private static QuicChannel verifyInitialSettingsServer1(Channel client1Udp, Integer port1)
       throws Exception {
     CountDownLatch settings1Latch = new CountDownLatch(1);
     QuicChannel quic1 = connectObservingSettings(client1Udp, port1, settings1Latch, false);
@@ -894,7 +919,7 @@ public class Draft17ProtocolIntegrationTest {
     return quic1;
   }
 
-  private static QuicChannel verifyResumedSettingsServer2(Channel client2Udp, int port2)
+  private static QuicChannel verifyResumedSettingsServer2(Channel client2Udp, Integer port2)
       throws Exception {
     CountDownLatch settings2Latch = new CountDownLatch(1);
     QuicChannel quic2 = connectObservingSettings(client2Udp, port2, settings2Latch, true);
@@ -971,9 +996,8 @@ public class Draft17ProtocolIntegrationTest {
         (long) WebTransportUtils.WT_FLOW_CONTROL_ERROR, connectReset.applicationProtocolCode());
   }
 
-  private static void waitForPeerSettings(QuicChannel quic, long timeout, TimeUnit unit)
-      throws InterruptedException {
-    long deadline = System.nanoTime() + unit.toNanos(timeout);
+  private static void waitForPeerSettings(QuicChannel quic) throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     while (System.nanoTime() < deadline) {
       if (Boolean.TRUE.equals(
           quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get())) {

@@ -291,8 +291,10 @@ public final class WebTransportProtocolSpec {
    * @return {@code true} if {@code candidateLimit > currentOrInitialLimit}
    */
   public static boolean isStrictlyIncreasingLimit(
-      long candidateLimit, long currentOrInitialLimit) {
-    return candidateLimit > currentOrInitialLimit;
+      Long candidateLimit, Long currentOrInitialLimit) {
+    return candidateLimit != null
+        && currentOrInitialLimit != null
+        && candidateLimit > currentOrInitialLimit;
   }
 
   /**
@@ -355,12 +357,13 @@ public final class WebTransportProtocolSpec {
    *     peer-initiated bidirectional streams)
    */
   public static int computeLocalStreamHeaderBytes(
-      boolean localInitiated, boolean bidirectional, long sessionId) {
-    if (!localInitiated) {
+      Boolean localInitiated, Boolean bidirectional, Long sessionId) {
+    if (!Boolean.TRUE.equals(localInitiated)) {
       return 0;
     }
-    long marker = bidirectional ? WT_STREAM_TYPE_BIDI : WT_STREAM_TYPE_UNI;
-    return WebTransportUtils.varIntLength(marker) + WebTransportUtils.varIntLength(sessionId);
+    long marker = Boolean.TRUE.equals(bidirectional) ? WT_STREAM_TYPE_BIDI : WT_STREAM_TYPE_UNI;
+    long sid = sessionId != null ? sessionId : 0L;
+    return WebTransportUtils.varIntLength(marker) + WebTransportUtils.varIntLength(sid);
   }
 
   /**
@@ -376,17 +379,18 @@ public final class WebTransportProtocolSpec {
    *     exceeds the 62-bit QUIC varint maximum
    */
   public static long computeResetReliableSize(
-      boolean localInitiated, boolean bidirectional, long sessionId, long appReliableOffset) {
-    if (appReliableOffset < 0L) {
+      Boolean localInitiated, Boolean bidirectional, Long sessionId, Long appReliableOffset) {
+    long offset = appReliableOffset != null ? appReliableOffset : 0L;
+    if (offset < 0L) {
       throw new IllegalArgumentException(
-          "Application reliableSize must be non-negative: " + appReliableOffset);
+          "Application reliableSize must be non-negative: " + offset);
     }
     int headerBytes = computeLocalStreamHeaderBytes(localInitiated, bidirectional, sessionId);
-    if (appReliableOffset > MAX_QUIC_VAR_INT - headerBytes) {
+    if (offset > MAX_QUIC_VAR_INT - headerBytes) {
       throw new IllegalArgumentException(
-          "Computed wire reliableSize exceeds 62-bit QUIC varint limit: " + appReliableOffset);
+          "Computed wire reliableSize exceeds 62-bit QUIC varint limit: " + offset);
     }
-    return headerBytes + appReliableOffset;
+    return headerBytes + offset;
   }
 }
 

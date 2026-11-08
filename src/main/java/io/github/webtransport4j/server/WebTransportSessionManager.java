@@ -7,6 +7,7 @@ import io.github.webtransport4j.internal.handles.IntHandle;
 import io.github.webtransport4j.internal.handles.RefHandle;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.handler.codec.quic.QuicStreamType;
 import io.netty.util.Attribute;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -253,8 +254,8 @@ public class WebTransportSessionManager {
     // Apply fallback defaults for any zero-valued settings when flow control is enabled.
     // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
     if (flowControlEnabled) {
-      uniMax = applyFallbackStreamsLimit(connectStream, config, uniMax, false);
-      biMax = applyFallbackStreamsLimit(connectStream, config, biMax, true);
+      uniMax = applyFallbackStreamsLimit(connectStream, config, uniMax, QuicStreamType.UNIDIRECTIONAL);
+      biMax = applyFallbackStreamsLimit(connectStream, config, biMax, QuicStreamType.BIDIRECTIONAL);
       dataMax = applyFallbackDataLimit(connectStream, config, dataMax);
     }
 
@@ -672,10 +673,11 @@ public class WebTransportSessionManager {
       QuicStreamChannel connectStream,
       WebTransportConfig.Snapshot config,
       Long currentVal,
-      boolean bidirectional) {
+      QuicStreamType streamType) {
     if (currentVal != null && currentVal > 0L) {
       return currentVal;
     }
+    boolean bidirectional = streamType == QuicStreamType.BIDIRECTIONAL;
     String configKey =
         bidirectional
             ? "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi"

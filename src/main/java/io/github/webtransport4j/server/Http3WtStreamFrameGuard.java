@@ -189,7 +189,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
     return true;
   }
 
-  private int consumePayload(int cursor, int limit) {
+  private int consumePayload(@NonNull Integer cursor, @NonNull Integer limit) {
     long available = limit - cursor;
     if (available <= remainingPayloadBytes) {
       remainingPayloadBytes -= available;
@@ -204,7 +204,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
     return newCursor;
   }
 
-  private int readVarInt(@NonNull ByteBuf buf, int cursor, int limit) {
+  private int readVarInt(@NonNull ByteBuf buf, @NonNull Integer cursor, @NonNull Integer limit) {
     int cur = cursor;
     if (varIntExpectedBytes == 0) {
       int first = buf.getUnsignedByte(cur++);
@@ -228,7 +228,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
   }
 
   private boolean processDecodedVarInt(
-      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long decoded) {
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, @NonNull Long decoded) {
     switch (state) {
       case STATE_UNI_STREAM_TYPE:
         return handleUniStreamType(ctx, buf, decoded);
@@ -246,7 +246,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
   }
 
   private boolean handleUniStreamType(
-      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long streamType) {
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, @NonNull Long streamType) {
     if (streamType == WebTransportProtocolSpec.H3_STREAM_TYPE_CONTROL) {
       state = STATE_FRAME_TYPE;
       return true;
@@ -264,7 +264,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
   }
 
   private boolean handleFrameType(
-      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long frameType) {
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, @NonNull Long frameType) {
     if (frameType == WebTransportUtils.BI_STREAM_TYPE) {
       buf.release();
       rejectUnexpectedWtStream(ctx);
@@ -274,7 +274,7 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
     return true;
   }
 
-  private void handleFrameLength(long length) {
+  private void handleFrameLength(@NonNull Long length) {
     if (length == 0L) {
       state = STATE_FRAME_TYPE;
     } else {
