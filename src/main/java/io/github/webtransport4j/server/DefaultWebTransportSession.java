@@ -1133,7 +1133,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   public void resetStream(
       @NonNull QuicStreamChannel dataStream, long appErrorCode, long reliableSize) {
     WebTransportUtils.resetStream(
-        dataStream, sessionStreamId, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT);
+        dataStream,
+        new WebTransportUtils.StreamResetRequest(
+            sessionStreamId, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT));
   }
 
   /**

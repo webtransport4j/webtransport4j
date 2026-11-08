@@ -277,67 +277,15 @@ public class Draft17ProtocolIntegrationTest {
 
     CompletableFuture<QuicConnectionCloseEvent> serverObservedClose = new CompletableFuture<>();
     try {
-      QuicSslContext serverSsl = buildServerSslContext(cert, false, null);
+      final QuicSslContext serverSsl = buildServerSslContext(cert, false, null);
       Http3Settings invalidServerSettings = new Http3Settings((id, value) -> true);
       invalidServerSettings.enableConnectProtocol(true);
       invalidServerSettings.enableH3Datagram(true);
       invalidServerSettings.put(WebTransportProtocolSpec.SETTING_WT_ENABLED, 2L);
 
-      ChannelHandler serverCodec =
-          Http3.newQuicServerCodecBuilder()
-              .sslContext(serverSsl)
-              .maxIdleTimeout(10, TimeUnit.SECONDS)
-              .initialMaxData(1_000_000)
-              .initialMaxStreamDataBidirectionalLocal(100_000)
-              .initialMaxStreamDataBidirectionalRemote(100_000)
-              .initialMaxStreamDataUnidirectional(100_000)
-              .initialMaxStreamsBidirectional(32)
-              .initialMaxStreamsUnidirectional(32)
-              .datagram(1024, 1024)
-              .handler(
-                  new ChannelInitializer<QuicChannel>() {
-                    @Override
-                    protected void initChannel(QuicChannel ch) {
-                      ch.pipeline()
-                          .addLast(
-                              new ChannelInboundHandlerAdapter() {
-                                @Override
-                                public void userEventTriggered(
-                                    ChannelHandlerContext ctx, Object evt) throws Exception {
-                                  if (evt instanceof QuicConnectionCloseEvent) {
-                                    serverObservedClose.complete((QuicConnectionCloseEvent) evt);
-                                  }
-                                  super.userEventTriggered(ctx, evt);
-                                }
-                              });
-                      ch.pipeline()
-                          .addLast(
-                              new Http3ServerConnectionHandler(
-                                  new ChannelInitializer<QuicStreamChannel>() {
-                                    @Override
-                                    protected void initChannel(QuicStreamChannel stream) {}
-                                  },
-                                  new SimpleChannelInboundHandler<Http3ControlStreamFrame>() {
-                                    @Override
-                                    protected void channelRead0(
-                                        ChannelHandlerContext ctx, Http3ControlStreamFrame msg) {}
-                                  },
-                                  new UnknownStreamHandlerFactory(),
-                                  new DefaultHttp3SettingsFrame(invalidServerSettings),
-                                  true,
-                                  (id, value) -> true));
-                    }
-                  })
-              .build();
-
       serverUdp =
-          new Bootstrap()
-              .group(serverGroup)
-              .channel(NioDatagramChannel.class)
-              .handler(serverCodec)
-              .bind(0)
-              .sync()
-              .channel();
+          bindServerTrackingClose(
+              serverGroup, serverSsl, invalidServerSettings, serverObservedClose);
       int port = ((InetSocketAddress) serverUdp.localAddress()).getPort();
 
       QuicSslContext clientSsl = buildClientSslContext(cert, false);
@@ -395,24 +343,13 @@ public class Draft17ProtocolIntegrationTest {
       QuicSslContext sharedClientSsl = buildClientSslContext(cert, true);
 
       // Server 1 advertises high initial WebTransport limits
-      server1Udp = bindMinimalSettingsServer(serverGroup, serverSsl, 500_000L, 64L, 64L);
+      server1Udp =
+          bindMinimalSettingsServer(
+              serverGroup, serverSsl, new ServerLimits(500_000L, 64L, 64L));
       int port1 = ((InetSocketAddress) server1Udp.localAddress()).getPort();
       client1Udp = bindClientUdp(clientGroup, sharedClientSsl, port1);
 
-      CountDownLatch settings1Latch = new CountDownLatch(1);
-      quic1 =
-          connectObservingSettings(
-              client1Udp,
-              port1,
-              settings1Latch,
-              false);
-      assertTrue(settings1Latch.await(5, TimeUnit.SECONDS));
-      assertEquals(
-          Long.valueOf(500_000L),
-          quic1.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
-      assertEquals(
-          Long.valueOf(64L),
-          quic1.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
+      quic1 = verifyInitialSettingsServer1(client1Udp, port1);
 
       // Allow NewSessionTicket post-handshake message to arrive before closing connection 1
       Thread.sleep(100);
@@ -420,28 +357,13 @@ public class Draft17ProtocolIntegrationTest {
       quic1 = null;
 
       // Server 2 (sharing the same TLS ticket key) advertises REDUCED WebTransport limits (§3.2)
-      server2Udp = bindMinimalSettingsServer(serverGroup, serverSsl, 4_096L, 2L, 1L);
+      server2Udp =
+          bindMinimalSettingsServer(
+              serverGroup, serverSsl, new ServerLimits(4_096L, 2L, 1L));
       int port2 = ((InetSocketAddress) server2Udp.localAddress()).getPort();
       client2Udp = bindClientUdp(clientGroup, sharedClientSsl, port2);
 
-      CountDownLatch settings2Latch = new CountDownLatch(1);
-      quic2 =
-          connectObservingSettings(
-              client2Udp,
-              port2,
-              settings2Latch,
-              true);
-      assertTrue(settings2Latch.await(5, TimeUnit.SECONDS));
-      assertTrue(quic2.isActive(), "Resumed connection with reduced WT settings MUST NOT error");
-      assertEquals(
-          Long.valueOf(4_096L),
-          quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
-      assertEquals(
-          Long.valueOf(2L),
-          quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
-      assertEquals(
-          Long.valueOf(1L),
-          quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get());
+      quic2 = verifyResumedSettingsServer2(client2Udp, port2);
     } finally {
       closeQuietly(quic1, client1Udp, null, null);
       closeQuietly(quic2, client2Udp, clientGroup, null);
@@ -586,54 +508,10 @@ public class Draft17ProtocolIntegrationTest {
 
       CompletableFuture<QuicStreamResetException> connectResetFuture = new CompletableFuture<>();
       QuicStreamChannel connect =
-          openExtendedConnectCapturingReset(quic, port, "/reset-and-fc", "200", connectResetFuture);
+          openExtendedConnectCapturingReset(quic, port, "/reset-and-fc", connectResetFuture);
 
-      // Part 1 (§4.4): Open WT_STREAM, deliver payload, then reset with H3_REQUEST_CANCELLED (0x010c)
-      QuicStreamChannel bidi =
-          quic.createStream(
-                  QuicStreamType.BIDIRECTIONAL,
-                  new ChannelInitializer<QuicStreamChannel>() {
-                    @Override
-                    protected void initChannel(QuicStreamChannel ch) {}
-                  })
-              .get(5, TimeUnit.SECONDS);
-      ByteBuf wtHeaderAndPayload = bidi.alloc().buffer();
-      WebTransportUtils.writeVarInt(wtHeaderAndPayload, WebTransportUtils.BI_STREAM_TYPE);
-      WebTransportUtils.writeVarInt(wtHeaderAndPayload, connect.streamId());
-      wtHeaderAndPayload.writeBytes("init".getBytes(StandardCharsets.UTF_8));
-      bidi.writeAndFlush(wtHeaderAndPayload).get(5, TimeUnit.SECONDS);
-      assertTrue(streamDataLatch.await(5, TimeUnit.SECONDS));
-
-      bidi.shutdown(0x010c).get(5, TimeUnit.SECONDS);
-
-      Throwable streamErr = streamErrorFuture.get(5, TimeUnit.SECONDS);
-      WebTransportStreamResetException resetEx =
-          assertInstanceOf(WebTransportStreamResetException.class, streamErr);
-      assertFalse(
-          resetEx.hasApplicationErrorCode(),
-          "Non-application HTTP/3 reset code 0x010c MUST NOT fabricate an application error code");
-      assertFalse(resetEx.applicationErrorCode().isPresent());
-      assertEquals(0x010cL, resetEx.rawHttp3ErrorCode());
-
-      // Part 2 (§5.6.4): Send WT_MAX_DATA (0x190b4d3d) == 5000 (equal to initial setting 5000)
-      ByteBuf maxDataValueBuf = Unpooled.buffer(8);
-      ByteBuf capsuleBuf = connect.alloc().buffer();
-      try {
-        WebTransportUtils.writeVarInt(maxDataValueBuf, 5000L);
-        WebTransportUtils.writeVarInt(capsuleBuf, 0x190b4d3dL);
-        WebTransportUtils.writeVarInt(capsuleBuf, maxDataValueBuf.readableBytes());
-        capsuleBuf.writeBytes(maxDataValueBuf);
-      } finally {
-        maxDataValueBuf.release();
-      }
-      connect.writeAndFlush(new DefaultHttp3DataFrame(capsuleBuf)).get(5, TimeUnit.SECONDS);
-
-      assertTrue(
-          sessionClosedLatch.await(5, TimeUnit.SECONDS),
-          "Server MUST close session when WT_MAX_DATA does not strictly increase initial limit");
-      QuicStreamResetException connectReset = connectResetFuture.get(5, TimeUnit.SECONDS);
-      assertEquals(
-          (long) WebTransportUtils.WT_FLOW_CONTROL_ERROR, connectReset.applicationProtocolCode());
+      verifyNonApplicationStreamReset(quic, connect, streamDataLatch, streamErrorFuture);
+      verifyNonIncreasingMaxDataCapsule(connect, sessionClosedLatch, connectResetFuture);
     } finally {
       closeQuietly(quic, udp, clientGroup, server);
     }
@@ -689,20 +567,30 @@ public class Draft17ProtocolIntegrationTest {
         .channel();
   }
 
+  private static final class ServerLimits {
+    final long maxData;
+    final long maxBidi;
+    final long maxUni;
+
+    ServerLimits(long maxData, long maxBidi, long maxUni) {
+      this.maxData = maxData;
+      this.maxBidi = maxBidi;
+      this.maxUni = maxUni;
+    }
+  }
+
   private static Channel bindMinimalSettingsServer(
       EventLoopGroup serverGroup,
       QuicSslContext serverSsl,
-      long maxData,
-      long maxBidi,
-      long maxUni)
+      ServerLimits limits)
       throws InterruptedException {
     Http3Settings settings = new Http3Settings((id, value) -> true);
     settings.enableConnectProtocol(true);
     settings.enableH3Datagram(true);
     settings.put(WebTransportProtocolSpec.SETTING_WT_ENABLED, 1L);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, maxData);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, maxBidi);
-    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, maxUni);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, limits.maxData);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, limits.maxBidi);
+    settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, limits.maxUni);
 
     ChannelHandler codec =
         Http3.newQuicServerCodecBuilder()
@@ -862,16 +750,35 @@ public class Draft17ProtocolIntegrationTest {
     return Http3.getLocalControlStream(quic);
   }
 
+  private static final class ConnectTarget {
+    final int port;
+    final String path;
+    final String expectedStatus;
+
+    ConnectTarget(int port, String path, String expectedStatus) {
+      this.port = port;
+      this.path = path;
+      this.expectedStatus = expectedStatus;
+    }
+  }
+
   private static QuicStreamChannel openExtendedConnect(
       QuicChannel quic, int port, String path, String expectedStatus) throws Exception {
-    return openExtendedConnectCapturingReset(quic, port, path, expectedStatus, null);
+    return openExtendedConnectTarget(quic, new ConnectTarget(port, path, expectedStatus), null);
   }
 
   private static QuicStreamChannel openExtendedConnectCapturingReset(
       QuicChannel quic,
       int port,
       String path,
-      String expectedStatus,
+      CompletableFuture<QuicStreamResetException> resetFuture)
+      throws Exception {
+    return openExtendedConnectTarget(quic, new ConnectTarget(port, path, "200"), resetFuture);
+  }
+
+  private static QuicStreamChannel openExtendedConnectTarget(
+      QuicChannel quic,
+      ConnectTarget target,
       CompletableFuture<QuicStreamResetException> resetFuture)
       throws Exception {
     CompletableFuture<Http3HeadersFrame> responseFuture = new CompletableFuture<>();
@@ -909,14 +816,166 @@ public class Draft17ProtocolIntegrationTest {
         new DefaultHttp3Headers()
             .method("CONNECT")
             .scheme("https")
-            .authority("localhost:" + port)
-            .path(path)
+            .authority("localhost:" + target.port)
+            .path(target.path)
             .set(":protocol", WebTransportHeadersHandler.UPGRADE_TOKEN_H3);
     connect.writeAndFlush(new DefaultHttp3HeadersFrame(headers)).get(5, TimeUnit.SECONDS);
 
     Http3HeadersFrame resp = responseFuture.get(5, TimeUnit.SECONDS);
-    assertEquals(expectedStatus, resp.headers().status().toString());
+    assertEquals(target.expectedStatus, resp.headers().status().toString());
     return connect;
+  }
+
+  private static Channel bindServerTrackingClose(
+      EventLoopGroup serverGroup,
+      QuicSslContext serverSsl,
+      Http3Settings settings,
+      CompletableFuture<QuicConnectionCloseEvent> closeFuture)
+      throws InterruptedException {
+    ChannelHandler serverCodec =
+        Http3.newQuicServerCodecBuilder()
+            .sslContext(serverSsl)
+            .maxIdleTimeout(10, TimeUnit.SECONDS)
+            .initialMaxData(1_000_000)
+            .initialMaxStreamDataBidirectionalLocal(100_000)
+            .initialMaxStreamDataBidirectionalRemote(100_000)
+            .initialMaxStreamDataUnidirectional(100_000)
+            .initialMaxStreamsBidirectional(32)
+            .initialMaxStreamsUnidirectional(32)
+            .datagram(1024, 1024)
+            .handler(
+                new ChannelInitializer<QuicChannel>() {
+                  @Override
+                  protected void initChannel(QuicChannel ch) {
+                    ch.pipeline()
+                        .addLast(
+                            new ChannelInboundHandlerAdapter() {
+                              @Override
+                              public void userEventTriggered(
+                                  ChannelHandlerContext ctx, Object evt) throws Exception {
+                                if (evt instanceof QuicConnectionCloseEvent) {
+                                  closeFuture.complete((QuicConnectionCloseEvent) evt);
+                                }
+                                super.userEventTriggered(ctx, evt);
+                              }
+                            });
+                    ch.pipeline()
+                        .addLast(
+                            new Http3ServerConnectionHandler(
+                                new ChannelInitializer<QuicStreamChannel>() {
+                                  @Override
+                                  protected void initChannel(QuicStreamChannel stream) {}
+                                },
+                                new SimpleChannelInboundHandler<Http3ControlStreamFrame>() {
+                                  @Override
+                                  protected void channelRead0(
+                                      ChannelHandlerContext ctx, Http3ControlStreamFrame msg) {}
+                                },
+                                new UnknownStreamHandlerFactory(),
+                                new DefaultHttp3SettingsFrame(settings),
+                                true,
+                                (id, value) -> true));
+                  }
+                })
+            .build();
+
+    return new Bootstrap()
+        .group(serverGroup)
+        .channel(NioDatagramChannel.class)
+        .handler(serverCodec)
+        .bind(0)
+        .sync()
+        .channel();
+  }
+
+  private static QuicChannel verifyInitialSettingsServer1(Channel client1Udp, int port1)
+      throws Exception {
+    CountDownLatch settings1Latch = new CountDownLatch(1);
+    QuicChannel quic1 = connectObservingSettings(client1Udp, port1, settings1Latch, false);
+    assertTrue(settings1Latch.await(5, TimeUnit.SECONDS));
+    assertEquals(
+        Long.valueOf(500_000L),
+        quic1.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
+    assertEquals(
+        Long.valueOf(64L),
+        quic1.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
+    return quic1;
+  }
+
+  private static QuicChannel verifyResumedSettingsServer2(Channel client2Udp, int port2)
+      throws Exception {
+    CountDownLatch settings2Latch = new CountDownLatch(1);
+    QuicChannel quic2 = connectObservingSettings(client2Udp, port2, settings2Latch, true);
+    assertTrue(settings2Latch.await(5, TimeUnit.SECONDS));
+    assertTrue(quic2.isActive(), "Resumed connection with reduced WT settings MUST NOT error");
+    assertEquals(
+        Long.valueOf(4_096L),
+        quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
+    assertEquals(
+        Long.valueOf(2L),
+        quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
+    assertEquals(
+        Long.valueOf(1L),
+        quic2.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get());
+    return quic2;
+  }
+
+  private static void verifyNonApplicationStreamReset(
+      QuicChannel quic,
+      QuicStreamChannel connect,
+      CountDownLatch streamDataLatch,
+      CompletableFuture<Throwable> streamErrorFuture)
+      throws Exception {
+    QuicStreamChannel bidi =
+        quic.createStream(
+                QuicStreamType.BIDIRECTIONAL,
+                new ChannelInitializer<QuicStreamChannel>() {
+                  @Override
+                  protected void initChannel(QuicStreamChannel ch) {}
+                })
+            .get(5, TimeUnit.SECONDS);
+    ByteBuf wtHeaderAndPayload = bidi.alloc().buffer();
+    WebTransportUtils.writeVarInt(wtHeaderAndPayload, WebTransportUtils.BI_STREAM_TYPE);
+    WebTransportUtils.writeVarInt(wtHeaderAndPayload, connect.streamId());
+    wtHeaderAndPayload.writeBytes("init".getBytes(StandardCharsets.UTF_8));
+    bidi.writeAndFlush(wtHeaderAndPayload).get(5, TimeUnit.SECONDS);
+    assertTrue(streamDataLatch.await(5, TimeUnit.SECONDS));
+
+    bidi.shutdown(0x010c).get(5, TimeUnit.SECONDS);
+
+    Throwable streamErr = streamErrorFuture.get(5, TimeUnit.SECONDS);
+    WebTransportStreamResetException resetEx =
+        assertInstanceOf(WebTransportStreamResetException.class, streamErr);
+    assertFalse(
+        resetEx.hasApplicationErrorCode(),
+        "Non-application HTTP/3 reset code 0x010c MUST NOT fabricate an application error code");
+    assertFalse(resetEx.applicationErrorCode().isPresent());
+    assertEquals(0x010cL, resetEx.rawHttp3ErrorCode());
+  }
+
+  private static void verifyNonIncreasingMaxDataCapsule(
+      QuicStreamChannel connect,
+      CountDownLatch sessionClosedLatch,
+      CompletableFuture<QuicStreamResetException> connectResetFuture)
+      throws Exception {
+    ByteBuf maxDataValueBuf = Unpooled.buffer(8);
+    ByteBuf capsuleBuf = connect.alloc().buffer();
+    try {
+      WebTransportUtils.writeVarInt(maxDataValueBuf, 5000L);
+      WebTransportUtils.writeVarInt(capsuleBuf, 0x190b4d3dL);
+      WebTransportUtils.writeVarInt(capsuleBuf, maxDataValueBuf.readableBytes());
+      capsuleBuf.writeBytes(maxDataValueBuf);
+    } finally {
+      maxDataValueBuf.release();
+    }
+    connect.writeAndFlush(new DefaultHttp3DataFrame(capsuleBuf)).get(5, TimeUnit.SECONDS);
+
+    assertTrue(
+        sessionClosedLatch.await(5, TimeUnit.SECONDS),
+        "Server MUST close session when WT_MAX_DATA does not strictly increase initial limit");
+    QuicStreamResetException connectReset = connectResetFuture.get(5, TimeUnit.SECONDS);
+    assertEquals(
+        (long) WebTransportUtils.WT_FLOW_CONTROL_ERROR, connectReset.applicationProtocolCode());
   }
 
   private static void closeQuietly(

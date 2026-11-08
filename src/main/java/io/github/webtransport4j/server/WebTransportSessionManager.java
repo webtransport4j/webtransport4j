@@ -250,36 +250,26 @@ public class WebTransportSessionManager {
             : (peerSettingsReceived == null ? localFlowControlDeclared : false);
 
     WebTransportConfig.Snapshot config = WebTransportConfig.snapshot();
-    // Apply fallback defaults for any zero-valued settings when flow control is
-    // enabled.
-    // This ensures clients always have explicit limits, preventing
-    // denial-of-service scenarios.
-    if ((uniMax == null || uniMax == 0L) && flowControlEnabled) {
-      uniMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.uni", 100L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback uni streams limit: {}", uniMax);
-      }
-      if (uniMax > 0L) {
-        WebTransportUtils.sendMaxStreamsCapsule(connectStream, false, uniMax);
-      }
-    }
-    if ((biMax == null || biMax == 0L) && flowControlEnabled) {
-      biMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.streams.bidi", 100L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback bidi streams limit: {}", biMax);
-      }
-      if (biMax > 0L) {
-        WebTransportUtils.sendMaxStreamsCapsule(connectStream, true, biMax);
-      }
-    }
-    if ((dataMax == null || dataMax == 0L) && flowControlEnabled) {
-      dataMax = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
-      if (logger.isDebugEnabled()) {
-        logger.debug("Using fallback data limit: {}", dataMax);
-      }
-      if (dataMax > 0L) {
-        WebTransportUtils.sendMaxDataCapsule(connectStream, dataMax);
-      }
+    // Apply fallback defaults for any zero-valued settings when flow control is enabled.
+    // This ensures clients always have explicit limits, preventing denial-of-service scenarios.
+    if (flowControlEnabled) {
+      uniMax =
+          applyFallbackStreamsLimit(
+              connectStream,
+              config,
+              uniMax,
+              false,
+              "webtransport4j.webtransport.flowcontrol.fallback.streams.uni",
+              100L);
+      biMax =
+          applyFallbackStreamsLimit(
+              connectStream,
+              config,
+              biMax,
+              true,
+              "webtransport4j.webtransport.flowcontrol.fallback.streams.bidi",
+              100L);
+      dataMax = applyFallbackDataLimit(connectStream, config, dataMax);
     }
 
     // Create the session state
@@ -690,5 +680,43 @@ public class WebTransportSessionManager {
         unregister(sessionStreamId, quic);
       }
     }
+  }
+
+  private static Long applyFallbackStreamsLimit(
+      QuicStreamChannel connectStream,
+      WebTransportConfig.Snapshot config,
+      Long currentVal,
+      boolean bidirectional,
+      String configKey,
+      long defaultLimit) {
+    if (currentVal != null && currentVal > 0L) {
+      return currentVal;
+    }
+    long fallback = config.getLong(configKey, defaultLimit);
+    if (logger.isDebugEnabled()) {
+      logger.debug(
+          "Using fallback {} streams limit: {}", bidirectional ? "bidi" : "uni", fallback);
+    }
+    if (fallback > 0L) {
+      WebTransportUtils.sendMaxStreamsCapsule(connectStream, bidirectional, fallback);
+    }
+    return fallback;
+  }
+
+  private static Long applyFallbackDataLimit(
+      QuicStreamChannel connectStream,
+      WebTransportConfig.Snapshot config,
+      Long currentVal) {
+    if (currentVal != null && currentVal > 0L) {
+      return currentVal;
+    }
+    long fallback = config.getLong("webtransport4j.webtransport.flowcontrol.fallback.data", 10000L);
+    if (logger.isDebugEnabled()) {
+      logger.debug("Using fallback data limit: {}", fallback);
+    }
+    if (fallback > 0L) {
+      WebTransportUtils.sendMaxDataCapsule(connectStream, fallback);
+    }
+    return fallback;
   }
 }

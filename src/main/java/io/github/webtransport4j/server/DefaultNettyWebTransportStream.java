@@ -565,7 +565,9 @@ public class DefaultNettyWebTransportStream implements NettyWebTransportStream {
   @Override
   public void reset(long appErrorCode, long reliableSize) {
     WebTransportUtils.resetStream(
-        streamChannel(), sessionId, appErrorCode, reliableSize, resetTransport);
+        streamChannel(),
+        new WebTransportUtils.StreamResetRequest(
+            sessionId, appErrorCode, reliableSize, resetTransport));
   }
 
   /** Returns whether the given attribute key is present. */

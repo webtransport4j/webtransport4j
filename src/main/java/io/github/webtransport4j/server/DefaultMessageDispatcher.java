@@ -121,78 +121,76 @@ public class DefaultMessageDispatcher extends ChannelInboundHandlerAdapter
 
   @Override
   public void exceptionCaught(@NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
-    Throwable appDeliverableError = cause;
     if (cause instanceof QuicStreamResetException) {
-      long httpErrorCode = ((QuicStreamResetException) cause).applicationProtocolCode();
-      OptionalLong mappedAppCode = WebTransportUtils.tryMapHttpToApplicationError(httpErrorCode);
-      if (mappedAppCode.isPresent()) {
-        appDeliverableError =
-            WebTransportStreamResetException.withApplicationError(
-                httpErrorCode, mappedAppCode.getAsLong(), cause);
-      } else {
-        appDeliverableError =
-            WebTransportStreamResetException.withoutApplicationError(httpErrorCode, cause);
-      }
-    }
-    if (ctx.channel() instanceof QuicStreamChannel) {
-      QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
-      WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
-      if (stream != null && stream.getErrorHandler() != null) {
-        long errorStart = System.nanoTime();
-        try {
-          stream.getErrorHandler().accept(appDeliverableError);
-        } catch (Exception e) {
-          logger.error("Error in stream onError handler", e);
-        }
-        warnIfSlowHandler(streamChannel, "onError", errorStart);
-      }
-      notifyHandlerError(streamChannel, appDeliverableError);
-    }
-    if (cause instanceof QuicStreamResetException) {
-      QuicStreamResetException reset = (QuicStreamResetException) cause;
-      long httpErrorCode = reset.applicationProtocolCode();
-      OptionalLong mappedAppCode = WebTransportUtils.tryMapHttpToApplicationError(httpErrorCode);
-      if (mappedAppCode.isPresent()) {
-        long wtErrorCode = mappedAppCode.getAsLong();
-        logger.info(
-            "Stream reset by peer with WebTransport application error code: 0x{} ({})",
-            Long.toHexString(wtErrorCode),
-            wtErrorCode);
-      } else {
-        if (logger.isDebugEnabled()) {
-          logger.debug(
-              "Stream reset by peer without application error code (HTTP/3 code: 0x{})",
-              Long.toHexString(httpErrorCode));
-        }
-      }
-      // A peer-initiated stream reset is an expected, stream-scoped condition; reset
-      // the send side via QUIC RESET_STREAM with the peer's error code (never raw ctx.close()
-      // alone, which sends FIN and causes peer H3_FRAME_ERROR 0x106 on in-flight partial writes).
-      // Once the send reset is serialized, close the channel so QUIC can finalize stream teardown
-      // and replenish stream credit.
-      if (ctx.channel() instanceof QuicStreamChannel) {
-        QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
-        if (streamChannel.isActive() && streamChannel.type() == QuicStreamType.BIDIRECTIONAL) {
-          ChannelFuture shutdownFuture =
-              WebTransportUtils.resetStreamWithHttpCode(streamChannel, httpErrorCode);
-          shutdownFuture.addListener(f -> ctx.close());
-        } else {
-          ctx.close();
-        }
-      }
+      handleQuicStreamReset(ctx, (QuicStreamResetException) cause);
       return;
     }
-    // Close policy: this dispatcher also runs on the QuicChannel pipeline, where
-    // close() kills every session and stream on the connection, so only
-    // unrecoverable conditions justify closing:
-    //  - DecoderException: codec state may be corrupt; subsequent frames cannot
-    //    be trusted
-    //  - QuicException / SSLException: the transport itself has failed
-    //  - any throwable on an already-inactive channel: close is idempotent cleanup
-    // Any other throwable on a still-active channel (dispatch- or
-    // handler-originated errors, transient codec hiccups) is logged and the
-    // channel stays open: closing a live QUIC connection mid-flight is the
-    // harsher failure for a library component.
+    dispatchStreamError(ctx, cause);
+    closeIfFatal(ctx, cause);
+  }
+
+  private void handleQuicStreamReset(
+      @NonNull ChannelHandlerContext ctx, @NonNull QuicStreamResetException reset) {
+    long httpErrorCode = reset.applicationProtocolCode();
+    OptionalLong mappedAppCode = WebTransportUtils.tryMapHttpToApplicationError(httpErrorCode);
+    Throwable deliverable =
+        mappedAppCode.isPresent()
+            ? WebTransportStreamResetException.withApplicationError(
+                httpErrorCode, mappedAppCode.getAsLong(), reset)
+            : WebTransportStreamResetException.withoutApplicationError(httpErrorCode, reset);
+
+    dispatchStreamError(ctx, deliverable);
+    logStreamReset(httpErrorCode, mappedAppCode);
+    finalizeResetStream(ctx, httpErrorCode);
+  }
+
+  private void logStreamReset(long httpErrorCode, @NonNull OptionalLong mappedAppCode) {
+    if (mappedAppCode.isPresent()) {
+      long wtErrorCode = mappedAppCode.getAsLong();
+      logger.info(
+          "Stream reset by peer with WebTransport application error code: 0x{} ({})",
+          Long.toHexString(wtErrorCode),
+          wtErrorCode);
+    } else if (logger.isDebugEnabled()) {
+      logger.debug(
+          "Stream reset by peer without application error code (HTTP/3 code: 0x{})",
+          Long.toHexString(httpErrorCode));
+    }
+  }
+
+  private void finalizeResetStream(@NonNull ChannelHandlerContext ctx, long httpErrorCode) {
+    if (ctx.channel() instanceof QuicStreamChannel) {
+      QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+      if (streamChannel.isActive() && streamChannel.type() == QuicStreamType.BIDIRECTIONAL) {
+        ChannelFuture shutdownFuture =
+            WebTransportUtils.resetStreamWithHttpCode(streamChannel, httpErrorCode);
+        shutdownFuture.addListener(f -> ctx.close());
+      } else {
+        ctx.close();
+      }
+    }
+  }
+
+  private void dispatchStreamError(
+      @NonNull ChannelHandlerContext ctx, @NonNull Throwable deliverableError) {
+    if (!(ctx.channel() instanceof QuicStreamChannel)) {
+      return;
+    }
+    QuicStreamChannel streamChannel = (QuicStreamChannel) ctx.channel();
+    WebTransportStream stream = streamChannel.attr(WebTransportAttributeKeys.WT_STREAM_KEY).get();
+    if (stream != null && stream.getErrorHandler() != null) {
+      long errorStart = System.nanoTime();
+      try {
+        stream.getErrorHandler().accept(deliverableError);
+      } catch (Exception e) {
+        logger.error("Error in stream onError handler", e);
+      }
+      warnIfSlowHandler(streamChannel, "onError", errorStart);
+    }
+    notifyHandlerError(streamChannel, deliverableError);
+  }
+
+  private void closeIfFatal(@NonNull ChannelHandlerContext ctx, @NonNull Throwable cause) {
     if (cause instanceof DecoderException
         || cause instanceof QuicException
         || cause instanceof SSLException

@@ -107,12 +107,18 @@ public final class WebTransportProtocolSpec {
       @Nullable CharSequence scheme,
       @Nullable CharSequence authority,
       @Nullable CharSequence path) {
-    if (scheme == null || !"https".contentEquals(scheme)) {
-      return false;
-    }
-    if (authority == null || authority.length() == 0 || containsPathSeparator(authority)) {
-      return false;
-    }
+    return isValidHttpsScheme(scheme) && isValidAuthority(authority) && isValidPath(path);
+  }
+
+  private static boolean isValidHttpsScheme(@Nullable CharSequence scheme) {
+    return scheme != null && "https".contentEquals(scheme);
+  }
+
+  private static boolean isValidAuthority(@Nullable CharSequence authority) {
+    return authority != null && authority.length() > 0 && !containsPathSeparator(authority);
+  }
+
+  private static boolean isValidPath(@Nullable CharSequence path) {
     return path != null && path.length() > 0 && path.charAt(0) == '/' && !containsFragment(path);
   }
 

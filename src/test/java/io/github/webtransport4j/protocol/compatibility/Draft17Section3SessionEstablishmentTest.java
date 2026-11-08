@@ -49,7 +49,10 @@ public class Draft17Section3SessionEstablishmentTest {
   public void testSection3_1_ServerAdvertisesStrictDraft17SettingsWtEnabledOnly() {
     WebTransportServer server = new WebTransportServerBuilder().build();
     Http3Settings serverSettings = server.buildHttp3Settings();
+    assertStandardDraft17ServerSettings(serverSettings);
+  }
 
+  private static void assertStandardDraft17ServerSettings(Http3Settings serverSettings) {
     assertEquals(
         Long.valueOf(1L),
         serverSettings.get(WebTransportProtocolSpec.SETTING_WT_ENABLED),
@@ -166,12 +169,7 @@ public class Draft17Section3SessionEstablishmentTest {
 
     Http3ClientControlStreamHandler clientHandler = new Http3ClientControlStreamHandler();
     clientHandler.handlerAdded(mockCtx);
-
-    assertFalse(parentAttrMap.attr(WebTransportAttributeKeys.WT_ENABLED).get());
-    assertFalse(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get());
-    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get());
-    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
-    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
+    assertSettingsCleared(parentAttrMap);
 
     // Resumed connection advertises reduced WebTransport limits and omits MAX_STREAMS_UNI
     Http3Settings reducedServerSettings = new Http3Settings((id, value) -> true);
@@ -182,7 +180,19 @@ public class Draft17Section3SessionEstablishmentTest {
     reducedServerSettings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 4096L);
 
     clientHandler.channelRead(mockCtx, new DefaultHttp3SettingsFrame(reducedServerSettings));
+    assertResumedLimits(mockParent, parentAttrMap);
+  }
 
+  private static void assertSettingsCleared(DefaultAttributeMap parentAttrMap) {
+    assertFalse(parentAttrMap.attr(WebTransportAttributeKeys.WT_ENABLED).get());
+    assertFalse(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).get());
+    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get());
+    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI).get());
+    assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA).get());
+  }
+
+  private static void assertResumedLimits(
+      QuicChannel mockParent, DefaultAttributeMap parentAttrMap) {
     verify(mockParent, never()).close(anyBoolean(), anyInt(), any());
     assertTrue(parentAttrMap.attr(WebTransportAttributeKeys.WT_ENABLED).get());
     assertNull(parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI).get());
@@ -258,28 +268,36 @@ public class Draft17Section3SessionEstablishmentTest {
   @Test
   public void testSection2_2_And_3_2_HttpsUriSchemeAuthorityAndPathValidation() throws Exception {
     assertTrue(WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", "/wt"));
-    assertFalse(WebTransportProtocolSpec.isValidHttpsRequestTarget("http", "example.com", "/wt"));
-    assertFalse(WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "", "/wt"));
-    assertFalse(WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", ""));
-    assertFalse(
-        WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", "no-slash"));
-    assertFalse(
-        WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com/bad", "/wt"));
-    assertFalse(
-        WebTransportProtocolSpec.isValidHttpsRequestTarget("https", "example.com", "/wt#fragment"));
+    assertInvalidTargets();
+    assertConnectRejections();
+  }
 
-    // Invalid scheme -> 400
-    assertConnectRejectedWithBadRequest("http", "localhost", "/wt");
-    // Empty authority -> 400
-    assertConnectRejectedWithBadRequest("https", "", "/wt");
-    // Authority containing path separator -> 400
-    assertConnectRejectedWithBadRequest("https", "localhost/path", "/wt");
-    // Empty path -> 400 per RFC 9110 Section 4.2.2 HTTPS URI
-    assertConnectRejectedWithBadRequest("https", "localhost", "");
-    // Non-origin-form path -> 400
-    assertConnectRejectedWithBadRequest("https", "localhost", "relative/path");
-    // Path containing fragment -> 400
-    assertConnectRejectedWithBadRequest("https", "localhost", "/wt#frag");
+  private static void assertInvalidTargets() {
+    String[][] invalidTargets = {
+      {"http", "example.com", "/wt"},
+      {"https", "", "/wt"},
+      {"https", "example.com", ""},
+      {"https", "example.com", "no-slash"},
+      {"https", "example.com/bad", "/wt"},
+      {"https", "example.com", "/wt#fragment"}
+    };
+    for (String[] target : invalidTargets) {
+      assertFalse(WebTransportProtocolSpec.isValidHttpsRequestTarget(target[0], target[1], target[2]));
+    }
+  }
+
+  private static void assertConnectRejections() throws Exception {
+    String[][] badRequests = {
+      {"http", "localhost", "/wt"},
+      {"https", "", "/wt"},
+      {"https", "localhost/path", "/wt"},
+      {"https", "localhost", ""},
+      {"https", "localhost", "relative/path"},
+      {"https", "localhost", "/wt#frag"}
+    };
+    for (String[] req : badRequests) {
+      assertConnectRejectedWithBadRequest(req[0], req[1], req[2]);
+    }
   }
 
   private static void assertConnectRejectedWithBadRequest(

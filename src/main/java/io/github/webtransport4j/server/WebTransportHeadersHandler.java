@@ -101,45 +101,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               ? quic.attr(WebTransportAttributeKeys.METRICS_LISTENER).get()
               : null;
 
-      // Validate scheme: MUST be "https" as per draft-15 section 4.4
-      if (!"https".contentEquals(scheme)) {
-        if (metricsListener != null) {
-          metricsListener.onSessionRejected("invalid_scheme");
-        }
-        logger.warn("❌ Rejecting connection from invalid scheme: {}", scheme);
-        Http3Headers responseHeaders = new DefaultHttp3Headers();
-        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        if (f != null) {
-          f.addListener(ChannelFutureListener.CLOSE);
-        }
-        return;
-      }
-      // Validate authority and HTTPS URI path per Draft-17 Section 2.2 (RFC 9110 Section 4.2.2)
-      if (authority.length() == 0) {
-        if (metricsListener != null) {
-          metricsListener.onSessionRejected("missing_authority");
-        }
-        logger.warn("❌ Rejecting connection due to missing :authority");
-        Http3Headers responseHeaders = new DefaultHttp3Headers();
-        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        if (f != null) {
-          f.addListener(ChannelFutureListener.CLOSE);
-        }
-        return;
-      }
-      if (!WebTransportProtocolSpec.isValidHttpsRequestTarget(scheme, authority, path)) {
-        if (metricsListener != null) {
-          metricsListener.onSessionRejected("invalid_path");
-        }
-        logger.warn("Rejecting connection due to invalid HTTPS URI :path '{}'", path);
-        Http3Headers responseHeaders = new DefaultHttp3Headers();
-        responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
-        ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
-        if (f != null) {
-          f.addListener(ChannelFutureListener.CLOSE);
-        }
+      // Validate scheme, authority, and path per Draft-17 Section 2.2 (RFC 9110 Section 4.2.2)
+      if (!validateHttpsRequestTarget(ctx, metricsListener, scheme, authority, path)) {
         return;
       }
       if (quic != null) {
@@ -548,6 +511,48 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
       return host;
     } catch (Exception e) {
       return null;
+    }
+  }
+
+  private boolean validateHttpsRequestTarget(
+      @NonNull ChannelHandlerContext ctx,
+      @Nullable WebTransportMetricsListener metricsListener,
+      @Nullable CharSequence scheme,
+      @Nullable CharSequence authority,
+      @Nullable CharSequence path) {
+    if (!"https".contentEquals(scheme)) {
+      rejectBadRequest(
+          ctx, metricsListener, "invalid_scheme", "❌ Rejecting connection from invalid scheme: {}", scheme);
+      return false;
+    }
+    if (authority == null || authority.length() == 0) {
+      rejectBadRequest(
+          ctx, metricsListener, "missing_authority", "❌ Rejecting connection due to missing :authority");
+      return false;
+    }
+    if (!WebTransportProtocolSpec.isValidHttpsRequestTarget(scheme, authority, path)) {
+      rejectBadRequest(
+          ctx, metricsListener, "invalid_path", "Rejecting connection due to invalid HTTPS URI :path '{}'", path);
+      return false;
+    }
+    return true;
+  }
+
+  private void rejectBadRequest(
+      @NonNull ChannelHandlerContext ctx,
+      @Nullable WebTransportMetricsListener metricsListener,
+      @NonNull String metricReason,
+      @NonNull String logFormat,
+      Object... logArgs) {
+    if (metricsListener != null) {
+      metricsListener.onSessionRejected(metricReason);
+    }
+    logger.warn(logFormat, logArgs);
+    Http3Headers responseHeaders = new DefaultHttp3Headers();
+    responseHeaders.status(HttpResponseStatus.BAD_REQUEST.codeAsText());
+    ChannelFuture f = ctx.writeAndFlush(new DefaultHttp3HeadersFrame(responseHeaders));
+    if (f != null) {
+      f.addListener(ChannelFutureListener.CLOSE);
     }
   }
 

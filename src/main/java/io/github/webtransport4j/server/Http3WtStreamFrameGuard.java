@@ -163,79 +163,119 @@ public final class Http3WtStreamFrameGuard extends ChannelInboundHandlerAdapter 
 
     while (cursor < limit) {
       if (state == STATE_FRAME_PAYLOAD) {
-        long available = limit - cursor;
-        if (available <= remainingPayloadBytes) {
-          remainingPayloadBytes -= available;
-          if (remainingPayloadBytes == 0L) {
-            state = STATE_FRAME_TYPE;
-          }
+        cursor = consumePayload(cursor, limit);
+        if (cursor == limit) {
           break;
         }
-        cursor += (int) remainingPayloadBytes;
-        remainingPayloadBytes = 0L;
-        state = STATE_FRAME_TYPE;
         continue;
       }
 
-      if (varIntExpectedBytes == 0) {
-        int first = buf.getUnsignedByte(cursor++);
-        varIntExpectedBytes = 1 << (first >>> 6);
-        varIntAccumulator = first & 0x3FL;
-        varIntReadBytes = 1;
-      }
-      while (varIntReadBytes < varIntExpectedBytes && cursor < limit) {
-        varIntAccumulator = (varIntAccumulator << 8) | buf.getUnsignedByte(cursor++);
-        varIntReadBytes++;
-      }
+      cursor = readVarInt(buf, cursor, limit);
       if (varIntReadBytes < varIntExpectedBytes) {
         break;
       }
 
-      long decoded = varIntAccumulator;
-      varIntExpectedBytes = 0;
-      varIntReadBytes = 0;
-      varIntAccumulator = 0L;
-
-      switch (state) {
-        case STATE_UNI_STREAM_TYPE:
-          if (decoded == WebTransportProtocolSpec.H3_STREAM_TYPE_CONTROL) {
-            state = STATE_FRAME_TYPE;
-          } else if (decoded == WebTransportProtocolSpec.H3_STREAM_TYPE_PUSH) {
-            state = STATE_PUSH_ID;
-          } else {
-            state = STATE_BYPASS;
-            if (ctx.pipeline().context(this) != null) {
-              ctx.pipeline().remove(this);
-            }
-            ctx.fireChannelRead(buf);
-            return;
-          }
-          break;
-        case STATE_PUSH_ID:
-          state = STATE_FRAME_TYPE;
-          break;
-        case STATE_FRAME_TYPE:
-          if (decoded == WebTransportUtils.BI_STREAM_TYPE) {
-            buf.release();
-            rejectUnexpectedWtStream(ctx);
-            return;
-          }
-          state = STATE_FRAME_LENGTH;
-          break;
-        case STATE_FRAME_LENGTH:
-          if (decoded == 0L) {
-            state = STATE_FRAME_TYPE;
-          } else {
-            remainingPayloadBytes = decoded;
-            state = STATE_FRAME_PAYLOAD;
-          }
-          break;
-        default:
-          break;
+      long decoded = completeVarInt();
+      if (!processDecodedVarInt(ctx, buf, decoded)) {
+        return;
       }
     }
 
     ctx.fireChannelRead(buf);
+  }
+
+  private int consumePayload(int cursor, int limit) {
+    long available = limit - cursor;
+    if (available <= remainingPayloadBytes) {
+      remainingPayloadBytes -= available;
+      if (remainingPayloadBytes == 0L) {
+        state = STATE_FRAME_TYPE;
+      }
+      return limit;
+    }
+    int newCursor = cursor + (int) remainingPayloadBytes;
+    remainingPayloadBytes = 0L;
+    state = STATE_FRAME_TYPE;
+    return newCursor;
+  }
+
+  private int readVarInt(@NonNull ByteBuf buf, int cursor, int limit) {
+    int cur = cursor;
+    if (varIntExpectedBytes == 0) {
+      int first = buf.getUnsignedByte(cur++);
+      varIntExpectedBytes = 1 << (first >>> 6);
+      varIntAccumulator = first & 0x3FL;
+      varIntReadBytes = 1;
+    }
+    while (varIntReadBytes < varIntExpectedBytes && cur < limit) {
+      varIntAccumulator = (varIntAccumulator << 8) | buf.getUnsignedByte(cur++);
+      varIntReadBytes++;
+    }
+    return cur;
+  }
+
+  private long completeVarInt() {
+    final long decoded = varIntAccumulator;
+    varIntExpectedBytes = 0;
+    varIntReadBytes = 0;
+    varIntAccumulator = 0L;
+    return decoded;
+  }
+
+  private boolean processDecodedVarInt(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long decoded) {
+    switch (state) {
+      case STATE_UNI_STREAM_TYPE:
+        return handleUniStreamType(ctx, buf, decoded);
+      case STATE_PUSH_ID:
+        state = STATE_FRAME_TYPE;
+        return true;
+      case STATE_FRAME_TYPE:
+        return handleFrameType(ctx, buf, decoded);
+      case STATE_FRAME_LENGTH:
+        handleFrameLength(decoded);
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  private boolean handleUniStreamType(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long streamType) {
+    if (streamType == WebTransportProtocolSpec.H3_STREAM_TYPE_CONTROL) {
+      state = STATE_FRAME_TYPE;
+      return true;
+    }
+    if (streamType == WebTransportProtocolSpec.H3_STREAM_TYPE_PUSH) {
+      state = STATE_PUSH_ID;
+      return true;
+    }
+    state = STATE_BYPASS;
+    if (ctx.pipeline().context(this) != null) {
+      ctx.pipeline().remove(this);
+    }
+    ctx.fireChannelRead(buf);
+    return false;
+  }
+
+  private boolean handleFrameType(
+      @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf buf, long frameType) {
+    if (frameType == WebTransportUtils.BI_STREAM_TYPE) {
+      buf.release();
+      rejectUnexpectedWtStream(ctx);
+      return false;
+    }
+    state = STATE_FRAME_LENGTH;
+    return true;
+  }
+
+  private void handleFrameLength(long length) {
+    if (length == 0L) {
+      state = STATE_FRAME_TYPE;
+    } else {
+      remainingPayloadBytes = length;
+      state = STATE_FRAME_PAYLOAD;
+    }
   }
 
   private void rejectUnexpectedWtStream(@NonNull ChannelHandlerContext ctx) {

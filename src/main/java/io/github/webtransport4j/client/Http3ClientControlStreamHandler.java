@@ -14,6 +14,7 @@ import io.netty.handler.codec.http3.Http3UnknownFrame;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,17 +60,24 @@ public class Http3ClientControlStreamHandler
   protected void channelRead0(
       @NonNull ChannelHandlerContext ctx, @NonNull Http3ControlStreamFrame frame) {
     if (frame instanceof Http3UnknownFrame) {
-      Http3UnknownFrame unknown = (Http3UnknownFrame) frame;
-      if (unknown.type() == WebTransportUtils.BI_STREAM_TYPE) {
-        Http3WtStreamFrameGuard.closeWithFrameUnexpected(ctx);
-      }
+      handleUnknownFrame(ctx, (Http3UnknownFrame) frame);
       return;
     }
-    if (!(frame instanceof Http3SettingsFrame)) {
-      return;
+    if (frame instanceof Http3SettingsFrame) {
+      handleSettingsFrame(ctx, (Http3SettingsFrame) frame);
     }
+  }
 
-    Http3Settings settings = ((Http3SettingsFrame) frame).settings();
+  private void handleUnknownFrame(
+      @NonNull ChannelHandlerContext ctx, @NonNull Http3UnknownFrame unknown) {
+    if (unknown.type() == WebTransportUtils.BI_STREAM_TYPE) {
+      Http3WtStreamFrameGuard.closeWithFrameUnexpected(ctx);
+    }
+  }
+
+  private void handleSettingsFrame(
+      @NonNull ChannelHandlerContext ctx, @NonNull Http3SettingsFrame frame) {
+    Http3Settings settings = frame.settings();
     if (settings == null) {
       return;
     }
@@ -77,35 +85,45 @@ public class Http3ClientControlStreamHandler
     QuicChannel quic = resolveQuicChannel(ctx);
     Long wtEnabled = settings.get(WebTransportProtocolSpec.SETTING_WT_ENABLED);
     if (!WebTransportProtocolSpec.isValidServerWtEnabledValue(wtEnabled)) {
-      logger.warn(
-          "Server sent invalid SETTINGS_WT_ENABLED ({}). Closing connection with"
-              + " H3_SETTINGS_ERROR (0x0109).",
-          wtEnabled);
-      if (quic != null) {
-        quic.close(true, WebTransportProtocolSpec.H3_SETTINGS_ERROR, Unpooled.EMPTY_BUFFER);
-      } else {
-        ctx.close();
-      }
+      rejectInvalidServerSettings(ctx, quic, wtEnabled);
       return;
     }
 
+    if (quic != null) {
+      recordPeerSettings(quic, settings, wtEnabled);
+    }
+  }
+
+  private void rejectInvalidServerSettings(
+      @NonNull ChannelHandlerContext ctx, @Nullable QuicChannel quic, @Nullable Long wtEnabled) {
+    logger.warn(
+        "Server sent invalid SETTINGS_WT_ENABLED ({}). Closing connection with"
+            + " H3_SETTINGS_ERROR (0x0109).",
+        wtEnabled);
+    if (quic != null) {
+      quic.close(true, WebTransportProtocolSpec.H3_SETTINGS_ERROR, Unpooled.EMPTY_BUFFER);
+    } else {
+      ctx.close();
+    }
+  }
+
+  private void recordPeerSettings(
+      @NonNull QuicChannel quic, @NonNull Http3Settings settings, @Nullable Long wtEnabled) {
     boolean serverEnabled = WebTransportProtocolSpec.isServerWebTransportEnabled(wtEnabled);
     boolean datagramEnabled = Boolean.TRUE.equals(settings.h3DatagramEnabled());
     boolean connectEnabled = Boolean.TRUE.equals(settings.connectProtocolEnabled());
 
-    if (quic != null) {
-      // Overwrite all Section 9.2 values unconditionally (never retain 0-RTT values).
-      quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(serverEnabled);
-      quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
-      quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID)
-          .set(serverEnabled && datagramEnabled && connectEnabled);
-      quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
-          .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI));
-      quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
-          .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI));
-      quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
-          .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA));
-    }
+    // Overwrite all Section 9.2 values unconditionally (never retain 0-RTT values).
+    quic.attr(WebTransportAttributeKeys.WT_ENABLED).set(serverEnabled);
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_RECEIVED).set(true);
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID)
+        .set(serverEnabled && datagramEnabled && connectEnabled);
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_UNI)
+        .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI));
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_STREAMS_BIDI)
+        .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI));
+    quic.attr(WebTransportAttributeKeys.PEER_SETTINGS_MAX_DATA)
+        .set(settings.get(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA));
   }
 
   private static QuicChannel resolveQuicChannel(@NonNull ChannelHandlerContext ctx) {

@@ -534,6 +534,35 @@ public class WebTransportUtils {
     return OptionalLong.of(httpCodeToWebTransportCode(httpErrorCode));
   }
 
+  /**
+   * Encapsulates the parameters required to reset a WebTransport QUIC stream.
+   */
+  public static final class StreamResetRequest {
+    private final long sessionId;
+    private final long appErrorCode;
+    private final long reliableSize;
+    private final StreamResetTransport transport;
+
+    /**
+     * Constructs a request to reset a WebTransport stream.
+     *
+     * @param sessionId WebTransport session ID
+     * @param appErrorCode 32-bit unsigned application error code
+     * @param reliableSize non-negative application payload byte offset
+     * @param transport strategy dispatching the reset to the underlying QUIC channel
+     */
+    public StreamResetRequest(
+        long sessionId,
+        long appErrorCode,
+        long reliableSize,
+        @NonNull StreamResetTransport transport) {
+      this.sessionId = sessionId;
+      this.appErrorCode = appErrorCode;
+      this.reliableSize = reliableSize;
+      this.transport = Objects.requireNonNull(transport, "transport must not be null");
+    }
+  }
+
   /** Resets a QUIC stream with the given application error code and zero reliable offset. */
   public static void resetStream(@NonNull QuicStreamChannel streamChannel, long appErrorCode) {
     resetStream(streamChannel, appErrorCode, 0L);
@@ -549,15 +578,7 @@ public class WebTransportUtils {
    */
   public static void resetStream(
       @NonNull QuicStreamChannel streamChannel, long appErrorCode, long reliableSize) {
-    long sessionId = 0L;
-    if (streamChannel.hasAttr(WebTransportAttributeKeys.SESSION_ID_KEY)) {
-      Long attrSessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
-      if (attrSessionId != null && attrSessionId >= 0L) {
-        sessionId = attrSessionId;
-      }
-    }
-    resetStream(
-        streamChannel, sessionId, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT);
+    resetStream(streamChannel, appErrorCode, reliableSize, StreamResetTransport.NETTY_DEFAULT);
   }
 
   /**
@@ -566,7 +587,6 @@ public class WebTransportUtils {
    * WebTransport stream header bytes + {@code reliableSize}) per Draft-17 Section 4.4.
    *
    * @param streamChannel stream channel to reset
-   * @param sessionId WebTransport session ID
    * @param appErrorCode 32-bit unsigned application error code
    * @param reliableSize non-negative application payload byte offset
    * @param transport strategy dispatching the reset to the underlying QUIC channel
@@ -574,13 +594,32 @@ public class WebTransportUtils {
    */
   public static @NonNull ChannelFuture resetStream(
       @NonNull QuicStreamChannel streamChannel,
-      long sessionId,
       long appErrorCode,
       long reliableSize,
       @NonNull StreamResetTransport transport) {
+    long sessionId = 0L;
+    if (streamChannel.hasAttr(WebTransportAttributeKeys.SESSION_ID_KEY)) {
+      Long attrSessionId = streamChannel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).get();
+      if (attrSessionId != null && attrSessionId >= 0L) {
+        sessionId = attrSessionId;
+      }
+    }
+    return resetStream(
+        streamChannel, new StreamResetRequest(sessionId, appErrorCode, reliableSize, transport));
+  }
+
+  /**
+   * Resets a QUIC stream using the supplied {@link StreamResetRequest}.
+   *
+   * @param streamChannel stream channel to reset
+   * @param request stream reset parameters
+   * @return future returned by the transport strategy
+   */
+  public static @NonNull ChannelFuture resetStream(
+      @NonNull QuicStreamChannel streamChannel, @NonNull StreamResetRequest request) {
     Objects.requireNonNull(streamChannel, "streamChannel must not be null");
-    Objects.requireNonNull(transport, "transport must not be null");
-    long mappedHttpCode = webTransportCodeToHttpCode(appErrorCode);
+    Objects.requireNonNull(request, "request must not be null");
+    long mappedHttpCode = webTransportCodeToHttpCode(request.appErrorCode);
     boolean localInitiated =
         streamChannel.isLocalCreated()
             || (streamChannel.hasAttr(WebTransportAttributeKeys.SERVER_INITIATED_KEY)
@@ -590,8 +629,9 @@ public class WebTransportUtils {
         streamChannel.type() == null || streamChannel.type() == QuicStreamType.BIDIRECTIONAL;
     long wireReliableSize =
         WebTransportProtocolSpec.computeResetReliableSize(
-            localInitiated, bidirectional, Math.max(0L, sessionId), reliableSize);
-    return transport.resetSendSide(streamChannel, appErrorCode, mappedHttpCode, wireReliableSize);
+            localInitiated, bidirectional, Math.max(0L, request.sessionId), request.reliableSize);
+    return request.transport.resetSendSide(
+        streamChannel, request.appErrorCode, mappedHttpCode, wireReliableSize);
   }
 
   /** Resets a QUIC stream with the given HTTP/3 error code. */
