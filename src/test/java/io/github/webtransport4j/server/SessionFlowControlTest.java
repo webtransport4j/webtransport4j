@@ -94,7 +94,8 @@ public class SessionFlowControlTest {
     // Construct WT_MAX_DATA capsule (0x190B4D3DL) with maxData = 2000
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 2000);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D3DL, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(100L, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -150,7 +151,8 @@ public class SessionFlowControlTest {
     // Construct WT_MAX_DATA capsule (0x190B4D3DL) with maxData = 500 (less than 1000)
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 500);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D3DL, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(100L, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -457,7 +459,8 @@ public class SessionFlowControlTest {
     // Construct WT_DATA_BLOCKED capsule (0x190B4D41L)
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 1000);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D41L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(100L, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -520,7 +523,8 @@ public class SessionFlowControlTest {
     // Peer reports maxData = 500 which is less than local settingsMaxData (1000)
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 500);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D41L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(100L, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -548,8 +552,10 @@ public class SessionFlowControlTest {
     when(mgr.get(100L)).thenReturn(session);
 
     ByteBuf content = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(content, (1L << 60) + 1L);
-    WebTransportCapsule exceedingCapsule = new WebTransportCapsule(100L, 0x190b4d3fL, content);
+    WebTransportUtils.writeVarInt(content, WebTransportProtocolSpec.MAX_WT_STREAMS_LIMIT + 1L);
+    WebTransportCapsule exceedingCapsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI, content);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, exceedingCapsule);
     verify(mgr).closeSessionWithFlowControlError(session);

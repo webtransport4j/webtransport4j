@@ -1,5 +1,6 @@
 package io.github.webtransport4j.client;
 
+import io.github.webtransport4j.server.WebTransportProtocolSpec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -136,7 +137,7 @@ public final class WebTransportFileBenchmark {
 
       // Write WebTransport Bi-stream header
       ByteBuf headerBuf = biStreamChannel.alloc().buffer();
-      WebTransportUtils.writeVarInt(headerBuf, 0x41);
+      WebTransportUtils.writeVarInt(headerBuf, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI);
       WebTransportUtils.writeVarInt(headerBuf, sessionId);
       biStreamChannel.writeAndFlush(headerBuf).sync();
 

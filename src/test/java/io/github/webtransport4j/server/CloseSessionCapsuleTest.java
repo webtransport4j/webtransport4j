@@ -39,10 +39,13 @@ public class CloseSessionCapsuleTest {
     payload.writeInt(0); // 32-bit error code
     payload.writeCharSequence("Clean close", StandardCharsets.UTF_8);
 
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload);
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
-    verify(mockStream, never()).shutdown(eq(0x010e), any());
+    verify(mockStream, never())
+        .shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     verify(mockCtx).close();
     payload.release();
   }
@@ -61,10 +64,12 @@ public class CloseSessionCapsuleTest {
     Arrays.fill(oversized, (byte) 'a');
     payload.writeBytes(oversized);
 
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload);
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     verify(mockCtx, never()).close();
     payload.release();
   }
@@ -81,10 +86,12 @@ public class CloseSessionCapsuleTest {
     // Invalid UTF-8 byte sequence: 0xC3 0x28 (truncated/invalid 2-byte sequence)
     payload.writeBytes(new byte[] {(byte) 0xC3, (byte) 0x28});
 
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload);
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     verify(mockCtx, never()).close();
     payload.release();
   }
@@ -99,10 +106,12 @@ public class CloseSessionCapsuleTest {
     ByteBuf payload = Unpooled.buffer();
     payload.writeBytes(new byte[] {0, 1}); // only 2 bytes (< 4 bytes)
 
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload);
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     verify(mockCtx, never()).close();
     payload.release();
   }
@@ -127,12 +136,14 @@ public class CloseSessionCapsuleTest {
     ByteBuf payload = Unpooled.buffer();
     payload.writeBytes(new byte[] {0, 1}); // truncated < 4 bytes triggers message error
 
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x2843L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload);
     WebTransportCapsuleHandler.INSTANCE.channelRead0(mockCtx, capsule);
 
     org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(mockMgr, mockStream);
     inOrder.verify(mockMgr).unregister(mockStream);
-    inOrder.verify(mockStream).shutdown(eq(0x010e), any());
+    inOrder.verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     payload.release();
   }
 
@@ -166,7 +177,7 @@ public class CloseSessionCapsuleTest {
 
     ByteBuf content = frameCaptor.getValue().content();
     long capsuleType = WebTransportUtils.readVariableLengthInt(content);
-    assertEquals(0x2843L, capsuleType);
+    assertEquals(WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, capsuleType);
     long capsuleLen = WebTransportUtils.readVariableLengthInt(content);
     assertEquals(4L + "Finished".length(), capsuleLen);
     long errorCode = content.readUnsignedInt();
@@ -206,7 +217,7 @@ public class CloseSessionCapsuleTest {
 
     ByteBuf content = frameCaptor.getValue().content();
     long capsuleType = WebTransportUtils.readVariableLengthInt(content);
-    assertEquals(0x2843L, capsuleType);
+    assertEquals(WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, capsuleType);
     long capsuleLen = WebTransportUtils.readVariableLengthInt(content);
     assertEquals(4L, capsuleLen);
     long errorCode = content.readUnsignedInt();
@@ -242,7 +253,9 @@ public class CloseSessionCapsuleTest {
     verify(mockStream).writeAndFlush(frameCaptor.capture());
 
     ByteBuf content = frameCaptor.getValue().content();
-    assertEquals(0x2843L, WebTransportUtils.readVariableLengthInt(content));
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION,
+        WebTransportUtils.readVariableLengthInt(content));
     WebTransportUtils.readVariableLengthInt(content);
     assertEquals(highCode, content.readUnsignedInt());
     frameCaptor.getValue().release();
@@ -379,7 +392,7 @@ public class CloseSessionCapsuleTest {
 
     ByteBuf content = frameCaptor.getValue().content();
     long capsuleType = WebTransportUtils.readVariableLengthInt(content);
-    assertEquals(0x2843L, capsuleType);
+    assertEquals(WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, capsuleType);
     long capsuleLen = WebTransportUtils.readVariableLengthInt(content);
     // 4 bytes error code + 1021 bytes reason (incomplete 4-byte emoji excluded)
     assertEquals(4L + 1021L, capsuleLen);

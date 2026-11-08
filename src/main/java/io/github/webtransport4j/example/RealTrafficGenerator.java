@@ -1,6 +1,7 @@
 package io.github.webtransport4j.example;
 
 import io.github.webtransport4j.client.WebTransportClientHandler;
+import io.github.webtransport4j.server.WebTransportProtocolSpec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -159,9 +160,9 @@ public final class RealTrafficGenerator {
       final Http3Settings settings = new Http3Settings((id, value) -> true);
       settings.enableConnectProtocol(true);
       settings.enableH3Datagram(true);
-      settings.put(0x2b64L, 1000L);
-      settings.put(0x2b65L, 1000L);
-      settings.put(0x2b61L, 10737418240L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_UNI, 1000L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_STREAMS_BIDI, 1000L);
+      settings.put(WebTransportProtocolSpec.SETTING_WT_INITIAL_MAX_DATA, 10737418240L);
 
       final QuicChannel quicChannel =
           QuicChannel.newBootstrap(nettyChannel)
@@ -324,7 +325,10 @@ public final class RealTrafficGenerator {
               .getNow();
 
       final ByteBuf buffer = stream.alloc().directBuffer();
-      final long frameType = bidi ? 0x41L : 0x54L;
+      final long frameType =
+          bidi
+              ? WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI
+              : WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
       WebTransportUtils.writeVarInt(buffer, frameType);
       WebTransportUtils.writeVarInt(buffer, session.getSessionId());
       buffer.writeBytes(payloadBytes);
@@ -491,7 +495,10 @@ public final class RealTrafficGenerator {
                   .getNow();
 
           final ByteBuf buffer = stream.alloc().directBuffer();
-          final long frameType = bidi ? 0x41L : 0x54L;
+          final long frameType =
+          bidi
+              ? WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI
+              : WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
           WebTransportUtils.writeVarInt(buffer, frameType);
           WebTransportUtils.writeVarInt(buffer, session.getSessionId());
           buffer.writeBytes(payloadBytes);
@@ -530,7 +537,8 @@ public final class RealTrafficGenerator {
       } else if ("drain-session".equalsIgnoreCase(command)) {
         try (LiveSession session = connect(url, null)) {
           final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
-          WebTransportUtils.writeVarInt(capsule, 0x78aeL);
+          WebTransportUtils.writeVarInt(
+              capsule, WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION);
           WebTransportUtils.writeVarInt(capsule, 0L);
           session.getConnectStream().writeAndFlush(new DefaultHttp3DataFrame(capsule)).sync();
           final long durationMs = System.currentTimeMillis() - startTime;
@@ -545,7 +553,8 @@ public final class RealTrafficGenerator {
         final byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
         try (LiveSession session = connect(url, null)) {
           final ByteBuf capsule = session.getConnectStream().alloc().directBuffer();
-          WebTransportUtils.writeVarInt(capsule, 0x2843L);
+          WebTransportUtils.writeVarInt(
+              capsule, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
           WebTransportUtils.writeVarInt(capsule, 4L + reasonBytes.length);
           capsule.writeInt(code);
           capsule.writeBytes(reasonBytes);

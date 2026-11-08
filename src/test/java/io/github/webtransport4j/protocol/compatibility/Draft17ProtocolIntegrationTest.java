@@ -962,7 +962,8 @@ public class Draft17ProtocolIntegrationTest {
     ByteBuf capsuleBuf = connect.alloc().buffer();
     try {
       WebTransportUtils.writeVarInt(maxDataValueBuf, 5000L);
-      WebTransportUtils.writeVarInt(capsuleBuf, 0x190b4d3dL);
+      WebTransportUtils.writeVarInt(
+          capsuleBuf, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA);
       WebTransportUtils.writeVarInt(capsuleBuf, maxDataValueBuf.readableBytes());
       capsuleBuf.writeBytes(maxDataValueBuf);
     } finally {

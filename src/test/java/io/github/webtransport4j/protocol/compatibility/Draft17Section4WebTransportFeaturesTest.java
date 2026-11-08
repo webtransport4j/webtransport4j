@@ -419,13 +419,18 @@ public class Draft17Section4WebTransportFeaturesTest {
     assertFalse(session.isDraining());
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(
-        mockCtx, new WebTransportCapsule(0L, 0x78aeL, Unpooled.EMPTY_BUFFER));
+        mockCtx,
+        new WebTransportCapsule(
+            0L, WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION, Unpooled.EMPTY_BUFFER));
     assertTrue(session.isDraining());
 
     WebTransportCapsule invalidDrainCapsule =
-        new WebTransportCapsule(0L, 0x78aeL, Unpooled.wrappedBuffer(new byte[] {0x01}));
+        new WebTransportCapsule(
+            0L,
+            WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION,
+            Unpooled.wrappedBuffer(new byte[] {0x01}));
     WebTransportCapsuleHandler.INSTANCE.channelRead(mockCtx, invalidDrainCapsule);
-    verify(mockConnectStream).shutdown(eq(0x010e), any());
+    verify(mockConnectStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
   }
 
   @Test

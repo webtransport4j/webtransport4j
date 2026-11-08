@@ -88,7 +88,9 @@ public class StreamsBlockedCapsuleTest {
     // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 10
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 10);
-    WebTransportCapsule capsule = new WebTransportCapsule(100L, 0x190B4D43L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            100L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -166,7 +168,9 @@ public class StreamsBlockedCapsuleTest {
     // Construct WT_STREAMS_BLOCKED capsule (UNI = 0x190B4D44L) with maxStreams = 20
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 20);
-    WebTransportCapsule capsule = new WebTransportCapsule(200L, 0x190B4D44L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -237,7 +241,9 @@ public class StreamsBlockedCapsuleTest {
     // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 2
     ByteBuf payload = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload, 2);
-    WebTransportCapsule capsule = new WebTransportCapsule(300L, 0x190B4D43L, payload);
+    WebTransportCapsule capsule =
+        new WebTransportCapsule(
+            300L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
@@ -310,7 +316,9 @@ public class StreamsBlockedCapsuleTest {
     // Construct WT_STREAMS_BLOCKED at 10
     ByteBuf payload1 = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload1, 10);
-    WebTransportCapsule capsule1 = new WebTransportCapsule(400L, 0x190B4D43L, payload1);
+    WebTransportCapsule capsule1 =
+        new WebTransportCapsule(
+            400L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload1);
 
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule1);
@@ -327,7 +335,9 @@ public class StreamsBlockedCapsuleTest {
     // Construct WT_STREAMS_BLOCKED at 13
     ByteBuf payload2 = Unpooled.buffer();
     WebTransportUtils.writeVarInt(payload2, 13);
-    WebTransportCapsule capsule2 = new WebTransportCapsule(400L, 0x190B4D43L, payload2);
+    WebTransportCapsule capsule2 =
+        new WebTransportCapsule(
+            400L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload2);
 
     dispatcher.channelRead(mockCtx, capsule2);
 
@@ -503,7 +513,9 @@ public class StreamsBlockedCapsuleTest {
       // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 20
       ByteBuf payload = Unpooled.buffer();
       WebTransportUtils.writeVarInt(payload, 20);
-      WebTransportCapsule capsule = new WebTransportCapsule(200L, 0x190B4D43L, payload);
+      WebTransportCapsule capsule =
+          new WebTransportCapsule(
+              200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
 
       WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
       dispatcher.channelRead(mockCtx, capsule);

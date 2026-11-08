@@ -463,7 +463,7 @@ public class WebTransportIntegrationTest {
                                                 session
                                                     .getConnectStream()
                                                     .shutdown(
-                                                        0x010e,
+                                                        WebTransportProtocolSpec.H3_MESSAGE_ERROR,
                                                         session.getConnectStream().newPromise());
                                               }
                                             }
@@ -1466,7 +1466,8 @@ public class WebTransportIntegrationTest {
     assertNotNull(caughtException[0]);
     assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException but got: " + caughtException[0].getClass().getName());
     assertEquals(
-        0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
+        (long) WebTransportProtocolSpec.H3_MESSAGE_ERROR,
+        ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
     quicClient.close().sync();
   }
@@ -3192,7 +3193,8 @@ public class WebTransportIntegrationTest {
     assertTrue(caughtException[0] instanceof QuicStreamResetException, "Expected QuicStreamResetException");
     // H3_MESSAGE_ERROR is 0x010e (270)
     assertEquals(
-        0x010eL, ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
+        (long) WebTransportProtocolSpec.H3_MESSAGE_ERROR,
+        ((QuicStreamResetException) caughtException[0]).applicationProtocolCode());
 
     quicClient.close().sync();
   }

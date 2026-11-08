@@ -71,7 +71,8 @@ public class WebTransportCapsuleDecoderTest {
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(100L);
 
     ByteBuf input = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(input, 0x2843); // CLOSE_WEBTRANSPORT_SESSION
+    WebTransportUtils.writeVarInt(
+        input, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION); // CLOSE_WEBTRANSPORT_SESSION
     WebTransportUtils.writeVarInt(input, 200); // 200 > 128 limit
     input.writeZero(200);
 
@@ -102,7 +103,8 @@ public class WebTransportCapsuleDecoderTest {
     quicAttrMap.attr(WebTransportAttributeKeys.WT_SESSION_MGR).set(sessionManager);
 
     ByteBuf input = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(input, 0x2843);
+    WebTransportUtils.writeVarInt(
+        input, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
     WebTransportUtils.writeVarInt(input, 65537); // Exceeds 1024 limit
 
     List<Object> out = new ArrayList<>();
@@ -111,7 +113,7 @@ public class WebTransportCapsuleDecoderTest {
 
     // Verify unregistration and stream reset with 0x010e (H3_MESSAGE_ERROR)
     verify(sessionManager).unregister(mockStream);
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
     assertTrue(out.isEmpty(), "Out list should be empty");
     input.release();
   }

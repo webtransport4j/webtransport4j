@@ -44,21 +44,23 @@ public class WebTransportUtils {
   private static final Logger logger = LoggerFactory.getLogger(WebTransportUtils.class);
 
   // WebTransport Unidirectional ID
-  public static final long UNI_STREAM_TYPE = 0x54;
+  public static final long UNI_STREAM_TYPE = WebTransportProtocolSpec.WT_STREAM_TYPE_UNI;
 
   // WebTransport Bidirectional
-  public static final long BI_STREAM_TYPE = 0x41;
+  public static final long BI_STREAM_TYPE = WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI;
 
   // WebTransport HTTP/3 Error Codes (Section 9.5 of draft-16 / RFC 9297 spec)
-  public static final int WT_BUFFERED_STREAM_REJECTED = 0x3994bd84;
+  public static final int WT_BUFFERED_STREAM_REJECTED =
+      WebTransportProtocolSpec.WT_BUFFERED_STREAM_REJECTED;
 
-  public static final int WT_SESSION_GONE = 0x170d7b68;
+  public static final int WT_SESSION_GONE = WebTransportProtocolSpec.WT_SESSION_GONE;
 
-  public static final int WT_FLOW_CONTROL_ERROR = 0x045d4487;
+  public static final int WT_FLOW_CONTROL_ERROR = WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR;
 
-  public static final int WT_ALPN_ERROR = 0x0817b3dd;
+  public static final int WT_ALPN_ERROR = WebTransportProtocolSpec.WT_ALPN_ERROR;
 
-  public static final int WT_REQUIREMENTS_NOT_MET = 0x212c0d48;
+  public static final int WT_REQUIREMENTS_NOT_MET =
+      WebTransportProtocolSpec.WT_REQUIREMENTS_NOT_MET;
 
   /**
    * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream as
@@ -300,7 +302,7 @@ public class WebTransportUtils {
   public static void writeVarInt(@NonNull ByteBuf out, long value) {
     // QUIC VarInts are limited to 62 bits (max roughly 4.6 quintillion)
     // 0x3FFFFFFFFFFFFFFF is the max valid value (2^62 - 1)
-    if (value < 0 || value > 0x3FFFFFFFFFFFFFFFL) {
+    if (value < 0 || value > WebTransportProtocolSpec.MAX_QUIC_VAR_INT) {
       throw new IllegalArgumentException("Invalid QUIC VarInt: " + value);
     }
     // "LZCNT" calculation - extremely fast on modern CPUs
@@ -323,7 +325,7 @@ public class WebTransportUtils {
 
   /** Returns the number of bytes needed to encode the given value as a VarInt. */
   public static int varIntLength(long value) {
-    if (value < 0 || value > 0x3FFFFFFFFFFFFFFFL) {
+    if (value < 0 || value > WebTransportProtocolSpec.MAX_QUIC_VAR_INT) {
       throw new IllegalArgumentException("Invalid QUIC VarInt: " + value);
     }
     int requiredBits = 64 - Long.numberOfLeadingZeros(value);
@@ -451,28 +453,36 @@ public class WebTransportUtils {
 
   public static void sendMaxStreamsCapsule(
       @NonNull QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-    long capsuleType = isBidi ? 0x190B4D3FL : 0x190B4D40L;
+    long capsuleType =
+        isBidi
+            ? WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI
+            : WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI;
     sendCapsule(connectStream, capsuleType, maxStreams, "WT_MAX_STREAMS");
   }
 
   public static void sendMaxDataCapsule(@NonNull QuicStreamChannel connectStream, long maxData) {
-    sendCapsule(connectStream, 0x190B4D3DL, maxData, "WT_MAX_DATA");
+    sendCapsule(
+        connectStream, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA, maxData, "WT_MAX_DATA");
   }
 
   public static void sendDataBlockedCapsule(
       @NonNull QuicStreamChannel connectStream, long maxData) {
-    sendCapsule(connectStream, 0x190B4D41L, maxData, "WT_DATA_BLOCKED");
+    sendCapsule(
+        connectStream, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED, maxData, "WT_DATA_BLOCKED");
   }
 
   public static void sendStreamsBlockedCapsule(
       @NonNull QuicStreamChannel connectStream, boolean isBidi, long maxStreams) {
-    long capsuleType = isBidi ? 0x190B4D43L : 0x190B4D44L;
+    long capsuleType =
+        isBidi
+            ? WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI
+            : WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI;
     sendCapsule(connectStream, capsuleType, maxStreams, "WT_STREAMS_BLOCKED");
   }
 
-  public static final long WT_ERROR_FIRST = 0x52e4a40fa8dbL;
+  public static final long WT_ERROR_FIRST = WebTransportProtocolSpec.WT_APPLICATION_ERROR_FIRST;
 
-  public static final long WT_ERROR_LAST = 0x52e5ac983162L;
+  public static final long WT_ERROR_LAST = WebTransportProtocolSpec.WT_APPLICATION_ERROR_LAST;
 
   /**
    * Maps a 32-bit unsigned WebTransport application error code to a 62-bit HTTP/3 error code as per

@@ -241,7 +241,7 @@ public class Draft17Section3SessionEstablishmentTest {
     assertFalse(
         parentAttrMap.attr(WebTransportAttributeKeys.PEER_SETTINGS_VALID).get(),
         "Peer settings must be marked invalid when datagrams are disabled");
-    verify(mockConnectStream).shutdown(eq(0x010e), any());
+    verify(mockConnectStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
   }
 
   @Test

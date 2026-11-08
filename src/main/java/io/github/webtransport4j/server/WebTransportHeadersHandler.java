@@ -40,10 +40,11 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
 
   public static final WebTransportHeadersHandler INSTANCE = new WebTransportHeadersHandler();
 
-  public static final String UPGRADE_TOKEN_H3 = "webtransport-h3";
-  public static final String UPGRADE_TOKEN_LEGACY = "webtransport";
-  public static final String HEADER_WT_AVAILABLE_PROTOCOLS = "wt-available-protocols";
-  public static final String HEADER_WT_PROTOCOL = "wt-protocol";
+  public static final String UPGRADE_TOKEN_H3 = WebTransportProtocolSpec.UPGRADE_TOKEN_H3;
+  public static final String UPGRADE_TOKEN_LEGACY = WebTransportProtocolSpec.UPGRADE_TOKEN_LEGACY;
+  public static final String HEADER_WT_AVAILABLE_PROTOCOLS =
+      WebTransportProtocolSpec.HEADER_WT_AVAILABLE_PROTOCOLS;
+  public static final String HEADER_WT_PROTOCOL = WebTransportProtocolSpec.HEADER_WT_PROTOCOL;
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportHeadersHandler.class);
 
@@ -137,7 +138,8 @@ public class WebTransportHeadersHandler extends Http3RequestStreamInboundHandler
               "❌ WebTransport peer settings are invalid: Client does not support H3 Datagrams."
                   + " Treating incoming session CONNECT stream as malformed and resetting with"
                   + " H3_MESSAGE_ERROR (0x010e).");
-          connectStream.shutdown(0x010e, connectStream.newPromise());
+          connectStream.shutdown(
+              WebTransportProtocolSpec.H3_MESSAGE_ERROR, connectStream.newPromise());
           return;
         }
         long sessionId = connectStream.streamId();

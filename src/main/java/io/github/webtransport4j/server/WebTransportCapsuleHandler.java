@@ -35,7 +35,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           Long.toHexString(capsule.capsuleType()),
           capsule.sessionId());
     }
-    if (capsule.capsuleType() == 0x2843L) {
+    if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION) {
       ByteBuf content = capsule.content();
       if (content.readableBytes() < 4) {
         logger.warn(
@@ -47,7 +47,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       }
       long errorCode = content.readUnsignedInt();
       int messageLen = content.readableBytes();
-      if (messageLen > 1024) {
+      if (messageLen > WebTransportProtocolSpec.MAX_CLOSE_REASON_PHRASE_BYTES) {
         logger.warn(
             "❌ CLOSE_WEBTRANSPORT_SESSION message exceeds 1024 bytes ({} bytes)."
                 + " Resetting connect stream with H3_MESSAGE_ERROR.",
@@ -136,9 +136,10 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             *
             * <p>Initial values for these limits MAY be communicated by sending non-zero values for
             * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI and SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI.
-            */ if (capsule.capsuleType() == 0x190B4D3FL
-        || capsule.capsuleType() == 0x190B4D40L) {
-      boolean isBidi = (capsule.capsuleType() == 0x190B4D3FL);
+            */ if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI
+        || capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI) {
+      boolean isBidi =
+          (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI);
       ByteBuf content = capsule.content();
       long maxStreams = WebTransportUtils.readVariableLengthInt(content);
       if (maxStreams != -1) {
@@ -148,7 +149,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
         NettyWebTransportSession session = (mgr != null) ? mgr.get(capsule.sessionId()) : null;
 
         // RFC: "This value cannot exceed 2^60"
-        if (maxStreams > (1L << 60)) {
+        if (maxStreams > WebTransportProtocolSpec.MAX_WT_STREAMS_LIMIT) {
           logger.warn(
               "Received WT_MAX_STREAMS exceeding 2^60 limit. Closing session with WT_FLOW_CONTROL_ERROR.");
           if (mgr != null && session != null) {
@@ -240,7 +241,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             *
             * <p>The initial value for this limit MAY be communicated by sending a non-zero value for
             * SETTINGS_WT_INITIAL_MAX_DATA.
-            */ if (capsule.capsuleType() == 0x190B4D3DL) {
+            */ if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA) {
       ByteBuf content = capsule.content();
       long maxData = WebTransportUtils.readVariableLengthInt(content);
       if (maxData != -1) {
@@ -287,7 +288,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             * described in Section 3.2 of [HTTP-DATAGRAM]. Intermediaries MUST consume WT_DATA_BLOCKED
             * capsules for flow control purposes and MUST generate and send appropriate flow control
             * signals for their limits (see Section 5.6.1).
-            */ if (capsule.capsuleType() == 0x190B4D41L) {
+            */ if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED) {
       ByteBuf content = capsule.content();
       long maxData = WebTransportUtils.readVariableLengthInt(content);
       if (maxData != -1) {
@@ -304,12 +305,13 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               }
               long extendAmount =
                   policy.onRequestDataCredit(
-                      session, maxData, session.getCumulativeBytesReceived());
+                       session, maxData, session.getCumulativeBytesReceived());
               long currentSettingsMaxData = session.getSettingsMaxData();
               if (extendAmount > 0) {
                 long newLimit = currentSettingsMaxData + extendAmount;
-                if (newLimit > 0x3FFFFFFFFFFFFFFFL || newLimit < currentSettingsMaxData) {
-                  newLimit = 0x3FFFFFFFFFFFFFFFL;
+                if (newLimit > WebTransportProtocolSpec.MAX_QUIC_VAR_INT
+                    || newLimit < currentSettingsMaxData) {
+                  newLimit = WebTransportProtocolSpec.MAX_QUIC_VAR_INT;
                 }
                 if (newLimit > currentSettingsMaxData) {
                   session.setSettingsMaxData(newLimit);
@@ -340,9 +342,10 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
             * with a type of 0x190B4D43 is used to indicate reaching the bidirectional stream limit, and a
             * WT_STREAMS_BLOCKED capsule with a type of 0x190B4D44 is used to indicate reaching the
             * unidirectional stream limit.
-            */ if (capsule.capsuleType() == 0x190B4D43L
-        || capsule.capsuleType() == 0x190B4D44L) {
-      boolean isBidi = (capsule.capsuleType() == 0x190B4D43L);
+            */ if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI
+        || capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI) {
+      boolean isBidi =
+          (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI);
       ByteBuf content = capsule.content();
       long blockedAtMax = WebTransportUtils.readVariableLengthInt(content);
       if (blockedAtMax != -1) {
@@ -372,7 +375,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               long newLimit =
                   Math.min(
                       policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount),
-                      0x3FFFFFFFFFFFFFFFL);
+                      WebTransportProtocolSpec.MAX_QUIC_VAR_INT);
               if (currentLimit > maxAbsolute) {
                 long clamped = Math.min(newLimit > 0 ? newLimit : maxAbsolute, maxAbsolute);
                 if (isBidi) {
@@ -412,7 +415,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           }
         }
       }
-    } else if (capsule.capsuleType() == 0x78aeL) {
+    } else if (capsule.capsuleType()
+        == WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION) {
       ByteBuf content = capsule.content();
       if (content != null && content.isReadable()) {
         logger.warn(
@@ -435,7 +439,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           }
         }
       }
-    } else if (capsule.capsuleType() == 0x190b4d3eL || capsule.capsuleType() == 0x190b4d42L) {
+    } else if (capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAM_DATA
+        || capsule.capsuleType() == WebTransportProtocolSpec.CAPSULE_WT_STREAM_DATA_BLOCKED) {
       logger.warn(
           "❌ Prohibited capsule 0x{} received on CONNECT stream."
               + " Resetting session with WT_FLOW_CONTROL_ERROR.",
@@ -449,7 +454,9 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
       }
       if (ctx.channel() instanceof QuicStreamChannel) {
         ((QuicStreamChannel) ctx.channel())
-            .shutdown(0x045d4487, ((QuicStreamChannel) ctx.channel()).newPromise());
+            .shutdown(
+                WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR,
+                ((QuicStreamChannel) ctx.channel()).newPromise());
       } else {
         ctx.close();
       }
@@ -469,7 +476,8 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
           mgr.unregister(streamChannel);
         }
       }
-      streamChannel.shutdown(0x010e, streamChannel.newPromise());
+      streamChannel.shutdown(
+          WebTransportProtocolSpec.H3_MESSAGE_ERROR, streamChannel.newPromise());
     } else {
       ctx.close();
     }

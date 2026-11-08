@@ -94,7 +94,11 @@ public class Http3InboundControlStreamHandler
               logger.warn(
                   "Resetting established session ID {} with H3_MESSAGE_ERROR",
                   session.getSessionStreamId());
-              session.getConnectStream().shutdown(0x010e, session.getConnectStream().newPromise());
+              session
+                  .getConnectStream()
+                  .shutdown(
+                      WebTransportProtocolSpec.H3_MESSAGE_ERROR,
+                      session.getConnectStream().newPromise());
             }
           }
         }

@@ -12,6 +12,7 @@ import io.github.webtransport4j.server.WebTransportAttributeKeys;
 import io.github.webtransport4j.server.WebTransportCapsule;
 import io.github.webtransport4j.server.WebTransportCapsuleDecoder;
 import io.github.webtransport4j.server.WebTransportCapsuleHandler;
+import io.github.webtransport4j.server.WebTransportProtocolSpec;
 import io.github.webtransport4j.server.WebTransportUtils;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -35,7 +36,7 @@ public class Draft17Section6SessionTerminationTest {
     channel.attr(WebTransportAttributeKeys.SESSION_ID_KEY).set(4L);
 
     ByteBuf in = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(in, 0x2843L);
+    WebTransportUtils.writeVarInt(in, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
     byte[] msgBytes = "Normal Close".getBytes(StandardCharsets.UTF_8);
     WebTransportUtils.writeVarInt(in, 4 + msgBytes.length);
     in.writeInt(0);
@@ -45,7 +46,7 @@ public class Draft17Section6SessionTerminationTest {
 
     WebTransportCapsule capsule = channel.readInbound();
     assertNotNull(capsule);
-    assertEquals(0x2843L, capsule.capsuleType());
+    assertEquals(WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, capsule.capsuleType());
     assertEquals(4L, capsule.sessionId());
     capsule.content().release();
     channel.finishAndReleaseAll();
@@ -69,9 +70,11 @@ public class Draft17Section6SessionTerminationTest {
     payload.writeZero(1025);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(
-        mockCtx, new WebTransportCapsule(0L, 0x2843L, payload));
+        mockCtx,
+        new WebTransportCapsule(
+            0L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload));
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
   }
 
   @Test
@@ -92,9 +95,11 @@ public class Draft17Section6SessionTerminationTest {
     payload.writeByte(0xFE);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(
-        mockCtx, new WebTransportCapsule(0L, 0x2843L, payload));
+        mockCtx,
+        new WebTransportCapsule(
+            0L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload));
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
   }
 
   @Test
@@ -113,9 +118,11 @@ public class Draft17Section6SessionTerminationTest {
     payload.writeShort(0);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(
-        mockCtx, new WebTransportCapsule(0L, 0x2843L, payload));
+        mockCtx,
+        new WebTransportCapsule(
+            0L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload));
 
-    verify(mockStream).shutdown(eq(0x010e), any());
+    verify(mockStream).shutdown(eq(WebTransportProtocolSpec.H3_MESSAGE_ERROR), any());
   }
 
   @Test
@@ -128,14 +135,17 @@ public class Draft17Section6SessionTerminationTest {
     payload.writeInt(0);
 
     WebTransportCapsuleHandler.INSTANCE.channelRead(
-        mockCtx, new WebTransportCapsule(0L, 0x2843L, payload));
+        mockCtx,
+        new WebTransportCapsule(
+            0L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload));
 
     verify(mockCtx).close();
   }
 
   @Test
   public void testSection6_2_ImmediateClosureSessionGoneCodepoint() {
-    assertEquals(0x170d7b68L, WebTransportUtils.WT_SESSION_GONE & 0xFFFFFFFFL);
+    assertEquals(
+        0x170d7b68L, WebTransportProtocolSpec.WT_SESSION_GONE & 0xFFFFFFFFL);
   }
 }
 

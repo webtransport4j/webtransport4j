@@ -18,7 +18,8 @@ public class Draft17Section9IanaAndCodepointsTest {
 
   @Test
   public void testSection9_1_UpgradeTokenRegistration() {
-    assertEquals("webtransport-h3", WebTransportHeadersHandler.UPGRADE_TOKEN_H3);
+    assertEquals("webtransport-h3", WebTransportProtocolSpec.UPGRADE_TOKEN_H3);
+    assertEquals(WebTransportProtocolSpec.UPGRADE_TOKEN_H3, WebTransportHeadersHandler.UPGRADE_TOKEN_H3);
   }
 
   @Test
@@ -34,25 +35,35 @@ public class Draft17Section9IanaAndCodepointsTest {
 
   @Test
   public void testSection9_3_And_9_4_FrameAndStreamTypeRegistrations() {
-    assertEquals(0x41L, WebTransportUtils.BI_STREAM_TYPE, "WT_STREAM frame type MUST be 0x41");
     assertEquals(
-        0x54L, WebTransportUtils.UNI_STREAM_TYPE, "WebTransport unidirectional stream MUST be 0x54");
+        0x41L, WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI, "WT_STREAM frame type MUST be 0x41");
+    assertEquals(
+        0x54L,
+        WebTransportProtocolSpec.WT_STREAM_TYPE_UNI,
+        "WebTransport unidirectional stream MUST be 0x54");
+    assertEquals(WebTransportProtocolSpec.WT_STREAM_TYPE_BIDI, WebTransportUtils.BI_STREAM_TYPE);
+    assertEquals(WebTransportProtocolSpec.WT_STREAM_TYPE_UNI, WebTransportUtils.UNI_STREAM_TYPE);
     assertEquals(0x00L, WebTransportProtocolSpec.H3_STREAM_TYPE_CONTROL);
     assertEquals(0x01L, WebTransportProtocolSpec.H3_STREAM_TYPE_PUSH);
   }
 
   @Test
   public void testSection9_5_Http3ErrorCodesAndApplicationErrorRange() {
-    assertEquals(0x3994bd84, WebTransportUtils.WT_BUFFERED_STREAM_REJECTED);
-    assertEquals(0x170d7b68, WebTransportUtils.WT_SESSION_GONE);
-    assertEquals(0x045d4487, WebTransportUtils.WT_FLOW_CONTROL_ERROR);
-    assertEquals(0x0817b3dd, WebTransportUtils.WT_ALPN_ERROR);
-    assertEquals(0x212c0d48, WebTransportUtils.WT_REQUIREMENTS_NOT_MET);
+    assertEquals(0x3994bd84, WebTransportProtocolSpec.WT_BUFFERED_STREAM_REJECTED);
+    assertEquals(0x170d7b68, WebTransportProtocolSpec.WT_SESSION_GONE);
+    assertEquals(0x045d4487, WebTransportProtocolSpec.WT_FLOW_CONTROL_ERROR);
+    assertEquals(0x0817b3dd, WebTransportProtocolSpec.WT_ALPN_ERROR);
+    assertEquals(0x212c0d48, WebTransportProtocolSpec.WT_REQUIREMENTS_NOT_MET);
     assertEquals(0x0105, WebTransportProtocolSpec.H3_FRAME_UNEXPECTED);
     assertEquals(0x0109, WebTransportProtocolSpec.H3_SETTINGS_ERROR);
+    assertEquals(0x010e, WebTransportProtocolSpec.H3_MESSAGE_ERROR);
 
-    assertEquals(0x52e4a40fa8dbL, WebTransportUtils.WT_ERROR_FIRST);
-    assertEquals(0x52e5ac983162L, WebTransportUtils.WT_ERROR_LAST);
+    assertEquals(0x52e4a40fa8dbL, WebTransportProtocolSpec.WT_APPLICATION_ERROR_FIRST);
+    assertEquals(0x52e5ac983162L, WebTransportProtocolSpec.WT_APPLICATION_ERROR_LAST);
+    assertEquals(
+        WebTransportProtocolSpec.WT_APPLICATION_ERROR_FIRST, WebTransportUtils.WT_ERROR_FIRST);
+    assertEquals(
+        WebTransportProtocolSpec.WT_APPLICATION_ERROR_LAST, WebTransportUtils.WT_ERROR_LAST);
 
     // Endpoint boundaries of WT_APPLICATION_ERROR (0x00000000 .. 0xffffffff)
     assertEquals(WebTransportUtils.WT_ERROR_FIRST, WebTransportUtils.webTransportCodeToHttpCode(0L));
@@ -79,28 +90,47 @@ public class Draft17Section9IanaAndCodepointsTest {
 
   @Test
   public void testSection9_6_And_9_7_HeaderFieldsAndCapsuleTypes() {
-    assertEquals("wt-available-protocols", WebTransportHeadersHandler.HEADER_WT_AVAILABLE_PROTOCOLS);
-    assertEquals("wt-protocol", WebTransportHeadersHandler.HEADER_WT_PROTOCOL);
+    assertEquals(
+        "wt-available-protocols", WebTransportProtocolSpec.HEADER_WT_AVAILABLE_PROTOCOLS);
+    assertEquals("wt-protocol", WebTransportProtocolSpec.HEADER_WT_PROTOCOL);
+    assertEquals(
+        WebTransportProtocolSpec.HEADER_WT_AVAILABLE_PROTOCOLS,
+        WebTransportHeadersHandler.HEADER_WT_AVAILABLE_PROTOCOLS);
+    assertEquals(
+        WebTransportProtocolSpec.HEADER_WT_PROTOCOL, WebTransportHeadersHandler.HEADER_WT_PROTOCOL);
 
     // Verify Section 9.7 capsule type codepoints match Draft-17 / draft-ietf-webtrans-overview
-    long closeWebTransportSession = 0x2843L;
-    long drainWebTransportSession = 0x78aeL;
-    final long wtMaxData = 0x190b4d3dL;
-    final long wtMaxStreamData = 0x190b4d3eL;
-    final long wtMaxStreamsBidi = 0x190b4d3fL;
-    final long wtMaxStreamsUni = 0x190b4d40L;
-    final long wtDataBlocked = 0x190b4d41L;
-    final long wtStreamDataBlocked = 0x190b4d42L;
-    final long wtStreamsBlockedBidi = 0x190b4d43L;
-    final long wtStreamsBlockedUni = 0x190b4d44L;
+    assertEquals(0x2843L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION);
+    assertEquals(0x78aeL, WebTransportProtocolSpec.CAPSULE_DRAIN_WEBTRANSPORT_SESSION);
+    assertEquals(0x190b4d3dL, WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA);
+    assertEquals(0x190b4d3eL, WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAM_DATA);
+    assertEquals(0x190b4d3fL, WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI);
+    assertEquals(0x190b4d40L, WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI);
+    assertEquals(0x190b4d41L, WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED);
+    assertEquals(0x190b4d42L, WebTransportProtocolSpec.CAPSULE_WT_STREAM_DATA_BLOCKED);
+    assertEquals(0x190b4d43L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI);
+    assertEquals(0x190b4d44L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI);
 
-    assertTrue(closeWebTransportSession == 0x2843L && drainWebTransportSession == 0x78aeL);
-    assertEquals(wtMaxData + 1L, wtMaxStreamData);
-    assertEquals(wtMaxStreamData + 1L, wtMaxStreamsBidi);
-    assertEquals(wtMaxStreamsBidi + 1L, wtMaxStreamsUni);
-    assertEquals(wtMaxStreamsUni + 1L, wtDataBlocked);
-    assertEquals(wtDataBlocked + 1L, wtStreamDataBlocked);
-    assertEquals(wtStreamDataBlocked + 1L, wtStreamsBlockedBidi);
-    assertEquals(wtStreamsBlockedBidi + 1L, wtStreamsBlockedUni);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_DATA + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAM_DATA);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAM_DATA + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_BIDI + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_MAX_STREAMS_UNI + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_DATA_BLOCKED + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_STREAM_DATA_BLOCKED);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_STREAM_DATA_BLOCKED + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI);
+    assertEquals(
+        WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI + 1L,
+        WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI);
   }
 }

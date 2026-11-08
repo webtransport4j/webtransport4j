@@ -81,7 +81,8 @@ public final class WebTransportCapsuleDecoder extends ByteToMessageDecoder {
               mgr.unregister(streamChannel);
             }
           }
-          streamChannel.shutdown(0x010e, streamChannel.newPromise());
+          streamChannel.shutdown(
+              WebTransportProtocolSpec.H3_MESSAGE_ERROR, streamChannel.newPromise());
         } else {
           ctx.close();
         }
