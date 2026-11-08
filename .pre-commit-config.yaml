@@ -55,6 +55,14 @@ repos:
         pass_filenames: false
         files: '(\.java$|pom\.xml$)'
 
+      # Automated Test Execution Gate
+      - id: maven-test
+        name: Maven Automated Tests
+        entry: mvn --batch-mode test -Dsurefire.classesDirectory=target/classes -Dwebtransport4j.test.skip.timeout=true -Dwebtransport4j.stress.duration.seconds=3
+        language: system
+        pass_filenames: false
+        files: '(\.java$|pom\.xml$)'
+
       # Same static audit, negative controls, and runtime probes as CI.
       - id: eventloop-safety
         name: Event-loop lock safety
