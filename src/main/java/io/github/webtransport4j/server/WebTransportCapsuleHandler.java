@@ -375,7 +375,7 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
               long newLimit =
                   Math.min(
                       policy.onRequestStreamCredit(session, isBidi, blockedAtMax, activeCount),
-                      WebTransportProtocolSpec.MAX_QUIC_VAR_INT);
+                      WebTransportProtocolSpec.MAX_WT_STREAMS_LIMIT);
               if (currentLimit > maxAbsolute) {
                 long clamped = Math.min(newLimit > 0 ? newLimit : maxAbsolute, maxAbsolute);
                 if (isBidi) {

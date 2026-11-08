@@ -527,4 +527,77 @@ public class StreamsBlockedCapsuleTest {
       WebTransportConfig.reload();
     }
   }
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testStreamCreditCannotExceedProtocolLimit() throws Exception {
+    ChannelHandlerContext mockCtx = mock(ChannelHandlerContext.class);
+    QuicStreamChannel mockStream = mock(QuicStreamChannel.class);
+    QuicChannel mockParent = mock(QuicChannel.class);
+
+    when(mockCtx.channel()).thenReturn(mockStream);
+    when(mockStream.parent()).thenReturn(mockParent);
+    when(mockStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+
+    WebTransportSessionManager mgr = new WebTransportSessionManager();
+    Attribute<WebTransportSessionManager> mgrAttr = mock(Attribute.class);
+    when(mgrAttr.get()).thenReturn(mgr);
+    when(mockParent.attr(WebTransportAttributeKeys.WT_SESSION_MGR)).thenReturn(mgrAttr);
+
+    QuicStreamChannel mockConnectStream = mock(QuicStreamChannel.class);
+    when(mockConnectStream.writeAndFlush(any()))
+        .thenAnswer(
+            invocation -> {
+              Object msg = invocation.getArgument(0);
+              ReferenceCountUtil.release(msg);
+              return null;
+            });
+
+    when(mockConnectStream.streamId()).thenReturn(200L);
+    when(mockConnectStream.parent()).thenReturn(mockParent);
+    when(mockConnectStream.alloc()).thenReturn(UnpooledByteBufAllocator.DEFAULT);
+    when(mockConnectStream.isOpen()).thenReturn(true);
+    when(mockConnectStream.attr(WebTransportAttributeKeys.SESSION_ID_KEY))
+        .thenReturn(mock(Attribute.class));
+
+    Attribute<Long> limitAttr = mock(Attribute.class);
+    when(limitAttr.get()).thenReturn(100L);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_BIDI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_STREAMS_UNI))
+        .thenReturn(limitAttr);
+    when(mockParent.attr(WebTransportAttributeKeys.LOCAL_SETTINGS_MAX_DATA)).thenReturn(limitAttr);
+
+    mgr.register(mockConnectStream);
+
+    NettyWebTransportSession session = mgr.get(200L);
+    assertNotNull(session);
+
+    // Set absolute max streams properties programmatically
+    System.setProperty("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi", Long.toString(Long.MAX_VALUE));
+    try {
+      io.github.webtransport4j.api.SessionFlowControlPolicy policy =
+          mock(io.github.webtransport4j.api.SessionFlowControlPolicy.class);
+      when(policy.onRequestStreamCredit(session, true, 20L, 0)).thenReturn(Long.MAX_VALUE);
+      session.setFlowControlPolicy(policy);
+      // Re-load config
+      WebTransportConfig.reload();
+
+      // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 20
+      ByteBuf payload = Unpooled.buffer();
+      WebTransportUtils.writeVarInt(payload, 20);
+      WebTransportCapsule capsule =
+          new WebTransportCapsule(
+              200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
+
+      WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
+      dispatcher.channelRead(mockCtx, capsule);
+
+      // The protocol cap applies even when policy and configuration allow more.
+      assertEquals(WebTransportProtocolSpec.MAX_WT_STREAMS_LIMIT, session.getSettingsMaxStreamsBidi());
+      verify(mockConnectStream).writeAndFlush(any());
+    } finally {
+      System.clearProperty("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi");
+      WebTransportConfig.reload();
+    }
+  }
 }

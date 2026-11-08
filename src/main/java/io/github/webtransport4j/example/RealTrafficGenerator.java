@@ -100,10 +100,25 @@ public final class RealTrafficGenerator {
     }
   }
 
-  /** Establishes a genuine WebTransport session with the specified target server. */
+  /**
+   * Establishes a genuine WebTransport session with the specified target server.
+   *
+   * <p>Set {@code -Dwebtransport4j.traffic.targetDraft=16} for legacy targets. The default
+   * target is Draft-17; drafts 17 and later use the HTTP/3 upgrade token.
+   */
   public static LiveSession connect(final String rawUrl, final String traceparent)
       throws Exception {
     return connect(rawUrl, traceparent, new NioEventLoopGroup(1));
+  }
+
+  static String targetProtocol() {
+    final int draft = Integer.parseInt(System.getProperty("webtransport4j.traffic.targetDraft", "17"));
+    if (draft < 1) {
+      throw new IllegalArgumentException("Target draft must be positive");
+    }
+    return draft >= 17
+        ? WebTransportProtocolSpec.UPGRADE_TOKEN_H3
+        : WebTransportProtocolSpec.UPGRADE_TOKEN_LEGACY;
   }
 
   // Transfers ownership of the client group, including on failed handshakes.
@@ -212,7 +227,7 @@ public final class RealTrafficGenerator {
       headers.scheme("https");
       headers.authority(host + ":" + port);
       headers.path(path);
-      headers.set(":protocol", "webtransport");
+      headers.set(":protocol", targetProtocol());
       if (traceparent != null && !traceparent.isEmpty()) {
         headers.set("traceparent", traceparent);
       }
