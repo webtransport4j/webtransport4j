@@ -1044,8 +1044,8 @@ public class FramingLayerTest {
     // crash.
     int expectedHttpCode = 500;
 
-    // Verify Netty's shutdown was called with the fallback code
-    verify(mockStream).shutdown(eq(expectedHttpCode), eq(mockPromise));
+    // Verify Netty's shutdownOutput was called with the fallback code
+    verify(mockStream).shutdownOutput(eq(expectedHttpCode), eq(mockPromise));
   }
 
   @Test
