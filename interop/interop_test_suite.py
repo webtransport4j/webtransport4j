@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Draft-16 Interoperability Test Suite (Root Forwarder)
+Draft-17 Interoperability Test Suite (Root Forwarder)
 Directs execution to interop/python/interop_test_suite.py
 """
 import os

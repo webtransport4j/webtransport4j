@@ -1,5 +1,5 @@
 """
-Comprehensive IETF WebTransport over HTTP/3 Draft-16 Interop Test Suite
+Comprehensive IETF WebTransport over HTTP/3 Draft-17 Interop Test Suite
 ======================================================================
 Tests both POSITIVE and NEGATIVE test cases across all functional areas
 defined in draft-ietf-webtrans-http3-16:
@@ -70,7 +70,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("WebTransportDraft16Suite")
+logger = logging.getLogger("WebTransportDraft17Suite")
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
   try:
@@ -83,7 +83,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
 test_results: List[Tuple[int, str, str, str, str, str]] = []
 pending_verifications = set()
 
-# Draft-16 Constants
+# Draft-17 Constants
 WT_ERROR_FIRST = 0x52E4A40FA8DB
 WT_ERROR_LAST = 0x52E5AC983162
 WT_DRAIN_SESSION_TYPE = 0x78AE
@@ -709,7 +709,7 @@ async def test_16_wire_stream_reset_positive(
       )
       raw_proto.transmit()
 
-      # Reset stream using Draft-16 mapped HTTP/3 error code
+      # Reset stream using Draft-17 mapped HTTP/3 error code
       mapped_error = webtransport_code_to_http_code(0x1234)
       raw_proto._quic.reset_stream(stream_id, error_code=mapped_error)
       raw_proto.transmit()
@@ -1401,7 +1401,7 @@ async def main():
 
   print("\n" + "=" * 80)
   print(
-      "🚀 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-16 INTEROPERABILITY TEST SUITE 🚀"
+      "🚀 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-17 INTEROPERABILITY TEST SUITE 🚀"
   )
   print("=" * 80 + "\n")
 
@@ -1528,7 +1528,7 @@ async def main():
 
   print("\n" + "=" * 90)
   print(
-      "📋 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-16 INTEROPERABILITY TEST MATRIX"
+      "📋 IETF WEBTRANSPORT OVER HTTP/3 DRAFT-17 INTEROPERABILITY TEST MATRIX"
       " SUMMARY"
   )
   print("=" * 90)
@@ -1555,7 +1555,7 @@ async def main():
     sys.exit(1)
   else:
     logger.info(
-        "🎉 ALL IETF DRAFT-16 POSITIVE AND NEGATIVE TESTS PASSED PERFECTLY! 🎉"
+        "🎉 ALL IETF DRAFT-17 POSITIVE AND NEGATIVE TESTS PASSED PERFECTLY! 🎉"
     )
     sys.exit(0)
 

@@ -598,8 +598,8 @@ The repository includes interoperability tooling under [`interop/`](interop/).
 interop/
 ├── README.md                      # Detailed interop documentation
 ├── run_tests.sh                   # Unified interop test runner
-├── python/                        # Python Draft-16 test suite & clients
-│   ├── interop_test_suite.py      # Full 30-test Draft-16 matrix
+├── python/                        # Python Draft-17 test suite & clients
+│   ├── interop_test_suite.py      # Full 30-test Draft-17 matrix
 │   ├── benchmarks/                # Performance benchmarks
 │   ├── examples/                  # Real-world chat and voice demos
 │   └── diagnostics/               # Diagnostic & stream probe scripts
