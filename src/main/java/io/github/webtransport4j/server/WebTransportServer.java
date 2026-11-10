@@ -944,14 +944,24 @@ public class WebTransportServer implements AutoCloseable {
   /**
    * Programmatically reloads the TLS certificate context using updated PEM files.
    *
+   * <p>Servers configured with a supplied SSL context must instead use
+   * {@link #reloadTlsCertificate(QuicSslContext)} with a fully configured replacement context,
+   * including its client authentication and trust policy.
+   *
    * @param certFile the new certificate chain file
    * @param keyFile the new private key file
+   * @throws IllegalStateException if the server was configured with a supplied SSL context
    * @throws Exception if reading the files or building the QuicSslContext fails
    */
   public void reloadTlsCertificate(@NonNull File certFile, @NonNull File keyFile) throws Exception {
     Objects.requireNonNull(certFile, "certFile");
     Objects.requireNonNull(keyFile, "keyFile");
     EventLoopSafety.requireBlockingAllowed();
+    if (this.sslContext != null) {
+      throw new IllegalStateException(
+          "PEM reload cannot preserve the supplied sslContext's TLS policy; "
+              + "use reloadTlsCertificate(QuicSslContext) with a fully configured replacement");
+    }
     QuicSslContextBuilder sslBuilder = newQuicSslContextBuilder(keyFile, certFile);
     QuicSslContext newContext = sslBuilder.build();
     installReloadedSslContext(newContext);
