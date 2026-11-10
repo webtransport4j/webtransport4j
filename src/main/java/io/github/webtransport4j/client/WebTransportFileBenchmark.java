@@ -23,7 +23,6 @@ import io.netty.handler.codec.quic.QuicSslContext;
 import io.netty.handler.codec.quic.QuicSslContextBuilder;
 import io.netty.handler.codec.quic.QuicStreamChannel;
 import io.netty.handler.codec.quic.QuicStreamType;
-import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.NetUtil;
 import io.netty.util.ReferenceCountUtil;
 import java.io.File;
@@ -36,7 +35,13 @@ import java.util.concurrent.locks.LockSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Aggressive bulk throughput benchmark for WebTransport file transfer. */
+/**
+ * Aggressive bulk throughput benchmark for WebTransport file transfer.
+ *
+ * <p>The server certificate must be trusted and valid for 127.0.0.1. To trust a local server,
+ * set {@code -Dwebtransport4j.benchmark.trustCert=/path/to/trusted-cert.pem} to a PEM trust
+ * certificate collection obtained through a trusted channel. Otherwise system trust is used.
+ */
 public final class WebTransportFileBenchmark {
 
   private static final Logger logger = LoggerFactory.getLogger(WebTransportFileBenchmark.class);
@@ -80,14 +85,12 @@ public final class WebTransportFileBenchmark {
         FileChannel fileChannel = fis.getChannel()) {
 
       QuicSslContext context =
-          QuicSslContextBuilder.forClient()
-              .trustManager(InsecureTrustManagerFactory.INSTANCE)
-              .applicationProtocols(Http3.supportedApplicationProtocols())
-              .build();
+          createSslContext(System.getProperty("webtransport4j.benchmark.trustCert"));
 
       ChannelHandler codec =
           Http3.newQuicClientCodecBuilder()
-              .sslContext(context)
+              .sslEngineProvider(
+                  ch -> context.newEngine(ch.alloc(), NetUtil.LOCALHOST4.getHostAddress(), 4433))
               .maxIdleTimeout(10000, TimeUnit.MILLISECONDS)
               .initialMaxData(Integer.MAX_VALUE)
               .initialMaxStreamDataBidirectionalLocal(Integer.MAX_VALUE)
@@ -171,6 +174,17 @@ public final class WebTransportFileBenchmark {
     } finally {
       group.shutdownGracefully();
     }
+  }
+
+  static QuicSslContext createSslContext(String trustCertPath) {
+    QuicSslContextBuilder builder =
+        QuicSslContextBuilder.forClient()
+            .endpointIdentificationAlgorithm("HTTPS")
+            .applicationProtocols(Http3.supportedApplicationProtocols());
+    if (trustCertPath != null) {
+      builder.trustManager(new File(trustCertPath));
+    }
+    return builder.build();
   }
 
   private static void streamFileWithBackpressure(
