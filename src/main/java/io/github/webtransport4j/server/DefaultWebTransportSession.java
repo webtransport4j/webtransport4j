@@ -1079,18 +1079,13 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       throw new IllegalArgumentException(
           "HTTP/3 error code must be an unsigned 32-bit integer (0 to 4294967295): " + httpErrorCode);
     }
-    int code = (int) httpErrorCode;
-    if (code < 0) {
-      // fallback to safe code to prevent native JVM crash
-      code = 0;
-    }
     if (!CLOSED_HANDLE.compareAndSet(this, 0, 1)) {
       return;
     }
     this.closeCode = httpErrorCode;
     STREAM_EPOCH_HANDLE.incrementAndGet(this);
 
-    final int finalCode = code;
+    final int finalCode = WebTransportUtils.toStreamShutdownCode(httpErrorCode);
     Runnable task =
         () -> {
           cleanupPendingOutboundWrites(

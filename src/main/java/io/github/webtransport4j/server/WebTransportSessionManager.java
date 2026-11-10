@@ -512,12 +512,13 @@ public class WebTransportSessionManager {
       }
     }
 
-    int closeCode = removed.getCloseCode();
+    long closeCode = removed.getCloseCodeAsLong();
+    int shutdownCode = WebTransportUtils.toStreamShutdownCode(closeCode);
     for (QuicStreamChannel activeStream : removed.getAllActiveWebTransportStreams()) {
       try {
         if (closeCode != 0) {
           activeStream
-              .shutdown(closeCode, activeStream.newPromise())
+              .shutdown(shutdownCode, activeStream.newPromise())
               .addListener(f -> activeStream.close());
         } else {
           activeStream.close();

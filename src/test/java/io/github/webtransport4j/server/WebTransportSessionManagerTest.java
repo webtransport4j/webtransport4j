@@ -6,8 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.quic.QuicChannel;
 import io.netty.handler.codec.quic.QuicStreamChannel;
+import io.netty.util.Attribute;
+import io.netty.util.concurrent.ImmediateEventExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +41,54 @@ public class WebTransportSessionManagerTest {
     io.netty.util.Attribute<AtomicInteger> mockAttr = Mockito.mock(io.netty.util.Attribute.class);
     when(mockAttr.get()).thenReturn(globalActiveSessions);
     when(mockQuicChannel.attr(WebTransportAttributeKeys.GLOBAL_SESSION_COUNT)).thenReturn(mockAttr);
+  }
+
+  @Test
+  public void testPeerCloseCodesUseSafeTransportErrorsAndPreserveStatus() throws Exception {
+    long[] codes = {0L, 1L, 0x7FFFFFFFL, 0x80000000L, 0xFFFFFFFFL};
+    for (long code : codes) {
+      QuicStreamChannel connect = Mockito.mock(QuicStreamChannel.class);
+      when(connect.streamId()).thenReturn(4L);
+      when(connect.parent()).thenReturn(mockQuicChannel);
+      Attribute<WebTransportSessionManager> managerAttr =
+          Mockito.mock(io.netty.util.Attribute.class);
+      when(managerAttr.get()).thenReturn(sessionManager);
+      when(mockQuicChannel.attr(WebTransportAttributeKeys.WT_SESSION_MGR))
+          .thenReturn(managerAttr);
+      sessionManager.register(connect);
+      DefaultWebTransportSession session = (DefaultWebTransportSession) sessionManager.get(4L);
+      QuicStreamChannel active = Mockito.mock(QuicStreamChannel.class);
+      ChannelPromise promise =
+          new DefaultChannelPromise(active, ImmediateEventExecutor.INSTANCE);
+      when(active.newPromise()).thenReturn(promise);
+      when(active.shutdown(Mockito.anyInt(), Mockito.any())).thenReturn(promise);
+      session.getActiveClientInitiatedBi().add(active);
+      ChannelHandlerContext ctx = Mockito.mock(ChannelHandlerContext.class);
+      when(ctx.channel()).thenReturn(connect);
+      ByteBuf payload = Unpooled.buffer().writeInt((int) code);
+      try {
+        WebTransportCapsuleHandler.INSTANCE.channelRead0(
+            ctx,
+            new WebTransportCapsule(
+                4L, WebTransportProtocolSpec.CAPSULE_CLOSE_WEBTRANSPORT_SESSION, payload));
+        Mockito.verify(ctx).close();
+        sessionManager.unregister(connect);
+        if (code == 0) {
+          Mockito.verify(active).close();
+          Mockito.verify(active, Mockito.never()).shutdown(Mockito.anyInt(), Mockito.any());
+        } else {
+          Mockito.verify(active).shutdown(code > Integer.MAX_VALUE ? 0 : (int) code, promise);
+          promise.setSuccess();
+          Mockito.verify(active).close();
+        }
+        assertEquals(code, session.getCloseCodeAsLong());
+        assertEquals((int) code, session.getCloseCode());
+        assertEquals(0, sessionManager.sessionsSize());
+        assertEquals(0, globalActiveSessions.get());
+      } finally {
+        payload.release();
+      }
+    }
   }
 
   @Test
