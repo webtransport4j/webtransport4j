@@ -1427,35 +1427,48 @@ class EnterpriseObservabilityHandler(http.server.SimpleHTTPRequestHandler):
         """Proxies Jolokia / Hawtio REST requests to target cluster node across multi-host topologies"""
         parsed = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed.query)
-        target_node = None
-        target_port = 8081
-        target_host = CLUSTER_HOST
+        # Discovery supplies names and health, but only configuration supplies origins.
+        nodes = list(CLUSTER_NODES)
+        target = None
+
+        def configured_target(node):
+            for candidate in CLUSTER_TARGETS:
+                if node.get("baseUrl") == candidate["baseUrl"] or (
+                    not node.get("baseUrl")
+                    and node.get("host") == candidate["host"]
+                    and node.get("healthPort") == candidate["healthPort"]
+                ):
+                    return candidate
+            return None
 
         if "node" in qs:
             node_id = qs["node"][0]
-            for n in CLUSTER_NODES:
-                if n.get("id") == node_id or n.get("name") == node_id:
-                    target_node = n
+            for node in nodes:
+                if node.get("id") == node_id or node.get("name") == node_id:
+                    target = configured_target(node)
                     break
-        if not target_node and "port" in qs and qs["port"][0].isdigit():
-            port_num = int(qs["port"][0])
-            for n in CLUSTER_NODES:
-                if n.get("healthPort") == port_num:
-                    target_node = n
+        if target is None and "port" in qs:
+            port = qs["port"][0]
+            if port.isdigit():
+                target = next((t for t in CLUSTER_TARGETS if t["healthPort"] == int(port)), None)
+            if target is None:
+                self.send_json(400, {"error": "Unknown Jolokia target port"})
+                return
+        if target is None and "node" in qs:
+            self.send_json(404, {"error": "Unknown Jolokia target node"})
+            return
+        if target is None:
+            for node in sorted(nodes, key=lambda n: n.get("status") != "HEALTHY"):
+                target = configured_target(node)
+                if target is not None:
                     break
-            target_port = port_num
-        if not target_node and CLUSTER_NODES:
-            healthy = [n for n in CLUSTER_NODES if n.get("status") == "HEALTHY"]
-            target_node = healthy[0] if healthy else CLUSTER_NODES[0]
-
-        if target_node:
-            target_base = target_node.get("baseUrl")
-            if not target_base:
-                h = target_node.get("host") or target_host
-                p = target_node.get("healthPort") or target_port
-                target_base = f"http://{h}:{p}"
-        else:
-            target_base = f"http://{target_host}:{target_port}"
+            if target is None and CLUSTER_TARGETS:
+                target = CLUSTER_TARGETS[0]
+        if target is None:
+            self.send_json(503, {"error": "No configured Jolokia targets"})
+            return
+        target_base = target["baseUrl"]
+        target_port = target["healthPort"]
 
         subpath = parsed.path
         for prefix in ("/api/node/jolokia", "/jolokia"):
