@@ -367,6 +367,45 @@ public class WebTransportTestHandlerTest {
     }
   }
 
+  @Test
+  public void testSessionsWithSameConnectIdKeepRepliesAndClosureIsolated() {
+    WebTransportSession firstSession = mock(WebTransportSession.class);
+    WebTransportSession secondSession = mock(WebTransportSession.class);
+    when(firstSession.getSessionStreamId()).thenReturn(0L);
+    when(secondSession.getSessionStreamId()).thenReturn(0L);
+    WebTransportStream firstAck = ackStream();
+    WebTransportStream secondAck = ackStream();
+    CompletableFuture<WebTransportStream> firstCreation = new CompletableFuture<>();
+    when(firstSession.createUniStream()).thenReturn(firstCreation);
+    when(secondSession.createUniStream())
+        .thenReturn(CompletableFuture.completedFuture(secondAck));
+    WebTransportTestHandler handler = new WebTransportTestHandler(scheduler, 5);
+    WebTransportBuffer firstData = mock(WebTransportBuffer.class);
+    when(firstData.readBytes()).thenReturn("first secret".getBytes(StandardCharsets.UTF_8));
+    WebTransportBuffer secondData = mock(WebTransportBuffer.class);
+    when(secondData.readBytes()).thenReturn("second secret".getBytes(StandardCharsets.UTF_8));
+    Runnable firstReceive = incomingUniData(handler, firstSession, firstData);
+    Runnable secondReceive = incomingUniData(handler, secondSession, secondData);
+
+    firstReceive.run();
+    secondReceive.run();
+    firstCreation.complete(firstAck);
+    firstReceive.run();
+    handler.onSessionClosed(firstSession);
+    secondReceive.run();
+
+    verify(firstSession).createUniStream();
+    verify(secondSession).createUniStream();
+    verify(firstAck, times(2)).write("ACK UNI: first secret".getBytes(StandardCharsets.UTF_8));
+    verify(firstAck, never()).write("ACK UNI: second secret".getBytes(StandardCharsets.UTF_8));
+    verify(secondAck, times(2)).write("ACK UNI: second secret".getBytes(StandardCharsets.UTF_8));
+    verify(secondAck, never()).write("ACK UNI: first secret".getBytes(StandardCharsets.UTF_8));
+    verify(firstAck).close();
+    verify(secondAck, never()).close();
+    handler.onSessionClosed(secondSession);
+    verify(secondAck).close();
+  }
+
   private WebTransportStream ackStream() {
     WebTransportStream stream = mock(WebTransportStream.class);
     when(stream.write(any(byte[].class))).thenReturn(CompletableFuture.completedFuture(null));
