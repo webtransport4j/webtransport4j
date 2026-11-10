@@ -85,9 +85,9 @@ public class StreamsBlockedCapsuleTest {
     session.getActiveClientInitiatedBi().add(mock(QuicStreamChannel.class));
     assertEquals(2, session.getActiveClientInitiatedBi().size());
 
-    // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 10
+    // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 5
     ByteBuf payload = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(payload, 10);
+    WebTransportUtils.writeVarInt(payload, 5);
     WebTransportCapsule capsule =
         new WebTransportCapsule(
             100L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
@@ -95,8 +95,8 @@ public class StreamsBlockedCapsuleTest {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
-    // Assert: New limit = 10 (blocked max) + 3 (remaining allowed) = 13
-    assertEquals(13L, session.getSettingsMaxStreamsBidi());
+    // Assert: New limit = 5 (current allowance) + 3 (remaining allowed) = 8
+    assertEquals(8L, session.getSettingsMaxStreamsBidi());
 
     // Verify WT_MAX_STREAMS capsule was sent back to connectStream
     ArgumentCaptor<Object> writeCaptor = ArgumentCaptor.forClass(Object.class);
@@ -165,9 +165,9 @@ public class StreamsBlockedCapsuleTest {
     session.getActiveClientInitiatedUni().add(mock(QuicStreamChannel.class));
     assertEquals(3, session.getActiveClientInitiatedUni().size());
 
-    // Construct WT_STREAMS_BLOCKED capsule (UNI = 0x190B4D44L) with maxStreams = 20
+    // Construct WT_STREAMS_BLOCKED capsule (UNI = 0x190B4D44L) with maxStreams = 8
     ByteBuf payload = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(payload, 20);
+    WebTransportUtils.writeVarInt(payload, 8);
     WebTransportCapsule capsule =
         new WebTransportCapsule(
             200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI, payload);
@@ -175,8 +175,8 @@ public class StreamsBlockedCapsuleTest {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule);
 
-    // Assert: New limit = 20 (blocked max) + 5 (remaining allowed) = 25
-    assertEquals(25L, session.getSettingsMaxStreamsUni());
+    // Assert: New limit = 8 (current allowance) + 5 (remaining allowed) = 13
+    assertEquals(13L, session.getSettingsMaxStreamsUni());
 
     // Verify WT_MAX_STREAMS capsule was sent back to connectStream
     verify(mockConnectStream).writeAndFlush(any());
@@ -313,9 +313,9 @@ public class StreamsBlockedCapsuleTest {
     session.getActiveClientInitiatedBi().add(s2);
     assertEquals(2, session.getActiveClientInitiatedBi().size());
 
-    // Construct WT_STREAMS_BLOCKED at 10
+    // Construct WT_STREAMS_BLOCKED at 5
     ByteBuf payload1 = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(payload1, 10);
+    WebTransportUtils.writeVarInt(payload1, 5);
     WebTransportCapsule capsule1 =
         new WebTransportCapsule(
             400L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload1);
@@ -323,8 +323,8 @@ public class StreamsBlockedCapsuleTest {
     WebTransportCapsuleHandler dispatcher = new WebTransportCapsuleHandler();
     dispatcher.channelRead(mockCtx, capsule1);
 
-    // Assert: New limit = 10 (blocked max) + 3 (remaining allowed) = 13
-    assertEquals(13L, session.getSettingsMaxStreamsBidi());
+    // Assert: New limit = 5 (current allowance) + 3 (remaining allowed) = 8
+    assertEquals(8L, session.getSettingsMaxStreamsBidi());
     verify(mockConnectStream, times(1)).writeAndFlush(any());
     assertEquals(0, capsule1.refCnt());
 
@@ -332,17 +332,17 @@ public class StreamsBlockedCapsuleTest {
     session.getActiveClientInitiatedBi().remove(s1);
     assertEquals(1, session.getActiveClientInitiatedBi().size());
 
-    // Construct WT_STREAMS_BLOCKED at 13
+    // Construct WT_STREAMS_BLOCKED at 8
     ByteBuf payload2 = Unpooled.buffer();
-    WebTransportUtils.writeVarInt(payload2, 13);
+    WebTransportUtils.writeVarInt(payload2, 8);
     WebTransportCapsule capsule2 =
         new WebTransportCapsule(
             400L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload2);
 
     dispatcher.channelRead(mockCtx, capsule2);
 
-    // Assert: New limit = 13 (blocked max) + 4 (remaining allowed) = 17
-    assertEquals(17L, session.getSettingsMaxStreamsBidi());
+    // Assert: New limit = 8 (current allowance) + 4 (remaining allowed) = 12
+    assertEquals(12L, session.getSettingsMaxStreamsBidi());
     verify(mockConnectStream, times(2)).writeAndFlush(any());
     assertEquals(0, capsule2.refCnt());
   }
@@ -471,9 +471,9 @@ public class StreamsBlockedCapsuleTest {
       // Re-load config
       WebTransportConfig.reload();
 
-      // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 20
+      // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 100
       ByteBuf payload = Unpooled.buffer();
-      WebTransportUtils.writeVarInt(payload, 20);
+      WebTransportUtils.writeVarInt(payload, 100);
       WebTransportCapsule capsule =
           new WebTransportCapsule(
               200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
@@ -502,14 +502,14 @@ public class StreamsBlockedCapsuleTest {
     try {
       io.github.webtransport4j.api.SessionFlowControlPolicy policy =
           mock(io.github.webtransport4j.api.SessionFlowControlPolicy.class);
-      when(policy.onRequestStreamCredit(session, true, 20L, 0)).thenReturn(Long.MAX_VALUE);
+      when(policy.onRequestStreamCredit(session, true, 100L, 0)).thenReturn(Long.MAX_VALUE);
       session.setFlowControlPolicy(policy);
       // Re-load config
       WebTransportConfig.reload();
 
-      // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 20
+      // Construct WT_STREAMS_BLOCKED capsule (BIDI = 0x190B4D43L) with maxStreams = 100
       ByteBuf payload = Unpooled.buffer();
-      WebTransportUtils.writeVarInt(payload, 20);
+      WebTransportUtils.writeVarInt(payload, 100);
       WebTransportCapsule capsule =
           new WebTransportCapsule(
               200L, WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI, payload);
@@ -524,6 +524,33 @@ public class StreamsBlockedCapsuleTest {
     } finally {
       System.clearProperty("webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi");
       WebTransportConfig.reload();
+    }
+  }
+
+  @Test
+  public void testInconsistentStreamLimitsDoNotReachPolicy() throws Exception {
+    for (boolean bidi : new boolean[] {true, false}) {
+      TestSessionFixture fixture = createMockSessionFixture(200L, 10L);
+      io.github.webtransport4j.api.SessionFlowControlPolicy policy =
+          mock(io.github.webtransport4j.api.SessionFlowControlPolicy.class);
+      fixture.session.setFlowControlPolicy(policy);
+      for (long reported : new long[] {9L, 11L, 4999L, Long.MAX_VALUE >>> 2}) {
+        ByteBuf payload = Unpooled.buffer();
+        WebTransportUtils.writeVarInt(payload, reported);
+        WebTransportCapsule capsule =
+            new WebTransportCapsule(
+                200L,
+                bidi
+                    ? WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_BIDI
+                    : WebTransportProtocolSpec.CAPSULE_WT_STREAMS_BLOCKED_UNI,
+                payload);
+        new WebTransportCapsuleHandler().channelRead(fixture.mockCtx, capsule);
+        assertEquals(0, capsule.refCnt());
+        verify(policy, never()).onRequestStreamCredit(fixture.session, bidi, reported, 0L);
+      }
+      assertEquals(10L, fixture.session.getSettingsMaxStreamsBidi());
+      assertEquals(10L, fixture.session.getSettingsMaxStreamsUni());
+      verify(fixture.mockConnectStream, never()).writeAndFlush(any());
     }
   }
 
