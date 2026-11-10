@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("WT4J_ADMIN_PASSWORD", "production-regression-password")
 import server
@@ -202,6 +202,51 @@ class ProductionSecurityTest(unittest.TestCase):
             for _ in range(10):
                 self.assertEqual(401, self.request('/api/admin/login', 'POST', {'username': 'admin', 'password': os.environ['WT4J_ADMIN_PASSWORD']})[0])
             self.assertEqual(429, self.request('/api/admin/login', 'POST', {'username': 'named-operator', 'password': 'wrong'})[0])
+
+    def test_jolokia_uses_configured_origins_before_and_after_discovery(self):
+        targets = [
+            {"host": "management.example", "healthPort": 9443, "baseUrl": "https://management.example:9443"},
+            {"host": "::1", "healthPort": 443, "baseUrl": "https://[::1]"},
+        ]
+        cached = [dict(targets[1], id="second", name="peer", status="HEALTHY")]
+        cases = [
+            ([], "", targets[0]),
+            ([], "?port=443", targets[1]),
+            (cached, "", targets[1]),
+            (cached, "?node=peer&port=9443", targets[1]),
+            ([{"host": "management.example", "healthPort": 9443, "status": "HEALTHY"}], "", targets[0]),
+            ([{"baseUrl": "http://unconfigured:8081", "status": "HEALTHY"}], "", targets[0]),
+        ]
+        for nodes, selector, expected in cases:
+            for prefix in ("/jolokia", "/api/node/jolokia"):
+                for method in ("GET", "POST"):
+                    with self.subTest(nodes=nodes, selector=selector, prefix=prefix, method=method):
+                        response = MagicMock()
+                        response.__enter__.return_value = response
+                        response.status = 200
+                        response.headers = {"Content-Type": "application/json"}
+                        response.read.return_value = b'{"status":200}'
+                        with patch.object(server, "CLUSTER_TARGETS", targets), patch.object(server, "CLUSTER_NODES", nodes), patch.object(server, "NODE_MANAGEMENT_TOKEN", "synthetic-management-token"), patch.object(server.urllib.request, "urlopen", return_value=response) as upstream:
+                            query = selector + ("&" if selector else "?") + "maxDepth=2"
+                            status, _, _ = self.request(prefix + "/version" + query, method, {} if method == "POST" else None, authenticated=True)
+                            self.assertEqual(200, status)
+                            req = upstream.call_args.args[0]
+                            self.assertEqual(expected["baseUrl"] + "/jolokia/version?maxDepth=2", req.full_url)
+                            self.assertEqual("Bearer synthetic-management-token", req.get_header("Authorization"))
+                            self.assertEqual(method, req.get_method())
+                            if method == "POST":
+                                self.assertEqual(b"{}", req.data)
+
+    def test_jolokia_rejects_unavailable_targets_without_sending_credentials(self):
+        targets = [{"host": "management.example", "healthPort": 9443, "baseUrl": "https://management.example:9443"}]
+        for nodes in ([], [dict(targets[0], id="known", status="HEALTHY")]):
+            for selector, expected in (("?port=8081", 400), ("?port=invalid", 400), ("?node=unknown", 404)):
+                with self.subTest(nodes=nodes, selector=selector), patch.object(server, "CLUSTER_TARGETS", targets), patch.object(server, "CLUSTER_NODES", nodes), patch.object(server.urllib.request, "urlopen") as upstream:
+                    self.assertEqual(expected, self.request("/jolokia/version" + selector, authenticated=True)[0])
+                    upstream.assert_not_called()
+        with patch.object(server, "CLUSTER_TARGETS", []), patch.object(server, "CLUSTER_NODES", []), patch.object(server.urllib.request, "urlopen") as upstream:
+            self.assertEqual(503, self.request("/jolokia/version", authenticated=True)[0])
+            upstream.assert_not_called()
 
     def test_remote_targets_preserve_https_and_ipv6(self):
         with patch.dict(os.environ, {'WT4J_CLUSTER_NODES': 'https://node.example.com,https://[2001:db8::1]:8443'}):

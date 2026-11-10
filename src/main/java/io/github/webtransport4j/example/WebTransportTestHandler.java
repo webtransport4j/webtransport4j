@@ -37,7 +37,9 @@ public class WebTransportTestHandler implements WebTransportHandler {
   private final ScheduledExecutorService delayScheduler;
   private final Semaphore delayAdmissionSemaphore;
   private final int maxDelayedTasks;
-  private final ConcurrentHashMap<Long, AckStreamState> sessionAckStreams = new ConcurrentHashMap<>();
+  // CONNECT stream IDs can repeat across connections; retain the owning session as the key.
+  private final ConcurrentHashMap<WebTransportSession, AckStreamState> sessionAckStreams =
+      new ConcurrentHashMap<>();
 
   private static final class AckStreamState {
     private final CompletableFuture<WebTransportStream> stream = new CompletableFuture<>();
@@ -209,7 +211,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
     AckStreamState state = new AckStreamState();
     // Enqueue before publishing or creating the stream, either of which may admit another chunk.
     state.write(bytes, sessId);
-    AckStreamState existing = sessionAckStreams.putIfAbsent(sessId, state);
+    AckStreamState existing = sessionAckStreams.putIfAbsent(session, state);
     if (existing != null) {
       existing.write(bytes, sessId);
       return;
@@ -221,16 +223,16 @@ public class WebTransportTestHandler implements WebTransportHandler {
           .whenComplete(
               (ackStream, err) -> {
                 if (err != null) {
-                  sessionAckStreams.remove(sessId, state);
+                  sessionAckStreams.remove(session, state);
                   state.stream.completeExceptionally(err);
                 } else {
-                  ackStream.onClose(() -> sessionAckStreams.remove(sessId, state));
-                  ackStream.onError(e -> sessionAckStreams.remove(sessId, state));
+                  ackStream.onClose(() -> sessionAckStreams.remove(session, state));
+                  ackStream.onError(e -> sessionAckStreams.remove(session, state));
                   state.stream.complete(ackStream);
                 }
               });
     } catch (Throwable t) {
-      sessionAckStreams.remove(sessId, state);
+      sessionAckStreams.remove(session, state);
       state.stream.completeExceptionally(t);
     }
   }
@@ -238,7 +240,7 @@ public class WebTransportTestHandler implements WebTransportHandler {
   @Override
   public void onSessionClosed(@NonNull WebTransportSession session) {
     long sessId = session.getSessionStreamId();
-    AckStreamState state = sessionAckStreams.remove(sessId);
+    AckStreamState state = sessionAckStreams.remove(session);
     if (state != null) {
       state.stream.thenAccept(
               s -> {
