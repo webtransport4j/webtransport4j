@@ -3,10 +3,16 @@ package io.github.webtransport4j.server;
 import org.junit.jupiter.api.Assertions;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import io.github.webtransport4j.security.ClientAuthMode;
+import io.netty.handler.codec.http3.Http3;
+import io.netty.handler.codec.quic.QuicSslContext;
+import io.netty.handler.codec.quic.QuicSslContextBuilder;
+import io.netty.handler.ssl.ClientAuth;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.ExecutionException;
@@ -16,6 +22,58 @@ import org.junit.jupiter.api.Timeout;
 
 /** Integration tests for programmatic TLS certificate reloading. */
 public class TlsCertificateReloaderProgrammaticTest {
+  @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
+  @Test
+  public void suppliedContextRejectsPemReloadAndPreservesClientAuthentication() throws Exception {
+    SelfSignedCertificate initial = new SelfSignedCertificate("localhost");
+    SelfSignedCertificate rotated = new SelfSignedCertificate("localhost");
+    SelfSignedCertificate trusted = new SelfSignedCertificate("client");
+    SelfSignedCertificate untrusted = new SelfSignedCertificate("other-client");
+    try {
+      QuicSslContext original = QuicSslContextBuilder
+          .forServer(initial.privateKey(), null, initial.certificate())
+          .applicationProtocols(Http3.supportedApplicationProtocols())
+          .clientAuth(ClientAuth.REQUIRE)
+          .trustManager(trusted.certificate())
+          .build();
+      try (WebTransportServer server = new WebTransportServerBuilder()
+          .port(0).sslContext(original).build()) {
+        server.start();
+        assertThrows(IllegalStateException.class,
+            () -> server.reloadTlsCertificate(rotated.certificate(), rotated.privateKey()));
+        assertSame(original, server.getActiveSslContext());
+        try (QuicConcurrencyIntegrationTest.Client client =
+            new QuicConcurrencyIntegrationTest.Client(server.getPort(), initial, trusted)) {
+          assertEquals(initial.cert(),
+              (X509Certificate) client.quic.sslEngine().getSession().getPeerCertificates()[0]);
+        }
+        assertRejected(server.getPort(), initial, null);
+        assertRejected(server.getPort(), initial, untrusted);
+
+        QuicSslContext replacement = QuicSslContextBuilder
+            .forServer(rotated.privateKey(), null, rotated.certificate())
+            .applicationProtocols(Http3.supportedApplicationProtocols())
+            .clientAuth(ClientAuth.REQUIRE)
+            .trustManager(trusted.certificate())
+            .build();
+        server.reloadTlsCertificate(replacement);
+        assertSame(replacement, server.getActiveSslContext());
+        try (QuicConcurrencyIntegrationTest.Client client =
+            new QuicConcurrencyIntegrationTest.Client(server.getPort(), rotated, trusted)) {
+          assertEquals(rotated.cert(),
+              (X509Certificate) client.quic.sslEngine().getSession().getPeerCertificates()[0]);
+        }
+        assertRejected(server.getPort(), rotated, null);
+        assertRejected(server.getPort(), rotated, untrusted);
+      }
+    } finally {
+      initial.delete();
+      rotated.delete();
+      trusted.delete();
+      untrusted.delete();
+    }
+  }
+
   @Timeout(value = 30000, unit = java.util.concurrent.TimeUnit.MILLISECONDS)
   @Test
   public void testProgrammaticCertificateReload() throws Exception {
