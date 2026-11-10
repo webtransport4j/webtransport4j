@@ -63,6 +63,15 @@ public class WebTransportUtils {
       WebTransportProtocolSpec.WT_REQUIREMENTS_NOT_MET;
 
   /**
+   * Converts an unsigned session status to Netty's signed stream shutdown code. Negative ints
+   * would be sign-extended to oversized unsigned native errors; retain the original status on
+   * the session and use zero for transport shutdown when it cannot be represented safely.
+   */
+  static int toStreamShutdownCode(long closeCode) {
+    return (closeCode < 0) || (closeCode > Integer.MAX_VALUE) ? 0 : (int) closeCode;
+  }
+
+  /**
    * Checks whether the given stream ID corresponds to a client-initiated bidirectional stream as
    * defined in RFC 9000 Section 2.1 (streamId % 4 == 0).
    *
