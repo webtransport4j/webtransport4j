@@ -43,13 +43,13 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -294,7 +294,14 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
   private volatile @Nullable WebTransportHandler boundHandler;
 
   private final AtomicBoolean outboundFlowControlPaused = new AtomicBoolean(false);
-  private final Queue<PendingOutboundWrite> pendingOutboundWrites = new ConcurrentLinkedQueue<>();
+  // Bound object/listener overhead independently of payload size, including empty writes.
+  static final int MAX_PENDING_OUTBOUND_WRITES = 4096;
+  private final ConcurrentSkipListMap<Long, PendingOutboundWrite> pendingOutboundWrites =
+      new ConcurrentSkipListMap<>();
+  private final AtomicLong pendingOutboundSequence = new AtomicLong();
+  private final AtomicInteger pendingOutboundCount = new AtomicInteger();
+  private final ConcurrentHashMap<Channel, ChannelFutureListener> pendingStreamCloseListeners =
+      new ConcurrentHashMap<>();
   private final AtomicLong pendingOutboundBytes = new AtomicLong(0);
   private final AtomicInteger drainState = new AtomicInteger(0);
 
@@ -664,32 +671,61 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
   }
 
+  /**
+   * Queues at most 4096 writes per session in addition to the policy's byte limit.
+   * A full queue rejects the write without taking ownership of its buffer.
+   */
   @Override
   public boolean enqueuePendingOutboundWrite(
       @NonNull ChannelHandlerContext ctx, @NonNull ByteBuf data, @NonNull ChannelPromise promise) {
     long maxPending = flowControlPolicy.getMaxPendingOutboundBytes();
     int bytesToWrite = data.readableBytes();
-    if (maxPending <= 0 || pendingOutboundBytes.get() + bytesToWrite > maxPending) {
+    ChannelFuture closeFuture = ctx.channel().closeFuture();
+    if (maxPending <= 0 || (closeFuture != null && closeFuture.isDone())) {
       return false;
     }
-    PendingOutboundWrite pw = new PendingOutboundWrite(ctx, data, promise);
-    pendingOutboundWrites.add(pw);
-    pendingOutboundBytes.addAndGet(bytesToWrite);
-    if (pendingOutboundBytes.get() > maxPending) {
-      if (pendingOutboundWrites.remove(pw)) {
-        pendingOutboundBytes.addAndGet(-bytesToWrite);
+    int count;
+    do {
+      count = pendingOutboundCount.get();
+      if (count >= MAX_PENDING_OUTBOUND_WRITES) {
         return false;
       }
-    }
-    ChannelFutureListener closeListener = f -> {
-      if (pendingOutboundWrites.remove(pw)) {
-        pendingOutboundBytes.addAndGet(-bytesToWrite);
+    } while (!pendingOutboundCount.compareAndSet(count, count + 1));
+    long bytes;
+    do {
+      bytes = pendingOutboundBytes.get();
+      if (bytesToWrite > maxPending - bytes) {
+        pendingOutboundCount.decrementAndGet();
+        return false;
+      }
+    } while (!pendingOutboundBytes.compareAndSet(bytes, bytes + bytesToWrite));
+    PendingOutboundWrite pw = new PendingOutboundWrite(ctx, data, promise);
+    long sequence = pendingOutboundSequence.getAndIncrement();
+    pendingOutboundWrites.put(sequence, pw);
+    if (closeFuture != null) {
+      Channel channel = ctx.channel();
+      ChannelFutureListener listener = f -> {
+        long endSequence = pendingOutboundSequence.get();
+        pendingStreamCloseListeners.remove(channel);
+        // One bounded pass per closing stream; concurrent producers cannot extend it.
+        for (Map.Entry<Long, PendingOutboundWrite> entry :
+            pendingOutboundWrites.headMap(endSequence).entrySet()) {
+          PendingOutboundWrite pending = entry.getValue();
+          if (pending.getContext().channel() == channel
+              && pendingOutboundWrites.remove(entry.getKey(), pending)) {
+            releasePendingAccounting(pending);
+            pending.cancel();
+          }
+        }
+      };
+      if (pendingStreamCloseListeners.putIfAbsent(channel, listener) == null) {
+        closeFuture.addListener(listener);
+      }
+      // Covers a close racing publication or listener registration.
+      if (closeFuture.isDone() && pendingOutboundWrites.remove(sequence, pw)) {
+        releasePendingAccounting(pw);
         pw.cancel();
       }
-    };
-    pw.setCloseListener(closeListener);
-    if (ctx.channel().closeFuture() != null) {
-      ctx.channel().closeFuture().addListener(closeListener);
     }
     return true;
   }
@@ -702,20 +738,18 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     int missed = 1;
     do {
       long peerLimit = getPeerSettingsMaxData();
-      PendingOutboundWrite pw;
-      while ((pw = pendingOutboundWrites.peek()) != null) {
-        if (pw.isCancelled()) {
-          pendingOutboundWrites.poll();
-          pendingOutboundBytes.addAndGet(-pw.getBytesToWrite());
-          pw.cancel();
-          continue;
-        }
+      Map.Entry<Long, PendingOutboundWrite> entry;
+      while ((entry = pendingOutboundWrites.firstEntry()) != null) {
+        PendingOutboundWrite pw = entry.getValue();
         int bytesToWrite = pw.getBytesToWrite();
         if (!tryReserveOutboundBytes(bytesToWrite, peerLimit)) {
           break;
         }
-        pendingOutboundWrites.poll();
-        pendingOutboundBytes.addAndGet(-bytesToWrite);
+        if (!pendingOutboundWrites.remove(entry.getKey(), pw)) {
+          incrementCumulativeBytesSent(-bytesToWrite);
+          continue;
+        }
+        releasePendingAccounting(pw);
         try {
           pw.executeWrite();
         } catch (RejectedExecutionException e) {
@@ -741,10 +775,15 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
   /** Releases and fails all queued outbound writes. */
   public void cleanupPendingOutboundWrites(@NonNull Throwable cause) {
-    PendingOutboundWrite pw;
-    while ((pw = pendingOutboundWrites.poll()) != null) {
-      pendingOutboundBytes.addAndGet(-pw.getBytesToWrite());
-      pw.removeCloseListener();
+    for (Map.Entry<Channel, ChannelFutureListener> entry : pendingStreamCloseListeners.entrySet()) {
+      if (pendingStreamCloseListeners.remove(entry.getKey(), entry.getValue())) {
+        entry.getKey().closeFuture().removeListener(entry.getValue());
+      }
+    }
+    Map.Entry<Long, PendingOutboundWrite> entry;
+    while ((entry = pendingOutboundWrites.pollFirstEntry()) != null) {
+      PendingOutboundWrite pw = entry.getValue();
+      releasePendingAccounting(pw);
       try {
         pw.getData().release();
       } catch (Exception ignored) {
@@ -754,6 +793,11 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     }
   }
 
+  private void releasePendingAccounting(PendingOutboundWrite write) {
+    pendingOutboundBytes.addAndGet(-write.getBytesToWrite());
+    pendingOutboundCount.decrementAndGet();
+  }
+
   /** A pending write queued waiting for session flow control credits. */
   public static final class PendingOutboundWrite {
     private final ChannelHandlerContext ctx;
@@ -761,7 +805,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
     private final ChannelPromise promise;
     private final int bytesToWrite;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
-    private volatile ChannelFutureListener closeListener;
 
     /** Creates a pending outbound write. */
     public PendingOutboundWrite(
@@ -794,31 +837,9 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
       return cancelled.get();
     }
 
-    public void setCloseListener(ChannelFutureListener closeListener) {
-      this.closeListener = closeListener;
-    }
-
-    public ChannelFutureListener getCloseListener() {
-      return closeListener;
-    }
-
-    /** Removes the stream close listener registered for this pending write. */
-    public void removeCloseListener() {
-      ChannelFutureListener listener = this.closeListener;
-      if (listener != null) {
-        this.closeListener = null;
-        try {
-          ctx.channel().closeFuture().removeListener(listener);
-        } catch (Exception ignored) {
-          // Channel listener removal is best-effort.
-        }
-      }
-    }
-
     /** Cancels this pending write, releasing the payload buffer. */
     public void cancel() {
       if (cancelled.compareAndSet(false, true)) {
-        removeCloseListener();
         try {
           data.release();
         } catch (Exception ignored) {
@@ -830,7 +851,6 @@ public class DefaultWebTransportSession implements NettyWebTransportSession {
 
     /** Executes the write operation to the pipeline. */
     public void executeWrite() {
-      removeCloseListener();
       if (isCancelled()) {
         cancel();
         return;

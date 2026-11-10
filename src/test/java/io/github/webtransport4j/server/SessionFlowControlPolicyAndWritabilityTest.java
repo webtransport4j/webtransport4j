@@ -653,7 +653,7 @@ public class SessionFlowControlPolicyAndWritabilityTest {
   }
 
   @Test
-  public void testCloseFutureListenerDetachedOnWriteDrainAndCancel() {
+  public void testStreamCloseListenerRetainedUntilSessionCleanup() {
     QuicStreamChannel mockConnect = mock(QuicStreamChannel.class);
     DefaultWebTransportSession session =
         new DefaultWebTransportSession(
@@ -681,8 +681,77 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     // Drain the write
     session.drainPendingOutboundWrites();
 
-    // Verify closeFuture listener is removed to prevent memory retention
+    // Keep one listener for subsequent blocked writes on this open stream.
+    verify(mockCloseFuture, never()).removeListener(closeListener);
+    session.cleanupPendingOutboundWrites(new java.nio.channels.ClosedChannelException());
     verify(mockCloseFuture).removeListener(closeListener);
     data.release();
   }
+  @Test
+  public void testClosingLaterStreamCancelsOnlyItsWritesWithOneListener() throws Exception {
+    QuicStreamChannel connect = mock(QuicStreamChannel.class);
+    DefaultWebTransportSession session = new DefaultWebTransportSession(
+        601L, connect, "/test", 100L, 100L, 1000L, 100L, 100L, 0L, true, true);
+    QuicStreamChannel earlier = mock(QuicStreamChannel.class);
+    QuicStreamChannel later = mock(QuicStreamChannel.class);
+    ChannelFuture earlierClose = mock(ChannelFuture.class);
+    ChannelFuture laterClose = mock(ChannelFuture.class);
+    when(earlier.closeFuture()).thenReturn(earlierClose);
+    when(later.closeFuture()).thenReturn(laterClose);
+    ChannelHandlerContext earlierCtx = mock(ChannelHandlerContext.class);
+    ChannelHandlerContext laterCtx = mock(ChannelHandlerContext.class);
+    when(earlierCtx.channel()).thenReturn(earlier);
+    when(laterCtx.channel()).thenReturn(later);
+    ByteBuf[] buffers = new ByteBuf[200];
+    ChannelPromise[] promises = new ChannelPromise[200];
+    for (int i = 0; i < buffers.length; i++) {
+      buffers[i] = Unpooled.buffer(1).writeByte(i);
+      promises[i] = mock(ChannelPromise.class);
+      assertTrue(session.enqueuePendingOutboundWrite(
+          i < 100 ? earlierCtx : laterCtx, buffers[i], promises[i]));
+    }
+    ArgumentCaptor<ChannelFutureListener> listener =
+        ArgumentCaptor.forClass(ChannelFutureListener.class);
+    verify(laterClose).addListener(listener.capture());
+    listener.getValue().operationComplete(laterClose);
+    assertEquals(100L, session.getPendingOutboundBytes());
+    for (int i = 100; i < buffers.length; i++) {
+      assertEquals(0, buffers[i].refCnt());
+      verify(promises[i]).tryFailure(any(java.nio.channels.ClosedChannelException.class));
+    }
+    session.setPeerSettingsMaxData(100L);
+    assertFalse(session.hasPendingOutboundWrites());
+    org.mockito.InOrder order = org.mockito.Mockito.inOrder(earlierCtx);
+    for (int i = 0; i < 100; i++) {
+      order.verify(earlierCtx).write(buffers[i], promises[i]);
+      buffers[i].release();
+    }
+    assertEquals(0L, session.getPendingOutboundBytes());
+    session.cleanupPendingOutboundWrites(new java.nio.channels.ClosedChannelException());
+  }
+
+  @Test
+  public void testPendingEntryLimitIncludesEmptyWritesAndRecoversAfterCleanup() {
+    QuicStreamChannel channel = mock(QuicStreamChannel.class);
+    DefaultWebTransportSession session = new DefaultWebTransportSession(
+        602L, channel, "/test", 100L, 100L, 1000L, 100L, 100L, 0L, true, true);
+    ChannelHandlerContext ctx = mock(ChannelHandlerContext.class);
+    when(ctx.channel()).thenReturn(channel);
+    for (int i = 0; i < DefaultWebTransportSession.MAX_PENDING_OUTBOUND_WRITES; i++) {
+      assertTrue(session.enqueuePendingOutboundWrite(
+          ctx, Unpooled.buffer(1), mock(ChannelPromise.class)));
+    }
+    ByteBuf rejected = Unpooled.buffer(1);
+    assertFalse(session.enqueuePendingOutboundWrite(ctx, rejected, mock(ChannelPromise.class)));
+    assertEquals(1, rejected.refCnt());
+    rejected.release();
+    session.cleanupPendingOutboundWrites(new java.nio.channels.ClosedChannelException());
+    assertFalse(session.hasPendingOutboundWrites());
+    assertEquals(0L, session.getPendingOutboundBytes());
+    ByteBuf next = Unpooled.buffer(1).writeByte(1);
+    assertTrue(session.enqueuePendingOutboundWrite(ctx, next, mock(ChannelPromise.class)));
+    session.cleanupPendingOutboundWrites(new java.nio.channels.ClosedChannelException());
+    assertEquals(0, next.refCnt());
+  }
+
 }
