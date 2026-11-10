@@ -68,7 +68,7 @@ public class WebTransportUtils {
    * the session and use zero for transport shutdown when it cannot be represented safely.
    */
   static int toStreamShutdownCode(long closeCode) {
-    return closeCode > Integer.MAX_VALUE ? 0 : (int) closeCode;
+    return (closeCode < 0) || (closeCode > Integer.MAX_VALUE) ? 0 : (int) closeCode;
   }
 
   /**
