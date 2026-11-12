@@ -35,6 +35,11 @@ public class DefaultPropertiesFlowControlPolicy implements SessionFlowControlPol
       boolean bidirectional,
       long blockedAtLimit,
       long currentActiveCount) {
+    long currentLimit =
+        bidirectional ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+    if (blockedAtLimit != currentLimit) {
+      return 0L;
+    }
     long initialLimit =
         bidirectional
             ? session.getInitialMaxStreamsBidi()
@@ -54,7 +59,11 @@ public class DefaultPropertiesFlowControlPolicy implements SessionFlowControlPol
                   ? "webtransport4j.webtransport.flowcontrol.max_absolute_streams.bidi"
                   : "webtransport4j.webtransport.flowcontrol.max_absolute_streams.uni",
               5000L);
-      return Math.min(blockedAtLimit + cappedRemaining, maxAbsolute);
+      // Bound the addition before computing it, including for very large configured limits.
+      if (currentLimit >= maxAbsolute) {
+        return 0L;
+      }
+      return currentLimit + Math.min(cappedRemaining, maxAbsolute - currentLimit);
     }
     return 0L;
   }

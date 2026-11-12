@@ -366,6 +366,10 @@ public class WebTransportCapsuleHandler extends SimpleChannelInboundHandler<WebT
                       : session.getActiveClientInitiatedUni().size();
               long currentLimit =
                   isBidi ? session.getSettingsMaxStreamsBidi() : session.getSettingsMaxStreamsUni();
+              // Ignore stale or inconsistent reports before consulting any credit policy.
+              if (blockedAtMax != currentLimit) {
+                return;
+              }
               long maxAbsolute =
                   WebTransportConfig.getLong(
                       isBidi

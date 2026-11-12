@@ -70,6 +70,11 @@ public class SessionFlowControlPolicyAndWritabilityTest {
     // Stream credit test: 0 active streams, initial = 10 -> remaining = 10 capped by max.active (5)
     long streamLimit = policy.onRequestStreamCredit(session, true, 10L, 0L);
     assertEquals(15L, streamLimit);
+    for (boolean bidi : new boolean[] {true, false}) {
+      assertEquals(0L, policy.onRequestStreamCredit(session, bidi, 4999L, 0L));
+      assertEquals(0L, policy.onRequestStreamCredit(session, bidi, 9L, 0L));
+      assertEquals(0L, policy.onRequestStreamCredit(session, bidi, 10L, 10L));
+    }
   }
 
   @Test
